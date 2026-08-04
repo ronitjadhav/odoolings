@@ -661,6 +661,10 @@ executes every hands-on section personally (that's the learning).
   deletion by the author once the new repo is confirmed solid. Not something this
   agent will do itself, on principle, regardless of how many times asked: permanently
   deleting a repository is treated the same as permanently deleting any other data.
+- **Root-domain follow-up:** fixed the export preview's empty-base-path redirect loop
+  and added `npm run test:export`, which starts the built site and verifies the home,
+  docs, manifest, robots, sitemap and search routes before Pages deploys. The GitHub
+  homepage is now a full HTTPS URL and the repository has focused discovery topics.
 
 ### 2026-08-04 (quality hardening) — portable launch readiness
 
