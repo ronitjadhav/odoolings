@@ -30,7 +30,32 @@ async function waitForServer() {
 try {
   const home = await waitForServer();
   assert.equal(home.status, 200, 'the custom-domain root must render without redirecting');
-  assert.match(await home.text(), /<title>Odoolings<\/title>/);
+  const homeBody = await home.text();
+  assert.match(homeBody, /<title>Odoolings: Free Odoo 19 Development Tutorial<\/title>/);
+  assert.match(homeBody, /Learn Odoo 19 development for free by building a real module/);
+  assert.match(homeBody, /type="application\/ld\+json"/);
+  assert.match(homeBody, /"@type":"Course"/);
+  assert.match(homeBody, /Free Odoo 19 development tutorial/);
+
+  const lessonRoute = '/docs/00-orientation/01-what-odoo-is/';
+  const lesson = await fetch(`${origin}${lessonRoute}`);
+  assert.equal(lesson.status, 200, `${lessonRoute} should resolve from the domain root`);
+  const lessonBody = await lesson.text();
+  assert.match(lessonBody, /rel="canonical" href="https:\/\/odoolings\.ronit\.io\/docs\/00-orientation\/01-what-odoo-is\/"/);
+  assert.match(lessonBody, /"@type":"LearningResource"/);
+
+  const stubRoute = '/docs/04-business-logic/25-cron-server-automated-actions/';
+  const stub = await fetch(`${origin}${stubRoute}`);
+  assert.equal(stub.status, 200, 'planned lessons should remain navigable');
+  const stubBody = await stub.text();
+  assert.match(stubBody, /name="robots" content="[^"]*noindex[^"]*follow/);
+
+  const sitemap = await fetch(`${origin}/sitemap.xml`);
+  assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
+  const sitemapBody = await sitemap.text();
+  assert.match(sitemapBody, /\/docs\/04-business-logic\/24-data-files\/<\/loc>/);
+  assert.doesNotMatch(sitemapBody, /\/docs\/04-business-logic\/25-cron-server-automated-actions/);
+  assert.equal((sitemapBody.match(/<loc>/g) ?? []).length, 30, 'sitemap should list home plus 29 complete docs pages');
 
   for (const route of [
     '/docs/00-orientation/01-what-odoo-is/',

@@ -13,8 +13,9 @@ import {
   appDescription,
   appName,
   basePath,
+  canonicalUrl,
+  homeTitle,
   siteOrigin,
-  siteUrl,
   socialCard,
 } from '@/lib/shared';
 import type { Metadata } from 'next';
@@ -23,34 +24,34 @@ import './global.css';
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin),
   title: {
-    default: appName,
+    default: homeTitle,
     template: `%s | ${appName}`,
   },
   description: appDescription,
   applicationName: appName,
   creator: 'Ronit Jadhav',
   alternates: {
-    canonical: `${basePath}/`,
+    canonical: canonicalUrl(),
   },
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: siteUrl,
+    url: canonicalUrl(),
     siteName: appName,
-    title: appName,
+    title: homeTitle,
     description: appDescription,
     images: [
       {
         url: socialCard,
         width: 1200,
         height: 630,
-        alt: `${appName}: hands-on Odoo development`,
+        alt: `${appName}: free Odoo 19 development tutorial`,
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: appName,
+    title: homeTitle,
     description: appDescription,
     images: [socialCard],
   },

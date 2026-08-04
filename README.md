@@ -10,10 +10,10 @@
   </a>
 </p>
 
-A hands-on Odoo 19 development tutorial: zero Odoo knowledge to OCA-quality
-contributions, taught by building one real app, not by reading about one.
+A free, open-source Odoo 19 development tutorial: zero Odoo knowledge to OCA-quality
+contributions, taught by building one real module rather than disconnected examples.
 
-### [**📖 Start reading → odoolings.ronit.io**](https://odoolings.ronit.io/)
+### [**📖 Start the free Odoo 19 tutorial →**](https://odoolings.ronit.io/)
 
 No signup, no account. Progress and quiz scores live in your browser only.
 
