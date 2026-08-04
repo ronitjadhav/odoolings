@@ -14,7 +14,7 @@ resume cold.
 | Repo | Owns | Touched |
 |---|---|---|
 | `ronitjadhav/odoolings` (this checkout) | site, chapter MDX, `code/checkpoints/`, `code/odoolings.py`, the plan | every chapter |
-| `ronitjadhav/odoo-tutorial-starter` | GitHub **template** readers instantiate: `docker-compose.yml`, `odoo.conf`, `addons/.gitkeep`, `.gitignore`, README | almost never |
+| `ronitjadhav/odoolings-starter` | GitHub **template** readers instantiate: `docker-compose.yml`, `odoo.conf`, `addons/.gitkeep`, `.gitignore`, README | almost never |
 
 Rules that matter when working here:
 
@@ -30,7 +30,7 @@ Rules that matter when working here:
    use the starter, `curl` the checker (ch5), and fetch single checkpoints by tarball (ch8).
    See §4.5 for the full contract.
 5. To work on the starter, clone it separately:
-   `git clone https://github.com/ronitjadhav/odoo-tutorial-starter.git`. It is not a
+   `git clone https://github.com/ronitjadhav/odoolings-starter.git`. It is not a
    submodule and is not vendored here on purpose, so remember it exists.
 
 ## Layout
