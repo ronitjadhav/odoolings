@@ -46,6 +46,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run test:export
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/out

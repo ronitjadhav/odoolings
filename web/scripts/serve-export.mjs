@@ -31,20 +31,21 @@ createServer(async (request, response) => {
     return;
   }
 
-  if (pathname === '/') {
+  if (basePath && pathname === '/') {
     response.writeHead(307, { Location: `${basePath}/` }).end();
     return;
   }
-  if (pathname === basePath) {
+  if (basePath && pathname === basePath) {
     response.writeHead(308, { Location: `${basePath}/` }).end();
     return;
   }
-  if (!pathname.startsWith(`${basePath}/`)) {
+  if (basePath && !pathname.startsWith(`${basePath}/`)) {
     response.writeHead(404).end('Not found');
     return;
   }
 
-  const candidate = resolve(root, `.${pathname.slice(basePath.length)}`);
+  const requestPath = basePath ? pathname.slice(basePath.length) : pathname;
+  const candidate = resolve(root, `.${requestPath}`);
   if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
     response.writeHead(403).end('Forbidden');
     return;
