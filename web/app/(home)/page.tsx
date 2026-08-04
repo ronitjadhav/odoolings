@@ -10,8 +10,11 @@ import {
 } from 'lucide-react';
 import { Card, CardGrid, type Tone } from '@/components/card';
 import { HeroCta } from '@/components/hero-cta';
+import { JsonLd } from '@/components/json-ld';
 import { OdoolingsWordmark } from '@/components/odoolings-wordmark';
 import { chapterIdFromUrl } from '@/lib/chapter-id';
+import { authorId, courseId, courseName, isIndexableDocsPage } from '@/lib/seo';
+import { appDescription, appName, canonicalUrl } from '@/lib/shared';
 import { source } from '@/lib/source';
 
 const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; tone: Tone }[] = [
@@ -58,13 +61,69 @@ const FEATURES: { icon: typeof Terminal; title: string; body: string }[] = [
 
 const CHAPTERS = source
   .getPages()
+  .filter(isIndexableDocsPage)
   .map((p) => ({ id: chapterIdFromUrl(p.url), url: p.url, title: p.data.title }))
   .filter((c) => c.id !== null)
   .sort((a, b) => a.id!.localeCompare(b.id!)) as { id: string; url: string; title: string }[];
 
+const STRUCTURED_DATA = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Person',
+      '@id': authorId,
+      name: 'Ronit Jadhav',
+      url: 'https://github.com/ronitjadhav',
+      sameAs: ['https://github.com/ronitjadhav'],
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${canonicalUrl()}#website`,
+      url: canonicalUrl(),
+      name: appName,
+      alternateName: courseName,
+      description: appDescription,
+      inLanguage: 'en',
+    },
+    {
+      '@type': 'Course',
+      '@id': courseId,
+      url: canonicalUrl(),
+      name: courseName,
+      description: appDescription,
+      provider: { '@id': authorId },
+      author: { '@id': authorId },
+      isAccessibleForFree: true,
+      inLanguage: 'en',
+      educationalLevel: 'Beginner to advanced',
+      learningResourceType: 'Hands-on tutorial',
+      audience: {
+        '@type': 'EducationalAudience',
+        audienceType: 'Python developers learning Odoo development',
+      },
+      teaches: [
+        'Odoo 19 module development',
+        'Odoo ORM, models, and fields',
+        'Odoo views, security, and business logic',
+        'Odoo testing, debugging, and OWL frontend development',
+        'OCA conventions and contribution practices',
+      ],
+      hasPart: CHAPTERS.map(({ id, url, title }) => ({
+        '@type': 'LearningResource',
+        '@id': `${canonicalUrl(url)}#lesson`,
+        url: canonicalUrl(url),
+        name: title,
+        position: Number(id),
+        learningResourceType: 'Lesson',
+      })),
+    },
+  ],
+} as const;
+
 export default function HomePage() {
   return (
     <div className="flex flex-1 flex-col gap-3 px-3 pb-3">
+      <JsonLd data={STRUCTURED_DATA} />
       {/* hero */}
       <section className="relative isolate overflow-hidden rounded-(--radius-card) bg-(--hero-surface) px-4 py-20 text-center text-(--hero-foreground) md:px-8 md:py-28">
         <div
@@ -75,10 +134,13 @@ export default function HomePage() {
           Free &amp; open source · Odoo 19 Community
         </p>
         <OdoolingsWordmark className="mx-auto mt-16" />
-        <p className="mx-auto mt-12 max-w-xl text-pretty text-lg text-(--hero-muted)">
-          A hands-on path from your first module to OCA-quality contributions. You build
-          a real app, LibreFleet, chapter by chapter, and every step of your work is
-          verified against your own running Odoo.
+        <p className="mx-auto mt-7 font-mono text-sm tracking-[0.14em] text-(--hero-muted) uppercase">
+          Free Odoo 19 development tutorial
+        </p>
+        <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-(--hero-muted)">
+          Learn Odoo development by building LibreFleet, a real Odoo 19 Community app.
+          The free, hands-on path takes you from your first Python module to OCA-quality
+          contributions, with every step checked against your own running Odoo.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <HeroCta chapters={CHAPTERS} />
@@ -106,8 +168,12 @@ export default function HomePage() {
       <section className="rounded-(--radius-card) bg-fd-card px-6 py-16 md:px-12">
         <p className="eyebrow text-fd-muted-foreground">Why this one</p>
         <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">
-          Built for practice, not reading.
+          A free Odoo tutorial built for practice, not reading.
         </h2>
+        <p className="mt-4 max-w-2xl text-pretty text-fd-muted-foreground">
+          Made for Python developers who are new to Odoo, the lessons connect ORM,
+          security, views, testing, OWL, and OCA practices through one working project.
+        </p>
         <CardGrid cols={3} className="mt-10">
           {FEATURES.map((f) => (
             <Card key={f.title} title={f.title} icon={<f.icon className="size-4" />}>

@@ -640,6 +640,19 @@ executes every hands-on section personally (that's the learning).
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-04 (SEO foundation) — earn discovery with complete lessons
+
+- The home title, description, hero copy and GitHub README now clearly describe the
+  product as a free, open-source Odoo 19 development tutorial without keyword stuffing.
+- Added `WebSite`, `Course`, `Person`, `LearningResource` and breadcrumb JSON-LD that
+  matches visible content. The site intentionally does not imitate Google's course-list
+  rich-result markup: that feature requires at least three courses, while Odoolings is
+  one coherent course with published lessons.
+- Canonical and sitemap URLs now agree on trailing slashes. The 16 unwritten chapter
+  stubs remain navigable so readers can see the curriculum, but emit `noindex,follow`
+  and stay out of the sitemap until their real descriptions replace the shared stub
+  marker. Published lessons remain indexable and discoverable through the course graph.
+
 ### 2026-08-04 (later still) — the deferred migration happens
 
 - **Executed the migration the previous entry deferred.** `ronitjadhav/odoo-tutorial`
