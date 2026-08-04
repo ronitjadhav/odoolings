@@ -1,0 +1,155 @@
+---
+title: "2. The Ecosystem Map"
+description: Odoo SA, integrators, the OCA, and where to find docs, code, and help.
+---
+
+**Goal:** know who the players are and which source to trust for what, so you never
+google blindly again. · **Time:** ~1 h · **Checkpoint:** none, Part 0 has no code.
+
+## Why this matters
+
+Odoo development has an unusual amount of *ecosystem*: an editor company, a worldwide
+partner network, a nonprofit with hundreds of community repositories, and several
+generations of documentation. Knowing the map saves you hours weekly. And if you work
+at an integrator, the OCA part isn't optional culture, it's your daily toolbox.
+
+## Concepts
+
+### The players
+
+<Mermaid chart={`
+flowchart TD
+    SA["Odoo SA (Belgium)\nbuilds Odoo, sells Enterprise & hosting"]
+    P["Partners / integrators\nimplement & customize for clients"]
+    OCA["OCA (Odoo Community Association)\nnonprofit, community modules & standards"]
+    C["Client companies\nrun Odoo daily"]
+    SA -->|"releases yearly"| P
+    P -->|"deliver projects"| C
+    P <-->|"contribute & reuse modules"| OCA
+    OCA -->|"quality standards, shared modules"| C
+`} />
+
+- **Odoo SA** is the editor. It writes the core, ships the yearly release, and runs
+  odoo.com, Odoo Online, odoo.sh, and the Enterprise subscription business.
+- **Partners / integrators** are companies that implement Odoo for clients:
+  requirements, configuration, custom modules, migrations, support. This is where most
+  Odoo developers work (Camptocamp, where this tutorial's author works, is one of the
+  larger ones).
+- **The OCA (Odoo Community Association)** is a Swiss nonprofit that maintains hundreds
+  of open-source module repositories at
+  [github.com/OCA](https://github.com/OCA), organized by domain (`server-tools`,
+  `web`, `partner-contact`, `account-financial-tools`, ...). Each repo is governed by a
+  **PSC** (Project Steering Committee) and enforces serious quality gates: CI,
+  peer review, conventions. Part 6 of this tutorial is entirely about working the
+  OCA way.
+- **You, eventually.** The OCA runs on contributions from integrator developers.
+  Reusing an OCA module instead of writing your own is standard practice; contributing
+  fixes back is expected etiquette.
+
+### Where the knowledge lives
+
+| Source | Use it for |
+|---|---|
+| [Official docs](https://www.odoo.com/documentation/19.0/), Developer section | Tutorials and reference for the framework. URLs are version-pinned, so always match your version. |
+| [odoo/odoo source](https://github.com/odoo/odoo) | The ultimate reference. Reading core modules is a skill this tutorial trains deliberately. |
+| [OCA repositories](https://github.com/OCA) | Production-grade examples of *community* best practice, often better study material than core. |
+| [Odoo Apps store](https://apps.odoo.com) | Third-party modules, free and paid. Quality varies wildly, so check maintenance and reviews. |
+| [Official YouTube](https://www.youtube.com/@Odoo) & [OCA Days talks](https://www.youtube.com/@OCAOdooCommunityAssociation) | Functional walkthroughs (official) and deep technical/community talks (OCA). |
+| [Odoo forum](https://www.odoo.com/forum/help-1) & r/Odoo | Q&A. Check the answer's Odoo version before trusting it. |
+
+<Callout type="warn" title="The version trap">
+  The single most common way to lose an afternoon: reading docs, a forum answer, or a
+  blog post written for a different Odoo version. Always check the version first.
+  The framework changes every year, and pre-14 answers describe practically a
+  different product.
+</Callout>
+
+### How code flows: an OCA repo up close
+
+OCA repositories mirror Odoo's branch-per-version model. A repo like
+`OCA/server-tools` has branches `16.0`, `17.0`, `18.0`, `19.0`: one line of
+development per Odoo version, and modules get **migrated** branch to branch by
+volunteers. Pull requests target a version branch (never a `master`), must pass CI and
+pre-commit linting, get reviewed by peers, and are test-driveable on **Runboat**,
+which spins up a throwaway live instance per PR.
+
+You don't need to memorize this yet; you'll live it in Part 6. For now, just recognize
+the shape.
+
+## Hands-on
+
+1. Open [github.com/OCA](https://github.com/OCA) and find the repository whose domain
+   matches fleet/vehicle management. Note how repos are named by *domain*, not by
+   module.
+2. In [`OCA/server-tools`](https://github.com/OCA/server-tools), switch to the `19.0`
+   branch. Compare the module list with the `16.0` branch. The difference is
+   migration work not yet done (or no longer needed).
+3. Open any merged PR in that repo. Read the review comments and notice: commit
+   message format (`[FIX]`, `[IMP]`, `[MIG]`...), CI checks, reviewer sign-offs.
+4. Browse [apps.odoo.com](https://apps.odoo.com) for "fleet" and compare what you find
+   with the OCA equivalents: price, license, maintenance status.
+
+## Verify
+
+You should be able to say where you'd look first for: (a) the reference on a framework
+feature, (b) a ready-made module for a common business need, (c) an example of
+professionally-written module code, (d) an answer to "why does X behave like this".
+(Answers, roughly: docs, then OCA/apps store, then OCA source, then forum/source.)
+
+## Gotchas
+
+- **The docs have generations too.** URLs containing `/documentation/19.0/` are
+  version-pinned; if you land on a different version via search, switch it in the
+  page's version selector.
+- **Odoo Apps store ≠ OCA.** The store hosts anyone's modules, including abandoned
+  ones. OCA modules pass review and CI; store modules might not have either.
+- **PSC, ocabot, Runboat, Weblate**: OCA jargon you'll meet in Part 6. They're in the
+  [glossary](/docs/glossary) already if you're curious now.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You need a battle-tested module for bank statement imports. Best first stop?',
+      options: [
+        'Write it yourself, custom is safer',
+        'The OCA repository for that domain',
+        'The first Odoo Apps store result',
+      ],
+      answer: 1,
+      why: 'OCA modules are peer-reviewed, CI-tested, and maintained by the community. Always check there before building or buying.',
+    },
+    {
+      q: 'A forum answer solves exactly your problem but was written for Odoo 12. You should...',
+      options: [
+        'apply it, Odoo is backwards compatible',
+        'treat it as a hint and verify against 19.0 docs/source',
+        'ignore anything older than the current version',
+      ],
+      answer: 1,
+      why: "The framework changes every year; old answers often describe removed APIs. They're still useful leads, just verify before trusting.",
+    },
+    {
+      q: 'OCA repositories are organized by...',
+      options: ['Odoo version only', 'business domain, with one branch per Odoo version', 'contributing company'],
+      answer: 1,
+      why: 'One repo per domain (server-tools, web, partner-contact...), and inside each, one branch per Odoo version. Modules migrate between branches.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In `OCA/server-tools` (branch `19.0`), pick any module that sounds useful and read
+   its README and `__manifest__.py` on GitHub. You'll understand more of it than you
+   expect, and you'll see the manifest format a chapter before we formally cover it.
+2. ⭐⭐ Watch one OCA Days talk about contribution workflow (linked below) at 1.5× and
+   note two things that surprised you.
+
+## Further reading
+
+- [OCA website](https://odoo-community.org): mission, membership, the CLA.
+- [OCA contribution guide](https://odoo-community.org/get-involved/contribute)
+- [Runboat](https://runboat.odoo-community.org): the PR test instances you'll use in Part 6.
+- [Odoo official YouTube](https://www.youtube.com/@Odoo) · [OCA YouTube](https://www.youtube.com/@OCAOdooCommunityAssociation)

@@ -1,0 +1,364 @@
+---
+title: "17. List & Form Mastery"
+description: "Statusbars, notebooks, smart buttons, ribbons, badges and decorations: the polish that separates a form from a product."
+---
+
+**Goal:** turn LibreFleet's plain views into screens that look and behave like core
+Odoo, and survive your first anchored-xpath breakage. · **Time:** ~2.5 h ·
+**Checkpoint:** `code/checkpoints/ch17`
+
+## Why this matters
+
+Users never see your models, constraints or record rules; they judge the whole system
+by whether the order screen *feels* like Odoo. Core apps earned that feel with a small
+vocabulary of patterns (a statusbar in the header, smart buttons up top, tabs for the
+long content, colored badges in lists) and readers of your module expect the same
+vocabulary. This chapter installs it into your hands. It also delivers on chapter 16's
+warning: one of our own xpaths breaks today, silently, and you'll watch it happen.
+
+## Concepts
+
+### Anatomy of a grown-up form
+
+Core Odoo forms share a fixed skeleton, and every element you add today has a
+designated slot in it:
+
+<Mermaid
+  chart={`flowchart TD
+    F["form"] --> H["header: statusbar + workflow buttons"]
+    F --> S["sheet: the white page"]
+    S --> BB["button_box: smart buttons (top right)"]
+    S --> RB["ribbon widget (Archived...)"]
+    S --> T["title block, groups of fields"]
+    S --> NB["notebook: one page per topic"]`}
+/>
+
+- The **header** hosts the record's lifecycle: the `stage` field rendered as a
+  **statusbar**, plus action buttons (chapter 20 adds those).
+- The **button box** holds **smart buttons**: stat counters that are also navigation,
+  like the "3 Services" you'll build.
+- A **notebook** is the tab container; each `<page>` keeps one concern (parts, notes)
+  from drowning the others.
+- A **ribbon** is the diagonal corner banner core uses for Archived and Paid.
+
+### Widgets: same field, different rendering
+
+A field's *type* fixes how it's stored; the `widget` attribute picks how one view
+renders it. You've used `many2many_tags` since chapter 12; today adds
+`statusbar` (Selection as a stage bar), `badge` (Selection as a colored pill),
+`statinfo` (a number inside a smart button) and `daterange` (two Datetime fields
+presented as one range picker). The full widget catalog is JavaScript, so the
+authoritative list lives in the web module's source; the reference below has the
+common ones.
+
+### Decorations: rows that explain themselves
+
+List views accept `decoration-*` attributes whose value is a Python-ish expression
+over the row's fields: `decoration-muted="stage == 'cancelled'"` greys cancelled
+orders out. The palette is semantic and fixed (`muted`, `info`, `success`,
+`warning`, `danger`, plus `bf`/`it` for bold/italic). One rule to remember:
+**the expression can only use fields present in the list view**. A field you don't
+want shown can still power a decoration via `column_invisible="1"`.
+
+### Buttons that compute their own destination
+
+A smart button is just a `<button>` whose `type="object"` calls a Python method, and
+the method returns an **action dictionary**: the same keys you've been writing in XML
+(`res_model`, `view_mode`, `domain`, `context`), built dynamically for one record.
+That's the whole trick behind "3 Services opens *this* vehicle's services".
+
+## Hands-on
+
+### 1. Give the order form a lifecycle header
+
+In `views/service_order_views.xml`, insert a header before the sheet and remove
+`stage` from the "When" group (it's moving up):
+
+```xml
+            <form>
+                <header>
+                    <field name="stage" widget="statusbar"
+                           options="{'clickable': true}"
+                           statusbar_visible="draft,confirmed,in_progress,done"/>
+                </header>
+                <sheet>
+```
+
+`clickable` lets users advance the order by clicking a stage, which is fine while the
+workflow has no rules; chapter 20 replaces raw clicks with guarded buttons.
+`statusbar_visible` keeps `cancelled` off the happy path: a cancelled order still
+*shows* its stage, but nobody is invited to click their way into it.
+
+### 2. Fold the long content into a notebook
+
+Still in the form: wrap the parts list, the money group and the notes into a
+notebook, one page per concern:
+
+```xml
+                    <notebook>
+                        <page string="Parts" name="parts">
+                            <field name="line_ids" nolabel="1">
+                                <list editable="bottom">
+                                    <field name="part_id"/>
+                                    <field name="qty"/>
+                                    <field name="price_unit"/>
+                                    <field name="subtotal"/>
+                                </list>
+                            </field>
+                            <group>
+                                <group/>
+                                <group string="Money">
+                                    <field name="parts_total"/>
+                                    <field name="labor_total"/>
+                                    <field name="margin" groups="librefleet.group_librefleet_manager"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Internal Notes" name="notes">
+                            <field name="notes" nolabel="1"
+                                   placeholder="Diagnosis, customer requests, anything the invoice should remember..."/>
+                        </page>
+                    </notebook>
+```
+
+Give pages a `name`: it's the stable anchor future xpaths will want (today's lesson,
+foreshadowed). While you're in the "When" group, upgrade the schedule pair to a range
+picker:
+
+```xml
+                            <field name="scheduled_start" widget="daterange"
+                                   options="{'end_date_field': 'scheduled_end'}"/>
+                            <field name="scheduled_end" invisible="1"/>
+```
+
+The widget edits both fields; `scheduled_end` stays in the view (invisible) so the
+client loads and writes it.
+
+### 3. Decorate the order list
+
+Replace the plain list with a self-explaining one:
+
+```xml
+            <list decoration-muted="stage == 'cancelled'"
+                  decoration-success="stage == 'done'"
+                  decoration-info="stage == 'in_progress'">
+                <field name="reference"/>
+                <field name="vehicle_id"/>
+                <field name="customer_id" optional="hide"/>
+                <field name="service_type_id" optional="show"/>
+                <field name="scheduled_start"/>
+                <field name="technician_ids" widget="many2many_tags"/>
+                <field name="stage" widget="badge"
+                       decoration-success="stage == 'done'"
+                       decoration-info="stage in ('confirmed', 'in_progress')"/>
+            </list>
+```
+
+Three ideas in one arch: row-level `decoration-*` on the `<list>`, a `badge` widget
+with its own per-cell decorations, and `optional` columns (users toggle them from the
+list's column menu; `hide`/`show` sets the default). Nothing here needed Python or an
+upgrade beyond `-u librefleet`.
+
+### 4. The smart button, method first
+
+The button needs a destination. In `models/vehicle.py`:
+
+```python
+    def action_view_service_orders(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Service Orders",
+            "res_model": "librefleet.service.order",
+            "view_mode": "list,form",
+            "domain": [("vehicle_id", "=", self.id)],
+            "context": {"default_vehicle_id": self.id},
+        }
+```
+
+Chapter 15's `ensure_one` earns its keep (a button click always targets one record,
+say so), the `domain` filters the list to this vehicle, and the `context`'s
+`default_vehicle_id` means an order created from that filtered list is pre-filled
+with the right vehicle. Returning the dict is all it takes: the client executes
+whatever action a button method returns.
+
+Now the button, at the top of the vehicle form's sheet, and the ribbon right under
+it. Delete the plain `service_count` line from the Usage group at the same time
+(the count lives in the button now):
+
+```xml
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_service_orders" icon="fa-wrench">
+                            <field name="service_count" widget="statinfo" string="Services"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="text-bg-danger" invisible="active"/>
+```
+
+Bump the manifest to `19.0.1.10.0`, upgrade, restart (there's new Python).
+
+### 5. Break-it lab: the anchor you just moved
+
+Chapter 16's reception extension inserts `active` with
+`expr="//field[@name='service_count']"`. You just moved `service_count` *inside the
+smart button*. No error on upgrade; instead, look at the combined arch:
+
+```console
+>>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
+>>> i = arch.index("oe_stat_button")
+>>> print(arch[i-80:arch.index("</button>")+10])
+class="oe_button_box" name="button_box">
+    <button class="oe_stat_button" type="object" name="action_view_service_orders" icon="fa-wrench">
+        <field name="service_count" widget="statinfo" string="Services"/>
+        <field name="active"/>
+    </button>
+```
+
+The xpath still *matches* (first `service_count` in document order is now the one in
+the button), so the archive toggle quietly moved inside the stat button. No
+traceback, no warning, just a wrong screen: this is the "breaks silently, or worse,
+matches the wrong node" case from chapter 16's gotchas, live in your own module two
+chapters later. Imagine it across module boundaries after a version migration and
+you understand a whole category of integrator tickets.
+
+Fix the anchor in `views/vehicle_views_inherit.xml` to a field that still lives in
+the Usage group:
+
+```xml
+            <xpath expr="//field[@name='mileage_km']" position="after">
+                <field name="active"/>
+            </xpath>
+```
+
+Upgrade and confirm the toggle is back among the usage fields:
+
+```console
+>>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
+>>> arch.index('name="active"') > arch.index("</button>")
+True
+```
+
+### 6. Prove the button's destination
+
+```console
+>>> env["librefleet.vehicle"].browse(1).action_view_service_orders()
+{'type': 'ir.actions.act_window', 'name': 'Service Orders', 'res_model': 'librefleet.service.order', 'view_mode': 'list,form', 'domain': [('vehicle_id', '=', 1)], 'context': {'default_vehicle_id': 1}}
+```
+
+An action is a dict all the way down; buttons just hand it to the client.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch17
+✔ the order form has a clickable statusbar in a header
+✔ parts and notes moved into a notebook
+✔ the order list is decorated
+✔ the vehicle form has the services smart button + ribbon
+✔ the smart button opens this vehicle's orders
+✔ the ch16 extension was re-anchored
+
+ch17 complete! On to the next chapter 🔧
+```
+
+The fifth check calls your button method over RPC and inspects the returned action's
+domain; the last one reads the ch16 extension's stored arch to make sure the stale
+anchor is gone. In the browser (author tour, screenshots pending): the order form
+shows the stage bar and tabs, the vehicles list is unchanged, a vehicle form has the
+wrench button, and archiving a vehicle from the new toggle raises the red ribbon.
+
+## Gotchas
+
+- **A clickable statusbar enforces nothing.** Any user who can write the record can
+  click any stage: no checks, no side effects. It's the right tool early on and a
+  liability once stages mean something; chapter 20's buttons and wizard add the
+  guardrails.
+- **Decorations only see the list's own fields.** An expression over a field that
+  isn't a column fails; add the field with `column_invisible="1"` if you need it
+  invisible but available.
+- **Moving a node moves every xpath that anchored on it.** Today it was your own
+  extension and it failed *silently* (the locator matched a different occurrence).
+  Before relocating any field in a view others may extend, grep for its name.
+- **`invisible` is not "not loaded".** The hidden `scheduled_end` still travels to
+  the client on every form load; that's what lets the daterange widget write it.
+  Keep it in mind when a form feels heavy (chapter 38 measures this properly).
+- **`statinfo` needs its field inside the button.** The count is an ordinary form
+  field that happens to render inside the button; delete it from the button and the
+  button shows nothing, keep a second copy elsewhere and you're loading it twice.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A technician clicks "done" on the statusbar of an order that was never confirmed. What stops them?',
+      options: [
+        'the statusbar_visible attribute',
+        'nothing: a clickable statusbar writes the stage with no workflow checks',
+        'the stage field must be readonly first',
+      ],
+      answer: 1,
+      why: 'Clickable stages are a plain write. statusbar_visible only controls which stages are displayed as clickable steps, not which transitions are legal. Real guardrails are Python: constraints or button methods (chapter 20).',
+    },
+    {
+      q: 'You add decoration-danger="scheduled_end < scheduled_start" to the order list but scheduled_end is not a column. Result?',
+      options: [
+        'it works: decorations read the database directly',
+        'it fails: decoration expressions evaluate client-side over the fields the list loaded',
+        'the row turns red only after opening the form once',
+      ],
+      answer: 1,
+      why: 'The list only has the data of its own fields. The fix is a column_invisible field: loaded and available to expressions, but not shown.',
+    },
+    {
+      q: 'Why does the smart button call a Python method instead of pointing at the existing service orders action?',
+      options: [
+        'buttons cannot reference XML actions',
+        'the method adds this vehicle\'s domain and defaults to the reused action',
+        'Python actions render faster than XML actions',
+      ],
+      answer: 1,
+      why: 'The static action shows every order. The method returns the same kind of dict with a per-record domain and context, which is the entire point of "3 Services": those three, not all of them.',
+    },
+    {
+      q: "After this chapter, chapter 16's xpath on service_count did NOT raise 'cannot be located'. Why is that the scarier outcome?",
+      options: [
+        'the ParseError is deferred until the next restart, so it will surface later anyway',
+        'the locator matched a different occurrence and patched the wrong place, silently',
+        'it is not scarier: a view that loads without error is a view that is wired correctly',
+      ],
+      answer: 1,
+      why: 'A loud ParseError names the file and the line, which is a good day. A locator that still matches *something* puts your change somewhere you did not intend and tells nobody, so only a human looking at the screen (or a check reading the arch) ever finds out. Option 1 invents a deferral that does not exist, upgrades resolve xpaths immediately. Option 3 is the assumption this whole chapter exists to break: loading proves the xpath matched, never that it matched what you meant.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ The reception list (chapter 16) should grey out archived vehicles. Add the
+   `active` field as a hidden column and a `decoration-muted` on it. Verify with
+   `get_view` that both attributes landed.
+2. ⭐⭐ Give `librefleet.service.type` its own smart button: "N Orders" on the type's
+   form, counting orders of that type and opening them filtered. You'll need the
+   compute (chapter 13 pattern), the method, the button box, and a form view that
+   doesn't exist yet: build all of it from memory.
+3. ⭐⭐ Cancelled orders vanish from the statusbar's happy path but deserve a loud
+   form: add a red "Cancelled" ribbon that only shows on cancelled orders, without
+   touching the header.
+4. ⭐⭐⭐ Open the core `sale.order` form arch (`get_view` in the shell, or the
+   view in Settings → Technical) and identify: its statusbar's visible stages, two
+   of its smart buttons and the methods they call, and one widget in it you've never
+   seen. Then swap our technician tags for `many2many_avatar_user` and decide,
+   looking at both, which reads better in a list.
+
+## Further reading
+
+- [Form view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#form):
+  header, sheet, button box, notebook, and every attribute they take.
+- [List view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#list):
+  decorations, optional columns, editable lists.
+- [Field widgets in the web framework (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html):
+  where the widget catalog actually lives; Part 5 teaches you to add your own.

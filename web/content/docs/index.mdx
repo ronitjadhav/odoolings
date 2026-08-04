@@ -1,0 +1,65 @@
+---
+title: How this tutorial works
+description: What Odoolings is, who it's for, and how to get the most out of it.
+---
+
+This tutorial takes a competent Python developer with **zero Odoo knowledge** to the
+point of contributing OCA-quality modules. It is not a rewrite of the
+[official Odoo docs](https://www.odoo.com/documentation/19.0/). It links to them
+generously and adds what they leave out: sequencing, the *why*, the pitfalls, and the
+practices real Odoo integrators use every day.
+
+## Built for practice, not reading
+
+You build one project, **LibreFleet**, a vehicle-workshop and service-booking app,
+across 40 chapters. Four things make that different from reading documentation:
+
+<CardGrid>
+  <Card title="Quizzes in the page" eyebrow="Instant feedback">
+    Answer, get told why, right where the concept is taught. Try one in
+    [chapter 1](/docs/00-orientation/01-what-odoo-is#quick-check).
+  </Card>
+  <Card title="odoolings" eyebrow="Your code, checked">
+    A rustlings-style checker that inspects your *actually running* Odoo after each
+    hands-on section and names what is missing.
+  </Card>
+  <Card title="Checkpoints" eyebrow="Never stuck">
+    Every chapter's final state lives in
+    [`code/checkpoints/`](https://github.com/ronitjadhav/odoolings/tree/main/code/checkpoints),
+    so you can diff your work against a known-good state.
+  </Card>
+  <Card title="Progress and streaks" eyebrow="No account">
+    Completion and quiz results live in the pill at the bottom-right, stored only in
+    your browser.
+  </Card>
+</CardGrid>
+
+Here is what the checker looks like when you have got one thing wrong:
+
+```console
+$ python odoolings.py check ch09
+✔ model librefleet.vehicle exists
+✘ field mileage is Float
+    hint: fields.Float, not fields.Integer. Odometers have decimals.
+```
+
+Everything targets **Odoo 19.0 Community** in Docker. Chapters flag where Odoo 18
+differs, for readers on client projects running older versions.
+
+## The path
+
+<CardGrid cols={3}>
+  <Card tone="sage" eyebrow="Tier 1" title="Foundations" href="/docs/00-orientation/01-what-odoo-is">
+    Parts 0–3, chapters 1–20. Build and ship a clean custom module.
+  </Card>
+  <Card tone="sky" eyebrow="Tier 2" title="Professional" href="/docs/04-business-logic/21-the-three-inheritance-types">
+    Parts 4–5, chapters 21–32. Extend core apps safely, write tests, build UI, debug
+    anything.
+  </Card>
+  <Card tone="violet" eyebrow="Tier 3" title="Expert" href="/docs/06-oca-way/33-oca-safari">
+    Parts 6–7, chapters 33–40. Work the OCA way, migrate modules, tune performance,
+    reason about deploys.
+  </Card>
+</CardGrid>
+
+Start with [What Odoo Is](/docs/00-orientation/01-what-odoo-is).

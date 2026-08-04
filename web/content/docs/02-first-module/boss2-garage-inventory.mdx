@@ -1,0 +1,83 @@
+---
+title: "Boss Challenge: Garage Inventory"
+description: Build a complete mini-module from this one-page spec, from memory, verified by odoolings.
+---
+
+**Goal:** prove Part 2 stuck, by building a small but complete module from a spec
+alone. · **Time:** ~2–3 h · **Solution:** `code/checkpoints/boss2` (after you're done!)
+
+## The rules
+
+This page is a *spec*, not a tutorial. No numbered steps, no code to copy, and the
+whole point is to **not look back at chapters 8–15 while building**. Getting stuck and
+struggling for a while is the mechanism, not a failure; that struggle is what moves
+Part 2 from "followed along" to "can do". If you're truly blocked, glance at the
+relevant chapter's *Concepts* section (not Hands-on), close it, and continue.
+
+When you think you're done:
+
+```console
+$ python3 odoolings.py check boss2
+```
+
+Seven checks. All green means you've cleared Tier 1's core. Only then open
+`code/checkpoints/boss2` and compare choices, not correctness.
+
+## The story
+
+The workshop's parts shelf is chaos. The boss wants a dead-simple standalone inventory
+app: items with a code and a stock count, a value total that maintains itself,
+guarantees against garbage data, and stockkeeper-only editing. It must NOT touch
+`librefleet` at all: separate app, separate menu, separate group.
+
+## The spec
+
+**Module**: technical name `garage_inventory`, in `addons/`. An installable
+*app* (icon on the Apps screen), version `19.0.1.0.0`, license `AGPL-3`, depending
+only on `base`.
+
+**Model**: `garage.inventory.item`:
+
+| Field | Type | Requirements |
+|---|---|---|
+| `name` | Char | required |
+| `code` | Char | required, **unique across all items, enforced by the database** |
+| `qty_on_hand` | Float | defaults to 0, **may never be negative** (friendly error) |
+| `unit_cost` | Float | |
+| `total_value` | Float | `qty_on_hand × unit_cost`, computed, **stored**, always current |
+
+**Security**: a *Stockkeeper* group (XML id `group_garage_stockkeeper`) with full
+create/read/update/delete on items. Every other internal user (`base.group_user`) can
+read items but not change them. Admin should end up in the Stockkeeper group so you
+can click around.
+
+**UI**: a root menu *Garage* (XML id `menu_garage_root`) with an *Inventory Items*
+entry opening a window action (XML id `action_garage_inventory_item`, view mode
+`list,form`). The list shows name, code, quantity and total value; the form is a
+proper sheet with the fields sensibly grouped.
+
+The three XML ids above are fixed by the spec (odoolings looks them up); everything
+else is named at your discretion.
+
+## What the checks probe (so nothing feels unfair)
+
+`odoolings check boss2` will: inspect the manifest (installed, app, version), check
+every field's type and flags, create an item over RPC and change its quantity to see
+`total_value` follow, try to create a duplicate code and a negative quantity
+expecting both to be *refused by the server*, and resolve your group, ACLs, menu,
+action and views. It cleans up its own test records.
+
+## Self-review, integrator style
+
+After green, review your own diff the way chapter 35 will teach you to review others':
+
+- Would a colleague understand every name without asking you?
+- Is anything enforced only in the UI that should be enforced in the model?
+- Does a plain internal user really get a read-only experience? Prove it with
+  `with_user` in the shell (chapter 15 showed you how).
+
+## When you're done
+
+Mark this page complete, take the [Part 2 review quiz](/docs/02-first-module/) if you
+haven't, and breathe out: Part 3 goes back to guided mode and makes your module's UI
+genuinely pleasant to use.

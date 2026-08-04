@@ -1,0 +1,181 @@
+---
+title: "Part 2 Review: Your First Module"
+description: A cumulative check over chapters 8 to 15, your mastery bar, and the boss challenge that closes the part.
+---
+
+Eight chapters ago you had an empty addons folder. Now `librefleet` has five models across four files,
+two security groups with a record rule, menus and views, computed totals, three kinds
+of data guarantee, a sequence drawn at save time, and you can drive all of it from the
+shell. This page is the checkpoint for the whole part: a mastery bar fed by every quiz
+you've taken, a review quiz that mixes all eight chapters, and the boss challenge.
+
+<Mastery
+  label="Part 2"
+  keys={["08", "09", "10", "11", "12", "13", "14", "15", "p2-review"]}
+/>
+
+## The two tables worth memorising
+
+Part 2 handed you eleven separate mechanisms across six chapters, each with its own
+"except when" clause. Side by side, the pattern behind all of them is one question:
+**which code paths does this thing actually sit on?** Everything below was measured in
+this tutorial's own environment, not taken from the docs.
+
+### Guards: who refuses bad data
+
+| Mechanism | Enforced by | Form | Code, RPC, import | Raw SQL | Bypassed by |
+|---|---|---|---|---|---|
+| ACL (`ir.model.access`) · ch10 | the ORM | yes | yes | no | `sudo()` |
+| Record rule (`ir.rule`) · ch12 | the ORM | yes | yes | no | `sudo()` |
+| Field `groups=` · ch20 | the ORM | yes | yes | no | `sudo()` |
+| `@api.constrains` · ch14 | your Python, in the ORM | yes | yes | no | raw SQL, and silence if the field that changed is not named in the decorator |
+| `models.Constraint` · ch14 | Postgres itself | yes | yes | **yes** | nothing |
+
+Read the last column downward and the design rule falls out: everything the ORM enforces
+is a boundary **against users, not against code**, because any code path holding a
+`sudo()` recordset walks straight through it. Only the Postgres row is absolute. That is
+why "if a guarantee must hold no matter what, it belongs in SQL" (ch14) is a statement
+about *paths*, not about taste.
+
+One mechanism is deliberately missing from that table. A menu item's `groups=` (ch11)
+**hides** a menu; it protects nothing. The data is exactly as safe as its ACL, and a
+hidden menu with a permissive ACL is a UI convenience the reader can defeat with a URL.
+
+### Values: what fills a field, and when
+
+| Mechanism | Runs when | Real column? | Searchable | Runs from code, RPC, import? |
+|---|---|---|---|---|
+| `default=` · ch14 | the record is created | it writes a real value | n/a | yes, on every create path |
+| `onchange` · ch13 | a user edits a form | no | n/a | **no, never** |
+| `related=` · ch13 | on read | no, unless `store=True` | yes, the ORM rewrites it into a JOIN | yes |
+| computed, non-stored · ch13 | on read | no | no, unless you add `search=` | yes |
+| computed, `store=True` · ch13 | when a declared dependency changes | yes | yes | yes |
+
+The onchange row is the one that catches people: it is a typing assistant, so a CSV
+import or an RPC call produces records it never touched. If a value must always be
+right, it belongs in a compute or a default, never in an onchange.
+
+And the two "searchable" answers that look inconsistent are not: Postgres has to be able
+to *get there*. A stored field is a column, a related field is a path it can JOIN along,
+and a non-stored computed field is neither, which is the wall ch19 hits with `margin`.
+
+## Review quiz
+
+Fresh questions, old material. If one stings, the chapter number in the explanation
+tells you where to go back.
+
+<Quiz
+  id="p2-review"
+  title="Part 2 review"
+  questions={[
+    {
+      q: 'Your module directory sits next to librefleet in addons, but the Apps list refuses to show it even after Update Apps List. Most likely cause?',
+      options: [
+        'the module has no views yet',
+        'there is no __manifest__.py (or no __init__.py), so the directory is not a module',
+        'the module name collides with a core module',
+      ],
+      answer: 1,
+      why: 'A directory becomes a module through its manifest plus __init__.py; without them Odoo skips it silently (chapter 8). No views is fine, and a name collision behaves differently: the first module on the addons path wins.',
+    },
+    {
+      q: 'You define a model with _name = "librefleet.vehicle". What table does the ORM create?',
+      options: ['librefleet.vehicle', 'librefleet_vehicle', 'x_librefleet_vehicle'],
+      answer: 1,
+      why: 'Dots in the model name become underscores in the table name (chapter 9, seen live in psql). The x_ prefix belongs to models created through the UI, not code.',
+    },
+    {
+      q: 'A fresh model installs fine, but every non-admin user gets an AccessError just listing its records. What did you forget?',
+      options: [
+        'a record rule',
+        'an ir.model.access.csv line granting the group read access',
+        "'application': True in the manifest",
+      ],
+      answer: 1,
+      why: 'No ACL means no access at all for regular users; that is the deny-by-default from chapter 10. Record rules only refine what ACLs already grant.',
+    },
+    {
+      q: 'A window action with view_mode "list,form" but the model has no list view defined. What happens when the menu is clicked?',
+      options: [
+        'Odoo generates a default list view showing the display name',
+        'a traceback: missing view',
+        'the form view opens directly instead',
+      ],
+      answer: 0,
+      why: 'Views are optional sugar: the framework falls back to an auto-generated one (chapter 11). Ugly, but it works, which is also why forgetting a view file fails silently instead of loudly.',
+    },
+    {
+      q: 'vehicle_id on service orders is Many2one with ondelete="restrict". A vehicle with two orders is unlinked. Result?',
+      options: [
+        'the vehicle disappears and the orders keep a dangling reference',
+        'the orders are deleted with it',
+        'the deletion is refused because orders still reference the vehicle',
+      ],
+      answer: 2,
+      why: 'restrict makes Postgres refuse to delete a referenced row (chapter 12). cascade would take the orders down with it; set null would blank the reference.',
+    },
+    {
+      q: 'margin is a computed field without store=True. Where does its value live?',
+      options: [
+        'in a librefleet_service_order column, refreshed by cron',
+        'nowhere: it is computed on read, and no column exists in Postgres',
+        'in the ORM cache file on disk',
+      ],
+      answer: 1,
+      why: 'Non-stored computes have no column at all (chapter 13 showed the psql table). They spring into existence when read, which also means no domain can search them without store=True.',
+    },
+    {
+      q: 'Which rule can ONLY be enforced as a Python constraint, never as a models.Constraint?',
+      options: [
+        'license plates must be unique',
+        'mileage_km must be at least 0',
+        'a booking may not overlap another booking of the same vehicle',
+      ],
+      answer: 2,
+      why: 'The overlap rule must search other records, which SQL CHECK constraints cannot do (they see one row). Uniqueness and simple range checks belong in SQL, where nothing can bypass them (chapter 14).',
+    },
+    {
+      q: 'Order references jump from SO/2026/0002 to SO/2026/0008. What is the professional reaction?',
+      options: [
+        'restore from backup, references must be contiguous',
+        'none: rolled-back creates consume sequence numbers, so gaps are normal',
+        'reset the sequence counter in Settings',
+      ],
+      answer: 1,
+      why: 'Every rollback after a drawn number spends it (chapter 14, proven again in 15). Gaps are normal; resetting the counter would eventually produce duplicates and violate copy=False expectations.',
+    },
+    {
+      q: 'for order in orders: order.stage = "done" versus orders.write({"stage": "done"}). Real difference?',
+      options: [
+        'none, the loop is just more explicit',
+        'write batches the recordset; the loop makes one write call per record',
+        'the loop bypasses constraints',
+      ],
+      answer: 1,
+      why: 'Recordset write is batched (chapter 15); the loop multiplies database work by the number of records. Both fire the same constraints. On two records nobody notices; on ten thousand, one of them pages you.',
+    },
+    {
+      q: 'A cron method needs to read a config record that ordinary users cannot see. The reviewer-approved pattern is…',
+      options: [
+        'self.sudo() as the first line of the method',
+        'fetch that one record with .sudo() at the point of use, with a comment saying why',
+        'grant all users read access to the config model',
+      ],
+      answer: 1,
+      why: 'Smallest possible bypass, documented (chapter 15). A whole-method sudo turns every later operation into a security hole waiting for a code path, and widening the ACL leaks the config to everyone.',
+    },
+  ]}
+/>
+
+## Boss challenge: prove it
+
+The review quiz checks what you remember. The [boss challenge](/docs/02-first-module/boss2-garage-inventory)
+checks what you can *build*: a complete mini-module from a one-page spec, no steps, no
+looking back, verified by `odoolings check boss2`. Clear it and you have genuinely
+finished Tier 1's core.
+
+## Where you stand
+
+With Part 2 done you can create a module, model data, secure it, show it, relate it,
+compute on it, and guard it. Part 3 makes it *pleasant*: view inheritance, list and
+form polish, search filters, the kanban pipeline, and your first wizard.

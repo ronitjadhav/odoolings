@@ -1,0 +1,185 @@
+---
+title: "3. Architecture Overview"
+description: The three tiers, the request lifecycle, and why everything in Odoo is a module.
+---
+
+**Goal:** hold a correct mental model of how an Odoo request flows from browser to
+database and back. · **Time:** ~1.5 h · **Checkpoint:** none, Part 0 has no code.
+
+## Why this matters
+
+Every confusing moment you'll have in the next 37 chapters ("where does this view come
+from?", "why did my change not appear?", "what runs on the server vs in the browser?")
+resolves instantly if your mental model of the architecture is right. Fifteen minutes
+here saves hours later. Nothing in this chapter needs memorizing; it needs *believing*,
+and the rest of the tutorial keeps confirming it.
+
+## Concepts
+
+### Three tiers
+
+<Mermaid chart={`
+flowchart LR
+    subgraph B["Browser"]
+        OWL["Web client\n(OWL components, JavaScript SPA)"]
+    end
+    subgraph S["Odoo server (Python)"]
+        HTTP["HTTP layer\n(controllers, RPC)"]
+        ORM["ORM + business logic\n(models in modules)"]
+    end
+    DB[("PostgreSQL\nthe only supported database")]
+    OWL <-->|"JSON-RPC over HTTP"| HTTP
+    HTTP --> ORM
+    ORM <-->|"SQL"| DB
+`} />
+
+- **Presentation.** The web client is a single-page JavaScript application built with
+  **OWL** (Odoo Web Library), Odoo's own component framework. It's conceptually
+  similar to React but its own thing. It renders list views, forms, kanbans and so on
+  from *descriptions* it receives from the server.
+- **Logic.** A Python server. Business objects are Python classes; the **ORM** maps
+  them to PostgreSQL tables and mediates every read and write. Alongside the RPC
+  endpoints the web client uses, **controllers** serve classic HTTP routes (the
+  website, the customer portal, PDF downloads).
+- **Data.** PostgreSQL, and only PostgreSQL. Odoo leans on it hard (constraints,
+  sequences, savepoints), which is why chapter 9 has you inspecting what the ORM
+  creates with `psql`.
+
+### Everything is a module
+
+An Odoo server on its own does almost nothing. All functionality, including the core
+`base` module that defines users, menus and models like `res.partner`, arrives as
+**modules**: directories containing a manifest, Python code, XML data, and static
+assets. The server discovers them via the **addons path**, and a database records which
+modules are *installed in it*.
+
+Two consequences worth internalizing now:
+
+1. **Installation is per-database.** The same server can host one database where CRM
+   is installed and another where it isn't. "Is the module installed?" is a question
+   about a database, not a server.
+2. **Modules extend each other.** A module can add fields to another module's models,
+   inject elements into its views, and override its logic, all without touching its
+   source. That inheritance machinery (Part 4) is the single most important thing that
+   makes Odoo customizable.
+
+### The UI is data
+
+Here is the idea newcomers take longest to absorb: **views are not template files.**
+A form view, a list view, a menu item, an action: each is a *record in the database*
+(in models like `ir.ui.view`), typically loaded there from a module's XML files at
+install time. The web client asks the server "give me the form view for `res.partner`",
+receives an XML description, and renders it.
+
+That's why customizing Odoo rarely means forking anything. You ship a module whose XML
+*adds records* (a new view, a menu) or *inherits existing ones* with targeted edits.
+
+### One request, end to end
+
+What actually happens when you open a customer and click **Save**:
+
+<Mermaid chart={`
+sequenceDiagram
+    participant U as Browser (OWL)
+    participant H as HTTP layer
+    participant O as ORM
+    participant P as PostgreSQL
+    U->>H: JSON-RPC: res.partner.web_save(id, {changed fields})
+    H->>H: authenticate session, open DB cursor
+    H->>O: call model method
+    O->>O: access rights check, business logic, computed fields
+    O->>P: UPDATE res_partner SET ...
+    P-->>O: ok
+    O-->>H: record data
+    H->>P: COMMIT
+    H-->>U: JSON result
+    U->>U: re-render form with fresh data
+`} />
+
+The details will fill in over the coming parts, but notice the shape: the browser never
+talks SQL, the ORM never trusts the browser, and one HTTP request is one database
+transaction. It commits when the request succeeds and rolls back if anything raises.
+That last property will save you many times: a crashed request leaves no half-written
+data behind.
+
+## Hands-on
+
+Reading source counts as hands-on in this chapter:
+
+1. Open [`odoo/odoo` (19.0)](https://github.com/odoo/odoo/tree/19.0) and look at the
+   top level: `odoo/` is the framework (ORM, HTTP, tooling), `addons/` is ~350
+   modules, which is everything else. The split mirrors this chapter's story.
+2. Inside [`addons/crm`](https://github.com/odoo/odoo/tree/19.0/addons/crm), find:
+   `__manifest__.py`, a `models/` directory (Python, tier 2) and a `views/` directory
+   (XML descriptions, the "UI is data" idea).
+3. Open one file from `views/` and skim it: you're looking at records about to be
+   loaded into `ir.ui.view`, not templates.
+
+## Verify
+
+Close this page and draw the three-tier diagram from memory, with the two arrows
+labeled (JSON-RPC, SQL). Then say out loud what a "view" physically is in Odoo. If both
+worked, move on.
+
+## Gotchas
+
+- **"Odoo is a Python app" is only a third true.** When something misbehaves, first ask
+  *which tier*: a JS error in the browser console, a Python traceback in the server
+  log, and a constraint error from PostgreSQL are three different investigations.
+- **The database remembers.** Because views and menus are records, uninstalling your
+  code doesn't always remove what it loaded, and editing XML doesn't change a database
+  that already loaded the old version. That's why the module *upgrade* step exists
+  (chapter 8).
+- **QWeb appears in two places.** The same XML templating language renders OWL
+  components in the browser and reports/website pages on the server. Same syntax,
+  different runtimes. Keep the tiers straight and it won't confuse you.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Where does a form view "live"?',
+      options: [
+        'As an HTML template file shipped with the web client',
+        'As a record in the database, loaded from module XML',
+        'Hardcoded in the OWL JavaScript bundle',
+      ],
+      answer: 1,
+      why: "Views are data: records in ir.ui.view. The web client renders whatever description the server hands it. That's why modules can modify views without forking files.",
+    },
+    {
+      q: 'Your browser needs data from the res.partner table. It gets it by...',
+      options: [
+        'querying PostgreSQL directly over a DB connection',
+        'calling a server method via JSON-RPC; the ORM produces the SQL',
+        'reading a REST cache the server regenerates each night',
+      ],
+      answer: 1,
+      why: 'The browser only ever speaks JSON-RPC to the Python server. The ORM checks access rights and generates SQL; nothing client-side touches the database.',
+    },
+    {
+      q: 'A request raises an exception halfway through writing several records. The database now contains...',
+      options: [
+        'the records written before the crash',
+        'nothing from that request, the transaction rolled back',
+        'corrupted rows needing manual cleanup',
+      ],
+      answer: 1,
+      why: 'One request = one transaction. An unhandled exception rolls the whole thing back, which is a genuinely load-bearing safety property in daily development.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In the `odoo/` framework directory on GitHub, locate the file that implements the
+   ORM's `Model` class (hint: `odoo/models.py`, scroll its docstring).
+2. ⭐⭐ Find where the `base` module lives in the source tree (hint: it's *not* under
+   `addons/`) and explain to yourself why it's called the module everything depends on.
+
+## Further reading
+
+- [Architecture overview, official docs (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/01_architecture.html)
+- [OWL on GitHub](https://github.com/odoo/owl): skim the README, Part 5 goes deep.
+- [PostgreSQL docs](https://www.postgresql.org/docs/): you'll touch real SQL from chapter 9 on.

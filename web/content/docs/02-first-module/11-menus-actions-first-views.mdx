@@ -1,0 +1,470 @@
+---
+title: "11. Menus, Actions & First Views"
+description: The menu, action, view chain that finally puts LibreFleet on screen, plus a tiny config model to practice on.
+---
+
+**Goal:** wire LibreFleet into the web client: menus, window actions, and real list
+and form views. · **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch11`
+
+## Why this matters
+
+Three chapters in, LibreFleet still has no user interface: you've been living in
+psql and the shell. Today the app appears in the Apps menu with its icon, opens a
+vehicle list, and lets a manager configure service types in two clicks. The
+machinery behind that (menus pointing at actions pointing at views describing
+models) is the everyday medium of integration work; on a real project you will
+write ten times more view XML than Python. And because every piece of it is just
+records in `ir.*` models, everything you learned about data files, XML ids and load
+order carries straight over.
+
+## Concepts
+
+### The chain: menu, action, views, model
+
+When a user clicks "Vehicles", four layers cooperate:
+
+<Mermaid
+  chart={`flowchart LR
+    M["ir.ui.menu<br/>Vehicles"] -- action --> A["ir.actions.act_window<br/>res_model, view_mode"]
+    A -- opens --> V["ir.ui.view<br/>list arch / form arch"]
+    V -- describes how to show --> D[("librefleet.vehicle")]`}
+/>
+
+- A **menu item** is a clickable node in the app's navigation, usually pointing at
+  an action.
+- A **window action** (`ir.actions.act_window`) says *what* to open: which model
+  (`res_model`) and which view types in which order (`view_mode="list,form"` means
+  "open the list; a row opens the form").
+- A **view** (`ir.ui.view`) holds an `arch` (architecture): an XML description of
+  *how* to render the model. The web client turns it into components; the server
+  uses it to know which fields to fetch.
+
+All three are regular records loaded from your data files. Chapter 8's slogan ("the
+UI is data") stops being abstract today.
+
+### List and form, the two views you cannot skip
+
+A **list view** (`<list>` root tag) renders records as rows; each `<field>` becomes
+a column. A **form view** (`<form>`) renders one record; inside it, `<sheet>` gives
+you the paper-like canvas, and `<group>` lays fields out in labeled columns (two
+`<group>`s side by side is the classic two-column form).
+
+Two facts that save you real confusion:
+
+- **Views are validated at load time.** Every field in the arch must exist on the
+  model; a typo fails the upgrade (the break-it lab makes friends with that error).
+- **Undefined views are generated.** If an action asks for a view type you never
+  defined, Odoo builds a default one on the fly from the model's fields. Handy for
+  prototyping, never good enough to ship.
+
+<Callout type="info" title="On Odoo 18 this differs">
+  The list root tag was `<tree>` for most of Odoo's life; 17 renamed it and 19
+  removed the old name entirely (defining a `<tree>` view now raises
+  `Invalid view type: 'tree'`). You will still meet `<tree>` constantly in OCA
+  modules on 16.0/17.0 branches; read it as `<list>`.
+</Callout>
+
+### Menus: a tree with group-based visibility
+
+`<menuitem>` is a convenience tag (under the hood: an `ir.ui.menu` record). Menus
+form a tree via `parent=`; a top-level item with a `web_icon` becomes an app in the
+main menu. Two attributes do the everyday work:
+
+- `action=` makes the menu open something; a menu without an action is just a
+  folder for submenus.
+- `groups=` hides the item from users outside those groups. Hidden, not forbidden:
+  the data behind it is still exactly as reachable as the ACLs of chapter 10 allow.
+  Menus are UX, ACLs are security; never confuse the two.
+
+<Callout type="info" title="In the field">
+  Odoo apps share a menu anatomy: operational menus first (Fleet), then Reporting,
+  then Configuration last, manager-only. Users find their way around any Odoo app
+  because integrators respect that muscle memory; LibreFleet does too.
+</Callout>
+
+### A config model to practice on
+
+Views need a model, and vehicles are getting crowded, so this chapter adds the
+blueprint's smallest one: `librefleet.service.type`, the workshop's price list
+("Oil change, 89 CHF, one hour"). Three scalar fields, no relations, perfect first
+customer for an **editable list**: `<list editable="bottom">` lets users add and
+edit rows inline, no form round-trip, exactly right for quick config tables.
+
+## Hands-on
+
+### 1. The model (chapter 9 muscle memory)
+
+`addons/librefleet/models/service_type.py`:
+
+```python
+from odoo import fields, models
+
+
+class ServiceType(models.Model):
+    _name = "librefleet.service.type"
+    _description = "Service Type"
+    _order = "name"
+
+    name = fields.Char(required=True)
+    flat_fee = fields.Float(help="Fixed price charged for this service, parts excluded.")
+    default_duration_h = fields.Float(string="Default Duration (h)")
+```
+
+`_order` is new: the default sort for every search on the model (`id` if you don't
+say otherwise). Add the import to `models/__init__.py`:
+
+```python
+from . import service_type
+from . import vehicle
+```
+
+### 2. The permissions (chapter 10 muscle memory)
+
+Two lines in `security/ir.model.access.csv`. It's a config model, so technicians
+read it and only managers change it:
+
+```csv
+access_librefleet_service_type_user,librefleet.service.type user,model_librefleet_service_type,group_librefleet_user,1,0,0,0
+access_librefleet_service_type_manager,librefleet.service.type manager,model_librefleet_service_type,group_librefleet_manager,1,1,1,1
+```
+
+### 3. Vehicle views and action
+
+New directory `views/`, first file `addons/librefleet/views/vehicle_views.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_vehicle_list" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.list</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="model_name"/>
+                <field name="year"/>
+                <field name="mileage_km"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_librefleet_vehicle_form" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.form</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Identification">
+                            <field name="license_plate"/>
+                            <field name="model_name"/>
+                            <field name="vin"/>
+                        </group>
+                        <group string="Usage">
+                            <field name="year"/>
+                            <field name="mileage_km"/>
+                        </group>
+                    </group>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1"
+                               placeholder="Anything the next technician should know..."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_librefleet_vehicle" model="ir.actions.act_window">
+        <field name="name">Vehicles</field>
+        <field name="res_model">librefleet.vehicle</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Register your first vehicle</p>
+            <p>Every vehicle that rolls into the workshop gets its card here.</p>
+        </field>
+    </record>
+
+</odoo>
+```
+
+Points worth pausing on: the view records are plain `<record>`s like chapter 10's
+groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
+`name` field on a view is a developer label, pick something greppable. The action's
+`help` becomes the friendly empty-state message users see before any record exists.
+
+### 4. Service type views: the editable list
+
+`addons/librefleet/views/service_type_views.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_service_type_list" model="ir.ui.view">
+        <field name="name">librefleet.service.type.list</field>
+        <field name="model">librefleet.service.type</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="name"/>
+                <field name="flat_fee"/>
+                <field name="default_duration_h"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_librefleet_service_type" model="ir.actions.act_window">
+        <field name="name">Service Types</field>
+        <field name="res_model">librefleet.service.type</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>
+```
+
+Note the `view_mode` is just `list`: with inline editing there's nothing a form
+would add. We didn't define a form at all, and that's fine; if something ever
+requests one, Odoo generates a sensible default from the fields (we checked: it
+even groups them in two columns).
+
+### 5. Menus
+
+`addons/librefleet/views/librefleet_menus.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_librefleet_root"
+              name="LibreFleet"
+              web_icon="librefleet,static/description/icon.png"
+              sequence="60"/>
+
+    <menuitem id="menu_librefleet_fleet"
+              name="Fleet"
+              parent="menu_librefleet_root"
+              sequence="10"/>
+
+    <menuitem id="menu_librefleet_vehicles"
+              name="Vehicles"
+              parent="menu_librefleet_fleet"
+              action="action_librefleet_vehicle"
+              sequence="10"/>
+
+    <menuitem id="menu_librefleet_config"
+              name="Configuration"
+              parent="menu_librefleet_root"
+              groups="group_librefleet_manager"
+              sequence="90"/>
+
+    <menuitem id="menu_librefleet_service_types"
+              name="Service Types"
+              parent="menu_librefleet_config"
+              action="action_librefleet_service_type"
+              sequence="10"/>
+
+</odoo>
+```
+
+`sequence` orders siblings, and the big gap (10, 90) is deliberate: later chapters
+slot Reporting between Fleet and Configuration without renumbering.
+
+### 6. Manifest, upgrade, restart
+
+The menus reference the actions, so the menu file loads last (chapter 10's lesson,
+applied):
+
+```python
+    "version": "19.0.1.3.0",
+    "data": [
+        "security/librefleet_security.xml",
+        "security/ir.model.access.csv",
+        "views/vehicle_views.xml",
+        "views/service_type_views.xml",
+        "views/librefleet_menus.xml",
+    ],
+```
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: loading librefleet/views/vehicle_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/service_type_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/librefleet_menus.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.12s, 178 queries (+178 other)
+$ docker compose restart odoo
+```
+
+### 7. Tour your app
+
+Log in as admin at [localhost:8069](http://localhost:8069). LibreFleet sits in the
+main menu with the chapter 8 icon. Click through: Fleet → Vehicles opens your list
+with `ZH 468 202` and `BE 30 447`, a row opens the two-column form, and the
+Configuration menu holds Service Types. Add the workshop's first price list right
+in the editable list (New, type, Enter):
+
+| Name | Flat Fee | Default Duration (h) |
+| --- | --- | --- |
+| Oil change | 89.00 | 1.0 |
+| Brake inspection | 120.00 | 1.5 |
+| Full service | 349.00 | 4.0 |
+
+Then open a private browser window and log in as `tina` / `technician`: she gets
+Fleet and Vehicles, but no Configuration menu at all, and the vehicle form shows no
+Create button for her (chapter 10's ACL doing its job in the UI). You can prove
+the menu filtering from the shell too, with the same method the web client uses:
+
+```console
+>>> tina = env["res.users"].search([("login", "=", "tina")])
+>>> cfg = env.ref("librefleet.menu_librefleet_config")
+>>> cfg.id in env["ir.ui.menu"].with_user(tina)._visible_menu_ids()
+False
+```
+
+### 8. Break-it lab: the view that stops the upgrade
+
+Views are validated against the model when they load. In the vehicle list view,
+change `license_plate` to `licence_plate` (a one-letter typo a British keyboard
+makes for free) and upgrade:
+
+```text
+odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views.xml:4
+Error while validating view near:
+
+<list __validate__="1">
+                <field name="licence_plate"/>
+                ...
+Field "licence_plate" does not exist in model "librefleet.vehicle"
+```
+
+Read the anatomy: file, line, the offending arch, and the exact complaint. Now the
+good news: check the database (or just reload the browser) and everything still
+works. A failed upgrade rolls the whole transaction back; your users keep the last
+good version while you fix the typo. Restore the field name, upgrade, and confirm
+calm returns.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch11
+✔ librefleet.service.type model with the right fields
+✔ service types have access rules
+✔ vehicle window action exists with view_mode list,form
+✔ LibreFleet root menu exists
+✔ vehicle list and form views defined
+✔ Configuration menu is manager-only
+
+ch11 complete! On to the next chapter 🔧
+```
+
+And see your views living in the database like any other records:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, type from ir_ui_view where model like 'librefleet%' order by model, type;"
+             name             | type
+------------------------------+------
+ librefleet.service.type.list | list
+ librefleet.vehicle.form      | form
+ librefleet.vehicle.list      | list
+```
+
+## Gotchas
+
+- **`<tree>` is gone in 19.** Old habits and old blog posts will hand it to you;
+  the server answers `Invalid view type: 'tree'`. Type `<list>`, and translate
+  silently when reading pre-17 code.
+- **A hidden menu is not a security measure.** `groups=` on a menuitem only trims
+  the UI. We proved it live: tina cannot see Service Types, yet reading
+  `librefleet.service.type` over RPC as tina works fine, because the chapter 10 ACL
+  grants it. Decide access in ACLs, decide navigation in menus.
+- **Menu files load last.** A `<menuitem action="...">` whose action loads later in
+  the manifest is the same fresh-install landmine as chapter 10's CSV; keep
+  security → views → menus order and test a fresh install.
+- **A view typo blocks the whole upgrade.** One bad field name in one arch and the
+  module won't load, which feels harsh until you notice the rollback saved you: no
+  half-upgraded state, the old views keep serving.
+- **Forms need `<sheet>` more than you think.** Fields dropped straight into
+  `<form>` render, but you lose the standard canvas, padding and responsive
+  behavior every other app has; users notice something is off without knowing what.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Click a menu, get a vehicle list. Put the four layers in the order they delegate to each other.',
+      options: [
+        'menu, view, action, model',
+        'menu, action, view, model',
+        'action, menu, model, view',
+      ],
+      answer: 1,
+      why: 'The menu names an action, the action names the model and which view types to use, and each view arch describes how to render that model. Every layer is a record you can inspect in Settings, Technical.',
+    },
+    {
+      q: 'An action asks for view_mode="list,form" but you only defined the list view. What happens on click-through to a record?',
+      options: [
+        'a traceback: missing view',
+        'Odoo generates a default form from the model fields',
+        'the row is not clickable at all',
+      ],
+      answer: 1,
+      why: 'Undefined view types are auto-generated on the fly. Great for a quick look at a new model, but the layout logic is generic, so shipped models get handwritten views.',
+    },
+    {
+      q: 'You put groups="group_librefleet_manager" on the Configuration menu and nothing else. Can tina still read service types?',
+      options: [
+        'no, hiding the menu revokes access',
+        'yes, over RPC or any other path; only the navigation is trimmed',
+        'only until the next upgrade',
+      ],
+      answer: 1,
+      why: 'Menus and security live in different layers. The ACL from chapter 10 (user: read) is what answers "may tina read this"; the menu attribute only answers "does tina see this entry".',
+    },
+    {
+      q: 'Why did the licence_plate typo break the upgrade instead of breaking the page at render time?',
+      options: [
+        'XML files are compiled to Python at install',
+        'view archs are validated against the model when the view record loads',
+        'the browser validates views before displaying them',
+      ],
+      answer: 1,
+      why: 'Fail at load, not at click: Odoo checks every field in the arch against the model the moment the data file loads, so a broken view can never reach users. The failed transaction rolls back to the last good state.',
+    },
+    {
+      q: 'Service types use an editable list with view_mode="list" only. When is that the right call?',
+      options: [
+        'whenever a model has fewer than five fields',
+        'for quick config tables where inline row editing beats a form round-trip',
+        'never; every model must define a form view',
+      ],
+      answer: 1,
+      why: 'Editable lists shine for flat reference data users maintain in bulk. The moment a model grows relations, buttons or a lifecycle, rows stop being enough and the form earns its place.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add the `vin` column to the vehicle list view, upgrade, and confirm it in the
+   UI. Then reorder columns and watch what the upgrade cycle does with your changes.
+2. ⭐⭐ Add an "Archived" awareness test: archive a vehicle from the list (select the
+   row, then the Archive action in the cog menu), watch it vanish, and find the
+   built-in way to see archived records in the UI (no code). Then explain why the
+   list looked exactly like your chapter 9 `search()` experiments.
+3. ⭐⭐ Give your `playground` module (chapter 8) a complete UI: one menu under a new
+   root, an action, and an editable list, without looking at this chapter's XML.
+   Fresh-install test it.
+4. ⭐⭐⭐ Study `sequence` conflicts: find where core apps declare their root menu
+   sequences (hint: grep the Odoo source in the container under
+   `/usr/lib/python3/dist-packages/odoo/addons`), and make LibreFleet appear
+   *first* in the main menu without touching any core file.
+
+## Further reading
+
+- [View records (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_records.html):
+  actions, menus, and the record plumbing from this chapter.
+- [View architectures (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html):
+  every tag and attribute `<list>` and `<form>` accept; chapter 17 mines this page.
+- [Server framework 101, chapter 5 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/05_firstui.html):
+  the official first UI walkthrough.

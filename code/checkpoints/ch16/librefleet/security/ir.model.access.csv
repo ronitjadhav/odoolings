@@ -1,0 +1,11 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,group_librefleet_user,1,1,0,0
+access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1
+access_librefleet_service_type_user,librefleet.service.type user,model_librefleet_service_type,group_librefleet_user,1,0,0,0
+access_librefleet_service_type_manager,librefleet.service.type manager,model_librefleet_service_type,group_librefleet_manager,1,1,1,1
+access_librefleet_service_order_user,librefleet.service.order user,model_librefleet_service_order,group_librefleet_user,1,1,1,0
+access_librefleet_service_order_manager,librefleet.service.order manager,model_librefleet_service_order,group_librefleet_manager,1,1,1,1
+access_librefleet_service_order_line_user,librefleet.service.order.line user,model_librefleet_service_order_line,group_librefleet_user,1,1,1,1
+access_librefleet_service_order_line_manager,librefleet.service.order.line manager,model_librefleet_service_order_line,group_librefleet_manager,1,1,1,1
+access_librefleet_part_user,librefleet.part user,model_librefleet_part,group_librefleet_user,1,0,0,0
+access_librefleet_part_manager,librefleet.part manager,model_librefleet_part,group_librefleet_manager,1,1,1,1

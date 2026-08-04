@@ -1,0 +1,392 @@
+---
+title: "10. Security First"
+description: Groups, access rules, and why Odoo pretends your model does not exist until you grant someone the right to see it.
+---
+
+**Goal:** give LibreFleet real user groups and access rules, and understand why the
+model was invisible without them. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch10`
+
+## Why this matters
+
+Chapter 9 left a WARNING in the upgrade log and a model only the superuser could
+touch. That wasn't an oversight to rush past: it's the framework teaching you its
+posture. In Odoo, nobody can do anything with a model until a rule says they can,
+and "nobody" includes the admin account. Most tutorials bolt security on at the end;
+integrators learn it first, because on a real project the question is never "can we
+show this data" but "to exactly whom". Getting groups right early also means every
+later chapter (views, wizards, reports) is built and tested against realistic
+permissions instead of superuser fantasy.
+
+## Concepts
+
+### Deny by default
+
+An Odoo model ships with zero permissions. Until an access rule grants a group the
+right to read it, a regular user calling it over RPC gets
+`Object librefleet.vehicle doesn't exist`: not "access denied", *doesn't exist*.
+The vagueness is deliberate (why confirm to an attacker what the database contains?),
+but it makes the failure look like a typo in the model name. You met this in
+chapter 9; now you know what it actually means.
+
+### Groups, and how Odoo 19 organizes them
+
+Permissions are never granted to individual users, always to **groups**
+(`res.groups`), and users join groups. Since Odoo 19, groups are organized under a
+**privilege** (`res.groups.privilege`, the "Workshop" row you'll see on the user
+form), and privileges sit in a module category. LibreFleet follows the standard
+two-level pattern almost every app uses:
+
+- **Workshop / User**: technicians. Can see the fleet and keep it updated.
+- **Workshop / Manager**: full control. Declares `implied_ids` pointing at User,
+  which means every Manager automatically has everything a User has; you only ever
+  grant the *extra* rights to Manager.
+
+<Mermaid
+  chart={`flowchart TB
+    P["res.groups.privilege<br/>Workshop"] --> U["res.groups<br/>Workshop / User"]
+    P --> M["res.groups<br/>Workshop / Manager"]
+    M -. "implied_ids:<br/>Manager has all of User" .-> U
+    T["user tina"] --> U
+    A["user admin"] --> M
+    U -- "ACL: read, write" --> V[("librefleet.vehicle")]
+    M -- "ACL: read, write,<br/>create, unlink" --> V`}
+/>
+
+<Callout type="info" title="On Odoo 18 this differs">
+  The privilege level is new in 19. On 18 and earlier, a group carries a
+  `category_id` straight to the module category, the group's member list is the
+  `users` field (19: `user_ids`), and the groups field on `res.users` is `groups_id`
+  (19: `group_ids`). The concepts are identical; only the wiring moved.
+</Callout>
+
+### Access rules: the CSV
+
+Model-level permissions live in `ir.model.access` records, by convention loaded from
+`security/ir.model.access.csv`. One line grants one group four booleans on one
+model: **read, write, create, unlink**. Two properties matter more than the syntax:
+
+- **Additive.** A user's effective rights are the union of all their groups' lines.
+  There is no "deny" line; you subtract by *not granting*, never by overriding.
+- **Model-wide.** An ACL answers "may tina write vehicles at all?". "May she write
+  *this* vehicle?" is a different mechanism, **record rules** (`ir.rule`), which
+  filter per record with a domain. LibreFleet's record rule ("technicians may only
+  write service orders assigned to them") arrives in chapter 12, once service orders
+  exist to filter.
+
+### Superuser, admin, and testing as somebody real
+
+Chapter 9's shell worked without any ACL because `odoo shell` runs as the
+**superuser** (`__system__`, uid 1), which skips permission checks entirely. The
+`admin` account is *not* that: it's an ordinary user born into the administration
+groups, and your new model's ACLs don't mention those. That's why this chapter's
+XML explicitly adds admin to Workshop / Manager, and why the honest way to test
+security is `with_user()`: it re-runs your code as a real user, checks included.
+
+## Hands-on
+
+### 1. Define the groups
+
+New directory `security/`, first file
+`addons/librefleet/security/librefleet_security.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="privilege_librefleet" model="res.groups.privilege">
+        <field name="name">Workshop</field>
+        <field name="category_id" ref="base.module_category_services"/>
+    </record>
+
+    <record id="group_librefleet_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="privilege_librefleet"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">Technicians: see the whole fleet and keep vehicle data up to date.</field>
+    </record>
+
+    <record id="group_librefleet_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="sequence">20</field>
+        <field name="privilege_id" ref="privilege_librefleet"/>
+        <field name="implied_ids" eval="[(4, ref('group_librefleet_user'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="comment">Workshop managers: full control, including configuration.</field>
+    </record>
+
+</odoo>
+```
+
+Three things to unpack, because this file is your first real data XML:
+
+- Every `<record>` gets an **XML id** (`id="group_librefleet_user"`), a stable
+  handle other files and modules use to point at the record. `ref("...")` resolves
+  one; ids from other modules need the module prefix (`base.group_user`).
+- `eval="[(4, ref(...))]"` is the ORM's list-manipulation syntax for x2many fields:
+  code `4` means "link this existing record". Chapter 12 covers the whole family.
+- The Manager group adds `base.user_admin` to `user_ids`. Skip that line and even
+  admin stays locked out of your app; core modules do exactly the same.
+
+### 2. Grant the permissions
+
+`addons/librefleet/security/ir.model.access.csv`:
+
+```csv
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,group_librefleet_user,1,1,0,0
+access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1
+```
+
+Read it as a matrix: technicians read and update vehicles (a mileage correction
+after a service is their daily job), only managers register new vehicles or delete
+them. The `model_librefleet_vehicle` reference is an XML id too, one the ORM
+generated automatically for the model when chapter 9's upgrade registered it
+(pattern: `model_` + `_name` with dots as underscores).
+
+### 3. Declare both files, in the right order
+
+In the manifest, bump the version and fill `data`:
+
+```python
+    "version": "19.0.1.2.0",
+    "data": [
+        "security/librefleet_security.xml",
+        "security/ir.model.access.csv",
+    ],
+```
+
+The list is loaded top to bottom, and the CSV references the groups, so the XML must
+come first. Hold that thought until the break-it lab. Upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
+INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 75 queries (+75 other)
+```
+
+Chapter 9's WARNING about missing access rules is gone. One more step before the
+change is fully live: that upgrade ran in its own process, and your long-running web
+server keeps caches of exactly this kind of data. Restart it so nothing stale
+lingers:
+
+```console
+$ docker compose restart odoo
+```
+
+(Yes, this bit us while writing the chapter: without the restart, admin's RPC calls
+still answered "doesn't exist".)
+
+### 4. Create a technician to test with
+
+You need a user who is *only* a technician. From `odoo shell`:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> tina = env["res.users"].create({
+...     "name": "Tina Technician",
+...     "login": "tina",
+...     "password": "technician",
+...     "group_ids": [(4, env.ref("librefleet.group_librefleet_user").id)],
+... })
+>>> tina.group_ids.mapped("full_name")
+['Workshop / User']
+>>> env.cr.commit()
+```
+
+There's `env.ref()` again: the Python side of XML id resolution.
+
+### 5. Feel the permissions with `with_user`
+
+Still in the shell (or a new one), replay tina's workday:
+
+```console
+>>> Vehicle = env["librefleet.vehicle"].with_user(tina)
+>>> Vehicle.search([]).mapped("display_name")
+['ZH 468 202', 'BE 30 447']
+>>> Vehicle.browse(1).mileage_km = 84900.0        # back from a service run
+>>> env.cr.commit()
+>>> Vehicle.create({"license_plate": "GE 11 222"})
+AccessError: You are not allowed to create 'Workshop Vehicle' (librefleet.vehicle) records.
+
+This operation is allowed for the following groups:
+	- Workshop/Manager
+
+Contact your administrator to request access if necessary.
+```
+
+Read, allowed. Write, allowed. Create, refused, and the error even names the group
+that could (notice your chapter 9 `_description` doing its job in that message).
+The server log tells the same story from its side:
+
+```text
+INFO tutorial odoo.addons.base.models.ir_model: Access Denied by ACLs for operation: create, uid: 5, model: librefleet.vehicle
+```
+
+And the escape hatch you should distrust on sight: `Vehicle.sudo()` returns to
+superuser and would happily create the record. Try it, see it work, then quit
+*without* committing. `sudo()` has legitimate uses (chapter 15 sets the rules), but
+every one of them deserves a comment explaining itself.
+
+### 6. Break-it lab: the bug that only bites on fresh installs
+
+Swap the two lines in the manifest's `data` list so the CSV loads first, then
+upgrade. Expecting an explosion?
+
+```text
+INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
+INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.05s, 85 queries (+85 other)
+```
+
+It *works*. Your database already contains the group records from the previous
+upgrade, so the CSV's references resolve against them no matter the file order. Now
+run the same code as a brand-new install, the way your client's production server
+will meet it:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d freshtest -i librefleet --stop-after-init
+...
+CRITICAL freshtest odoo.service.server: Failed to initialize database `freshtest`.
+Exception: Module loading librefleet failed: file librefleet/security/ir.model.access.csv could not be processed:
+No matching record found for external id 'group_librefleet_user' in field 'Group'
+No matching record found for external id 'group_librefleet_manager' in field 'Group'
+```
+
+Same module, dead on arrival. This class of bug (data order, missing file, renamed
+XML id) hides perfectly in the database you develop on, because that database
+remembers every version you ever loaded. The antidote is cheap and worth making a
+habit: before shipping, install into a throwaway database exactly as above. Restore
+the manifest order, rerun the fresh install to see it pass, then clean up:
+
+```console
+$ docker compose exec odoo odoo db -c /etc/odoo/odoo.conf drop freshtest
+```
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch10
+✔ Workshop User and Manager groups exist
+✔ librefleet.vehicle has access rules
+✔ admin can read vehicles over XML-RPC
+✔ technician user 'tina' exists in Workshop / User
+
+ch10 complete! On to the next chapter 🔧
+```
+
+Note the third check: it is chapter 9's "doesn't exist" failure, inverted. odoolings
+talks to Odoo over XML-RPC as admin, so it could not see your model at all until the
+ACLs and the admin membership existed. Cross-check the matrix in psql:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read as r, a.perm_write as w, a.perm_create as c, a.perm_unlink as u from ir_model_access a join ir_model m on a.model_id = m.id where m.model = 'librefleet.vehicle';"
+            name            | r | w | c | u
+----------------------------+---+---+---+---
+ librefleet.vehicle user    | t | t | f | f
+ librefleet.vehicle manager | t | t | t | t
+```
+
+## Gotchas
+
+- **A CLI upgrade doesn't refresh the running server.** Groups, ACLs and registry
+  data are cached per process; after `-u` from another container process, restart
+  the web server or you'll debug phantom permission errors (we did).
+- **The data-order bug is invisible on your database.** Once an XML id exists in the
+  DB, later loads resolve it regardless of file order. Only a fresh install tells
+  the truth; test one before every release.
+- **ACLs are additive, so there is no "deny" line.** If a user seems to have too
+  much power, some group they're in grants it; hunt the union, don't try to
+  subtract. Settings → Technical → Access Rights filters by model.
+- **Don't paste the WARNING's suggested line as-is.** The chapter 9 hint granted
+  read to `base.group_user`: *every internal user in the company*. It's a syntax
+  example, not a security design. Decide who needs what first.
+- **admin is not the superuser.** Adding ACLs for your new groups does nothing for
+  admin until admin joins one of them (the `user_ids` line). If admin "can't see
+  the app you just secured", that line is missing.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A model has no ACL at all. What does a regular user get when calling it over RPC?',
+      options: [
+        'an AccessError naming the missing permission',
+        'read-only access as a safe default',
+        'an error claiming the model does not exist',
+      ],
+      answer: 2,
+      why: 'Deny-by-default plus deliberate vagueness: Odoo will not even confirm the model exists to someone with no right to it. Remember this the next time a model name "has a typo" that you cannot find.',
+    },
+    {
+      q: 'tina is in Workshop / User (read, write) and one day also joins Workshop / Manager. What are her effective rights on vehicles?',
+      options: [
+        'whichever group was assigned last wins',
+        'the union: full read, write, create, unlink',
+        'a conflict error until an admin resolves it',
+      ],
+      answer: 1,
+      why: 'ACLs only ever add. Every group contributes its grants and nothing can subtract, which is why "remove the permission" always means "leave the group" or "redesign the groups".',
+    },
+    {
+      q: 'The break-it lab module upgraded fine on your database but crashed a fresh install. Why?',
+      options: [
+        'fresh databases load CSV files before XML files',
+        'the old database already had the groups referenced by the misordered CSV',
+        'the upgrade path skips security files',
+      ],
+      answer: 1,
+      why: 'XML ids resolve against the database, and yours remembered the groups from earlier loads. File order only shows its teeth when the database starts empty, which is exactly what production will do.',
+    },
+    {
+      q: 'Workshop / Manager lists Workshop / User in implied_ids. What does that buy you?',
+      options: [
+        'managers automatically get every right granted to users, so ACLs only state the extras',
+        'users can be promoted to manager without a database write',
+        'the two groups share one line in the access CSV',
+      ],
+      answer: 0,
+      why: 'Implication is the standard way to build permission ladders: grant the base level once, and higher groups inherit it. Without it you would repeat (and eventually forget) lines in every ACL file.',
+    },
+    {
+      q: 'In chapter 9 the shell could create vehicles with no ACLs anywhere. What made that possible?',
+      options: [
+        'the shell process disables the security module',
+        'odoo shell runs as the superuser, which skips permission checks entirely',
+        'ACLs only apply to network connections',
+      ],
+      answer: 1,
+      why: 'uid 1 bypasses ACLs and record rules by design. It is why sudo() is powerful and dangerous, and why with_user() is the only honest way to test what real users experience.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a third group, Workshop / Auditor: read-only on vehicles, implied by
+   nothing and implying nothing but `base.group_user`. Wire the XML and CSV, prove
+   it with a fresh-install test, and confirm with `with_user` that an auditor can
+   read but not write.
+2. ⭐⭐ Secure your `playground` module (chapter 8's exercise) with an ACL that
+   grants access to LibreFleet's *existing* Workshop / User group instead of a new
+   one. You'll need the cross-module form of the XML id in the CSV. Then explain to
+   yourself why a real project would usually not couple two modules this way.
+3. ⭐⭐⭐ A preview of chapter 12: using the
+   [record rules documentation](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html#record-rules),
+   add an `ir.rule` restricting Workshop / User to *active* vehicles only, prove it
+   with tina, then remove the rule (LibreFleet's real record rule arrives with
+   service orders).
+
+## Further reading
+
+- [Security in Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
+  the reference for groups, ACLs and record rules.
+- [Server framework 101, chapter 4 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/04_securityintro.html):
+  the official first pass at security, one CSV and done. Compare with what you now
+  know about groups.
+- [Restrict access to data (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/restrict_data_access.html):
+  a whole tutorial on the layered security model, good preparation for chapter 12's
+  record rule.

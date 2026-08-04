@@ -1,0 +1,452 @@
+---
+title: "12. Relations"
+description: Many2one, one2many and many2many arrive, LibreFleet grows its centerpiece service order, and the ch10 record rule finally lands.
+---
+
+**Goal:** connect vehicles to owners, orders, technicians and parts with all three
+relation types, and enforce who may touch which order. · **Time:** ~3 h ·
+**Checkpoint:** `code/checkpoints/ch12`
+
+## Why this matters
+
+A fleet of unconnected vehicles is a spreadsheet. The moment a vehicle knows its
+owner, an order knows its vehicle, and a technician knows their orders, you have a
+business application. Relations are where the ORM earns its keep, and they're also
+where new Odoo developers make their most expensive mistakes (wrong `ondelete`,
+inverted one2many, record rules that lock out the boss). This chapter builds
+LibreFleet's centerpiece, the **service order**, wires all three relation types
+around it, and pays the debt from chapter 10: the record rule that limits
+technicians to their own work.
+
+## Concepts
+
+### Three relation types, one foreign key story
+
+- **`Many2one`** is *the* relation; the other two are conveniences built around it.
+  `vehicle_id = fields.Many2one("librefleet.vehicle")` becomes a plain integer
+  column holding the other record's id, with a real foreign key constraint in
+  Postgres. Naming convention: singular, `_id` suffix.
+- **`One2many`** is a Many2one read from the other end. `service_order_ids` on the
+  vehicle is *not* a column anywhere: it's a live query ("all orders whose
+  `vehicle_id` is me"), which is why declaring one always names the inverse field:
+  `fields.One2many("librefleet.service.order", "vehicle_id")`. No Many2one, no
+  One2many. Naming: plural, `_ids` suffix.
+- **`Many2many`** links both ways without a "belongs to" side. Technicians work on
+  many orders, orders can need two mechanics. In Postgres this becomes a separate
+  *relation table* of id pairs that Odoo names and manages for you.
+
+<Mermaid
+  chart={`erDiagram
+    "res.partner" ||--o{ "librefleet.vehicle" : "owner_id"
+    "librefleet.vehicle" ||--o{ "librefleet.service.order" : "vehicle_id"
+    "librefleet.service.type" ||--o{ "librefleet.service.order" : "service_type_id"
+    "librefleet.service.order" ||--o{ "librefleet.service.order.line" : "order_id"
+    "librefleet.part" ||--o{ "librefleet.service.order.line" : "part_id"
+    "librefleet.service.order" }o--o{ "res.users" : "technician_ids"`}
+/>
+
+### `ondelete`: decide now what deletion means
+
+Every Many2one carries an `ondelete` policy, and the default (`set null`) is a
+decision too. LibreFleet uses all three settings deliberately:
+
+| Field | Policy | Because |
+| --- | --- | --- |
+| `line.part_id` | `set null` (default) | a deleted catalog part shouldn't destroy history |
+| `order.vehicle_id` | `restrict` | an order without its vehicle is meaningless; block the delete |
+| `line.order_id` | `cascade` | lines are part of their order; delete the order, the lines go too |
+
+These become real `ON DELETE` clauses in Postgres, so they hold even against raw
+SQL. You'll read them straight out of `\d` in the hands-on.
+
+### Record rules: the per-record layer, at last
+
+Chapter 10 promised it: ACLs answer "may technicians write orders at all" (yes),
+record rules answer "*which* orders". An `ir.rule` attaches a domain to a model for
+some groups; the ORM silently appends it to every read, write, create or unlink the
+rule is flagged for (`perm_read`, `perm_write`...).
+
+One behavior surprises everyone once, so learn it on purpose: **rules from all your
+groups combine with OR, and having *any* rule on a model means users without a
+matching rule get nothing.** Workshop managers are also Workshop users (chapter
+10's `implied_ids`), so a technicians-only rule catches managers too, unless the
+manager group gets its own rule saying "everything" (`[(1, '=', 1)]`). The
+hands-on walks you into that trap with your own admin account, then out of it.
+
+### x2many values: the command list
+
+You'll meet writes like `technician_ids: [(4, tina.id)]` in this chapter's shell
+work (you already saw one in chapter 10's group XML). Relational fields are written
+with a small command language: `(4, id)` links an existing record, `(0, 0, {vals})`
+creates one attached to the parent, `(6, 0, [ids])` replaces the whole set,
+`(3, id)`/`(2, id)` unlink or delete one. Since Odoo 15 you can also write them
+readably as `Command.link(id)`, `Command.create(vals)` and so on; the tuple form is
+what you'll encounter in twenty years of existing code, so learn to read both.
+
+## Hands-on
+
+### 1. The service order and its lines
+
+`addons/librefleet/models/service_order.py`, two models in one file because
+lines never live apart from their order:
+
+```python
+from odoo import fields, models
+
+
+class ServiceOrder(models.Model):
+    _name = "librefleet.service.order"
+    _description = "Service Order"
+    _rec_name = "vehicle_id"
+    _order = "scheduled_start desc, id desc"
+
+    vehicle_id = fields.Many2one(
+        "librefleet.vehicle", required=True, ondelete="restrict", index=True)
+    service_type_id = fields.Many2one("librefleet.service.type")
+    technician_ids = fields.Many2many("res.users", string="Technicians")
+    line_ids = fields.One2many("librefleet.service.order.line", "order_id")
+    stage = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("confirmed", "Confirmed"),
+            ("in_progress", "In Progress"),
+            ("done", "Done"),
+            ("cancelled", "Cancelled"),
+        ],
+        default="draft", required=True)
+    scheduled_start = fields.Datetime()
+    scheduled_end = fields.Datetime()
+    notes = fields.Text()
+
+
+class ServiceOrderLine(models.Model):
+    _name = "librefleet.service.order.line"
+    _description = "Service Order Line"
+
+    order_id = fields.Many2one(
+        "librefleet.service.order", required=True, ondelete="cascade", index=True)
+    part_id = fields.Many2one("librefleet.part")
+    qty = fields.Float(string="Quantity", default=1.0)
+    price_unit = fields.Float(string="Unit Price")
+```
+
+New pieces beyond the relations themselves: **`Selection`** stores one key from a
+closed list (the string next to each key is the label users see); the order's
+lifecycle lives here until chapter 17 turns it into a statusbar. `index=True` on
+the heavily-searched Many2ones adds a real database index. `_rec_name =
+"vehicle_id"` borrows the vehicle's display name until chapter 14 gives orders a
+proper reference. And until chapter 13 computes them, prices sit as plain floats.
+
+### 2. The parts catalog
+
+`addons/librefleet/models/part.py` is chapter 9 material, four fields, no
+relations (`name` required, `code`, `standard_cost`, `list_price`; see the
+checkpoint). Deliberately *not* Odoo's `product` module: bridging LibreFleet to
+real products is chapter 22's whole point. Import both new files in
+`models/__init__.py` (alphabetical, so `part`, `service_order`, `service_type`,
+`vehicle`).
+
+### 3. Close the loop on the vehicle
+
+Two lines in `vehicle.py`, right after `license_plate`:
+
+```python
+    owner_id = fields.Many2one("res.partner", string="Owner")
+    service_order_ids = fields.One2many("librefleet.service.order", "vehicle_id")
+```
+
+`res.partner` is core Odoo's universal person/company model; linking to it instead
+of inventing a customer model is the single most integrator-brained decision in
+this chapter. Every module that touches partners (mail, invoicing, portal) now
+composes with yours for free.
+
+### 4. ACLs for three new models
+
+Six new lines in `security/ir.model.access.csv`, same pattern as always:
+technicians read the parts catalog but don't edit it, and they work with orders and
+lines but never delete an order (see the checkpoint for the exact lines). Note
+what's *deliberately* granted: user create on orders and full line access; the real
+restriction comes next.
+
+### 5. The record rule, and the trap
+
+Append the technician rule to `security/librefleet_security.xml`, inside a
+`<data noupdate="1">` block (rules are policy, not code; `noupdate` keeps a later
+upgrade from overwriting what a client tuned in production; chapter 24 returns to
+this):
+
+```xml
+    <data noupdate="1">
+
+        <record id="rule_service_order_technician" model="ir.rule">
+            <field name="name">Service orders: technicians handle their own</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="groups" eval="[(4, ref('group_librefleet_user'))]"/>
+            <field name="domain_force">[('technician_ids', 'in', user.ids)]</field>
+            <field name="perm_read" eval="False"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+    </data>
+```
+
+`domain_force` is evaluated with `user` in scope; `perm_read=False` means reading
+stays unrestricted (technicians see the whole planning, they just can't touch
+foreign orders). Upgrade, then seed some real data from the shell: two partners as
+owners, three parts, and two orders, one with tina assigned, one without. The full
+paste-ready snippet is `code/checkpoints/ch12/seed_ch12.py`; the line worth
+studying is the one2many write:
+
+```python
+o1 = env["librefleet.service.order"].create({
+    "vehicle_id": zh.id,
+    "service_type_id": oil_change.id,
+    "technician_ids": [(4, tina.id)],
+    "scheduled_start": "2026-07-16 08:00:00",
+    "scheduled_end": "2026-07-16 09:00:00",
+    "line_ids": [
+        (0, 0, {"part_id": oil_filter.id, "qty": 1, "price_unit": 24.5}),
+        (0, 0, {"part_id": oil.id, "qty": 4, "price_unit": 18.9}),
+    ],
+})
+```
+
+Commit, then walk into the trap. As **admin**, try to confirm the order tina is
+*not* on:
+
+```console
+>>> o2.with_user(env.ref("base.user_admin")).write({"stage": "confirmed"})
+AccessError: Uh-oh! Looks like you have stumbled upon some top-secret records.
+
+Sorry, Administrator (id=2) doesn't have 'write' access to:
+- Service Order (librefleet.service.order)
+```
+
+The boss is locked out of the workshop. Why: admin is a Workshop Manager, Manager
+implies User, so the technician rule applies to admin, and admin is in
+`technician_ids` of nothing. This is the most common record-rule bug in the wild,
+and now you've caused it yourself. The fix is the standard pattern, a second rule
+that gives managers everything:
+
+```xml
+        <record id="rule_service_order_manager" model="ir.rule">
+            <field name="name">Service orders: managers handle all</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="groups" eval="[(4, ref('group_librefleet_manager'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+```
+
+Upgrade, retest: admin writes any order (rules OR together, and `[(1, '=', 1)]`
+matches everything), while tina still bounces off foreign orders. The server log
+narrates every denial:
+
+```text
+INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for operation: write on record ids: [2], uid: 2, model: librefleet.service.order
+```
+
+### 6. Views and menus for the new models
+
+Nothing conceptually new, so skim the checkpoint for the full XML:
+`views/service_order_views.xml` (list + form + action) and `views/part_views.xml`
+(an editable list like service types), plus two menu items: Fleet → Service Orders,
+Configuration → Parts. Two details in the order form deserve your attention:
+
+```xml
+    <field name="technician_ids" widget="many2many_tags"/>
+    ...
+    <field name="line_ids" nolabel="1">
+        <list editable="bottom">
+            <field name="part_id"/>
+            <field name="qty"/>
+            <field name="price_unit"/>
+        </list>
+    </field>
+```
+
+`widget=` picks a different renderer for the same data (tags beat a full table for
+a handful of technicians; chapter 17 tours the widget zoo). And nesting a `<list>`
+inside a one2many field gives you the inline lines editor every Odoo order screen
+uses; rows you add there are `(0, 0, {...})` commands under the hood. Also add
+`owner_id` to the vehicle list and form from chapter 11. Upgrade, restart, and
+click through: Fleet → Service Orders, open the oil change, add a line, pick
+technicians by name.
+
+### 7. Read the relations back from Postgres
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c '\d librefleet_service_order_line'
+...
+Foreign-key constraints:
+    "librefleet_service_order_line_order_id_fkey" FOREIGN KEY (order_id) REFERENCES librefleet_service_order(id) ON DELETE CASCADE
+    "librefleet_service_order_line_part_id_fkey" FOREIGN KEY (part_id) REFERENCES librefleet_part(id) ON DELETE SET NULL
+```
+
+Your `ondelete=` choices, verbatim, as database constraints. The many2many is here
+too, a table you never declared:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "\dt *service_order*rel*"
+ public | librefleet_service_order_res_users_rel | table | odoo
+```
+
+And `restrict` does its job even from the shell as superuser, because it lives in
+the database, not in Python:
+
+```console
+>>> zh.unlink()
+ForeignKeyViolation: update or delete on table "librefleet_vehicle" violates foreign key constraint "librefleet_service_order_vehicle_id_fkey" on table "librefleet_service_order"
+```
+
+(That's the raw violation; remember to `env.cr.rollback()` after it.)
+
+### 8. Break-it lab: the inverse that isn't
+
+One2many's inverse name is a string, and strings can lie. In `line_ids`, change
+`"order_id"` to `"service_order_id"` and upgrade:
+
+```text
+ValueError: 'service_order_id' declared in 'librefleet.service.order.line_ids' does not exist on 'librefleet.service.order.line'.
+```
+
+This one fails at registry setup, before any XML loads, so the message is short and
+surgical: the One2many names its comodel and the exact field it expected to find
+there. When you meet it in real life it's usually a rename that only got done on
+one side. Restore `"order_id"`, upgrade, breathe.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch12
+✔ vehicle has owner_id and service_order_ids
+✔ service order model has the right shape
+✔ part and order line models have the right shape
+✔ the three new models have access rules
+✔ service orders have record rules
+✔ technicians can only write their own orders
+
+ch12 complete! On to the next chapter 🔧
+```
+
+The last check is fully functional: odoolings logs in *as tina* over XML-RPC,
+writes an order she's assigned to (expects success), then tries one she isn't
+(expects the AccessError). Cross-check the one2many mirror from the shell:
+
+```console
+>>> zh = env["librefleet.vehicle"].search([("license_plate", "=", "ZH 468 202")])
+>>> zh.service_order_ids
+librefleet.service.order(1,)
+```
+
+## Gotchas
+
+- **A one2many is a view, not storage.** No column exists for
+  `service_order_ids`; assigning to the Many2one is what creates the link. If a
+  one2many "loses" records, look at the inverse field's values, not the one2many.
+- **Rules on a model apply to everyone in *any* matching group, and silence means
+  denial.** The manager lockout you built is the canonical case: adding a
+  restrictive rule for a base group restricts every group that implies it. Pair
+  restrictive rules with an explicit allow-all for the privileged group.
+- **`ondelete` defaults to `set null`, which is sometimes data loss with extra
+  steps.** An order line whose order vanished is garbage; a vehicle losing its
+  owner reference is fine. Decide per field, and remember `restrict` is enforced
+  by Postgres itself.
+- **`noupdate="1"` cuts both ways.** Your record rules won't be clobbered by
+  upgrades, but your *own* domain fixes won't apply either; during development,
+  uninstall/reinstall or edit the rule in the UI, and revisit this in chapter 24.
+- **Commit before switching hats.** Shell experiments with `with_user` on
+  uncommitted records can confuse you: the rule check happens against what the
+  cursor sees, but a rollback after an AccessError also throws away your seed
+  data. Seed, commit, then test permissions.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Where does the data of a one2many field live?',
+      options: [
+        'in a JSON column on the parent table',
+        'nowhere; it is computed from the inverse many2one at read time',
+        'in an automatic relation table',
+      ],
+      answer: 1,
+      why: 'One2many is a convenience view over the comodel\'s many2one. That is why it must declare its inverse field and why deleting the many2one column would take the one2many with it.',
+    },
+    {
+      q: 'Order lines use ondelete="cascade", the order\'s vehicle uses ondelete="restrict". A user deletes an order, then tries to delete a vehicle with two other orders. What happens?',
+      options: [
+        'lines of the deleted order are gone; the vehicle deletion is blocked by Postgres',
+        'both deletions succeed and orphaned records are cleaned by cron',
+        'the order deletion is blocked until its lines are removed first',
+      ],
+      answer: 0,
+      why: 'cascade means "I belong to my parent, take me along"; restrict means "block the parent\'s deletion while I exist". Both are enforced as real ON DELETE clauses in the database.',
+    },
+    {
+      q: 'Why did the technician record rule lock out admin, who is a Workshop Manager?',
+      options: [
+        'admin was not in the Workshop User group',
+        'Manager implies User, so both groups\' record rules applied',
+        'record rules always apply to administrators first',
+      ],
+      answer: 1,
+      why: 'Group implication spreads rules downhill. Once any rule exists on a model, a user needs at least one matching rule that covers the record; the standard fix is an explicit allow-all rule for the privileged group, OR-ed with the rest.',
+    },
+    {
+      q: 'What does [(4, tina.id)] mean when writing technician_ids?',
+      options: [
+        'replace all technicians with tina',
+        'link the existing user tina, keeping current links',
+        'create a new user from the id',
+      ],
+      answer: 1,
+      why: 'Command 4 links without touching the rest; command 6 replaces the whole set; command 0 creates. Modern code can spell these Command.link / Command.set / Command.create, but the tuples are everywhere.',
+    },
+    {
+      q: 'LibreFleet links owners to res.partner instead of a custom librefleet.customer model. What is the strongest argument for that?',
+      options: [
+        'res.partner has more fields than we would write',
+        'it composes with existing partner features such as email, invoicing, and portal',
+        'custom models cannot be linked from many2one fields',
+      ],
+      answer: 1,
+      why: 'Reusing the ecosystem\'s shared models is the integrator reflex. A private customer model would orphan LibreFleet from chatter, accounting and the portal, all of which arrive in later chapters.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a `technician_notes` Text field to the order line and show it in the
+   inline list. Then check in psql which table it landed on and why it is not on
+   the order.
+2. ⭐ From the shell, move a service order to another vehicle by writing only on
+   the Many2one side, and confirm both vehicles' `service_order_ids` changed.
+   Then do the reverse: add an order to a vehicle by writing the one2many with a
+   command tuple.
+3. ⭐⭐ Owners will one day see their fleet on the partner form (extending
+   `res.partner` is chapter 22). Today, build the read-only path: from the shell,
+   given partner Anna Keller, reach her vehicles and all their service orders in
+   two ORM calls, using only relation fields declared this chapter.
+4. ⭐⭐ Technicians can currently delete *any* order line (the ACL allows it).
+   Add a record rule on order lines so they may only unlink lines of orders they
+   are assigned to; domains can walk relations (`order_id.technician_ids`). Prove
+   both paths from the shell with `with_user`, and don't forget the manager rule
+   this time.
+5. ⭐⭐⭐ Read the
+   [security docs on rule combination](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html#record-rules),
+   then explain (in three sentences, to your rubber duck) why global rules AND
+   together while group rules OR together, and design where a "only during
+   opening hours" rule on orders would go.
+
+## Further reading
+
+- [ORM reference: relational fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#relational-fields):
+  every attribute of Many2one, One2many, Many2many, and the Command API.
+- [Server framework 101, chapter 7 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/07_relations.html):
+  the official pass at relations, on real estate offers.
+- [Security reference: record rules (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html#record-rules):
+  the rule-combination semantics you just felt in your own admin account.

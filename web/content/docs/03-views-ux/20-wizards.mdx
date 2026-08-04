@@ -1,0 +1,518 @@
+---
+title: "20. Wizards"
+description: "Build the transient popup that stands between a click and a real business decision, and close the gap chapter 17 warned you about."
+---
+
+**Goal:** build a `TransientModel` wizard that gates the last stage transition
+behind real validation, closing the loophole chapter 17 left open on purpose.
+· **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch20`
+
+## Why this matters
+
+Chapter 17 gave service orders a clickable statusbar and said, plainly, that
+clicking enforces nothing: any user who can write the record can click any stage,
+no checks, no side effects, and that "chapter 20's buttons and wizard add the
+guardrails." This is that chapter. A wizard exists for exactly one reason: some
+transitions need a moment of confirmation, extra input, or a validation pass before
+they commit, and a raw field write can't ask for any of that. Marking a service order
+done is the perfect candidate: it's the point where the workshop is telling itself
+"this job made money" or explicitly overriding that check, and that's a decision
+worth a small form, not a click.
+
+## Concepts
+
+### TransientModel: a model that cleans up after itself
+
+A wizard is a model like any other, `_name`, fields, methods, security, except it
+inherits `models.TransientModel` instead of `models.Model`. The difference is
+lifecycle: transient records aren't meant to live forever. Odoo runs a scheduled
+vacuum that deletes old transient rows automatically (a default cutoff measured in
+hours, configurable per model via `_transient_max_hours`), so a wizard's table never
+accumulates years of throwaway "I opened this popup once" records the way a real
+business model's table would. Everything else about a `TransientModel`, fields,
+`api.depends`, security, is identical to what you already know.
+
+### A wizard's three-part shape
+
+<Mermaid
+  chart={`flowchart LR
+    A["button on the order form\n(type=object)"] --> B["method returns an\nact_window, target=new"]
+    B --> C["wizard form opens as\na popup, order_id defaulted\nfrom context"]
+    C --> D["user fills the wizard,\nclicks its own button"]
+    D --> E["wizard method validates,\nwrites to the real record"]`}
+/>
+
+You've built every piece of this before, separately. Chapter 17 taught you a button
+that calls a Python method and returns an action dict; chapter 15 taught you
+`default_<field>` in a context dict. A wizard just chains them: a button on the real
+record's form opens a popup (`target="new"`) whose form is a different model
+entirely, pre-filled from context, and that popup's own button runs the validation
+and writes back to the record that opened it.
+
+### Where validation actually belongs
+
+You've now met three places a stage change can be gated, and this is the moment to
+line them up:
+
+| Mechanism | Enforces? | Where you met it |
+|---|---|---|
+| Clickable statusbar | Nothing. Any write, no questions asked. | Chapter 17 |
+| `@api.constrains` | Yes, but only after the write already happened, and it rolls the whole transaction back on failure | Chapter 14 |
+| Wizard button | Yes, and it can ask for more information (a note, an override) before ever attempting the write | This chapter |
+
+A constraint is the right tool when the rule is about *data*, no matter how it got
+written (chapter 14's no-overlapping-bookings rule fires whether you changed the
+date from the form, an import, or the shell). A wizard is the right tool when the
+rule is about *process*, a specific action a user takes on purpose, that benefits
+from a confirmation step and maybe some extra input first.
+
+## Hands-on
+
+### 1. Scaffold the wizard
+
+A new top-level `wizards/` directory, alongside `models/`. Create
+`wizards/__init__.py`:
+
+```python
+from . import service_order_approve
+```
+
+And `wizards/service_order_approve.py`:
+
+```python
+from odoo import fields, models
+from odoo.exceptions import UserError
+
+
+class ServiceOrderApproveWizard(models.TransientModel):
+    _name = "librefleet.service.order.approve.wizard"
+    _description = "Approve & Complete Service Order"
+
+    order_id = fields.Many2one("librefleet.service.order", required=True, readonly=True)
+    margin = fields.Float(related="order_id.margin", readonly=True)
+    override_negative_margin = fields.Boolean(
+        string="Complete anyway (negative margin)",
+        groups="librefleet.group_librefleet_manager")
+    note = fields.Text(string="Completion Note")
+
+    def action_confirm(self):
+        self.ensure_one()
+        order = self.order_id
+        if order.stage != "in_progress":
+            raise UserError(
+                "Only an order that is in progress can be marked done.")
+        if order.margin < 0 and not self.override_negative_margin:
+            raise UserError(
+                "This order loses money (margin %.2f). A manager must tick "
+                "the override to complete it anyway." % order.margin)
+        if self.note:
+            order.notes = "%s\n\nCompletion note: %s" % (order.notes or "", self.note)
+        order.stage = "done"
+        return {"type": "ir.actions.act_window_close"}
+```
+
+Two business rules, both things a raw statusbar click could never ask about: the
+order must actually be `in_progress` (you can't "complete" a draft), and a
+money-losing order needs a manager's explicit override. `related="order_id.margin"`
+gives the wizard a read-only mirror of the order's margin for free, no separate
+compute needed. `override_negative_margin` carries `groups=`, the same
+group-restriction mechanism chapter 10 taught you for regular model fields, and it
+works exactly the same way here: only Workshop Managers see the field in the form,
+*and*, worth confirming for yourself below, only they're allowed to write to it at
+all, at the ORM level, not just hidden in the UI.
+
+Update `wizards/service_order_approve_views.xml`:
+
+```xml
+<record id="view_librefleet_service_order_approve_wizard_form" model="ir.ui.view">
+    <field name="name">librefleet.service.order.approve.wizard.form</field>
+    <field name="model">librefleet.service.order.approve.wizard</field>
+    <field name="arch" type="xml">
+        <form string="Approve &amp; Complete">
+            <field name="order_id" invisible="1"/>
+            <group>
+                <field name="margin"/>
+                <field name="override_negative_margin" invisible="margin &gt;= 0"/>
+                <field name="note"/>
+            </group>
+            <footer>
+                <button string="Mark Done" name="action_confirm" type="object"
+                        class="btn-primary"/>
+                <button string="Cancel" special="cancel" class="btn-secondary"/>
+            </footer>
+        </form>
+    </field>
+</record>
+```
+
+`invisible="margin &gt;= 0"` (the escaped `>=`, XML doesn't allow a bare `>`) hides
+the override checkbox entirely on the common path, a healthy job made money, nobody
+needs to see a checkbox that never applies. `special="cancel"` is the standard way
+to close a wizard popup without running any action.
+
+### 2. The button that opens it
+
+On `librefleet.service.order`, add the method the button calls:
+
+```python
+    def action_open_approve_wizard(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Approve & Complete",
+            "res_model": "librefleet.service.order.approve.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {"default_order_id": self.id},
+        }
+```
+
+`target="new"` is what makes this open as a popup instead of navigating away from
+the order. `default_order_id` in the context does the same job chapter 15 and 17's
+smart buttons already showed you: the wizard's `order_id` field gets pre-filled the
+moment the form opens, no `default_get` override needed.
+
+In `views/service_order_views.xml`, add the button to the header and, this is the
+part that actually closes chapter 17's loophole, remove `done` from
+`statusbar_visible`:
+
+```xml
+<header>
+    <button string="Mark Done" name="action_open_approve_wizard"
+            type="object" class="btn-primary"
+            invisible="stage != 'in_progress'"/>
+    <field name="stage" widget="statusbar"
+           options="{'clickable': true}"
+           statusbar_visible="draft,confirmed,in_progress"/>
+</header>
+```
+
+The button only shows once an order is `in_progress`. And `done` is gone from the
+visible-steps list: a user can still click their way through draft, confirmed and
+in_progress (chapter 17's original tradeoff stands for those, nothing about them
+needs a wizard), but there is no clickable step left that jumps straight to done.
+The statusbar widget always displays whatever the field's *current* value is, even
+one absent from `statusbar_visible`, so once an order reaches done it still shows
+correctly; the field just stops offering it as somewhere to click *into*.
+
+### 3. Register the wizard, and wire security
+
+Add the view file to the manifest's `data` list, and `from . import wizards` to the
+top-level `__init__.py` alongside `from . import models`. A `TransientModel` still
+needs access rights like any model:
+
+```csv
+access_librefleet_service_order_approve_wizard_user,librefleet.service.order.approve.wizard user,model_librefleet_service_order_approve_wizard,group_librefleet_user,1,1,1,1
+access_librefleet_service_order_approve_wizard_manager,librefleet.service.order.approve.wizard manager,model_librefleet_service_order_approve_wizard,group_librefleet_manager,1,1,1,1
+```
+
+Bump the manifest to `19.0.1.14.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+### 4. A warning you'll actually see, and the fix
+
+Watch the upgrade output closely (or check it in the shell afterward) and you'll spot
+something new:
+
+```console
+UserWarning: librefleet.service.order: inconsistent 'store' for computed fields,
+accessing parts_total, labor_total may recompute and update margin. Use distinct
+compute methods for stored and non-stored fields.
+```
+
+This is chapter 19's `store=True` on `margin` catching up with you. All three fields,
+`parts_total`, `labor_total`, `margin`, still shared one `_compute_totals` method,
+but only `margin` got a real column. Odoo 19 now warns explicitly that mixing stored
+and non-stored fields in a single compute method is a bad pattern, because the two
+kinds have genuinely different recompute triggers under the hood. The fix is the
+split it's asking for. In `models/service_order.py`:
+
+```python
+    parts_total = fields.Float(compute="_compute_parts_labor")
+    labor_total = fields.Float(compute="_compute_parts_labor")
+    margin = fields.Float(compute="_compute_margin", store=True,
+                          help="What the order earns: parts revenue plus the flat "
+                               "fee, minus what the parts cost the workshop.")
+```
+
+```python
+    @api.depends("line_ids.subtotal", "service_type_id.flat_fee")
+    def _compute_parts_labor(self):
+        for order in self:
+            order.parts_total = sum(order.line_ids.mapped("subtotal"))
+            order.labor_total = order.service_type_id.flat_fee
+
+    @api.depends("parts_total", "labor_total",
+                 "line_ids.qty", "line_ids.part_id.standard_cost")
+    def _compute_margin(self):
+        for order in self:
+            parts_cost = sum(
+                line.qty * line.part_id.standard_cost for line in order.line_ids)
+            order.margin = order.parts_total + order.labor_total - parts_cost
+```
+
+Two methods now: one computes the two non-stored fields, one computes the stored
+one. Notice `_compute_margin`'s `@api.depends` includes `"parts_total"` and
+`"labor_total"` directly, a computed field can depend on another computed field,
+same as any stored field, so the dependency chain still cascades correctly when a
+line's quantity changes. Bump to `19.0.1.15.0`, upgrade, and confirm the warning is
+gone:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+No warning this time, and a quick psql check confirms the actual numbers didn't
+move, only how they're computed did:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin from librefleet_service_order order by id;"
+   reference   | margin
+--------------+--------
+ SO/2026/0001 |  139.1
+ SO/2026/0002 |    120
+(2 rows)
+```
+
+### 5. Watch every guard fire, for real
+
+In the shell, move an order to in_progress and walk through the wizard, exactly the
+sequence the button and popup perform for a real user:
+
+```console
+>>> order = env["librefleet.service.order"].search([("reference", "=", "SO/2026/0001")])
+>>> order.stage = "in_progress"
+>>> act = order.action_open_approve_wizard()
+>>> act
+{'type': 'ir.actions.act_window', 'name': 'Approve & Complete', 'res_model': 'librefleet.service.order.approve.wizard', 'view_mode': 'form', 'target': 'new', 'context': {'default_order_id': 1}}
+>>> wiz = env[act["res_model"]].with_context(**act["context"]).create({})
+>>> wiz.order_id.reference, wiz.margin
+('SO/2026/0001', 139.1)
+>>> wiz.action_confirm()
+{'type': 'ir.actions.act_window_close'}
+>>> order.invalidate_recordset()
+>>> order.stage
+'done'
+```
+
+`with_context(**act["context"])` is standing in for what the client does
+automatically when it opens the popup: applying `default_order_id` before the form's
+first `create`. Now break the two rules on purpose. First, wrong stage:
+
+```console
+>>> order.stage = "draft"
+>>> wiz2 = env[act["res_model"]].with_context(**act["context"]).create({})
+>>> wiz2.action_confirm()
+odoo.exceptions.UserError: Only an order that is in progress can be marked done.
+```
+
+Then a genuinely money-losing order (ten units of a part given away free, against a
+real cost):
+
+```console
+>>> order.stage = "in_progress"
+>>> part = env["librefleet.part"].search([], limit=1)
+>>> env["librefleet.service.order.line"].create(
+...     {"order_id": order.id, "part_id": part.id, "qty": 10, "price_unit": 0.0})
+>>> order.invalidate_recordset()
+>>> order.margin
+-210.9
+>>> wiz3 = env[act["res_model"]].with_context(**act["context"]).create({})
+>>> wiz3.action_confirm()
+odoo.exceptions.UserError: This order loses money (margin -210.90). A manager must tick the override to complete it anyway.
+>>> wiz4 = env[act["res_model"]].with_context(**act["context"]).create({"override_negative_margin": True})
+>>> wiz4.action_confirm()
+{'type': 'ir.actions.act_window_close'}
+```
+
+Ticking the override lets it through. Roll all of this back so the checkpoint's
+data matches the real chapter demonstration, not your break-it experiments:
+
+```console
+>>> env.cr.rollback()
+```
+
+### 6. Break-it lab: is `groups=` on a field a real security boundary, or just UI polish?
+
+You might reasonably assume `groups=` on a field only hides it from the form, the
+way many admin tools work, and that anyone with API access could still set it. Test
+that assumption directly, as tina, a Workshop User, not a manager:
+
+```console
+>>> tina = env["res.users"].search([("login", "=", "tina")])
+>>> order.stage = "in_progress"
+>>> as_tina = order.with_user(tina)
+>>> act = as_tina.action_open_approve_wizard()
+>>> env[act["res_model"]].with_user(tina).with_context(**act["context"]).create(
+...     {"override_negative_margin": True})
+odoo.exceptions.AccessError: You do not have enough rights to access the field "override_negative_margin" on Approve & Complete Service Order (librefleet.service.order.approve.wizard). Please contact your system administrator.
+
+Operation: write
+User: 5
+Groups: allowed for groups 'Workshop / Manager'
+```
+
+The answer is no, `groups=` on a field is enforced at the ORM level, an `AccessError`,
+not merely stripped from the rendered view. Tina cannot set that field through the
+UI *or* through a raw RPC call bypassing it entirely. This is a genuinely reassuring
+result: a field-level `groups=` restriction is a real access-control boundary, the
+same category of guarantee as the ACLs from chapter 10, not cosmetic hiding you could
+defeat with a well-aimed API call.
+
+Now notice what "the same category as an ACL" cuts both ways on. Open a wizard as Tina
+and try the same write twice, once plainly and once through `sudo()`:
+
+```console
+>>> act = as_tina.action_open_approve_wizard()
+>>> W = env[act["res_model"]].with_user(tina).with_context(**act["context"])
+>>> w = W.create({})
+>>> w.write({"override_negative_margin": True})
+odoo.exceptions.AccessError: ...
+>>> w.sudo().write({"override_negative_margin": True})
+True
+```
+
+(Note we write to `w`, the wizard, not to `as_tina`: `override_negative_margin` only
+exists on the wizard model, so aiming it at the order raises
+`ValueError: Invalid field 'override_negative_margin' in 'librefleet.service.order'`.)
+
+The plain write is refused and the sudo'd one succeeds. `sudo()` spreads (chapter 15),
+and a sudo'd recordset walks through field `groups=` exactly as it walks through an ACL,
+because it *is* the same machinery. So hold both halves of the result at once:
+
+- Against a **user**, including one hand-crafting RPC calls, `groups=` is a real
+  boundary. That is what the lab just proved.
+- Against **code**, it is not a boundary at all. Any method that reaches for `sudo()`,
+  yours or a third party's, can write the field without noticing it was restricted.
+
+That is not a flaw, it is the definition of `sudo()`, and it is why the audit question on
+a real project is never "is this field restricted?" but "which code paths sudo their way
+to it?". Chapter 28 writes the test that pins that down.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch20
+✔ the approve wizard is a TransientModel
+✔ the Mark Done button opens the wizard correctly
+✔ the wizard refuses to complete a non in_progress order
+✔ the wizard refuses a negative-margin order without the override
+
+ch20 complete! On to the next chapter 🔧
+```
+
+The last two checks build their own throwaway order and part line, run the wizard
+against it, and unlink the order in a `finally` block regardless of outcome, so
+running the check suite never leaves stray fixture data in your database (the same
+discipline chapter 15's boss challenge checks used). For the eyeball version (author
+tour, screenshots pending): move an order to In Progress, click Mark Done, watch the
+popup, and confirm the order lands on Done only after clicking the wizard's own
+button.
+
+## Gotchas
+
+- **A wizard is a normal model with a different lifecycle, not a different
+  language.** Fields, `api.depends`, security, all identical to what you already
+  know. The only new thing is `TransientModel` and the automatic vacuum that comes
+  with it.
+- **`groups=` on a field stops users, not code.** You proved both halves: a non-manager
+  gets an `AccessError` over RPC, and the same write succeeds through `sudo()`. It is the
+  same machinery as an ACL, so it inherits the same escape hatch. Restricting a field
+  protects it from people; only reviewing who calls `sudo()` protects it from your own
+  codebase.
+- **Mixing stored and non-stored fields in one compute method is now flagged.**
+  Odoo 19 warns (doesn't yet error) when a single `_compute_*` method assigns to
+  fields with different storage. Split them, one compute method per storage
+  category, and let stored fields depend on non-stored ones via a plain
+  `@api.depends` entry.
+- **`target="new"` is what makes an action a popup.** Forget it and the wizard's
+  action dict still works, technically, but navigates the user away from the order
+  instead of floating a small form over it.
+- **Removing a stage from `statusbar_visible` doesn't hide records already in it.**
+  The widget always renders the field's actual current value; the attribute only
+  controls which *other* stages appear as clickable stepping stones. It stops new
+  jumps, it doesn't hide history.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A field carries groups="librefleet.group_librefleet_manager". A technician cannot write it over RPC. Which of these CAN still write it?',
+      options: [
+        'nobody, the ORM refuses every write from a non-manager',
+        'any code that reaches the record through a sudo() recordset, including your own',
+        'only a direct psql UPDATE, since the restriction lives in Postgres',
+      ],
+      answer: 1,
+      why: 'You proved both halves in the lab: the plain write raises AccessError, and the same write through sudo() succeeds. Field groups= is the same machinery as an ACL, so it inherits the same escape hatch, and it lives in the ORM rather than in Postgres (which is why option 3 is backwards: raw SQL bypasses it for a completely different reason). Restrict a field to stop people; review your sudo() calls to stop code.',
+    },
+    {
+      q: 'Why does completing a service order need a wizard instead of just letting users click "Done" on the statusbar, the way draft, confirmed and in_progress already work?',
+      options: [
+        'a Selection field cannot be written directly once the pipeline reaches its final value',
+        'this transition needs checks and an input a raw field write can neither run nor ask for',
+        'the earlier stages are also unsafe, and wrapping every one of them is the next refactor',
+      ],
+      answer: 1,
+      why: 'A wizard earns its place when a transition needs confirmation, extra input, or validation before the write happens: here, in_progress only, and no negative margin without a manager override. Option 1 invents a restriction that does not exist, a statusbar click writes the final value as happily as any other. Option 3 is the tempting one, and it is wrong on purpose: draft, confirmed and in_progress genuinely have no such requirement, so gating them would be ceremony. Ask what a transition needs, not how far along it is.',
+    },
+    {
+      q: 'You remove "done" from statusbar_visible but an order is already sitting in the done stage. What does its statusbar show?',
+      options: [
+        'an error, since done is not in the visible list',
+        'done, because the current field value always remains visible',
+        'it falls back to showing in_progress instead',
+      ],
+      answer: 1,
+      why: 'statusbar_visible only controls which OTHER stages appear as clickable steps on the bar. The field\'s real current value always renders correctly; the attribute governs future navigation, not display of history.',
+    },
+    {
+      q: 'Two computed fields share one method: one has store=True, the other does not. What does Odoo 19 do?',
+      options: [
+        'refuses to install the module',
+        'emits a load-time UserWarning, but the module still runs',
+        'silently ignores store=True on both fields',
+      ],
+      answer: 1,
+      why: 'It is a warning, not a hard error, because stored and non-stored fields have different recompute triggers under the hood and mixing them in one method is fragile, not impossible. This chapter hit that exact warning and fixed it by splitting the compute methods.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a confirmation wizard for cancelling an order (mirroring "Mark Done"): a
+   small popup requiring a reason (Text, required) before writing `stage =
+   "cancelled"`. Reuse the pattern exactly; no new concepts needed.
+2. ⭐⭐ The margin check currently only warns the acting user. Extend the wizard so
+   that completing an order with `override_negative_margin` ticked also appends a
+   note to the order (hint: you already write to `notes` for the optional
+   completion note; do the same here, unconditionally, whenever the override was
+   used) so a later reader of the order can see an override happened without
+   digging through logs.
+3. ⭐⭐ Give the wizard a second business rule: refuse to complete an order that has
+   no technicians assigned (`technician_ids` empty). Decide whether this belongs as
+   a third `if` in `action_confirm` or as its own `@api.constrains` on the order
+   model instead, and defend your choice using this chapter's process-vs-data
+   distinction.
+4. ⭐⭐⭐ Read core's `account.payment.register` wizard (`get_view` in the shell, or
+   its Python source via GitHub) and identify one thing it does that this chapter's
+   wizard doesn't: batch operation. It's designed to open against *multiple*
+   selected records at once (an `active_ids` context key, plural, instead of a
+   single `active_id`). Sketch, in prose, what would need to change in
+   `action_open_approve_wizard` and the wizard model to support completing several
+   orders from one popup.
+
+## Further reading
+
+- [TransientModel in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  the official walkthrough of `TransientModel` and popup actions.
+- [`TransientModel` in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  the vacuum mechanism and `_transient_max_hours`.
+- [Access rights and record rules (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
+  where field-level `groups=` sits alongside ACLs and record rules in the security
+  model this chapter's break-it lab tested directly.

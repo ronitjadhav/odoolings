@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate: create once, never overwrite on upgrade, so the running
+         next-number is preserved (chapter 24 goes deeper on noupdate). -->
+    <data noupdate="1">
+        <record id="seq_librefleet_service_order" model="ir.sequence">
+            <field name="name">LibreFleet Service Order</field>
+            <field name="code">librefleet.service.order</field>
+            <field name="prefix">SO/%(year)s/</field>
+            <field name="padding">4</field>
+            <field name="company_id" eval="False"/>
+        </record>
+    </data>
+</odoo>

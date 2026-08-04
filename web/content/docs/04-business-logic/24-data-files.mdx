@@ -1,0 +1,534 @@
+---
+title: "24. Data Files"
+description: Ship config as XML and CSV instead of clicking it into existence, and learn exactly what noupdate protects and what it does not.
+---
+
+**Goal:** ship a service type as proper master data instead of a UI click, build a
+small self-contained demo dataset with `ref()` across files, and find out exactly
+what `noupdate` does and does not protect. · **Time:** ~1.5 h ·
+**Checkpoint:** `code/checkpoints/ch24`
+
+## Why this matters
+
+Back in chapter 11 you created three service types by clicking "New" in the list
+view. That was the right call at the time, you were learning views, not data files.
+But it does not scale: a fresh install of LibreFleet should not depend on someone
+remembering to click New three times in the right order. `ir_sequence.xml` (chapter
+14) and `mail_template.xml` (chapter 23) already shipped two pieces of config as data
+files, both promising "chapter 24 goes deeper on `noupdate`." This is that chapter:
+where XML earns its place over CSV, what a module's `demo` key actually does (and
+when it very deliberately does nothing), and the exact rule that decides whether an
+upgrade overwrites a record or leaves it alone.
+
+## Concepts
+
+### XML and CSV are the same loader, two shapes
+
+Every data file, XML or CSV, ends up creating or updating records through the same
+mechanism: a Python `<record>`-equivalent that resolves an xml id, builds a `vals`
+dict from fields, and calls `create` or `write`. The format you pick is about shape,
+not capability.
+
+Your own module already has one of each. `security/ir.model.access.csv`:
+
+```console
+$ head -3 addons/librefleet/security/ir.model.access.csv
+```
+
+```text
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,group_librefleet_user,1,1,0,0
+access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1
+```
+
+Sixteen rows, all with the same six fields. CSV is that: a uniform table, one row
+per record, nothing that varies in shape from row to row. `data/mail_template.xml`
+is the opposite case, one record with a nested HTML field and nothing else like it
+in the file: XML is for records whose shape isn't a table, or where there is only
+one or two of them and a header row would be overkill.
+
+<Callout type="info" title="Official docs">
+  The [data files reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/data.html)
+  covers the full `<record>`/`<field>` grammar this chapter builds on: `eval`,
+  `search`, function calls, and more than the handful of attributes used here.
+</Callout>
+
+### A CSV file's name is not a label, it's the model
+
+The single fact that will burn you if you skip it: **the filename before `.csv` is
+the model's technical name**, not a description you chose. Odoo's loader takes the
+part of the filename before the first `-` and looks up a model with that exact
+name. `ir.model.access.csv` works because `ir.model.access` is a real model. Need a
+second data file for the same model, or a descriptive suffix? Add a dash: core's
+Kuwait localization ships `account.account-kw.csv`, model `account.account`, suffix
+`kw`.
+
+The chapter's own transcript, first attempt, named more like a description than a
+model:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial_demo_test2 -i librefleet --with-demo --stop-after-init
+```
+
+```text
+Module librefleet: loading demo
+loading librefleet/data/res_partner_demo.csv
+Module librefleet demo data failed to install, installed without demo data
+KeyError: 'res_partner_demo'
+```
+
+`res_partner_demo.csv` has no dash, so the whole basename becomes the model lookup:
+a model literally named `res_partner_demo`, which does not exist. Renaming it
+`res.partner-demo.csv` (model `res.partner`, suffix `demo`) fixed it outright, no
+other change needed.
+
+### Master data vs demo data: same mechanism, opposite intent
+
+Two manifest keys load data files, and the difference is not the file format:
+
+- **`"data"`**: everything the module needs to be useful. Runs on every install and
+  every upgrade.
+- **`"demo"`**: fictional records for training, demoing, and testing. Runs only
+  when demo is explicitly requested.
+
+The `service_type_master.xml` you are about to write is master data: a real,
+required service type. The customer, vehicle, and order you'll add after it are
+demo data: illustrative, disposable, never something a production install needs.
+
+### `noupdate`: what it protects, and the one thing it never claimed to
+
+Chapter 14 wrapped the sequence in `<data noupdate="1">` and promised more detail
+here. Reading Odoo 19's own loader (`odoo/modules/loading.py`,
+`odoo/tools/convert.py`) settles it precisely instead of by folklore:
+
+```python
+convert_file(env, package.name, filename, idref, mode, noupdate=kind == 'demo')
+```
+
+Every file listed under `"demo"` loads with `noupdate=True` automatically,
+regardless of format. A `"data"`-listed **XML** file defaults to `noupdate=False`,
+but a `<data noupdate="1">` block inside it can raise that for just its own
+records, exactly what `ir_sequence.xml` and `mail_template.xml` do. A **CSV** file
+has no such block to write, so a `"data"`-listed CSV can never become noupdate, and
+a `"demo"`-listed CSV can never opt out of it. The manifest list you put a file in
+decides its default; only XML can override that default per file.
+
+What noupdate actually does on an upgrade, from `_tag_record` in the same file:
+
+```python
+if self.noupdate and self.mode != 'init':
+    if record := env['ir.model.data']._load_xmlid(xid):
+        # if the resource already exists, don't update it but store
+        # its database id (can be useful)
+        self.idref[xid] = record.id
+        return None
+    # else create it normally
+```
+
+Two branches, and only the first one is "protection": if a record with this
+exact xml id **already exists**, its field values are left untouched, full stop,
+even if the XML in front of you now says something different. But if the xml id
+**does not exist yet**, the record is created normally, noupdate or not. `noupdate`
+protects existing records from being silently rewritten. It has never claimed to
+block new records from a later upgrade, which is exactly what lets you add a second
+master-data record in a follow-up release without touching the first.
+
+<Mermaid
+  chart={`flowchart TD
+    A["module upgrade runs"] --> B{"file's noupdate?<br/>(demo key: always true,<br/>data key: only inside<br/>a data noupdate='1' block)"}
+    B -- "false" --> C["record is written every time,<br/>matching the file exactly"]
+    B -- "true" --> D{"xml id already<br/>exists in this db?"}
+    D -- "yes" --> E["left alone: existing<br/>values are never touched"]
+    D -- "no" --> F["created normally,<br/>same as any other record"]`}
+/>
+
+### `ref()` and xml ids: one namespace, any format
+
+Every record loaded from any data file, XML or CSV, register or row, gets an xml
+id in `ir.model.data`, and that id is addressable from anywhere in the same
+namespace regardless of which file or format originally created it. XML spells a
+lookup as `ref="xmlid"` on a `<field>`, or `ref('xmlid')` in a Python `eval`; CSV
+spells the same lookup as a `field_name:id` column holding the xmlid string. Same
+module, bare id (`vehicle_demo_ag_12_345`); another module, dotted
+(`base.group_user`, already in your own `security/librefleet_security.xml` from
+chapter 10). The demo data below chains all three: a CSV row references another
+CSV row's id, and an XML record references both a CSV row's id and a master-data
+XML record's id, four files deep, one shared namespace.
+
+## Hands-on
+
+### 1. Ship a service type as master data, not a UI click
+
+Create `data/service_type_master.xml`:
+
+```xml title="addons/librefleet/data/service_type_master.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Master data: config the app needs to be useful out of the box, not
+         examples to delete before going live. noupdate="1" so a manager's
+         edits (say, a price change) survive the next module upgrade. -->
+    <data noupdate="1">
+        <record id="service_type_tire_rotation" model="librefleet.service.type">
+            <field name="name">Tire Rotation</field>
+            <field name="flat_fee">59.0</field>
+            <field name="default_duration_h">0.5</field>
+        </record>
+    </data>
+</odoo>
+```
+
+Register it in the manifest, after the existing data files and before the views:
+
+```python
+    "data": [
+        "security/librefleet_security.xml",
+        "security/ir.model.access.csv",
+        "data/ir_sequence.xml",
+        "data/mail_template.xml",
+        "data/service_type_master.xml",
+        "views/vehicle_views.xml",
+        ...
+```
+
+Bump the manifest to `19.0.1.19.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: loading librefleet/data/service_type_master.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.29s, 526 queries (+526 other)
+```
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from librefleet_service_type where name = 'Tire Rotation';"
+```
+
+```text
+     name      | flat_fee
+---------------+----------
+ Tire Rotation |       59
+(1 row)
+```
+
+Shipped, alongside your three hand-clicked ones from chapter 11, untouched.
+
+### 2. Prove noupdate, both halves, on your own data
+
+First, try to "fix" the price and see nothing happen. Edit the record you just
+wrote, bumping the fee, and add a second record in the same block:
+
+```xml
+        <record id="service_type_tire_rotation" model="librefleet.service.type">
+            <field name="name">Tire Rotation</field>
+            <field name="flat_fee">75.0</field>
+            <field name="default_duration_h">0.5</field>
+        </record>
+        <record id="service_type_wheel_alignment" model="librefleet.service.type">
+            <field name="name">Wheel Alignment</field>
+            <field name="flat_fee">45.0</field>
+            <field name="default_duration_h">0.75</field>
+        </record>
+```
+
+Upgrade again, then check both:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from librefleet_service_type where name in ('Tire Rotation', 'Wheel Alignment');"
+```
+
+```text
+      name       | flat_fee
+-----------------+----------
+ Tire Rotation   |       59
+ Wheel Alignment |       45
+(2 rows)
+```
+
+Tire Rotation's flat_fee is still 59, the upgrade you just ran did not touch it,
+exactly as the loader code in Concepts said it wouldn't. Wheel Alignment, a
+brand-new xml id, was created normally in that same upgrade. Now put the price back
+to 59 in the XML, so the source file stops lying about what's actually in your
+database (it won't change anything in Postgres either way, but a chapter's source
+should say what's true):
+
+```xml
+            <field name="flat_fee">59.0</field>
+```
+
+### 3. Build a small, self-contained demo dataset
+
+Three files, chained by `ref()`, none of them touching anything you already
+created by hand. A demo customer, CSV:
+
+```text title="addons/librefleet/data/res.partner-demo.csv"
+id,name
+partner_demo_nora_baumann,Nora Baumann
+```
+
+A demo vehicle, CSV, its `owner_id:id` column pointing at the row above by xml id:
+
+```text title="addons/librefleet/data/librefleet.vehicle-demo.csv"
+id,license_plate,model_name,year,mileage_km,owner_id:id
+vehicle_demo_ag_12_345,AG 12 345,Citroen Berlingo,2021,38000,partner_demo_nora_baumann
+```
+
+A demo service order, XML (it needs `ref()`, which CSV cannot do, and there's only
+one record, no table to speak of), pointing at the vehicle above and at the Tire
+Rotation master data from step 1:
+
+```xml title="addons/librefleet/data/service_order_demo.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Demo data: illustrative, not required. The "demo" manifest key makes
+         Odoo load this with noupdate=1 automatically, the same protection
+         data/service_type_master.xml asks for explicitly, see chapter 24. -->
+    <record id="service_order_demo_ag_12_345" model="librefleet.service.order">
+        <field name="vehicle_id" ref="vehicle_demo_ag_12_345"/>
+        <field name="service_type_id" ref="service_type_tire_rotation"/>
+        <field name="scheduled_start" eval="'2026-08-10 08:00:00'"/>
+        <field name="scheduled_end" eval="'2026-08-10 08:30:00'"/>
+    </record>
+</odoo>
+```
+
+Register all three under a new manifest key, in dependency order (the vehicle
+needs the partner to exist first, the order needs the vehicle):
+
+```python
+    "demo": [
+        "data/res.partner-demo.csv",
+        "data/librefleet.vehicle-demo.csv",
+        "data/service_order_demo.xml",
+    ],
+```
+
+### 4. Try the obvious thing, watch it do nothing, find out why
+
+Upgrade your real tutorial database exactly like every other chapter so far:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from res_partner where name='Nora Baumann';"
+```
+
+```text
+ count
+-------
+     0
+```
+
+Nothing. Not an error, not a warning, just silently absent, and the log from that
+upgrade never even mentions the three new files. The reason lives in
+`ir_module_module`:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select demo from ir_module_module where name='librefleet';"
+```
+
+```text
+ demo
+------
+ f
+```
+
+Odoo remembers, per module, whether demo was ever loaded for it, in that one
+column. Chapter 8 installed librefleet with plain `-i librefleet`, no demo flag,
+and back then the module had no `demo` key at all, so `demo` was set to `false` and
+persisted. Reading `odoo/modules/loading.py`'s upgrade branch shows why that
+persisted value is the only thing that matters now:
+
+```python
+else:  # 'upgrade' or 'reinit'
+    load_data(env, idref, mode, kind='data', package=package)
+    if package.demo:
+        package.demo = load_demo(env, package, idref, mode)
+```
+
+An upgrade checks `package.demo`, the value **already sitting in the database**,
+not whether your manifest now has demo files. Install-time is the only moment that
+flag can flip from false to true, and adding demo files months later does not
+retroactively flip it.
+
+There's a second, version-specific reason install-time itself needs an explicit
+ask. Checking the actual flag rather than trusting an old habit:
+
+```console
+$ docker compose exec odoo odoo server --help | grep -A2 without-demo
+```
+
+```text
+    --without-demo=BOOL
+                        don't install demo data in new databases (default)
+    --skip-auto-install
+```
+
+Odoo 19 installs **without** demo unless you ask for `--with-demo` explicitly. If
+you remember older tutorials where demo just showed up, that default is why this
+one doesn't match your memory.
+
+### 5. See it load for real, in a database built to be thrown away
+
+The only way to install-with-demo is a database that has never installed
+librefleet before, so build a scratch one:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial_demo_check -i librefleet --with-demo --stop-after-init
+...
+INFO tutorial_demo_check odoo.modules.loading: Module librefleet: loading demo
+INFO tutorial_demo_check odoo.modules.loading: loading librefleet/data/res.partner-demo.csv
+INFO tutorial_demo_check odoo.modules.loading: loading librefleet/data/librefleet.vehicle-demo.csv
+INFO tutorial_demo_check odoo.modules.loading: loading librefleet/data/service_order_demo.xml
+```
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial_demo_check -c "select so.reference, st.name, v.license_plate, p.name from librefleet_service_order so join librefleet_service_type st on st.id=so.service_type_id join librefleet_vehicle v on v.id=so.vehicle_id join res_partner p on p.id=v.owner_id;"
+```
+
+```text
+  reference   |     name      | license_plate |     name
+--------------+---------------+---------------+--------------
+ SO/2026/0001 | Tire Rotation | AG 12 345     | Nora Baumann
+(1 row)
+```
+
+Every ref resolved: the order to the vehicle, the vehicle to its owner, the order
+to the master-data service type from step 1, four files and two formats, one
+namespace. Even the sequence from chapter 14 ran normally against a record it had
+never seen before. Once you've confirmed it, drop the scratch database; it did its
+job.
+
+```console
+$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
+```
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch24
+✔ Tire Rotation shipped as noupdate master data
+✔ a second noupdate record was added on a later upgrade
+
+ch24 complete! On to the next chapter 🔧
+```
+
+That covers your real, permanent tutorial database. The demo dataset needs its own
+scratch database to prove anything (your real one never has demo loaded, by
+design), so it's a second, separate check:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial_demo_check -i librefleet --with-demo --stop-after-init
+$ python3 odoolings.py check ch24-demo --db tutorial_demo_check
+✔ the demo partner exists
+✔ the demo vehicle is owned by the demo partner
+✔ the demo order's refs resolve to the vehicle and the master data
+
+ch24-demo complete! On to the next chapter 🔧
+```
+
+```console
+$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
+```
+
+## Gotchas
+
+- **A CSV filename is a model lookup, not a label.** `res_partner_demo.csv` fails
+  with `KeyError: 'res_partner_demo'`, a real error from this chapter's own first
+  attempt. The model name goes before the first `-`; anything after it is yours.
+- **CSV cannot opt out of noupdate.** There is no CSV equivalent of
+  `<data noupdate="...">`. A `"data"`-listed CSV is always fully rewritable; a
+  `"demo"`-listed CSV is always protected. If a CSV row needs the other behavior,
+  it needs to become an XML record instead.
+- **noupdate protects existing records, not the file.** Add a new record with a
+  fresh xml id to an already-shipped noupdate block, and it is created on the very
+  next upgrade, same as any other record. Only records that already exist by xml id
+  are left alone.
+- **A plain `-u` will not add demo data to a database that never had it.**
+  `ir_module_module.demo` is set once, at that module's first install, and an
+  upgrade only reloads demo if that flag is already true. Adding demo files later
+  needs a fresh database with `--with-demo`, not an upgrade of an existing one.
+- **Odoo 19 defaults to `--without-demo`.** If you expected demo data to just show
+  up the way an older memory says it should, that default, not a bug in your
+  files, is why it didn't.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A noupdate="1" record with xml id my_module.thing already exists in the database. You change its field values in the XML and run an upgrade. What happens to the field values already in Postgres?',
+      options: [
+        'they are overwritten with the new values from the XML, same as any other record',
+        'they stay exactly as they were; noupdate skips writing to a record that already exists by that xml id',
+        'the upgrade fails with an error, since noupdate records cannot be edited once created',
+      ],
+      answer: 1,
+      why: 'Verified directly against the loader: _tag_record checks whether the xml id already resolves to a record, and if it does, stores its id and returns without writing anything. No error, no partial write, just a skip. The other two options both assume noupdate does something more dramatic than a plain skip, which is not what the code does.',
+    },
+    {
+      q: 'You add a brand-new record with a fresh xml id to a noupdate="1" block that already shipped in an earlier version, then run an upgrade. What happens to the new record?',
+      options: [
+        'nothing happens: once a noupdate block has run once, no record inside it, old or newly added, can ever be created after that point',
+        'it is created normally, exactly like any other record',
+        'it is created, but flagged for manual review before a manager approves it in the UI',
+      ],
+      answer: 1,
+      why: 'This is the exact experiment the chapter runs: Wheel Alignment, a new xml id in the same block as the already-existing Tire Rotation, was created on the same upgrade that left Tire Rotation completely untouched. noupdate is keyed to whether a specific xml id already exists in the database, not to the file or block as a whole, so a fresh xml id gets created same as it would without noupdate at all.',
+    },
+    {
+      q: 'Your tutorial database has had librefleet installed since chapter 8, with no demo flag used. You add a "demo" key to the manifest today and run a plain upgrade. What shows up?',
+      options: [
+        'the demo records, since the manifest now declares them and an upgrade reloads every declared data source',
+        'nothing at all',
+        'a warning asking whether to enable demo data for this database, which you can accept interactively',
+      ],
+      answer: 1,
+      why: 'Read directly from odoo/modules/loading.py: the upgrade branch checks package.demo, the value already stored in the database from the module\'s first install, not whether the current manifest happens to declare a demo key. Since librefleet installed without --with-demo back in chapter 8, that flag is false and stays false through any later upgrade; only a fresh install with --with-demo can set it.',
+    },
+    {
+      q: 'Why does the demo service order use XML for one record instead of a third CSV file?',
+      options: [
+        'CSV cannot express a ref() to another record, and the order needs two: one to the vehicle, one to the master-data service type',
+        'CSV files are limited to exactly one row, so a service order with more fields than the vehicle needed XML instead',
+        'there is no real reason, XML and CSV are interchangeable for every case and this was an arbitrary choice',
+      ],
+      answer: 0,
+      why: 'CSV can reference other records too, through a field_name:id column, which the vehicle demo file already does for owner_id. But a service order needing two separate refs (vehicle_id and service_type_id) to records in two different files is exactly the "shape varies, and there is only one of them" case Concepts describes as XML\'s territory, not a hard CSV limitation on ref count.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a fourth master-data service type of your own (name, flat_fee,
+   default_duration_h) to `data/service_type_master.xml`, upgrade, and confirm with
+   `psql` that both your new record and the two already there are unaffected.
+2. ⭐⭐ Extend the demo dataset with a second vehicle and a second service order for
+   it, owned by a new demo partner. Chain every reference through `ref()` /
+   `:id` columns rather than typing a raw database id anywhere, and prove it loads
+   cleanly into a fresh scratch database.
+3. ⭐⭐ Explain, from what this chapter verified in the loader source, why renaming
+   an existing noupdate xml id in your XML (keeping everything else the same) is
+   effectively the same as creating a brand-new record on the next upgrade, rather
+   than renaming the old one in place.
+4. ⭐⭐⭐ Break-it lab: rename `data/res.partner-demo.csv` to
+   `data/res_partner-demo.csv` (an underscore instead of a dot before the dash),
+   updating the manifest's `"demo"` entry to match so Odoo still finds the file.
+   Install into a fresh scratch database with `--with-demo` and read the actual
+   error: `KeyError: 'res_partner'`, not the `FileNotFoundError` you'd get if you
+   forgot to update the manifest too. Explain, from the filename rule in Concepts,
+   exactly which model Odoo went looking for and why that specific string doesn't
+   resolve, before fixing both the filename and the manifest back.
+
+## Further reading
+
+- [Data files reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/data.html):
+  the full `<record>`/`<field>` grammar, `eval`, `search`, and function-call records
+  this chapter only used a slice of.
+- [External identifiers (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/data.html#external-identifiers):
+  more on how xml ids are namespaced across modules.
+- [`account.account-kw.csv` in core](https://github.com/odoo/odoo/blob/19.0/addons/l10n_kw/data/template/account.account-kw.csv):
+  a real dash-suffixed CSV filename from Odoo's own localization modules.

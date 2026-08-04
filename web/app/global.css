@@ -1,0 +1,143 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* ---------------------------------------------------------------------------
+   Design tokens.
+
+   Fumadocs' default palette is pure grey (hue 0, saturation 0), which reads
+   cold and flat. We warm the whole surface family towards paper and add one
+   confident signal colour, plus a small set of muted tints used as card
+   surfaces. Semantic names first, raw values only here.
+   --------------------------------------------------------------------------- */
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* one shared easing + radius so motion and shape feel like one system */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --radius-card: clamp(1.25rem, 2.2vw, 1.75rem);
+  --shadow-card: 0 18px 48px color-mix(in srgb, var(--color-fd-foreground) 10%, transparent);
+}
+
+:root {
+  /* warm paper instead of clinical white */
+  --color-fd-background: hsl(45 22% 95%);
+  --color-fd-foreground: hsl(30 8% 9%);
+  --color-fd-card: hsl(0 0% 100%);
+  --color-fd-card-foreground: hsl(30 8% 9%);
+  --color-fd-popover: hsl(45 25% 98%);
+  --color-fd-popover-foreground: hsl(30 8% 9%);
+  --color-fd-muted: hsl(45 16% 92%);
+  --color-fd-muted-foreground: hsl(35 6% 42%);
+  --color-fd-secondary: hsl(45 18% 93%);
+  --color-fd-secondary-foreground: hsl(30 8% 12%);
+  --color-fd-border: hsl(40 12% 84%);
+  --color-fd-accent: hsl(45 18% 90%);
+  --color-fd-accent-foreground: hsl(30 8% 12%);
+  --color-fd-primary: hsl(255 55% 52%);
+  --color-fd-primary-foreground: hsl(0 0% 100%);
+  --color-fd-ring: hsl(255 55% 52%);
+
+  /* muted card surfaces, used to tell sections apart without shouting */
+  --tone-sage: hsl(150 16% 88%);
+  --tone-sand: hsl(32 38% 89%);
+  --tone-sky: hsl(210 34% 89%);
+  --tone-violet: hsl(255 40% 91%);
+
+  /* landing wordmark stage: intentionally stable across colour modes */
+  --hero-surface: hsl(30 8% 7%);
+  --hero-foreground: hsl(45 22% 95%);
+  --hero-muted: hsl(45 12% 72%);
+}
+
+.dark {
+  --color-fd-background: hsl(30 6% 7%);
+  --color-fd-foreground: hsl(40 12% 92%);
+  --color-fd-card: hsl(30 6% 10%);
+  --color-fd-card-foreground: hsl(40 12% 92%);
+  --color-fd-popover: hsl(30 6% 12%);
+  --color-fd-popover-foreground: hsl(40 12% 90%);
+  --color-fd-muted: hsl(30 5% 14%);
+  --color-fd-muted-foreground: hsl(40 6% 62%);
+  --color-fd-secondary: hsl(30 5% 13%);
+  --color-fd-secondary-foreground: hsl(40 12% 92%);
+  --color-fd-border: hsl(35 6% 20%);
+  --color-fd-accent: hsl(30 5% 18%);
+  --color-fd-accent-foreground: hsl(40 12% 92%);
+  --color-fd-primary: hsl(255 85% 76%);
+  --color-fd-primary-foreground: hsl(30 6% 8%);
+  --color-fd-ring: hsl(255 85% 76%);
+
+  --tone-sage: hsl(150 10% 14%);
+  --tone-sand: hsl(32 14% 14%);
+  --tone-sky: hsl(210 16% 15%);
+  --tone-violet: hsl(255 20% 16%);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Keep both navigation shells on the same warm, softly floating surface. */
+#nd-nav > *,
+#nd-subnav > * {
+  border-bottom-color: transparent;
+  background: color-mix(in srgb, var(--color-fd-background) 88%, transparent);
+}
+
+/* Large display headings: tight tracking is what makes them read as a system
+   rather than as default browser type. */
+.display-xl {
+  font-size: clamp(2.75rem, 6vw, 4.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 600;
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* Term glossary tooltips */
+.odoolings-term {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  position: relative;
+  cursor: help;
+}
+
+.odoolings-term::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.5rem);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 20rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-fd-border);
+  background: var(--color-fd-popover);
+  color: var(--color-fd-popover-foreground);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 30;
+}
+
+.odoolings-term:hover::after,
+.odoolings-term:focus-visible::after {
+  opacity: 1;
+}

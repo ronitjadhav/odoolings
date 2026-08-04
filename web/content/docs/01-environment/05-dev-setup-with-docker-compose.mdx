@@ -1,0 +1,361 @@
+---
+title: "5. Dev Setup with Docker Compose"
+description: Your permanent Odoo 19 workbench, two containers, one config file, fully understood.
+---
+
+**Goal:** run Odoo 19 + PostgreSQL with Docker Compose and understand every line that
+makes it work. · **Time:** ~1.5 h · **Checkpoint:** none, but odoolings checks start
+here.
+
+## Why this matters
+
+In chapter 4 you started this environment "on trust". Today the trust runs out: this
+is the workbench you'll use for the next 35 chapters, and when it misbehaves (a port
+collision, a dead database, a module that won't load), you fix it fastest by knowing
+exactly what each piece does.
+
+Docker Compose is also not a tutorial convenience. It mirrors how integrators actually
+run client projects: same containers, same config file idea, same separation between
+the Odoo image and *your* addons mounted into it. What changes in production is
+scale and secrets, not shape.
+
+## Concepts
+
+### Two containers, one file
+
+Everything lives in one `docker-compose.yml`, which you'll put in your own workspace in
+the hands-on below ([source](https://github.com/ronitjadhav/odoo-tutorial-starter/blob/main/docker-compose.yml)):
+
+```yaml
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 5s
+      retries: 10
+
+  odoo:
+    image: odoo:19
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8069:8069"
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./addons:/mnt/extra-addons
+
+volumes:
+  db-data:
+  odoo-data:
+```
+
+Read it top to bottom:
+
+- **`db`** runs PostgreSQL 16. The `POSTGRES_USER`/`POSTGRES_PASSWORD` pair creates a
+  database role called `odoo`, which is what the Odoo server logs in with. The
+  `healthcheck` matters more than it looks: Odoo crashes at startup if Postgres isn't
+  accepting connections yet, so...
+- **`depends_on` + `condition: service_healthy`** makes Compose hold the Odoo
+  container back until `pg_isready` succeeds. Without it you get a race and a
+  confusing traceback on cold starts.
+- **`ports: "8069:8069"`** publishes Odoo's HTTP port to your machine. 8069 is Odoo's
+  default and every Odoo developer has it memorized.
+- **Named volumes** (`db-data`, `odoo-data`) are where the *state* lives: the Postgres
+  data directory and Odoo's **filestore** (attachments and uploaded files live on
+  disk, not in the database). Containers are disposable; these volumes are not.
+- **Bind mounts** are the developer magic: `./odoo.conf` injects our config file, and
+  `./addons` (an empty directory today) is where LibreFleet will live from chapter 8.
+  Code on your machine, running inside the container.
+
+### The config file
+
+Odoo reads `/etc/odoo/odoo.conf`, which the bind mount above fills with your
+`odoo.conf` ([source](https://github.com/ronitjadhav/odoo-tutorial-starter/blob/main/odoo.conf)):
+
+```ini
+[options]
+addons_path = /mnt/extra-addons
+db_host = db
+db_user = odoo
+db_password = odoo
+; dev-only credentials, hardcoded on purpose. Never reuse this file in staging/prod.
+admin_passwd = admin
+dev_mode = all
+```
+
+- **`addons_path`** tells the server where to look for extra modules, and it points at
+  the bind mount above. The official image already knows about its own built-in
+  addons; this adds ours.
+- **`db_host = db`** is Compose networking in action: services reach each other by
+  service name. No IP addresses, no localhost.
+- **`admin_passwd`** is the **master password**, the one the database manager screen
+  asks for when you create, duplicate or drop databases. It is *not* a user's login
+  password.
+- **`dev_mode = all`** turns on developer conveniences, most importantly auto-reload:
+  the server picks up Python changes without a manual restart. Chapter 6 tours what
+  else it does.
+
+<Callout title="Official docs">
+  The [configuration file reference](https://www.odoo.com/documentation/19.0/developer/reference/cli.html)
+  lists every option, and the
+  [Docker image docs](https://hub.docker.com/_/odoo) explain the image's defaults and
+  entrypoint.
+</Callout>
+
+### Where things live, mentally
+
+<Mermaid chart={`
+flowchart LR
+    subgraph host["Your machine"]
+        code["addons/\n(your modules, git-tracked)"]
+        conf["odoo.conf"]
+    end
+    subgraph docker["Docker"]
+        subgraph oc["odoo:19 container"]
+            srv["Odoo server"]
+        end
+        subgraph pc["postgres:16 container"]
+            pg["PostgreSQL"]
+        end
+        fs[("odoo-data volume\nfilestore")]
+        dbv[("db-data volume\ndatabases")]
+    end
+    code -->|bind mount| srv
+    conf -->|bind mount| srv
+    srv <--> pg
+    srv --- fs
+    pg --- dbv
+`} />
+
+The split to internalize: **code is yours and git-tracked on the host; state (databases
+and filestore) belongs to Docker volumes.** You can destroy and rebuild containers
+freely. Destroying volumes is destroying your databases.
+
+## Hands-on
+
+### 1. Get it running
+
+You need [Docker with the Compose plugin](https://docs.docker.com/get-docker/)
+(Docker Desktop on macOS/Windows, `docker-ce` + `docker-compose-plugin` on Linux).
+If you did chapter 4 you already have this repository; skip to the `docker compose` line.
+
+Both files above ship in
+**[odoo-tutorial-starter](https://github.com/ronitjadhav/odoo-tutorial-starter)**. Press
+**Use this template**, name your repository, and clone it:
+
+```console
+$ git clone https://github.com/<you>/librefleet.git
+$ cd librefleet
+$ docker compose up
+```
+
+You now own five files: the two you just read line by line, an empty `addons/`, a
+`.gitignore`, and a README. Read them, edit them, they are yours.
+
+<Callout type="info" title="This repository is yours, not a copy of ours">
+  Your LibreFleet is your own project, exactly like a custom module on a real client
+  engagement, so it lives in a repository you own. You never clone this tutorial's
+  repository: the starter gives you the environment, the checker below is one file, and
+  chapter 8 fetches individual reference snapshots on demand.
+</Callout>
+
+<Callout type="warn" title="On Windows, work inside WSL2 or Git Bash">
+  Setting up needs no shell at all now, but the rest of the tutorial does: `touch`,
+  `mkdir -p`, pipes into `tar` and `&&` chains all appear regularly, and none behave the
+  same in PowerShell (its pipes carry objects rather than raw bytes, which quietly
+  corrupts binary streams). Docker Desktop on Windows is fine; run the *commands* from a
+  WSL2 shell or Git Bash, and keep the repository on the Linux side of WSL, where file
+  permissions and bind-mount performance both behave.
+</Callout>
+
+<Callout type="info" title="Why addons/ is not empty-empty">
+  The starter ships `addons/.gitkeep`, because git cannot track an empty directory and the
+  directory has to exist *before* the first `docker compose up`. Bind-mount a path that
+  does not exist and Docker helpfully creates it owned by `root`, which turns chapter 8's
+  first `mkdir` into a permission error. One zero-byte file, one class of bug removed.
+</Callout>
+
+The first run downloads both images (a few minutes). You're waiting for one line:
+
+```text
+odoo-1  | ... INFO ? odoo: Odoo version 19.0-20260630
+odoo-1  | ... INFO ? odoo.service.server: HTTP service (werkzeug) running on ...:8069
+```
+
+`Ctrl-C` stops it. Prefer running it detached and reading logs on demand:
+
+```console
+$ docker compose up -d
+$ docker compose logs -f odoo    # Ctrl-C stops following, not the server
+```
+
+### 2. Create your working database
+
+Open [http://localhost:8069](http://localhost:8069). In the database manager, create
+the database you'll build LibreFleet in. These exact values are what `odoolings`
+expects by default, so use them unless you enjoy typing flags:
+
+| Field | Value |
+|---|---|
+| Master password | `admin` |
+| Database name | `tutorial` |
+| Email (login) | `admin` |
+| Password | `admin` |
+| Demo data | **unchecked** |
+
+No demo data this time. The `tour` database from chapter 4 was for exploring; this
+one is your workshop, and client projects start empty too. Log in and you'll see a
+nearly bare Odoo. Perfect.
+
+### 3. Break it and fix it (on purpose)
+
+Your first break-it lab. Before touching anything, read these two commands closely:
+
+```console
+$ docker compose down        # stops and removes CONTAINERS. State survives.
+$ docker compose down -v     # also removes VOLUMES. Databases gone. Filestore gone.
+```
+
+Run the first one, then `docker compose up -d` again, refresh the browser, and
+confirm the `tutorial` database survived. Now you know a container restart is always
+safe. Leave `-v` for the day you *want* a factory reset. (If you just ran `-v`
+anyway: congratulations, you've proven the point. Recreate the database.)
+
+### 4. Look inside the containers
+
+Two commands you'll use constantly. A shell inside the Odoo container:
+
+```console
+$ docker compose exec odoo bash
+odoo@42aabd6856a0:/$ ls /mnt/extra-addons     # your (empty, for now) addons dir
+```
+
+And `psql` inside the database container:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial
+tutorial=# select count(*) from ir_module_module where state='installed';
+ count
+-------
+    14
+(1 row)
+```
+
+Fourteen modules installed and you haven't done anything: that's `base` and its
+minimal court. From chapter 9 on, `psql` is how we check what the ORM is really doing.
+
+## Verify
+
+Time to meet `odoolings`, the checker you'll run at the end of every hands-on from now
+on. It's a single file that needs nothing but Python 3, no pip install, so drop it next
+to your compose file. It is deliberately not in the starter: it grows a new set of checks
+with every chapter, so you always want the current one. (No shell handy? It is just
+[a file on GitHub](https://github.com/ronitjadhav/odoolings/blob/main/code/odoolings.py),
+so the download button works too.)
+
+```console
+$ curl -O https://raw.githubusercontent.com/ronitjadhav/odoolings/main/code/odoolings.py
+$ python3 odoolings.py check ch05
+✔ Odoo server is reachable
+✔ server version is 19.x
+✔ can log in as admin
+
+ch05 complete! On to the next chapter 🔧
+```
+
+All three green means your workbench is exactly what the rest of the tutorial assumes.
+If something is red, the hint under it tells you where to look.
+
+`odoolings.py` grows a new set of checks with every chapter that ships, so if
+`check chNN` ever reports an unknown chapter, re-run that `curl` to pick up the latest
+version. It talks to your running Odoo over XML-RPC and never reads your files, which
+is why it does not care where it sits or where your code lives.
+
+## Gotchas
+
+- **`down -v` is the only destructive command in your daily set.** `stop`, `down`,
+  `restart`, rebooting your machine: all safe, state lives in volumes. Treat `-v`
+  like `rm -rf`.
+- **Port 8069 already in use?** Another Odoo (or an old container) is running. Either
+  stop it, or change the mapping to `"8169:8069"` and browse to `:8169`. The part
+  left of the colon is your machine; the right is the container.
+- **Config changes need a restart.** `odoo.conf` is read at startup, so run
+  `docker compose restart odoo` after editing it. (Python code changes don't need
+  this, thanks to `dev_mode = all`.)
+- **Linux file permissions, and a `root`-owned `addons/`.** Bind-mount a directory that
+  doesn't exist yet and Docker creates it for you as `root`, at which point chapter 8's
+  `mkdir addons/librefleet` dies with `Permission denied`. The starter's `addons/.gitkeep`
+  is there to make that impossible, so you will only meet this on a compose file of your
+  own. When you do, `sudo chown -R $USER addons` fixes it once and for good. Separately,
+  the container runs as its own `odoo` user, so if module files you create show up
+  unreadable inside the container, keeping `addons/` world-readable is enough for dev.
+- **`docker-compose` vs `docker compose`.** The hyphenated v1 binary is dead. If your
+  system only has `docker-compose`, your Docker is old. Update it rather than
+  fight it.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Where are your Odoo databases physically stored?',
+      options: [
+        'Inside the postgres container, lost on every restart',
+        'In the db-data named volume, which survives container removal',
+        'In addons next to your modules',
+      ],
+      answer: 1,
+      why: 'Containers are disposable; volumes are the state. That is why plain "docker compose down" is safe and "down -v" is the factory reset.',
+    },
+    {
+      q: 'The master password (admin_passwd) is...',
+      options: [
+        "the admin user's login password",
+        'the password for database-manager operations',
+        "PostgreSQL's superuser password",
+      ],
+      answer: 1,
+      why: "It guards the database manager only. The admin *user* password is set per database at creation; Postgres credentials are in the compose file.",
+    },
+    {
+      q: 'Odoo starts before PostgreSQL is ready. What prevents the crash in our setup?',
+      options: [
+        'Odoo retries silently forever',
+        'the healthcheck plus depends_on: service_healthy',
+        'nothing, you must start db first by hand',
+      ],
+      answer: 1,
+      why: 'Compose waits for pg_isready to succeed before starting the odoo service. Remove the healthcheck and cold starts become a race.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Duplicate your `tutorial` database from the database manager (it asks for the
+   master password) and then drop the copy. Databases are cheap; get comfortable
+   making and destroying them.
+2. ⭐⭐ Change the published port to 8169, apply the change with the right compose
+   command, verify in the browser, then change it back. Bonus: why does `restart`
+   alone not work for this one? (Hint: ports are container *creation* settings.)
+3. ⭐⭐⭐ Run a second, fully separate Odoo playground in another directory with its
+   own compose file, own volumes, and port 8169. When it works, throw it away with
+   the destructive command, on purpose this time.
+
+## Further reading
+
+- [Odoo Docker image](https://hub.docker.com/_/odoo): entrypoint, env vars, mount
+  points our compose file uses.
+- [CLI and configuration reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html)
+- [Native install from source (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/source.html):
+  the appendix path. Worth doing once someday to demystify the image, not needed for
+  this tutorial.

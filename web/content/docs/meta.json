@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "index",
+    "00-orientation",
+    "01-environment",
+    "02-first-module",
+    "03-views-ux",
+    "04-business-logic",
+    "05-frontend-owl",
+    "06-oca-way",
+    "07-integrator-craft",
+    "glossary",
+    "roadmap"
+  ]
+}

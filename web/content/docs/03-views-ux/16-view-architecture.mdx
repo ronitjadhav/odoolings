@@ -1,0 +1,386 @@
+---
+title: "16. View Architecture"
+description: Views are records, inheritance patches them at render time, and priority decides which one you see.
+---
+
+**Goal:** understand exactly how Odoo assembles the UI it shows you, and modify a view
+without touching its source. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch16`
+
+## Why this matters
+
+Chapter 3 planted the idea that the UI is data; Part 2 had you writing views as XML
+records without dwelling on what happens to them. Now it becomes the whole subject,
+because **view inheritance is the single most-used skill in professional Odoo work**.
+Client wants a field on the sales order form? Extension view. Hide a button for one
+group? Extension view. Nearly every integrator ticket that says "can we see X on the Y
+screen" resolves to twenty lines of the XML you'll write in this chapter. Part 4
+extends core apps with exactly this mechanism; here you learn it safely inside
+LibreFleet, including how it breaks.
+
+## Concepts
+
+### A view is a row in ir.ui.view
+
+Every list, form, kanban and search screen is described by a record of `ir.ui.view`,
+holding among other things: the `model` it renders, its `type` (list, form...), its
+`arch` (the XML you've been writing), a `priority`, a `mode`, and optionally an
+`inherit_id`. Your module's XML files don't "declare" views in some special sense;
+they just load records into this table, like any other data file.
+
+Look at LibreFleet's own rows (this is your database, after chapter 15):
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, priority, mode, inherit_id from ir_ui_view where model = 'librefleet.vehicle' order by id;"
+ id  |          name           | type | priority |  mode   | inherit_id
+-----+-------------------------+------+----------+---------+------------
+ 253 | librefleet.vehicle.list | list |       16 | primary |
+ 254 | librefleet.vehicle.form | form |       16 | primary |
+(2 rows)
+```
+
+Two views, both `primary`, both at the default priority of 16. Those two columns,
+`mode` and `priority`, are this chapter's levers.
+
+### How Odoo picks and builds the view you see
+
+When the web client asks for, say, the form view of `librefleet.vehicle`, the server:
+
+<Mermaid
+  chart={`flowchart TD
+    A["client requests form view<br/>(no explicit view_id)"] --> B["pick the PRIMARY view of that<br/>model and type with the<br/>LOWEST priority"]
+    B --> C["collect its extension views<br/>(mode=extension, inherit_id set)"]
+    C --> D["apply each extension's patches<br/>to the arch, in priority order"]
+    D --> E["combined arch sent to the client"]`}
+/>
+
+Two consequences worth engraving:
+
+- **Extensions never replace, they patch.** An extension view is a list of edits
+  (add this after that, change this attribute) applied to its parent's arch at
+  request time. The parent's record is untouched; uninstall the extension and the
+  original is back, unchanged.
+- **Priority is a golf score.** Among primary views, the *lowest* number wins the
+  default slot. Base views sit at 16, so a view with priority 8 hijacks the default,
+  and one at 99 never wins unless an action asks for it by `view_id` explicitly.
+
+### The patch language
+
+An extension view's `arch` contains locator elements, each wrapping the nodes to
+insert (or the attributes to change):
+
+```xml
+<xpath expr="//field[@name='service_count']" position="after">
+    <field name="active"/>
+</xpath>
+```
+
+`expr` is a real XPath expression evaluated against the parent's arch; `position`
+says what to do at the first match:
+
+| position | Effect |
+|---|---|
+| `after` / `before` | insert your nodes as siblings of the match |
+| `inside` | append your nodes as children of the match (the default) |
+| `replace` | remove the match, put your nodes in its place |
+| `attributes` | keep the node, change only attributes via `<attribute>` children |
+
+For the common case of locating a field by name, there's a shorthand that reads
+better than XPath and does the same thing:
+
+```xml
+<field name="mileage_km" position="attributes">
+    <attribute name="string">Odometer (km)</attribute>
+</field>
+```
+
+Any locator that matches nothing is a hard error at load time, and that's a feature:
+you find out at upgrade, not silently in production. You'll trigger it on purpose
+below.
+
+<Callout type="warn" title="Gotcha">
+  Use `position="replace"` as the last resort. Every extension that replaces a node
+  deletes it for all other extensions too, including ones installed later by modules
+  you've never heard of. Integrators have a name for the resulting support tickets:
+  "module A broke module B". Prefer `attributes` (with `invisible="1"`) to hide
+  things, and keep replace for nodes your own module created.
+</Callout>
+
+### Primary inheritance, the other mode
+
+`mode="primary"` with an `inherit_id` is the rarer cousin: it produces a *new
+standalone view* that starts from a copy of the parent and applies patches, leaving
+the parent's own default rendering alone. Core uses it when a specialized flavor of a
+form is needed for one particular action. You'll recognize it when you meet it while
+reading core; for day-to-day extension work, the default `extension` mode is what you
+want.
+
+## Hands-on
+
+The reception desk has two requests: show the archive toggle on the vehicle form
+(chapter 15 taught archiving, but there's no way to do it from the UI yet), and call
+the mileage field what everyone calls it, the odometer. You'll do both without
+touching `vehicle_views.xml`.
+
+### 1. Write the extension view
+
+Create `views/vehicle_views_inherit.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_vehicle_form_reception" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.form.reception</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="inherit_id" ref="view_librefleet_vehicle_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='service_count']" position="after">
+                <field name="active"/>
+            </xpath>
+            <field name="mileage_km" position="attributes">
+                <attribute name="string">Odometer (km)</attribute>
+            </field>
+        </field>
+    </record>
+
+</odoo>
+```
+
+`inherit_id` points at the base form through its XML id (same-module `ref`, no
+`librefleet.` prefix needed), which makes this an extension view automatically. The
+arch holds two patches: one XPath locator inserting `active` after the service
+counter, one shorthand locator relabeling `mileage_km` for this form only (the field
+itself, and every other view, keeps its model-level label).
+
+Add the file to the manifest's `data` list right after `vehicle_views.xml`, bump the
+version to `19.0.1.9.0`, and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+### 2. Add the competing list view
+
+Reception also wants a stripped-down vehicle list. In the same file, before
+`</odoo>`, add a *second standalone list view* for the model:
+
+```xml
+    <record id="view_librefleet_vehicle_list_reception" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.list.reception</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="priority" eval="99"/>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="owner_id"/>
+                <field name="service_count"/>
+            </list>
+        </field>
+    </record>
+```
+
+No `inherit_id`, so it's a full view in its own right, competing for the default slot
+through priority. At 99 it deliberately loses to the original's 16. Upgrade again and
+check the table:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, priority, mode, inherit_id from ir_ui_view where model = 'librefleet.vehicle' order by id;"
+ id  |               name                | type | priority |   mode    | inherit_id
+-----+-----------------------------------+------+----------+-----------+------------
+ 253 | librefleet.vehicle.list           | list |       16 | primary   |
+ 254 | librefleet.vehicle.form           | form |       16 | primary   |
+ 261 | librefleet.vehicle.form.reception | form |       16 | extension |        254
+ 262 | librefleet.vehicle.list.reception | list |       99 | primary   |
+(4 rows)
+```
+
+Everything this chapter claimed, visible in one query: the extension with its
+`inherit_id`, the standalone at priority 99.
+
+### 3. Watch the combination happen
+
+`get_view` is the method the web client itself calls; ask it for the combined form
+arch from the shell:
+
+```console
+>>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
+>>> 'name="active"' in arch
+True
+>>> import re
+>>> re.search(r'<field name="mileage_km"[^>]*>', arch).group(0)
+'<field name="mileage_km" string="Odometer (km)"/>'
+```
+
+The base record's arch in the database still has neither change (check it in the psql
+`arch_db` column if you're curious); the merge happened at request time. That's why
+this mechanism is safe: nothing was edited, something was *composed*.
+
+### 4. Rig the priority contest, then unrig it
+
+Still in the shell, make the reception list win and watch the default flip live:
+
+```console
+>>> Vehicle = env["librefleet.vehicle"]
+>>> "service_count" in Vehicle.get_view(view_type="list")["arch"]
+False
+>>> reception = env.ref("librefleet.view_librefleet_vehicle_list_reception")
+>>> reception.priority = 8
+>>> "service_count" in Vehicle.get_view(view_type="list")["arch"]
+True
+>>> reception.priority = 99
+>>> "service_count" in Vehicle.get_view(view_type="list")["arch"]
+False
+>>> env.cr.rollback()
+```
+
+Priority 8 beats 16, so every plain vehicles action in the whole database would now
+open reception's list; back at 99, order is restored. No file changed, no upgrade ran:
+priority is data, and the winner is recomputed on every request. (The rollback keeps
+your database matching the checkpoint; the file's `eval="99"` is the state that
+ships.)
+
+### 5. Break-it lab: the locator that matches nothing
+
+Sabotage the xpath in your extension view, replacing `service_count` with a field
+that doesn't exist:
+
+```xml
+<xpath expr="//field[@name='does_not_exist']" position="after">
+```
+
+Upgrade and read the failure carefully:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml:7
+Error while parsing or validating view:
+
+Element '<xpath expr="//field[@name=&#39;does_not_exist&#39;]">' cannot be located in parent view
+
+View error context:
+{'file': '/mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml',
+ 'line': 2,
+ 'name': 'librefleet.vehicle.form.reception',
+ 'view': ir.ui.view(261,),
+ 'view.parent': ir.ui.view(254,),
+ ...
+```
+
+This traceback is a gift and you should learn its shape now: the exact file and line,
+the locator that failed, the view record and its parent. You will meet it again every
+time a version migration renames a field your xpath anchored on (chapter 37's bread
+and butter). Restore `service_count`, upgrade, and confirm the module loads clean.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch16
+✔ the reception form extension exists and is an extension view
+✔ the combined form arch contains your changes
+✔ the reception list exists, standalone, priority 99
+✔ the original list is still the default
+
+ch16 complete! On to the next chapter 🔧
+```
+
+The second check calls `get_view` over RPC, exactly like the web client would, and
+inspects the *combined* arch, so it proves your patches apply, not merely that a
+record exists. For the eyeball version: open a vehicle in the browser, find the
+archive toggle and the "Odometer (km)" label, and note the vehicles list looks
+unchanged.
+
+## Gotchas
+
+- **Your xpath is a contract with the parent's structure.** Anchor on stable,
+  semantic nodes (a named field) rather than positional paths (`/form/sheet/group[2]`),
+  because the parent WILL be reorganized someday and positional paths break silently
+  or, worse, match the wrong node.
+- **Only the first match is patched.** An `expr` matching several nodes applies to
+  the first one. If a field appears twice in a form (it happens: once visible, once
+  invisible), be more specific or you'll edit the wrong occurrence.
+- **`replace` is a shared-space hazard.** You delete that node for every other
+  extension too. Hide with attributes instead; replace only what your module owns.
+- **Upgrade, not restart, for view changes.** Views are data, so `-u librefleet`
+  reloads them and the running server serves the new combination immediately, the
+  exact mirror image of Python changes (restart, no upgrade) from chapter 14.
+- **A view can be edited in the database and diverge from your file.** Settings →
+  Technical → Views lets anyone edit arch live. The next upgrade overwrites it with
+  your file (views are not `noupdate`), which surprises whoever "fixed" it in the UI.
+  In the field: never hot-edit views in a client database; it always ends in a diff
+  nobody can explain.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A client module and a third-party module both extend the same core form. The third-party one uses position="replace" on the notes field your client edit anchors on. What happens?',
+      options: [
+        'both apply, because Odoo merges competing extensions by priority and then by module',
+        'your xpath stops matching, since the node is gone, and view loading fails outright',
+        'the higher-priority extension wins and the other is skipped without any warning',
+      ],
+      answer: 1,
+      why: 'Extensions apply as sequential patches to one shared arch. Once replace removes the node, any later locator anchored on it matches nothing, and a non-matching locator is a hard load error. This is why replace is treated as a hazard.',
+    },
+    {
+      q: 'You want your custom list view to become what users see when they open the standard menu entry. The base list has priority 16. You…',
+      options: [
+        'give your standalone list a priority below 16',
+        'give it a priority above 16',
+        'delete the base list view record',
+      ],
+      answer: 0,
+      why: 'Lowest priority wins the default slot among primary views. Below 16 hijacks the default; above it, your view only appears when an action requests it by view_id. Deleting core records is never the answer.',
+    },
+    {
+      q: 'An extension view relabels mileage_km to "Odometer (km)". Where does the change physically live?',
+      options: [
+        'the base view record is rewritten during upgrade',
+        "the field's string attribute is updated on the model",
+        'in the extension record; Odoo combines it with the base view at request time',
+      ],
+      answer: 2,
+      why: 'Inheritance is composition, not modification. The base arch and the model field are untouched; get_view assembles parent plus patches per request, which is also why uninstalling the extension cleanly restores the original.',
+    },
+    {
+      q: 'After editing a view XML file, your change does not show in the browser. Most likely you forgot to…',
+      options: [
+        'restart the Odoo server',
+        'upgrade the module so Odoo reloads the view into ir.ui.view',
+        'clear the browser cache',
+      ],
+      answer: 1,
+      why: 'The file on disk is only read during install or upgrade; the server renders whatever ir.ui.view holds. -u librefleet reloads it, no restart needed (that is the Python side, chapter 14).',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ The reception form should also show the `vin` right after `license_plate` in
+   the *list* view. Extend the original list (not the reception one) with an xpath
+   locator. Prove it with `get_view` in the shell.
+2. ⭐⭐ Managers complain the Notes group wastes space for vehicles that have no
+   notes. Using only `position="attributes"`, make the whole Notes group invisible
+   when `notes` is empty (hint: the `invisible` attribute takes a Python-ish
+   expression over field values). No new views allowed.
+3. ⭐⭐ Create a "workshop floor" form view for vehicles as a *primary* view with
+   `inherit_id` (mode="primary"): a copy of the base form that drops the Notes group
+   entirely for a hypothetical wall-mounted screen. Confirm the default form is
+   untouched and your variant renders via an action with an explicit `view_id`.
+4. ⭐⭐⭐ Read the arch of a core view: in the shell, `get_view` the form of
+   `res.partner` and count how many extension views contributed to it
+   (`env["ir.ui.view"].search_count([("inherit_id", "=", id), ("mode", "=", "extension")])`
+   on its primary form). Then skim two of those extension archs and identify which
+   position each patch uses. Core is the best xpath phrasebook you own.
+
+## Further reading
+
+- [View records and inheritance reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_records.html):
+  every locator, position, and resolution rule.
+- [Server framework 101, chapter 12: inheritance (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/12_inheritance.html):
+  the official walkthrough of the same mechanism.
+- [View architectures reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html):
+  what's allowed inside each view type's arch, the map for chapters 17–19.

@@ -1,0 +1,644 @@
+---
+title: "15. Recordsets Deep-Dive"
+description: Master the object every ORM operation gives you, then take control of create, write, unlink, context, and sudo.
+---
+
+**Goal:** be fluent with recordsets (search, browse, filtered, mapped, sorted), know
+exactly what `env`, context and `sudo()` do, and move LibreFleet's sequence draw into
+`create()` like a production module. · **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch15`
+
+## Why this matters
+
+Every chapter since 9 has quietly used recordsets: computes loop over `self`,
+constraints call `search_count`, the shell sessions call `search` and `create`. This
+chapter stops using them by imitation and takes them apart. It's the highest-leverage
+hour in Part 2: once recordsets click, you can read any Odoo code (core, OCA, your
+colleagues') and the framework stops feeling magic. It's also where you learn the two
+tools that separate maintenance work from incidents: `with_user` to test as somebody
+else, and `sudo` used deliberately instead of sprinkled until the error goes away.
+
+Everything below runs in `odoo shell` against your `tutorial` database. Open it and
+type along; the outputs shown are real:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+## Concepts
+
+### One object to rule them all
+
+A **<Term k="recordset">recordset</Term>** is an ordered collection of records of one model. It might hold zero
+records, one, or many, and *every* ORM surface hands you one:
+
+- `env["librefleet.vehicle"]` is an **empty** recordset of that model (and the thing
+  you call model-level methods on).
+- `search()` returns a recordset of whatever matched, in `_order`.
+- `browse(ids)` wraps ids you already have in a recordset, without touching the
+  database.
+- Inside a model method, `self` is a recordset (that's why computes and constraints
+  loop).
+- Reading a many2one gives a recordset of 0 or 1 records; one2many and many2many give
+  recordsets of any size.
+
+Under the hood a recordset is just three things: an environment (`env`), a model name,
+and a tuple of record ids. That's why they're cheap to create, slice and combine; no
+data is loaded until you actually read a field.
+
+### Singleton vs multi: the one rule that bites
+
+Reading a *scalar* field (`char`, `integer`, `selection`...) requires a recordset of
+**exactly one** record, a *<Term k="singleton">singleton</Term>*. Read it on two records and Odoo refuses,
+because "the stage of these two orders" has no single answer:
+
+```console
+>>> orders = env["librefleet.service.order"].search([])
+>>> orders
+librefleet.service.order(2, 1)
+>>> orders.stage
+ValueError: Expected singleton: librefleet.service.order(2, 1)
+```
+
+That `Expected singleton` error is the most common traceback new Odoo developers
+produce. The fixes are always one of: loop (`for order in orders:`), aggregate
+(`orders.mapped("stage")`), or narrow down (`orders[0]`). Relational fields are the
+exception, multi-record access just unions the targets:
+
+```console
+>>> orders.mapped("stage")
+['draft', 'draft']
+>>> orders.vehicle_id
+librefleet.vehicle(2, 1)
+```
+
+In your own methods, when the logic only makes sense for one record, say so up front
+with `self.ensure_one()`: it raises that same error early, with your method's name in
+the traceback instead of some confusing line further down.
+
+### The environment: who, where, with what settings
+
+Every recordset carries its `env`, and the env answers three questions:
+
+| Attribute | Question it answers | Example value in the shell |
+|---|---|---|
+| `env.user` / `env.uid` | who is acting? | `__system__`, uid `1` |
+| `env.cr` | which database cursor (transaction)? | one transaction per shell session |
+| `env.context` | with which settings? | `{'lang': 'en_US', 'tz': False, 'uid': 1}` |
+
+Plus two conveniences you'll use constantly: `env["model.name"]` to get a model's
+empty recordset, and `env.ref("module.xml_id")` to fetch the record behind an XML id:
+
+```console
+>>> env.user.login, env.uid, env.company.name
+('__system__', 1, 'My Company')
+>>> env.ref("librefleet.seq_librefleet_service_order").code
+'librefleet.service.order'
+```
+
+Notice who you are in the shell: `__system__`, uid 1, the **<Term k="superuser">superuser</Term>**. The shell
+skips authentication entirely, and uid 1 bypasses access rights and record rules.
+Convenient for admin work, and exactly why "it worked in the shell" proves nothing
+about what a real user can do. You'll fix that with `with_user` below.
+
+The **<Term k="context">context</Term>** is a read-only dict of settings that travels with every call:
+language, timezone, and flags that change ORM behavior. You never mutate it; you
+derive a new recordset carrying a modified copy:
+
+```python
+records.with_context(active_test=False)   # new recordset, extended context
+records.with_user(some_user)              # new recordset, acting as that user
+records.sudo()                            # new recordset, superuser mode on
+```
+
+All three return a *new* recordset with the same ids and a different env. The original
+is untouched.
+
+### Search happens in SQL, filtered happens in Python
+
+Both give you a subset, and choosing well is a performance habit worth building on
+day one:
+
+<Mermaid
+  chart={`flowchart LR
+    subgraph P["Postgres does the work"]
+      S["search(domain)"] --> SQL["SELECT ... WHERE ..."]
+    end
+    subgraph M["Python does the work"]
+      F["records.filtered(fn)"] --> RAM["loops records already<br/>loaded in memory"]
+    end
+    SQL --> R1["only matching rows travel"]
+    RAM --> R2["fine on a page of records,<br/>wasteful on a whole table"]`}
+/>
+
+**`search`** sends a domain to Postgres: only matching rows come back, indexes get
+used, and it scales to millions of records. **`filtered`** runs a Python function over
+records you already have: perfect for narrowing a small in-memory set without another
+round-trip, wasteful (or fatal) as a substitute for a proper domain on a big table.
+The rule of thumb: filter in SQL when you *fetch*, filter in Python when you already
+*hold*.
+
+### Domains, properly
+
+A domain is a list of `(field, operator, value)` triples. Conditions are **ANDed by
+default**; prefix operators combine them differently: `"|"` (OR), `"&"` (explicit
+AND), `"!"` (NOT), each consuming the next two (or one, for `!`) terms. The operators
+you'll actually use:
+
+| Operator | Meaning |
+|---|---|
+| `=`, `!=`, `>`, `>=`, `<`, `<=` | comparison |
+| `in`, `not in` | membership in a list |
+| `like` / `ilike` | substring match, case-sensitive / insensitive (`%` wildcards allowed) |
+| `=like` / `=ilike` | pattern match where *you* place every wildcard |
+| `child_of` / `parent_of` | hierarchy walks (categories, companies) |
+| dotted paths | `("vehicle_id.owner_id.name", "ilike", "garage")` follows relations |
+
+You've been writing domains since chapter 12; the part people miss is the prefix
+notation. `["|", A, B]` is "A or B"; `["|", A, "&", B, C]` is "A or (B and C)". When a
+domain grows past two branches, format it vertically and comment it, future-you will
+be grateful.
+
+### Writing: create, write, unlink, archive
+
+Four verbs change data, and each has a batch-shaped best practice:
+
+- **`create(vals_list)`** takes a *list of dicts* and returns a recordset of the new
+  records. One call creating fifty records is dramatically cheaper than fifty calls;
+  that's also why overridable `create` methods take `vals_list` (you'll write one
+  today).
+- **`write(vals)`** on a recordset applies the same values to every record in it, in
+  one operation. `record.field = value` is sugar for a one-field write.
+- **`unlink()`** deletes every record in the set. Gone means gone (subject to
+  `ondelete` rules from chapter 12).
+- **Archiving** is the soft alternative: set `active = False` and the record
+  vanishes from every default search but keeps existing (chapter 9 gave vehicles an
+  `active` field for exactly this). To see archived records, extend the context:
+  `with_context(active_test=False)`.
+
+### sudo and with_user: power tools, sharp edges
+
+`with_user(user)` re-runs everything as that user: their groups, their access rights,
+their record rules. It's how you *test* security without logging out and back in, and
+how cron jobs act on behalf of specific users.
+
+`sudo()` flips the superuser bit (`env.su`) on a derived recordset: access rights and
+record rules stop applying, while `env.user` stays whoever it was. Legitimate uses are
+narrow and real: a controller that must read config the visitor can't, a cron touching
+records nobody owns. The dangers are just as real: sudo silently succeeds where a
+permission error *should* have stopped you, it spreads (records fetched through a
+sudo'd recordset are sudo'd too), and it turns a reader's "why can this user do that?"
+into archaeology. House rule you'll see at every serious integrator: sudo the
+*smallest possible operation*, never the whole method, and leave a comment saying why.
+
+## Hands-on
+
+### 1. Anatomy of a recordset
+
+In the shell, meet the three faces of the same object:
+
+```console
+>>> Vehicle = env["librefleet.vehicle"]
+>>> Vehicle
+librefleet.vehicle()
+>>> orders = env["librefleet.service.order"].search([])
+>>> orders
+librefleet.service.order(2, 1)
+>>> orders.ids
+[2, 1]
+```
+
+Empty recordset, then a two-record one. The ids come back as `(2, 1)` because chapter
+12 gave the model `_order = "scheduled_start desc, id desc"` and order 2 is scheduled
+later. Recordsets behave like sequences:
+
+```console
+>>> len(orders)
+2
+>>> orders[0]
+librefleet.service.order(2,)
+>>> orders[0].reference
+'SO/2026/0002'
+>>> orders[::-1]
+librefleet.service.order(1, 2)
+```
+
+And like sets, with `|` (union), `&` (intersection), `-` (difference), `in`:
+
+```console
+>>> both = Vehicle.browse(1) | Vehicle.browse(2)
+>>> both
+librefleet.vehicle(1, 2)
+>>> both - Vehicle.browse(1)
+librefleet.vehicle(2,)
+>>> Vehicle.browse(1) in both
+True
+```
+
+`browse` deserves one experiment: it doesn't check the database, it just wraps ids.
+Browse something that doesn't exist and nothing complains until you look:
+
+```console
+>>> ghost = Vehicle.browse(999)
+>>> ghost
+librefleet.vehicle(999,)
+>>> ghost.exists()
+librefleet.vehicle()
+```
+
+`exists()` is the guard: it returns the subset of records that are really in the
+database. Any code that receives ids from outside (a controller, an import, a cron
+argument) should pass them through `exists()` before trusting them.
+
+### 2. Trip over the singleton rule, on purpose
+
+```console
+>>> orders.stage
+ValueError: Expected singleton: librefleet.service.order(2, 1)
+>>> orders.mapped("stage")
+['draft', 'draft']
+>>> orders.vehicle_id
+librefleet.vehicle(2, 1)
+```
+
+Scalar field on two records: refused. `mapped` collects the values; relational access
+unions the targets. You'll hit this error for real within a week of writing Odoo code;
+now you'll recognize it in one second.
+
+### 3. The search toolbox
+
+Work through these and predict each result before running it:
+
+```console
+>>> SO = env["librefleet.service.order"]
+>>> SO.search([("stage", "=", "draft")]).mapped("reference")
+['SO/2026/0002', 'SO/2026/0001']
+>>> SO.search([], order="reference", limit=1).reference
+'SO/2026/0001'
+>>> SO.search_count([])
+2
+>>> env["librefleet.vehicle"].search([("license_plate", "ilike", "zh")]).mapped("license_plate")
+['ZH 468 202']
+>>> SO.search(["|", ("stage", "=", "done"), ("reference", "=", "SO/2026/0001")]).mapped("reference")
+['SO/2026/0001']
+```
+
+Note `order=` and `limit=` doing their work in SQL, `search_count` skipping the fetch
+entirely (it becomes a `SELECT count(*)`), and the `"|"` prefix taking the next two
+conditions. `ilike` matched `zh` against `ZH 468 202` case-insensitively.
+
+### 4. filtered, mapped, sorted, grouped
+
+The in-memory quartet, on the orders you already hold:
+
+```console
+>>> orders = SO.search([])
+>>> orders.mapped("vehicle_id.license_plate")
+['BE 30 447', 'ZH 468 202']
+>>> orders.filtered(lambda o: o.margin > 0).mapped("reference")
+['SO/2026/0002', 'SO/2026/0001']
+>>> orders.sorted("reference", reverse=True).mapped("reference")
+['SO/2026/0002', 'SO/2026/0001']
+>>> {k.license_plate: v.mapped("reference") for k, v in orders.grouped("vehicle_id").items()}
+{'BE 30 447': ['SO/2026/0002'], 'ZH 468 202': ['SO/2026/0001']}
+```
+
+`mapped` takes a dotted path and follows relations (deduplicating recordset results on
+the way). `filtered` takes a function (or a field name: `orders.filtered("notes")`
+keeps records where the field is truthy). `sorted` takes a field name or a key
+function. `grouped` buckets a recordset into a dict in one pass. All four operate on
+what's already in memory; none of them touches Postgres. Notice `margin` computing on
+demand inside `filtered`: chapter 13's non-stored computes work transparently here.
+
+### 5. Create in batch, write in batch
+
+Three new vehicles, one call, then one write that hits all three:
+
+```console
+>>> new = Vehicle.create([
+...     {"license_plate": "SHELL-001", "model_name": "Toyota Hilux", "year": 2021},
+...     {"license_plate": "SHELL-002", "model_name": "VW Caddy", "year": 2019},
+...     {"license_plate": "SHELL-003", "model_name": "Ford Transit", "year": 2015},
+... ])
+>>> new
+librefleet.vehicle(16, 17, 18)
+>>> new.write({"notes": "Checked in bulk from the shell"})
+True
+>>> new.mapped("notes")
+['Checked in bulk from the shell', 'Checked in bulk from the shell', 'Checked in bulk from the shell']
+```
+
+Two things worth noticing. `create` took a list and returned a recordset of all three.
+And the new ids jumped to 16–18 even though you only ever saw two vehicles: every
+failed create from chapter 14's constraint experiments consumed a primary-key id.
+Postgres id sequences leak on rollback exactly like `ir.sequence` does; gaps in ids
+are as normal as gaps in order references.
+
+### 6. Archive one, delete one, and meet active_test
+
+```console
+>>> new[1].active = False
+>>> new[2].unlink()
+True
+>>> Vehicle.search([("license_plate", "like", "SHELL")]).mapped("license_plate")
+['SHELL-001']
+>>> Vehicle.with_context(active_test=False).search([("license_plate", "like", "SHELL")]).mapped("license_plate")
+['SHELL-001', 'SHELL-002']
+>>> env.cr.commit()
+```
+
+The plain search shows only SHELL-001: archived records are invisible to every default
+search, which is precisely their point (chapter 9's Gotcha, now demonstrated).
+`active_test=False` in the context reveals SHELL-002. SHELL-003 is nowhere: unlink is
+permanent. The `commit()` matters, as always in the shell, and this exact state
+(SHELL-001 active with its note, SHELL-002 archived, SHELL-003 gone) is what
+`odoolings` will verify.
+
+### 7. Become tina: record rules in action (break-it lab)
+
+Chapter 10's record rule says technicians may only *write* orders they're assigned
+to. The shell's superuser never feels that rule; `with_user` does:
+
+```console
+>>> tina = env["res.users"].search([("login", "=", "tina")])
+>>> as_tina = SO.with_user(tina)
+>>> as_tina.search([]).mapped("reference")
+['SO/2026/0002', 'SO/2026/0001']
+```
+
+Both orders! Look back at the rule in `security/librefleet_security.xml`: it sets
+`perm_read` to `False`, so it filters writes but not reads. Tina can see the whole
+board and edit only her own work, a deliberate design. Now break it: write to the
+order she's assigned to (order 1, from chapter 12), then to the other one:
+
+```console
+>>> as_tina.search([("reference", "=", "SO/2026/0001")]).write({"notes": "brake pads ordered"})
+True
+>>> as_tina.search([("reference", "=", "SO/2026/0002")]).write({"notes": "tina was here"})
+odoo.exceptions.AccessError: Uh-oh! Looks like you have stumbled upon some top-secret records.
+
+Sorry, Tina Technician (id=5) doesn't have 'write' access to:
+- Service Order (librefleet.service.order)
+```
+
+That AccessError is the security model doing its job (Odoo's error copy included).
+Now watch `sudo()` defeat it, which is the part to remember viscerally:
+
+```console
+>>> as_tina.sudo().search([("reference", "=", "SO/2026/0002")]).write({"notes": "sudo bypasses the record rule"})
+True
+>>> sneaky = as_tina.sudo()
+>>> sneaky.env.user.login, sneaky.env.su
+('tina', True)
+>>> env.cr.rollback()
+```
+
+Same user (`env.user` is still tina), superuser bit on, rule gone, write accepted, no
+warning anywhere. In a real module this line would be a security bug: any code path
+tina can trigger now edits orders she was explicitly fenced off from. Roll it back and
+remember the house rule: sudo the smallest operation, comment why, and never use it to
+make an AccessError "go away" without understanding what the error protected.
+
+### 8. Move the sequence draw into create
+
+Chapter 14 left a known wart: the callable default draws a number the moment a form
+opens, so every abandoned "New" burns one. Production modules (look at `sale.order` in
+core someday) draw the number **in `create`**, when the record is actually saved. In
+`models/service_order.py`, simplify the field and add the override:
+
+```python
+    reference = fields.Char(
+        required=True, copy=False, readonly=True, default="New",
+        help="Human-readable order number, assigned from the sequence "
+             "when the order is saved.")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get("reference", "New") == "New":
+                vals["reference"] = self.env["ir.sequence"].next_by_code(
+                    "librefleet.service.order") or "New"
+        return super().create(vals_list)
+```
+
+Read it with this chapter's eyes. `@api.model_create_multi` declares the
+batch-friendly signature: `vals_list` is a *list* of dicts, exactly what you passed in
+step 5, and the loop stamps a number on each entry that doesn't already have one. The
+`vals.get(...) == "New"` guard leaves imported or copied values alone if a caller
+supplied a real reference. `super().create(vals_list)` runs the standard creation
+(defaults, constraints from chapter 14, computes from 13) and returns the new
+recordset. Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose restart odoo
+```
+
+### 9. Prove the improvement
+
+Back in a fresh shell. `default_get` is what a new form calls to prefill fields, so it
+shows exactly what opening "New" now costs:
+
+```console
+>>> SO = env["librefleet.service.order"]
+>>> SO.default_get(["reference"])
+{'reference': 'New'}
+>>> two = SO.create([
+...     {"vehicle_id": 1, "scheduled_start": "2026-09-01 08:00:00", "scheduled_end": "2026-09-01 09:00:00"},
+...     {"vehicle_id": 2, "scheduled_start": "2026-09-01 08:00:00", "scheduled_end": "2026-09-01 09:00:00"},
+... ])
+>>> two.mapped("reference")
+['SO/2026/0008', 'SO/2026/0009']
+>>> env.cr.rollback()
+```
+
+Opening a form burns nothing (`'New'`, no number drawn), while a real save, even a
+batch of two in one call, numbers each order. Your counter will be sitting well ahead of
+your order count, and by an amount nobody can predict for you: chapter 14's constraint
+experiments spent several, `odoolings` spends one per run that creates an order, and so
+does every attempt you retried. Check `number_next_actual` if you are curious, and expect
+a number with no tidy relationship to how many orders exist. Gaps, as established, are the
+sequence working correctly.
+
+One nuance so you're never surprised: the rollback above still cost numbers, because a
+number drawn inside `create` is as non-transactional as anywhere else. What the override
+fixes is forms and abandoned drafts (no draw before save), not rollbacks after a
+successful save.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch15
+✔ the order number is drawn at save time, not in the default
+✔ a batch create draws one distinct number per order
+✔ SHELL-001 exists with the bulk-write note
+✔ SHELL-002 is archived, not deleted
+✔ SHELL-003 is gone for good
+
+ch15 complete! On to the next chapter 🔧
+```
+
+The first check calls `default_get` over RPC and fails if it still returns a drawn
+number; the second creates two orders in one call (then deletes them) to prove your
+`vals_list` loop numbers each entry. And straight from Postgres, the state your shell
+session left behind:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select license_plate, active, notes from librefleet_vehicle where license_plate like 'SHELL%' order by license_plate;"
+ license_plate | active |             notes
+---------------+--------+--------------------------------
+ SHELL-001     | t      | Checked in bulk from the shell
+ SHELL-002     | f      | Checked in bulk from the shell
+(2 rows)
+```
+
+Archived means still there with `active = f`; unlinked means not there at all.
+
+## Gotchas
+
+- **`Expected singleton` is a recordset holding more than one record.** The read
+  `record.field` needs exactly one. Loop, `mapped`, or index; and open your own
+  single-record methods with `self.ensure_one()` so the error names the real culprit.
+- **The shell is the superuser.** uid 1 skips access rights and record rules, so "it
+  works in the shell" says nothing about real users. Test permissions with
+  `with_user`, always.
+- **`sudo()` spreads.** Records reached through a sudo'd recordset are sudo'd too:
+  `order.sudo().vehicle_id.owner_id` walks two relations with security off. Derive
+  sudo for one operation, not at the top of a method.
+- **`filtered` on what you should have `search`ed.** Filtering a whole table in
+  Python loads the whole table. Domain in SQL to fetch, Python to narrow what you
+  already hold.
+- **`browse` never validates.** It happily wraps ids that don't exist and fails only
+  on field access. Ids from any external source go through `.exists()` first.
+- **Forgetting `env.cr.commit()` in the shell.** The session is one transaction;
+  quit without committing and everything you "did" evaporates. (Deliberate rollback
+  is equally useful: experiment freely, `env.cr.rollback()`, clean slate.)
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'orders holds 40 service orders and you need the set with a positive margin. orders.filtered(lambda o: o.margin > 0) or a search with a domain?',
+      options: [
+        'search, because pushing any condition into SQL beats looping in Python every time',
+        'filtered, because they are already in memory and margin has no column for SQL to see',
+        'either one, since the ORM rewrites filtered into the same query search would build',
+      ],
+      answer: 1,
+      why: 'You already hold the records, so no round-trip is saved by searching, and a non-stored computed field does not exist in Postgres for a domain to test. Filtering in memory is both the cheap and the only option here.',
+    },
+    {
+      q: 'A technician-facing method starts with self.sudo() "because otherwise it crashes with AccessError". What did that actually change?',
+      options: [
+        'nothing important, sudo just silences the error message',
+        'all operations now bypass access rights and record rules',
+        'the method now runs as the admin user, so the audit trail shows admin',
+      ],
+      answer: 1,
+      why: 'sudo flips env.su on the recordset and everything derived from it; the security model stops applying entirely. The AccessError existed to stop that exact write. And env.user stays the technician, so this is not even visible as admin activity.',
+    },
+    {
+      q: 'Model.browse(999) where record 999 was deleted long ago. What happens?',
+      options: [
+        'it raises MissingError immediately, because browse validates the id against the table',
+        'it returns a recordset around id 999 and only fails when you read a field from it',
+        'it returns an empty recordset, since browse quietly drops ids that no longer exist',
+      ],
+      answer: 1,
+      why: 'browse is a no-questions-asked wrapper over ids, which is exactly what makes it cheap: it issues no query at all, so it cannot know the row is gone. Validation happens on first data access, where you get MissingError. Option 0 would require browse to hit the database, defeating its purpose; option 2 is worse than wrong, because a silently empty recordset would make deleted-record bugs invisible. Code receiving ids from outside should filter through exists() before trusting them.',
+    },
+    {
+      q: 'Why does the create override receive a LIST of dicts (vals_list) instead of one dict?',
+      options: [
+        'historical accident kept for backward compatibility',
+        'create supports batches, so the override must handle every vals dict',
+        'so that the dicts can share default values',
+      ],
+      answer: 1,
+      why: 'Creating N records in one call is dramatically cheaper than N calls, so the modern signature is batch-first (@api.model_create_multi). An override that assumed a single dict would break every importer and batch caller.',
+    },
+    {
+      q: 'A vehicle was archived (active = False). Which statement is true?',
+      options: [
+        'search([]) still returns it, but views hide it',
+        'default search hides it unless active_test=False; its database row remains',
+        'it was moved to a separate archive table',
+      ],
+      answer: 1,
+      why: 'Archiving is a soft hide implemented in the ORM: default searches filter active = True automatically. The record is an ordinary row throughout, and active_test=False in the context switches the filtering off.',
+    },
+  ]}
+/>
+
+New quiz flavor, debuting this chapter: read the snippet, commit to an answer,
+then click. All three run against the database as this chapter left it.
+
+<Quiz
+  id="15-predict"
+  title="Predict the output"
+  questions={[
+    {
+      q: 'No vehicle has id 999. What comes back?',
+      code: '>>> Vehicle = env["librefleet.vehicle"]\n>>> Vehicle.browse(999).exists()',
+      options: [
+        'librefleet.vehicle()',
+        'MissingError: Record does not exist',
+        'librefleet.vehicle(999,)',
+      ],
+      answer: 0,
+      why: 'browse wraps the id without checking, and exists() then filters it against the database: nothing survives, so you get an empty recordset. No error at any point.',
+    },
+    {
+      q: 'orders holds the two service orders. What does the last line produce?',
+      code: '>>> orders\nlibrefleet.service.order(2, 1)\n>>> orders.vehicle_id.license_plate',
+      options: [
+        "['BE 30 447', 'ZH 468 202']",
+        'ValueError: Expected singleton: librefleet.vehicle(2, 1)',
+        "'BE 30 447'",
+      ],
+      answer: 1,
+      why: 'orders.vehicle_id is fine (relational access on a multi recordset unions the targets into two vehicles), but license_plate is a scalar field, and reading it on two records trips the singleton rule. mapped("vehicle_id.license_plate") is the working spelling.',
+    },
+    {
+      q: 'Set arithmetic on recordsets. What does the last line print?',
+      code: '>>> both = Vehicle.browse(1) | Vehicle.browse(2)\n>>> (both - Vehicle.browse(1)).mapped("license_plate")',
+      options: [
+        "['ZH 468 202']",
+        "['BE 30 447']",
+        "librefleet.vehicle(2,)",
+      ],
+      answer: 1,
+      why: 'The difference removes vehicle 1 (ZH 468 202), leaving vehicle 2, and mapped extracts its plate: BE 30 447. The third option is what you would see without the mapped call.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In one `search` call each, fetch: all vehicles built after 2018, the three most
+   recently scheduled orders, and every order whose vehicle's plate contains a digit
+   `4` (dotted path). Then produce the after-2018 set again from an in-memory
+   recordset using `filtered`.
+2. ⭐⭐ Using only the shell, archive every vehicle with `year` older than 2018 in a
+   *single* `write` call (build the recordset first), verify the count that a plain
+   `search` now returns, then un-archive them the same way. No loops allowed.
+3. ⭐⭐ Write a `mark_all_done()` helper directly in the shell: take
+   `env["librefleet.service.order"].search([("stage", "=", "draft")])`, guard against
+   the empty case, and move them all to `done` with one `write`. Then explain (in one
+   sentence each) why the overlap constraint from chapter 14 re-fired, and why it
+   passed. Roll back when done.
+4. ⭐⭐⭐ Group service orders per stage *in SQL* instead of Python:
+   read about `formatted_read_group` in the
+   [ORM reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html)
+   and use it to get order counts per stage in one query. Compare with
+   `orders.grouped("stage")` and note when each belongs (this is a preview of the
+   performance work in chapter 38).
+
+## Further reading
+
+- [ORM reference: recordsets, environment, common methods (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  the full method catalog once this chapter's mental model is in place.
+- [Server framework 101, chapter 11: add the sprinkles (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/11_sprinkles.html):
+  the official pass over the same territory.
+- [Security reference: record rules and sudo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
+  what exactly is bypassed when, chapter and verse.

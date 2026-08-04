@@ -1,0 +1,400 @@
+---
+title: "18. Search Views, Filters & Group-By"
+description: "Give the order list a real search bar: filters, group-by, and a default that survives page load, plus the naming convention that breaks it silently."
+---
+
+**Goal:** build a search view for service orders with filters, group-by, and a
+working default filter, and understand exactly why a typo in that default fails
+silently. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch18`
+
+## Why this matters
+
+Every list you've built so far opens showing everything, sorted however the model's
+`_order` says. Real users don't want everything: a technician wants their own jobs, a
+manager wants to see progress by vehicle, and nobody wants to see cancelled orders on
+the happy path. That's the search view's job, and it's a fourth view type alongside
+list, form and (soon) kanban. It also comes with a footgun this chapter walks you
+straight into: the mechanism that makes a filter apply automatically depends on
+spelling one string correctly, and Odoo will never tell you if you didn't.
+
+## Concepts
+
+### The search view is data too
+
+By now this shouldn't surprise you: a search view is just another `ir.ui.view` record,
+`type="search"`, loaded from XML like every view before it. Its arch holds three kinds
+of element:
+
+- **`<field>`**: a searchable field. Typing in the search bar against
+  `vehicle_id` does a `name_search` on vehicles, exactly like typing into a many2one
+  widget on a form.
+- **`<filter>`**: a named, static domain the user can toggle on with a click. Each
+  one needs a `domain` (or a `context` for group-by, see below) and a `name` that
+  matters more than it looks like it should.
+- **`<group>`** wrapping filters with `context="{'group_by': '...'}"`: the Group By
+  menu. Grouping by a field runs a `read_group` (or a Python `_read_group`), which
+  buckets records and returns counts per bucket, the same aggregation a pivot or
+  kanban column count uses under the hood.
+
+<Callout type="warn" title="Gotcha">
+  Don't confuse a search view's `<filter>` element with the `ir.filters` model.
+  `<filter>` is a static toggle baked into the view's XML by whoever wrote the module.
+  `ir.filters` is the *favorites* system: a record a user saves themselves, from the
+  search bar's "Save current search" button, stored per-user in the database. Same
+  word, two different mechanisms.
+</Callout>
+
+### Ticking two filters: the rule that surprises everyone
+
+Chapter 15 drilled that the conditions in a domain are **ANDed** by default. Search
+views break that expectation on purpose, and this is the single most common Odoo search
+surprise, so get it now rather than from a confused user:
+
+| What the user ticks | How it combines | Why |
+|---|---|---|
+| Two `<filter>`s with nothing between them | **OR** | Adjacent filters are alternatives: "show me draft *or* confirmed" |
+| Two `<filter>`s with a `<separator/>` between them | **AND** | A separator starts a new group, and groups are ANDed |
+| A value typed into the search bar | **AND** with everything else | It is a different facet |
+
+So `Draft` plus `Confirmed` ticked together shows you both, not nothing. If they ANDed,
+`stage = 'draft' AND stage = 'confirmed'` could never match a record, which is exactly
+what a reader who trusts chapter 15 predicts.
+
+That is what `<separator/>` is for: it starts a new group, so it is how you say "this
+filter must narrow the others, not join them".
+
+Now look carefully at the arch you are about to write, because it has exactly one
+separator and that is **one too few**. "My Services" and "Exclude Cancelled" end up in
+the same group, so ticking both shows you *your* orders plus *everyone's* non-cancelled
+ones, which is not what either label promises. The stage filters below the separator are
+correctly ANDed against them. Exercise 5 has you fix it, and it is worth leaving wrong
+for one read: this is precisely the bug you will meet in real modules, where the label
+says "exclude" and the behaviour says "include as well".
+
+Each group's facets appear as one chip in the search bar, which is the visual tell:
+one chip means OR inside it, two chips mean AND between them.
+
+### uid: a variable that only exists in this one context
+
+The "My Services" filter you're about to write uses `uid` inside a domain string:
+
+```xml
+<filter string="My Services" name="my_services"
+        domain="[('technician_ids', 'in', [uid])]"/>
+```
+
+`uid` isn't a Python variable, an import, or anything you'd find defined anywhere in
+the codebase. It's a magic name the web client substitutes with **the current logged-in
+user's id** when it evaluates the domain, client-side, right before sending the
+search request. It only works inside domain and context strings written in XML (or
+passed as literal context dicts); you'll never see `uid` used this way inside a Python
+method, because Python methods have `self.env.uid` for the same thing, spelled
+differently.
+
+### The default-filter convention, and where it can quietly fail
+
+An action's `context` can pre-check a filter when the view first loads, using a naming
+convention: `search_default_<name>` set to a truthy value, where `<name>` is a
+filter's `name` attribute:
+
+```xml
+<field name="context">{'search_default_not_cancelled': 1}</field>
+```
+
+<Mermaid
+  chart={`flowchart LR
+    A["action.context has\nsearch_default_not_cancelled: 1"] --> B{"a filter named\n'not_cancelled' exists\nin the search view?"}
+    B -- yes --> C["client pre-checks it,\nfilter applies on load"]
+    B -- no, typo --> D["nothing happens.\nno error, no warning,\nlist just opens unfiltered"]`}
+/>
+
+Here's the part worth sitting with: **this convention is enforced by nobody.** There's
+no schema linking an action's context keys to a search view's filter names. If you
+write `search_default_not_cancelld` (typo) and the filter is actually named
+`not_cancelled`, the module installs cleanly, the server starts, the list opens, and
+it just... doesn't filter. No traceback, no log line, nothing. You'll build this bug on
+purpose in a minute so you recognize the shape of it forever.
+
+## Hands-on
+
+### 1. Build the search view
+
+In `views/service_order_views.xml`, add a new `ir.ui.view` record before the action,
+`type` inferred from the root tag:
+
+```xml
+<record id="view_librefleet_service_order_search" model="ir.ui.view">
+    <field name="name">librefleet.service.order.search</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <search>
+            <field name="reference"/>
+            <field name="vehicle_id"/>
+            <field name="customer_id"/>
+            <field name="technician_ids"/>
+            <filter string="My Services" name="my_services"
+                    domain="[('technician_ids', 'in', [uid])]"/>
+            <filter string="Exclude Cancelled" name="not_cancelled"
+                    domain="[('stage', '!=', 'cancelled')]"/>
+            <separator/>
+            <filter string="Draft" name="stage_draft" domain="[('stage', '=', 'draft')]"/>
+            <filter string="Confirmed" name="stage_confirmed" domain="[('stage', '=', 'confirmed')]"/>
+            <filter string="In Progress" name="stage_in_progress" domain="[('stage', '=', 'in_progress')]"/>
+            <filter string="Done" name="stage_done" domain="[('stage', '=', 'done')]"/>
+            <!-- Group By -->
+            <group>
+                <filter string="Vehicle" name="group_vehicle" context="{'group_by': 'vehicle_id'}"/>
+                <filter string="Stage" name="group_stage" context="{'group_by': 'stage'}"/>
+                <filter string="Service Type" name="group_service_type" context="{'group_by': 'service_type_id'}"/>
+            </group>
+        </search>
+    </field>
+</record>
+```
+
+Notice the `<group>` around the group-by filters has no attributes at all in Odoo 19,
+just a comment above it for readability. (On Odoo 18 you may see `expand="0"` used to
+collapse the group-by section by default; on 19 that attribute is rejected by the view
+schema and the group-by list is always collapsed.) Four searchable fields, six
+toggleable filters, three group-by options: this is already a working search view. You
+don't need to reference it anywhere yet, the client finds a model's search view
+automatically the same way it finds the lowest-priority list and form.
+
+### 2. Wire the default, with the typo left in on purpose
+
+On the action, add a context with the default filter, but misspell the filter name:
+
+```xml
+<field name="context">{'search_default_not_cancelld': 1}</field>
+```
+
+That's `not_cancelld`, missing the second `e`. Bump the manifest to `19.0.1.11.0` and
+upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would with
+the correct spelling, because nothing in the loading process ever reads a filter's
+`name` attribute against an action's context keys. They're unrelated strings that
+happen to follow a convention only the browser's JavaScript understands.
+
+### 3. Catch what the server can't
+
+```console
+$ python3 odoolings.py check ch18
+✔ the search view has the expected filters
+✔ the My Services filter domain is correct
+✘ the action's default filter matches a real filter name
+    action context key 'search_default_not_cancelld' has no matching filter in the search view. Filters actually present: group_service_type, group_stage, group_vehicle, my_services, not_cancelled, stage_confirmed, stage_done, stage_draft, stage_in_progress. The search_default_<name> suffix must be exact, or the default silently does nothing
+    hint: Every search_default_<name> key in the action's context must match a filter's name= exactly, or nothing happens, silently, forever.
+```
+
+That check works the only way this bug *can* be caught outside a human eyeballing the
+list: read the action's `context` dict, read the filter names out of the search view's
+own arch, and compare the two strings yourself. Nothing in Odoo does this comparison for
+you, ever, which is exactly why the check exists. Note that it lists the filters it did
+find, which is usually enough to spot the typo without opening the XML, and that it reads
+the live arch rather than a fixed list, so filters you add yourself (exercises 1 and 3)
+count as real ones.
+
+### 4. Fix the typo
+
+```xml
+<field name="context">{'search_default_not_cancelled': 1}</field>
+```
+
+Bump to `19.0.1.11.0` (or reuse the same bump from step 2 if you haven't upgraded
+since), upgrade again, and confirm:
+
+```console
+$ python3 odoolings.py check ch18
+✔ the search view has the expected filters
+✔ the My Services filter domain is correct
+✔ the action's default filter matches a real filter name
+✔ grouping by vehicle_id works
+
+ch18 complete! On to the next chapter 🔧
+```
+
+### 5. Prove group-by actually aggregates
+
+`read_group` is what the client calls under the hood when you click a Group By
+option; call it yourself and get real buckets back:
+
+```console
+>>> action_id = env.ref("librefleet.action_librefleet_service_order").id
+>>> env["ir.actions.act_window"].browse(action_id).context
+"{'search_default_not_cancelled': 1}"
+>>> groups = env["librefleet.service.order"].read_group([], ["id"], ["vehicle_id"])
+>>> [(g["vehicle_id"], g["vehicle_id_count"]) for g in groups]
+[((1, 'ZH 468 202'), 1), ((2, 'BE 30 447'), 1)]
+```
+
+One order per vehicle, which matches the two vehicles and two orders you've had since
+chapter 12. The action's context now reads back exactly as written: the fixed string.
+
+### 6. Prove My Services actually scopes
+
+`with_user` from chapter 15 makes this the cheapest security-relevant test you'll ever
+write:
+
+```console
+>>> tina = env["res.users"].search([("login", "=", "tina")])
+>>> as_tina = env["librefleet.service.order"].with_user(tina)
+>>> as_tina.search([("technician_ids", "in", [tina.id])]).mapped("reference")
+['SO/2026/0001']
+```
+
+Tina's own filter, evaluated as Tina, returns exactly the one order she's assigned to
+(from chapter 12). In the browser, the exact same domain runs when she clicks "My
+Services", with `uid` standing in for `tina.id` because the client fills it in from
+her session.
+
+### 7. Prove that two ticked filters OR
+
+The Concepts claim is easy to state and easier to disbelieve, so measure it. Your orders
+are all in `draft` right now, so flip one to `confirmed` first, and note that we never
+commit, so the flip evaporates when the shell exits (chapter 6's lesson, put to work):
+
+```console
+>>> O = env["librefleet.service.order"]
+>>> O.search([("stage", "=", "draft")], limit=1).stage = "confirmed"
+>>> O.search_count([("stage", "=", "draft")]), O.search_count([("stage", "=", "confirmed")])
+(1, 1)
+>>> O.search_count([("stage", "=", "draft"), ("stage", "=", "confirmed")])
+0
+>>> O.search_count(["|", ("stage", "=", "draft"), ("stage", "=", "confirmed")])
+2
+```
+
+One record each, an ANDed domain that can never match anything, and an ORed domain that
+returns both. Ticking **Draft** and **Confirmed** in the browser gives you 2, so the
+search view is building the second domain. Quit without `env.cr.commit()` and both
+orders are back to draft.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch18
+✔ the search view has the expected filters
+✔ the My Services filter domain is correct
+✔ the action's default filter matches a real filter name
+✔ grouping by vehicle_id works
+
+ch18 complete! On to the next chapter 🔧
+```
+
+For the eyeball version (author tour, screenshots pending): open Service Orders, watch
+the cancelled-hiding filter already checked when the page loads, click Group By →
+Vehicle and watch the list split into per-vehicle sections, and toggle My Services as
+tina to see the list narrow to her own booking.
+
+## Gotchas
+
+- **A missing `<separator/>` inverts a filter's meaning.** Adjacent filters OR, so a
+  filter meant to *narrow* the list (an "Exclude Cancelled") that sits next to your
+  stage filters instead *widens* it. Nothing errors, the label still reads correctly,
+  and the filter appears to do nothing. If a filter behaves backwards, count the
+  separators before you touch the domain.
+- **`search_default_<name>` has no validation anywhere.** A typo installs clean,
+  upgrades clean, and produces a list that silently ignores your intended default.
+  Nothing short of reading both strings side by side (or a check like today's) catches
+  it.
+- **`uid` only means something inside domain/context strings the client evaluates.**
+  It is not a Python name; don't go looking for where it's imported, and don't expect
+  it to work inside a compute method or constraint.
+- **A `<filter>` is not an `ir.filters` favorite.** One is static XML shipped with your
+  module; the other is a per-user saved search. Don't reach for `ir.filters` when what
+  you actually want is a `<filter>` element, and vice versa.
+- **`<group>` for group-by filters takes no attributes on Odoo 19.** `expand="0"` and
+  a `string` on the wrapping `<group>` are rejected by the view schema; a plain
+  `<group>` with a comment above it is the correct 19.0 shape.
+- **A many2many domain with `'='` and `'in'` behave the same for a single id.**
+  We tested this directly: `[('technician_ids', '=', tina.id)]` and
+  `[('technician_ids', 'in', [tina.id])]` return identical results in current Odoo.
+  Use `'in'` anyway, it's the form that reads correctly when the value becomes a list
+  of several ids, which `'='` was never designed to express.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'An action has context {\'search_default_my_orders\': 1} but the search view\'s filter is named "my_order" (no s). What happens when the list opens?',
+      options: [
+        'a validation error at module upgrade, listing the mismatch',
+        'nothing errors anywhere; the list simply opens without the filter applied',
+        'Odoo applies the closest-matching filter name automatically',
+      ],
+      answer: 1,
+      why: 'There is no schema linking search_default_ context keys to filter names. A mismatch is silently inert: no error at upgrade, no error at runtime, just a list that does not filter the way you expected.',
+    },
+    {
+      q: 'Where would you actually find uid defined, if you went looking for it in the codebase?',
+      options: [
+        'nowhere: it is a special name the client substitutes when evaluating domain/context strings',
+        'in odoo/tools/constants.py',
+        'as a global variable set by the ORM at server startup',
+      ],
+      answer: 0,
+      why: 'uid, like today_date and a few other special names, only exists as a placeholder the web client fills in (with the logged-in user\'s id) at the moment it evaluates a domain or context string written in XML. It has no Python definition to find.',
+    },
+    {
+      q: 'A user saves their own search with three filters active, using the "Save current search" star. Where does that live?',
+      options: [
+        'as a new <filter> element appended to the search view XML',
+        'as an ir.filters record, scoped to that user',
+        'in the action\'s context field',
+      ],
+      answer: 1,
+      why: 'User-saved searches are ir.filters records, a completely different model from the static <filter> elements a module author writes into a search view.',
+    },
+    {
+      q: 'You group service orders by vehicle_id. What actually runs on the server?',
+      options: [
+        'the client fetches every record and groups them in JavaScript',
+        'a read_group (or _read_group) call that returns per-group counts computed in SQL',
+        'one search() call per distinct vehicle',
+      ],
+      answer: 1,
+      why: 'Group-by delegates the aggregation to the database: read_group produces GROUP BY-style buckets and counts server-side, the same mechanism a kanban\'s column counts or a pivot view\'s cells use.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a "This Week" filter using a domain on `scheduled_start`: two comparisons,
+   `>=` today and `<` today plus 7 days. Remember domains AND by default, so no prefix
+   operator is needed for two plain conditions like these (chapter 15's `"|"` prefix
+   is only for OR). Verify it in the shell first with `search_count` before writing
+   the XML.
+2. ⭐⭐ Give vehicles their own search view: filters for "Archived" (hint: you already
+   have the `active` field from chapter 15) and "Has Open Services" (a vehicle with at
+   least one non-cancelled order), plus group-by on `owner_id`. The second filter needs
+   a domain that reaches through a relation; check chapter 15's dotted-path notes.
+3. ⭐⭐ Reproduce this chapter's exact bug shape somewhere new: add a filter named
+   `overdue` and wire a default context key with a one-character typo, upgrade, and
+   confirm nothing errors. Then write your own odoolings-style assertion (in the shell
+   is fine, doesn't need to go in `odoolings.py`) that would have caught it.
+4. ⭐ Fix the grouping bug the Concepts section pointed at: add a second `<separator/>`
+   so "My Services" and "Exclude Cancelled" sit in separate groups. Prove the change with
+   `search_count` before and after, using the two domains the search bar would build
+   (`['|', my_services, not_cancelled]` versus the two ANDed), and say which of the two
+   the UI was producing before your fix.
+4. ⭐⭐⭐ Read core's `sale.order` search view (`get_view` in the shell, or Settings →
+   Technical → Views) and find a filter whose domain is more complex than anything
+   here, one combining an OR with a nested AND. Explain what it's protecting against,
+   in one sentence, using only what you learned about domain prefix operators back in
+   chapter 15.
+
+## Further reading
+
+- [Search view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#search):
+  every attribute `<filter>`, `<field>` and `<searchpanel>` accept.
+- [Server framework 101, chapter 6: basic views, including search views (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/06_basicviews.html):
+  the official walkthrough of the same mechanism.
+- [`read_group` in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  the method group-by delegates to, and what its return shape looks like from Python.

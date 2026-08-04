@@ -1,0 +1,442 @@
+---
+title: "9. Models & Fields"
+description: Your first model, the everyday field types, and proof in psql of exactly what the ORM builds from a dozen lines of Python.
+---
+
+**Goal:** define `librefleet.vehicle`, upgrade, and be able to predict every column
+the ORM creates in Postgres. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch09`
+
+## Why this matters
+
+Everything in Odoo is a record of some model. Partners, invoices, menu items, even
+the Apps list you queried in chapter 8 (`ir.module.module`): all models. Until now
+you've only consumed models other people wrote. Today you write one, and more
+importantly, you learn the contract behind it: a Python class goes in, a PostgreSQL
+table comes out, and the mapping between them is completely predictable. Once you can
+read a model definition and picture the table (and vice versa), a large part of the
+framework stops being magic. The psql habit you build here is also how you'll debug
+real client databases for the rest of your career.
+
+## Concepts
+
+### A model is a class with a `_name`
+
+Here is the entire first version of LibreFleet's vehicle model:
+
+```python
+from odoo import fields, models
+
+
+class Vehicle(models.Model):
+    _name = "librefleet.vehicle"
+    _description = "Workshop Vehicle"
+
+    license_plate = fields.Char(required=True)
+    vin = fields.Char(string="VIN", help="17-character vehicle identification number")
+    model_name = fields.Char()
+    year = fields.Integer()
+    mileage_km = fields.Float(string="Mileage (km)")
+    notes = fields.Text()
+    active = fields.Boolean(default=True)
+```
+
+- **`_name`** is the model's identity, and the only name that matters. The Python
+  class name (`Vehicle`) is nearly irrelevant: Odoo code refers to the model as
+  `env["librefleet.vehicle"]`, and the table name is `_name` with dots swapped for
+  underscores: `librefleet_vehicle`. We prefix with `librefleet.` for the same
+  namespacing reason the module isn't called `fleet` (chapter 8).
+- **`_description`** is the human label ("Workshop Vehicle") shown in technical
+  menus. Leave it out and the server nags you with a warning at every load.
+- **Fields are class attributes** holding `fields.Something(...)` objects. Each
+  becomes a column (with one interesting exception you'll meet in the exercises).
+
+How the class becomes a table: every time a server process starts, it imports the
+Python of all installed modules and registers each `models.Model` subclass in the
+**registry** under its `_name`. But the *schema* work (CREATE TABLE, ADD COLUMN) only
+happens when a module is installed or upgraded. That's the deeper reason behind the
+chapter 6 rule of thumb: a pure Python change needs a restart, but anything touching
+fields needs `-u` so the DDL runs.
+
+<Mermaid
+  chart={`flowchart LR
+    A["models/vehicle.py<br/>class Vehicle(models.Model)<br/>_name = 'librefleet.vehicle'"] -- "every server start:<br/>import + register" --> B["registry<br/>env['librefleet.vehicle']"]
+    B -- "install / upgrade only:<br/>CREATE TABLE, ADD COLUMN" --> C[("PostgreSQL<br/>librefleet_vehicle")]`}
+/>
+
+### The scalar field types you'll use daily
+
+| Field | Postgres column | Notes |
+| --- | --- | --- |
+| `Char` | `varchar` | single line |
+| `Text` | `text` | multi-line, no length limit |
+| `Integer` | `integer` | defaults to `0`, not NULL, when read |
+| `Float` | `double precision` | money wants `Monetary` (later) |
+| `Boolean` | `boolean` | |
+| `Date` / `Datetime` | `date` / `timestamp` | always stored in UTC |
+| `Selection` | `varchar` | a closed list of choices, stored as its key |
+
+Relational fields (`Many2one` and friends) are chapter 12's whole story, and a few
+specials (`Binary`, `Html`, `Monetary`) appear when LibreFleet needs them. The
+[fields reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#fields)
+lists everything.
+
+### Field attributes
+
+The keyword arguments tune each field:
+
+- **`required=True`** becomes a real `NOT NULL` constraint in Postgres, not just a
+  form-level nicety. Even raw SQL can't sneak a null plate in.
+- **`string="..."`** sets the label. Omit it and Odoo derives one from the field
+  name: `model_name` shows as "Model Name". We only overrode the two the automatic
+  rule gets wrong (`VIN`, `Mileage (km)`).
+- **`help="..."`** becomes the tooltip users see on hover.
+- **`default=...`** provides the value when a record is created without one. A
+  callable works too; chapter 14 goes deeper.
+
+### The fields you get for free
+
+Look closely at the table in the hands-on and you'll find columns you never
+declared: `id` (the primary key), `create_uid`, `create_date`, `write_uid`,
+`write_date` (who created and last modified each record, and when). The ORM
+maintains all five on every regular model; audit trail included, no code required.
+
+There's a sixth automatic field that is *not* a column: **`display_name`**, the
+string Odoo shows whenever a record is presented as one line (breadcrumbs, dropdown
+options, tab titles). It's computed on the fly from the field named by
+**`_rec_name`**, which defaults to a field literally called `name`. Our model has no
+`name` field, so you'll watch the fallback misbehave in the hands-on, then fix it.
+
+### `active` is a reserved name
+
+`active` is not automatic (you declare it yourself), but the name carries behavior:
+when a record has `active = False` it is **archived**, and `search()` pretends it
+doesn't exist unless you explicitly ask for archived records. That's how Odoo does
+"soft delete" everywhere: old products, ex-employees, sold vehicles. Almost every
+model you'll ever write wants this field, and `default=True` on it is essential
+(otherwise every new record is born invisible).
+
+<Callout type="info" title="In the field">
+  Integrators reach for archiving, not deletion. Records accumulate references
+  (a sold vehicle still has service history), and unlinking them either fails or
+  destroys the trail. `active = False` keeps the data and clears the view.
+</Callout>
+
+## Hands-on
+
+### 1. Create the models package
+
+Models live in a `models/` subpackage by convention. Three files:
+
+```console
+$ mkdir addons/librefleet/models
+```
+
+`addons/librefleet/models/vehicle.py` gets the class from the Concepts section
+(without `_rec_name` for now; we'll earn that line). Then wire the import chain:
+
+```python title="addons/librefleet/models/__init__.py"
+from . import vehicle
+```
+
+```python title="addons/librefleet/__init__.py"
+from . import models
+```
+
+That chain matters: Odoo imports the *module* package, which imports `models`, which
+imports `vehicle`. Any missing link and the class simply never registers, with no
+error to tell you (the break-it lab makes this visceral).
+
+### 2. Upgrade and read the log
+
+Adding a model is a feature, so bump the manifest version to `"19.0.1.1.0"` (minor
+bump, chapter 8's scheme). Then upgrade and actually read the output:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Loading module librefleet (2/15)
+INFO tutorial odoo.registry: module librefleet: creating or updating database tables
+WARNING tutorial odoo.modules.loading: The models ['librefleet.vehicle'] have no access rules in module librefleet, consider adding some, like:
+librefleet.access_librefleet_vehicle,access_librefleet_vehicle,librefleet.model_librefleet_vehicle,base.group_user,1,0,0,0
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 37 queries (+37 other)
+```
+
+Two lines to respect. "Creating or updating database tables" is the DDL moment from
+the diagram. And the WARNING says our model has **no access rules**: right now, no
+regular user (not even admin through the web client) is allowed to touch it. We're
+leaving that warning in place deliberately for one chapter; chapter 10 exists
+because of it.
+
+### 3. Inspect what the ORM built
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c '\d librefleet_vehicle'
+                                          Table "public.librefleet_vehicle"
+    Column     |            Type             | Collation | Nullable |                    Default
+---------------+-----------------------------+-----------+----------+------------------------------------------------
+ id            | integer                     |           | not null | nextval('librefleet_vehicle_id_seq'::regclass)
+ year          | integer                     |           |          |
+ create_uid    | integer                     |           |          |
+ write_uid     | integer                     |           |          |
+ license_plate | character varying           |           | not null |
+ vin           | character varying           |           |          |
+ model_name    | character varying           |           |          |
+ notes         | text                        |           |          |
+ active        | boolean                     |           |          |
+ create_date   | timestamp without time zone |           |          |
+ write_date    | timestamp without time zone |           |          |
+ mileage_km    | double precision            |           |          |
+Indexes:
+    "librefleet_vehicle_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "librefleet_vehicle_create_uid_fkey" FOREIGN KEY (create_uid) REFERENCES res_users(id) ON DELETE SET NULL
+    "librefleet_vehicle_write_uid_fkey" FOREIGN KEY (write_uid) REFERENCES res_users(id) ON DELETE SET NULL
+```
+
+Read it against the class: every field became the predicted column type,
+`license_plate` is `not null`, the five free columns are there, and `create_uid` /
+`write_uid` are proper foreign keys to `res_users`. Notice what's *absent* too:
+no `display_name` column, exactly as promised.
+
+### 4. Create records from the shell
+
+The web client has no way in yet (no menus until chapter 11, no permissions until
+chapter 10), but `odoo shell` runs as the superuser and speaks ORM natively:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> v = env["librefleet.vehicle"].create({
+...     "license_plate": "ZH 468 202",
+...     "model_name": "Fiat Ducato",
+...     "year": 2021,
+...     "mileage_km": 84250.0,
+... })
+>>> v.license_plate, v.active, v.create_uid.name, v.create_date
+('ZH 468 202', True, 'System', datetime.datetime(2026, 7, 14, 13, 30, 41, 453704))
+>>> v.display_name
+'librefleet.vehicle,1'
+```
+
+Everything works: `active` picked up its default, the audit fields filled themselves
+in. But `display_name` is the ugly fallback `"model,id"`, because there's no `name`
+field and we never told Odoo what else to use.
+
+Before you go anywhere, keep the vehicle:
+
+```console
+>>> env.cr.commit()
+```
+
+Chapter 6 warned about this and it is not a drill: the shell never commits by itself, and
+it rolls back on exit. Skip that line, quit as the next step asks, and your first vehicle
+is silently gone, along with every output in the rest of this chapter that expects it.
+
+### 5. Fix `display_name` with `_rec_name`
+
+Add one line to the class, right under `_description`:
+
+```python
+    _rec_name = "license_plate"
+```
+
+Quit the shell (`Ctrl-D`), upgrade, and start a fresh shell:
+
+```console
+>>> env["librefleet.vehicle"].search([]).mapped("display_name")
+['ZH 468 202']
+```
+
+Wait: why did the *old* shell show the stale behavior? Because `_rec_name` lives in
+the registry, which each process builds at startup. Strictly, this pure-Python change
+only needed a new process, not `-u`; but "edit, upgrade, retest" is the reflex worth
+building, because the moment your edit touches a field, skipping `-u` means Python
+knows about a column Postgres doesn't have.
+
+Create a second vehicle and, remembering chapter 6's lesson, commit before leaving:
+
+```console
+>>> env["librefleet.vehicle"].create({"license_plate": "BE 30 447",
+...     "model_name": "VW Crafter", "year": 2019, "mileage_km": 143800.0})
+librefleet.vehicle(2,)
+>>> env.cr.commit()
+```
+
+### 6. Watch archiving work
+
+In a shell, archive one vehicle and see `search()` change its story:
+
+```console
+>>> env["librefleet.vehicle"].search([("license_plate", "=", "BE 30 447")]).active = False
+>>> env["librefleet.vehicle"].search_count([])
+1
+>>> env["librefleet.vehicle"].with_context(active_test=False).search_count([])
+2
+```
+
+The record is right there in the table, but plain `search()` won't say so; only the
+`active_test=False` context reveals archived records. Quit *without* committing so
+both vehicles stay active.
+
+### 7. Break-it lab: the missing import
+
+This chapter's failure mode is the silent one. Comment out the import:
+
+```python title="addons/librefleet/models/__init__.py"
+# from . import vehicle
+```
+
+Upgrade, and read carefully:
+
+```text
+INFO tutorial odoo.modules.loading: Model librefleet.vehicle is declared but cannot be loaded! (Perhaps a module was partially removed or renamed)
+INFO tutorial odoo.addons.base.models.ir_model: Deleting 1844@ir.model.fields (librefleet.field_librefleet_vehicle__write_date)
+INFO tutorial odoo.addons.base.models.ir_model: Deleting 1843@ir.model.fields (librefleet.field_librefleet_vehicle__write_uid)
+...
+```
+
+Not even a WARNING, and the upgrade "succeeds": as far as Odoo is concerned, you
+removed the model on purpose, so it garbage-collects the model's metadata. Now check
+the damage from psql:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from librefleet_vehicle;" -c "select count(*) from ir_model where model='librefleet.vehicle';"
+ count
+-------
+     2
+ count
+-------
+     0
+```
+
+Your *data* survived (Odoo never drops a whole table on its own), but the model's
+registration is gone. Restore the import, upgrade again, and confirm in a shell that
+both vehicles are back. The lesson: when a model or field "doesn't exist" right
+after you wrote it, check the import chain before anything else, and read upgrade
+logs even when nothing turns red.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch09
+✔ model librefleet.vehicle is registered
+✔ vehicle fields have the right types
+✔ license_plate is required
+
+ch09 complete! On to the next chapter 🔧
+```
+
+And prove the records exist where they ultimately live:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select license_plate, model_name, year, mileage_km, active from librefleet_vehicle order by id;"
+ license_plate | model_name  | year | mileage_km | active
+---------------+-------------+------+------------+--------
+ ZH 468 202    | Fiat Ducato | 2021 |      84250 | t
+ BE 30 447     | VW Crafter  | 2019 |     143800 | t
+```
+
+Anything off, diff against `code/checkpoints/ch09/librefleet`, fetched the same way as in
+chapter 8 (swap `ch08` for `ch09`).
+
+## Gotchas
+
+- **The import chain is the #1 silent failure.** A model file that isn't imported
+  simply doesn't exist, and on an installed module the next upgrade *deletes its
+  metadata* while telling you at INFO level only (the break-it lab). Check
+  `__init__.py` first, always.
+- **Schema changes happen at upgrade, not restart.** Add a field and only restart:
+  the registry knows the field but Postgres has no column, and reads crash. Make
+  `-u` the reflex for any model change.
+- **`required=True` fails ugly in code.** Violate it from the shell and you get a raw
+  `NotNullViolation` from Postgres, and every following statement fails with
+  `InFailedSqlTransaction` until you run `env.cr.rollback()`. The transaction is
+  poisoned, not just the one call.
+- **No access rules means invisible, not read-only.** Call the model over XML-RPC as
+  admin right now and the answer is `Object librefleet.vehicle doesn't exist`,
+  deliberately vague. The shell only works because it runs as the superuser, which
+  skips permission checks entirely. Chapter 10 fixes this properly.
+- **`display_name` is computed, never stored.** It shows up in `ir_model_fields` but
+  there's no column; don't look for it in psql, and don't try to `select` it.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'When exactly does the librefleet_vehicle table get created?',
+      options: [
+        'the moment the class is defined in vehicle.py',
+        'at every server start, when the registry loads',
+        'during module install/upgrade, when Odoo runs the schema DDL',
+      ],
+      answer: 2,
+      why: 'The registry re-imports Python at every start, but CREATE TABLE / ADD COLUMN only run at install or upgrade. That gap is why a field added without -u crashes: the registry knows it, the database does not.',
+    },
+    {
+      q: 'You comment out "from . import vehicle" on an installed module and upgrade. What happens?',
+      options: [
+        'the upgrade fails loudly and nothing changes',
+        'the table and its rows are dropped',
+        'the upgrade succeeds, the model metadata is deleted, but the table and rows survive',
+      ],
+      answer: 2,
+      why: 'Odoo assumes you removed the model on purpose and prunes ir.model / ir.model.fields at INFO level. The SQL table stays behind, so data survives the mistake, but the model is gone until the import is restored.',
+    },
+    {
+      q: 'display_name appears in ir_model_fields but \\d shows no such column. Why?',
+      options: [
+        'it lives in a separate technical table',
+        'it is computed on the fly from _rec_name, never stored',
+        'it only gets a column once the model has a form view',
+      ],
+      answer: 1,
+      why: 'display_name is derived when needed from the field _rec_name points at (a field named "name" by default). No name field and no _rec_name gives you the "model,id" fallback you saw in the shell.',
+    },
+    {
+      q: 'A colleague inserts a vehicle with raw SQL, bypassing Odoo entirely. Can they leave license_plate empty?',
+      options: [
+        'yes, ORM rules only apply to ORM calls',
+        'no, required=True became a NOT NULL constraint in the table itself',
+        'only if they also disable the form view validation',
+      ],
+      answer: 1,
+      why: 'required=True is enforced by Postgres, not by Python. That is the general pattern to internalize: the ORM pushes what it can down into real database constraints.',
+    },
+    {
+      q: 'Why give nearly every model an active field instead of letting users delete records?',
+      options: [
+        'deletion is slow on large tables',
+        'archiving preserves references while hiding records from normal searches',
+        'Odoo forbids unlink() on custom models',
+      ],
+      answer: 1,
+      why: 'Real records accumulate relations (a sold vehicle still has service orders). Archiving hides them from search() without breaking anything, which is why integrators treat deletion as a last resort.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a `color` field (Char) to the vehicle, upgrade, and confirm the new column
+   in psql. Then delete the field and upgrade again: look for the column and for the
+   field's row in `ir_model_fields`. What did Odoo do with each, and how does that
+   compare to the break-it lab where the whole model went missing?
+2. ⭐⭐ In your `playground` module from chapter 8's exercises, add a model using the
+   field types this chapter didn't need: `Date`, `Datetime`, `Selection`, `Html`,
+   `Binary`. Predict each Postgres column type before checking with `\d`. One of the
+   five creates no column at all: find which one and, in the fields reference, why.
+3. ⭐⭐⭐ `active` is not the only reserved field name. Using the
+   [ORM reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html)
+   (and `odoo/models.py` if you're brave), find at least two more field names with
+   built-in behavior and write one sentence each on what naming a field that way
+   buys you. Bonus: what does `_order` default to, and how would you make vehicles
+   sort by license plate everywhere?
+
+## Further reading
+
+- [ORM reference: models and fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  the page you'll have open daily from now on.
+- [Server framework 101, chapter 3 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/03_basicmodel.html):
+  the official first-model walkthrough, on their real-estate example.
+- [Chapter 8's manifest reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html)
+  if you need a refresher on why the upgrade cycle looks the way it does.

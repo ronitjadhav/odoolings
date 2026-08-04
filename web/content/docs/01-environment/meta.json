@@ -1,0 +1,8 @@
+{
+  "title": "Part 1: Environment",
+  "pages": [
+    "05-dev-setup-with-docker-compose",
+    "06-daily-driver-workflow",
+    "07-git-for-odoo-work"
+  ]
+}

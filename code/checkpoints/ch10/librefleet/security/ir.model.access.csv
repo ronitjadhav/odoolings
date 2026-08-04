@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,group_librefleet_user,1,1,0,0
+access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1

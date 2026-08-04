@@ -1,0 +1,279 @@
+---
+title: "7. Git for Odoo Work"
+description: Branch-per-version thinking, how integrators lay out project repos, and pinning your dependencies.
+---
+
+**Goal:** think in branches-per-version and know how professional Odoo projects
+organize and pin their code. · **Time:** ~1.5 h · **Checkpoint:** none, Part 1 ends
+here; the next chapter writes code.
+
+## Why this matters
+
+You already know git. What's new is how the Odoo world uses it: one convention
+(a branch per Odoo version) shapes every repository you'll touch, and integrator
+projects are mostly *assemblies* of other people's modules, which makes dependency
+pinning a first-class concern. Get this mental model now, and OCA repos, client
+projects, and your own tutorial work all look organized instead of arbitrary.
+
+## Concepts
+
+### Branch-per-version, everywhere
+
+An Odoo module is written *for* one Odoo version (chapter 1). Git encodes that as a
+branch named after the version, and the convention is universal:
+
+- `odoo/odoo` has branches `17.0`, `18.0`, `19.0`, plus `master` where the next
+  release is developed.
+- Every OCA repo has the same branches. The same module exists on several of them,
+  and moving it forward is an explicit **migration** commit (`[MIG]`).
+- Client projects follow suit: when the client upgrades from 18 to 19, the project
+  repo grows a `19.0` branch and the porting work happens there.
+
+Two rules fall out of this: **never target `master`** with a fix (that's next year's
+Odoo), and **a branch name is a compatibility statement**, so code on `19.0` must run
+on Odoo 19, full stop.
+
+Here's the model measured for real. The `OCA/server-tools` repo, same repo, two
+branches:
+
+```console
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/server-tools.git st-19
+$ git clone --depth 1 -b 16.0 https://github.com/OCA/server-tools.git st-16
+$ ls st-19 | wc -l
+32
+$ ls st-16 | wc -l
+73
+```
+
+Same repository, 73 modules on the mature 16.0 branch, 32 on the young 19.0 branch.
+The difference is the migration queue: modules nobody has needed (or volunteered) on
+19 yet. When a client project needs one of the missing ones, an integrator developer
+does the `[MIG]`, and that developer will regularly be you.
+
+### How commit messages look
+
+Odoo and OCA share a commit convention you'll adopt in Part 6, but should start
+reading now. Real messages from `server-tools` 19.0:
+
+```text
+5dcfe30 [FIX] database_cleanup: restrict cleanup tools to settings users
+63d1654 [MIG] base_search_fuzzy: Migration to 19.0
+f0a3744 [IMP] module_auto_update: confirm message before updating
+```
+
+The shape is `[TAG] module_name: what and why`. Common tags: `[FIX]` bugfix, `[IMP]`
+improvement, `[ADD]` new module/feature, `[MIG]` migration to a version, `[REF]`
+refactor. A `git log --oneline` on any OCA module reads like a changelog, which is
+the point.
+
+### What a client project repo looks like
+
+An integrator's project repo rarely contains much code. It's an assembly manifest:
+
+```text
+client-project/            # branch: 19.0
+├── addons/                # the project's own custom modules (a handful)
+├── external-src/          # OCA & third-party repos, pinned (see below)
+├── odoo/                  # Odoo itself: a pinned checkout, or nothing if the
+│                          #   Docker image provides it (our setup)
+├── docker-compose.yml / Dockerfile
+└── requirements.txt / repos.yml / .gitmodules   # the pinning mechanism
+```
+
+The custom `addons/` part stays small on healthy projects because the first question
+is always "does an OCA module already do this?" (chapter 2). The bulk of the
+assembly is *other people's modules at exact versions*.
+
+### Pinning: never deploy a moving target
+
+`19.0` branches move daily. If your production image checks out "whatever
+`OCA/server-tools` 19.0 is today", every deploy is a surprise. So professional
+projects pin, using one of three mechanisms:
+
+| Mechanism | How it pins | Feel |
+|---|---|---|
+| **git submodules** | a SHA per external repo, recorded in `.gitmodules` | native git, clunky UX |
+| **git-aggregator** | `repos.yml` listing repos + SHAs/PRs to merge | OCA tooling, powerful (can stack unmerged PRs) |
+| **pip** | OCA publishes every module as `odoo-addon-<name>`; pin in `requirements.txt` | plain Python packaging |
+
+<Callout title="In the field">
+  [git-aggregator](https://github.com/acsone/git-aggregator) is widespread among OCA
+  contributors and integrators (including Camptocamp): one YAML file describes every
+  external repo, the commit to pin, and even pending PRs to merge into your build,
+  which is how you ship a fix the day you write it instead of after the OCA review
+  cycle. Ask your team which mechanism your projects use; the concept transfers.
+</Callout>
+
+Whatever the tool, the invariant is the same: **a production build is reproducible
+from a commit of the project repo alone.** If `git checkout` + build can produce two
+different deployments on two days, the project is broken.
+
+### Where your tutorial work fits
+
+Look at that `client-project/` layout again, then look at the repository you created in
+chapter 4. They are the same shape: a compose file, a config file, and an `addons/`
+holding the project's own modules. Yours is just smaller, and from chapter 8 LibreFleet
+grows inside it.
+
+Which means the git side of your workspace is already right, and worth understanding
+rather than taking on trust:
+
+- **It is your repository, not a copy of someone else's.** Using a template rather than
+  forking means there is no upstream tying you to the starter. When you show this to a
+  colleague (or an interviewer) it is a clean Odoo module repo with your history on it,
+  which is also exactly how a custom module arrives on a client engagement.
+- From chapter 8 on, **commit after every chapter** using the OCA message style
+  (`[ADD] librefleet: vehicle model`). By Part 6 the convention will be muscle
+  memory, and your git history becomes your own set of checkpoints.
+
+You never clone this tutorial's repository at all. When you want to compare your work
+against a chapter's reference snapshot, chapter 8 shows you how to pull down just that one
+snapshot, and nothing else.
+
+<Callout type="info" title="Forking comes later, and for a real reason">
+  Forking is the mechanism for contributing to *someone else's* repository, which is
+  exactly what you'll do to OCA in chapter 35: fork, branch off the version branch, PR.
+  It is the wrong tool for holding your own project, which is why the starter is a
+  template instead.
+</Callout>
+
+## Hands-on
+
+### 1. Confirm the workspace is really yours
+
+```console
+$ git remote -v
+origin  https://github.com/<you>/librefleet.git (fetch)
+origin  https://github.com/<you>/librefleet.git (push)
+```
+
+One `origin`, pointing at **your** account. That is what "Use this template" bought you:
+no `upstream`, nothing to keep in sync, no chance of accidentally opening a pull request
+against the tutorial.
+
+If instead you see `ronitjadhav/odoo-tutorial-starter` there, you cloned the starter
+rather than templating it. Create an empty repository on your own GitHub and re-point:
+
+```console
+$ git remote set-url origin https://github.com/<you>/librefleet.git
+$ git push -u origin main
+```
+
+Now look at what the starter already committed for you, because each line is a decision
+you would otherwise have had to make:
+
+```console
+$ git log --oneline
+$ cat .gitignore
+__pycache__/
+*.pyc
+
+# Reference snapshots fetched from the tutorial: our code, not yours.
+.checkpoints/
+```
+
+`.checkpoints/` is where chapter 8 drops reference snapshots. They are this tutorial's
+code, so they stay out of your history. And `addons/` contains a single zero-byte
+`.gitkeep`, because git cannot track an empty directory but Docker needs the directory to
+exist before the first `docker compose up` (chapter 5's gotcha explains what happens
+otherwise).
+
+### 2. Measure the migration queue yourself
+
+Run the two shallow clones from the Concepts section and count modules per branch.
+Then pick one module that exists on `16.0` but not on `19.0`, and check its
+`__manifest__.py` on the old branch: would *you* need it on a project?
+
+### 3. Read a module's history like a changelog
+
+```console
+$ cd st-19
+$ git log --oneline -15 -- database_cleanup
+```
+
+Identify each tag you see and notice how much you understand about the module without
+opening a single source file. That's what disciplined commit messages buy.
+
+### 4. Practice the message style on yourself
+
+Commit something harmless in your own repo (add a `.gitignore` entry, drop a
+`notes.md`) with a properly shaped message, e.g.
+`[IMP] docs: add scratch notes directory to gitignore`. Shape, module, what, why.
+
+## Verify
+
+`git remote -v` shows a single `origin` pointing at **your** GitHub, and `git push`
+works. You can say out loud why `OCA/server-tools` has fewer modules on `19.0` than
+on `16.0`, and what `[MIG]` means. No odoolings checks this chapter; git lives
+outside the Odoo server.
+
+## Gotchas
+
+- **`master` is a trap.** On `odoo/odoo` and OCA repos it's the unreleased next
+  version. Code examples found on `master` may not work on 19, and PRs against it
+  will be closed with a polite "wrong branch".
+- **Branch names are floats, sort of.** `19.0` not `19`, `16.0` not `v16`. Tooling
+  (and humans) rely on the exact `XY.0` form.
+- **Submodule/aggregator checkouts are detached HEADs.** That's normal: pins point at
+  SHAs, not branches. Don't "fix" it by checking out the branch inside a pinned repo.
+- **One module, one concern, one history.** Resist the "misc" module that accretes
+  everything; OCA repos are readable because each module's log tells one story.
+  Chapter 8 starts LibreFleet with that discipline.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You found the perfect OCA module, but only on the 16.0 branch. Your project runs Odoo 19. What is the professional move?',
+      options: [
+        'install the 16.0 version, Odoo is backwards compatible',
+        'migrate the module to 19.0 (and ideally contribute the [MIG] back)',
+        'copy the code into your project addons and patch until it loads',
+      ],
+      answer: 1,
+      why: 'A branch name is a compatibility statement; 16.0 code is not expected to run on 19. Migration is routine integrator work with a documented OCA process (chapter 37).',
+    },
+    {
+      q: 'Why do professional projects pin external repos to exact SHAs instead of tracking the 19.0 branch?',
+      options: [
+        'branches are slower to clone than SHAs',
+        'so a production build is reproducible from the project repo alone',
+        'because OCA forbids using branches directly',
+      ],
+      answer: 1,
+      why: 'Version branches move daily. Pinning makes deploys deterministic: same project commit, same build, today or in six months.',
+    },
+    {
+      q: 'A commit message reads "[MIG] base_search_fuzzy: Migration to 19.0". What happened?',
+      options: [
+        'the module was moved to a different OCA repository',
+        'the module was ported from an older version branch to 19.0',
+        'the database was migrated to a new PostgreSQL version',
+      ],
+      answer: 1,
+      why: 'MIG is the OCA tag for porting a module across Odoo versions: the routine work created by the yearly release rhythm.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In `odoo/odoo` on GitHub, find the default branch. Which future version is it?
+   Now find the commit that created the `19.0` branch point (hint: releases branch
+   off around October).
+2. ⭐⭐ Read the [git-aggregator README](https://github.com/acsone/git-aggregator)
+   and write, without running it, a `repos.yml` that would check out
+   `OCA/server-tools` 19.0 pinned to the SHA you cloned today.
+3. ⭐⭐⭐ OCA publishes modules on PyPI. Find the package name and latest version for
+   `auditlog` on Odoo 19, and explain how `pip download` of that package relates to
+   the git repo you cloned (hint: search PyPI for `odoo-addon-auditlog`).
+
+## Further reading
+
+- [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
+  the commit convention in full. Part 6 turns it into practice.
+- [git-aggregator](https://github.com/acsone/git-aggregator) ·
+  [OCA on PyPI](https://pypi.org/search/?q=odoo-addon): the two pinning ecosystems.
+- [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
+  branch-per-version model at the source.

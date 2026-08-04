@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Demo data: illustrative, not required. The "demo" manifest key makes
+         Odoo load this with noupdate=1 automatically, the same protection
+         data/service_type_master.xml asks for explicitly, see chapter 24. -->
+    <record id="service_order_demo_ag_12_345" model="librefleet.service.order">
+        <field name="vehicle_id" ref="vehicle_demo_ag_12_345"/>
+        <field name="service_type_id" ref="service_type_tire_rotation"/>
+        <field name="scheduled_start" eval="'2026-08-10 08:00:00'"/>
+        <field name="scheduled_end" eval="'2026-08-10 08:30:00'"/>
+    </record>
+</odoo>

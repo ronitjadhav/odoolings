@@ -1,0 +1,183 @@
+---
+title: "1. What Odoo Is"
+description: ERP concepts, apps vs modules, Community vs Enterprise, and Odoo's yearly release rhythm.
+---
+
+**Goal:** understand what Odoo is as a product and a platform, so every technical
+decision later makes sense. · **Time:** ~1 h · **Checkpoint:** none, Part 0 has no code.
+
+## Why this matters
+
+You're about to spend weeks learning a framework. Before touching code, you need to
+know what the thing actually *is*, because Odoo's architecture only makes sense once
+you understand its business model: one company selling a suite of business apps that
+thousands of other companies customize for their clients. Nearly every design choice
+you'll meet later (modules, inheritance everywhere, views stored as data) exists to
+make that customization industry possible.
+
+## Concepts
+
+### ERP, in one paragraph
+
+An ERP (Enterprise Resource Planning) system is the software a company runs its
+operations on: sales, invoicing, inventory, accounting, HR, all sharing **one
+database**. A confirmed sale automatically reserves stock, creates an invoice, and
+shows up in the accounting reports. The alternative is a zoo of disconnected tools glued
+together with spreadsheets and re-typing. The single shared database is the entire value
+proposition.
+
+### Odoo's take on it
+
+Odoo is a suite of open-source business apps (CRM, Sales, Inventory, Accounting,
+Website, Manufacturing, HR, and dozens more) built on one shared framework and one
+PostgreSQL database. Two things make it different from classical ERPs:
+
+1. **It's modular to the bone.** Every app is a *module*, and so is every
+   customization. Installing "Sales" and installing a 200-line extension you wrote
+   yourself use exactly the same mechanism.
+2. **The framework is a product too.** You get a full web framework (ORM, views,
+   reports, access control, web client) that you'll use to build things that look and
+   feel native. That framework is what this tutorial teaches.
+
+### Apps vs modules
+
+There is no technical difference. An **app** is just a module with
+`'application': True` in its manifest, which makes it show up on the Apps home screen
+with an icon. Modules that extend other modules (most of what you'll write) don't set
+that flag. When Odoo people say *addon*, they also mean module. You'll see
+`--addons-path` as the flag that tells the server where to find them.
+
+### Community vs Enterprise
+
+Odoo comes in two editions:
+
+- **Community** is open source (LGPL-3): the complete framework and core apps. Its
+  source lives publicly at [github.com/odoo/odoo](https://github.com/odoo/odoo). This
+  is what the OCA targets and what this tutorial uses.
+- **Enterprise** is a paid subscription that adds apps and features on top of Community
+  (Studio, full Accounting localizations, Field Service, upgrade service, mobile
+  apps...). Its source is visible to partners and customers but is **not** freely
+  redistributable.
+
+<Callout title="Enterprise is a superset">
+  Enterprise *contains* Community. It's the same framework with more modules on top,
+  so everything you learn here transfers directly to Enterprise projects. We'll flag
+  Enterprise-only features in boxes like this when they matter.
+</Callout>
+
+### The version rhythm: there is no LTS
+
+Odoo ships **one major version every year, around October**, announced at the Odoo
+Experience conference in Brussels. Only the **three most recent** majors receive
+support and security fixes. As this is written (mid-2026), that window is **17, 18
+and 19**, with Odoo 20 expected in October 2026, at which point 17 falls out.
+
+This has two consequences you'll feel throughout your career:
+
+- Clients must **migrate** roughly every three years, whether they like it or not.
+  Migration work is a big part of integrator life, and chapter 37 is dedicated to it.
+- Everything is **branch-per-version**: the Odoo source, the docs, OCA repositories,
+  and your own projects all have `17.0`, `18.0`, `19.0` branches. A module written for
+  one version does not run unmodified on the next.
+
+This tutorial targets **Odoo 19.0 Community**. Where 18 behaves differently, you'll
+see an "On Odoo 18" callout, useful when your client project runs a version behind.
+
+### Where Odoo runs
+
+Three hosting models, and the choice constrains what you can customize:
+
+| | What it is | Custom modules? |
+|---|---|---|
+| **Odoo Online** | SaaS at odoo.com, Enterprise only | No. Configuration and Studio only |
+| **odoo.sh** | Odoo's PaaS: git-driven, per-branch staging builds | Yes |
+| **On-premise / self-hosted** | You run the server (bare metal, VMs, Docker, k8s) | Yes, full control |
+
+Integrators mostly live in the last two. This tutorial self-hosts with Docker, which
+is also the closest to how professional teams run client projects.
+
+## Hands-on
+
+No code yet, but do actually open these. The goal is that none of these sites feel
+foreign by the end of Part 0.
+
+1. Skim the [Odoo apps overview](https://www.odoo.com/page/all-apps) to see the
+   breadth of the suite. Count how many of these you'd expect a small workshop
+   business to use.
+2. Open [github.com/odoo/odoo](https://github.com/odoo/odoo) and switch the branch
+   dropdown between `17.0`, `18.0` and `19.0`. This is the branch-per-version model
+   you'll use everywhere.
+3. Open the [Odoo 19 release notes](https://www.odoo.com/odoo-19-release-notes) and
+   skim what a yearly major brings.
+
+## Verify
+
+You're done when you can answer, without looking: what's the difference between an app
+and a module? Which edition does this tutorial use and why? When does an Odoo version
+stop being supported? Which hosting model forbids custom modules?
+
+(That's exactly what the quiz below checks.)
+
+## Gotchas
+
+- **Odoo versions are not semver.** "19.0" is a product generation, not a
+  major.minor you can partially upgrade across. Data and code migrate between
+  generations via explicit migration work.
+- **Community is not a demo.** It's the complete framework. Some of the largest Odoo
+  installations run pure Community plus OCA modules.
+- **"Odoo" the company vs "Odoo" the software.** The company (Odoo SA, Belgium) builds
+  the software and sells Enterprise/hosting. The next chapter maps the whole ecosystem
+  around it.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Odoo ships a new major version...',
+      options: [
+        'whenever enough features accumulate',
+        'once a year, around October',
+        'every LTS cycle, like Ubuntu',
+      ],
+      answer: 1,
+      why: 'One major per year, announced at Odoo Experience, and only the three most recent majors are supported. There is no LTS.',
+    },
+    {
+      q: 'An Odoo "app" is...',
+      options: [
+        "just a module with 'application': True in its manifest",
+        'a separate binary installed next to the server',
+        'an Enterprise-only concept',
+      ],
+      answer: 0,
+      why: 'Apps and modules are the same mechanism; apps are simply modules flagged to appear on the Apps home screen.',
+    },
+    {
+      q: 'Your client wants a custom module AND wants Odoo to host everything. Which options work?',
+      options: [
+        'Odoo Online or odoo.sh',
+        'Only odoo.sh',
+        'Only on-premise',
+      ],
+      answer: 1,
+      why: 'Odoo Online (SaaS) does not allow custom modules. odoo.sh is Odoo-hosted and git-driven, so custom code is fine there.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Find out which Odoo version a company you know (or your employer's clients) runs,
+   and work out when it falls out of support.
+2. ⭐ Pick one app from the Odoo suite and find its module directory in the
+   `19.0` branch of `odoo/odoo` on GitHub (hint: everything lives under `addons/`).
+
+## Further reading
+
+- [Official docs home (19.0)](https://www.odoo.com/documentation/19.0/): bookmark it,
+  we link into it constantly.
+- [Editions comparison](https://www.odoo.com/page/editions): the official
+  Community/Enterprise feature matrix.
+- [Odoo release notes](https://www.odoo.com/page/release-notes): one page per yearly
+  release.

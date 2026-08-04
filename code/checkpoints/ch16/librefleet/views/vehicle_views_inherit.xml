@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Extension view: the reception desk's additions to the vehicle form.
+         inherit_id makes this an extension; it never replaces the base view,
+         it patches the combined result at render time. -->
+    <record id="view_librefleet_vehicle_form_reception" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.form.reception</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="inherit_id" ref="view_librefleet_vehicle_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='service_count']" position="after">
+                <field name="active"/>
+            </xpath>
+            <field name="mileage_km" position="attributes">
+                <attribute name="string">Odometer (km)</attribute>
+            </field>
+        </field>
+    </record>
+
+    <!-- A second, standalone list view for the same model. priority decides
+         which list a plain action opens: lowest number wins, base views
+         default to 16. At 99 this one never wins by default; an action can
+         still request it explicitly via view_id. -->
+    <record id="view_librefleet_vehicle_list_reception" model="ir.ui.view">
+        <field name="name">librefleet.vehicle.list.reception</field>
+        <field name="model">librefleet.vehicle</field>
+        <field name="priority" eval="99"/>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="owner_id"/>
+                <field name="service_count"/>
+            </list>
+        </field>
+    </record>
+
+</odoo>

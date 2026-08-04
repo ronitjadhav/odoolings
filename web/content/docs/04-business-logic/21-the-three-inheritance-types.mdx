@@ -1,0 +1,465 @@
+---
+title: "21. The Three Inheritance Types"
+description: "Extend a model in place, copy one into a new model, or embed one inside another, and know which of the three you actually want."
+---
+
+**Goal:** build all three inheritance mechanisms into LibreFleet and be able to
+predict, before running anything, what each one does to the database. ·
+**Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch21`
+
+## Why this matters
+
+This is the chapter that makes you dangerous in someone else's codebase. Nearly
+every ticket an integrator picks up ends with the same instruction: *change how
+this existing thing behaves, without touching its source*. Odoo gives you three
+different mechanisms for that, they look almost identical in Python, and they do
+completely different things to your schema. Choosing the wrong one is not a
+style mistake: it produces a second table full of records nobody wanted, or a
+field that silently never appears where you expected it. Part 4 spends the next
+seven chapters extending things, and all of it rests on getting this right.
+
+## Concepts
+
+### One keyword, three behaviours
+
+Everything hinges on two class attributes, `_inherit` and `_name` (and a third,
+`_inherits`, with an `s` that is very easy to misread):
+
+<Mermaid
+  chart={`flowchart TD
+    A["_inherit set"] --> B{"is _name also set?"}
+    B -- "no" --> C["CLASSIC EXTENSION<br/>same model, same table<br/>you are editing the original"]
+    B -- "yes, a new one" --> D["PROTOTYPE<br/>new model, new table<br/>fields copied, then unrelated"]
+    E["_inherits = {parent: field}"] --> F["DELEGATION<br/>two tables, linked<br/>parent's fields reachable through the link"]`}
+/>
+
+### Classic extension: you are editing the original
+
+```python
+class Vehicle(models.Model):
+    _inherit = "librefleet.vehicle"      # no _name
+
+    is_loanable = fields.Boolean()
+```
+
+No `_name`, so this class **is** `librefleet.vehicle`. The field lands on the
+existing model and the existing table, as if it had been written in the original
+file. Every existing record gets the new column, every existing view can show it,
+and any other module that touches vehicles sees it too. This is the mechanism you
+will use for about ninety percent of real work, and it is what chapter 22 uses to
+add fields to core models like `res.partner`.
+
+### Prototype: a copy that then goes its own way
+
+```python
+class Consumable(models.Model):
+    _name = "librefleet.consumable"      # a NEW name
+    _inherit = "librefleet.part"         # start from part's fields
+
+    unit = fields.Char(default="litre")
+```
+
+Adding a `_name` changes the meaning entirely. You now get a **brand new model**
+with a **brand new table**, pre-populated with copies of the parent's field
+definitions. The two models share no data and no records: a consumable is not a
+part, and a part is not a consumable.
+
+<Callout type="info" title="In the field">
+  Of the three, prototype is by far the rarest in real integrator work, and if
+  you find yourself reaching for it, pause. Wanting "the same fields again"
+  usually means you actually want one model with a category field on it, or an
+  `AbstractModel` mixin holding the shared fields. Recognise prototype mostly so
+  that you notice when you have written one **by accident**, which is how it almost
+  always shows up: someone copies a class as a starting point, keeps its `_inherit`,
+  and changes the `_name`.
+</Callout>
+
+### Delegation: composition, wearing inheritance's clothes
+
+```python
+class Loaner(models.Model):
+    _name = "librefleet.loaner"
+    _inherits = {"librefleet.vehicle": "vehicle_id"}   # note the s
+
+    vehicle_id = fields.Many2one(
+        "librefleet.vehicle", required=True, ondelete="cascade", index=True)
+    daily_rate = fields.Float()
+```
+
+`_inherits` is not really inheritance at all, it is composition with automatic
+forwarding. A loaner **has a** vehicle (via a required many2one) and Odoo makes
+that vehicle's fields readable and writable straight off the loaner, as though
+they belonged to it. Two tables, two rows, one logical thing. Core uses this for
+`res.users`, which delegates to `res.partner`: that is why a user has a `name`
+and an `email` without `res_users` having those columns.
+
+Use delegation when the sentence "an X **is a** Y, plus extra" is genuinely true
+and you want to reuse Y's data, not just its shape.
+
+## Hands-on
+
+### 1. Write all three
+
+Create `models/loaner.py` with the three classes:
+
+```python
+from odoo import fields, models
+
+
+class Vehicle(models.Model):
+    """Classic extension: no _name, so this IS librefleet.vehicle."""
+
+    _inherit = "librefleet.vehicle"
+
+    is_loanable = fields.Boolean(
+        help="Can this vehicle be lent out while a customer's own car is in "
+             "the workshop?")
+
+
+class Consumable(models.Model):
+    """Prototype: _inherit plus a new _name copies the fields into a new model."""
+
+    _name = "librefleet.consumable"
+    _inherit = "librefleet.part"
+    _description = "Workshop Consumable"
+
+    unit = fields.Char(default="litre", help="Litres, metres, whatever it is sold in.")
+
+
+class Loaner(models.Model):
+    """Delegation: a loaner IS a vehicle, plus rental attributes."""
+
+    _name = "librefleet.loaner"
+    _inherits = {"librefleet.vehicle": "vehicle_id"}
+    _description = "Loaner Car"
+
+    vehicle_id = fields.Many2one(
+        "librefleet.vehicle", required=True, ondelete="cascade", index=True)
+    daily_rate = fields.Float(help="What the customer is charged per day.")
+    available = fields.Boolean(default=True)
+```
+
+The two new models need ACLs, exactly as chapter 10 taught. Add four lines to
+`security/ir.model.access.csv`: read plus write for users and full CRUD for managers on
+loaners, read-only for users and full CRUD for managers on consumables.
+
+Then a simple list/form view plus a menu item for loaners, in a new
+`views/loaner_views.xml`, and **register both new files**, which means two different
+places and forgetting either one bites:
+
+- `loaner.py` goes in `models/__init__.py` (last, for the reason step 2 is about to make
+  painfully clear).
+- `views/loaner_views.xml` goes in the manifest's `data` list, above
+  `views/librefleet_menus.xml`. Miss this and the menu item you just wrote points at an
+  action that was never loaded, so the upgrade dies with
+  `External ID not found in the system: librefleet.action_librefleet_loaner`.
+
+Bump the version to `19.0.1.16.0` while you are in the manifest.
+
+### 2. Break-it lab: import order is not decorative
+
+Add the import alphabetically, the way the file is already sorted:
+
+```python
+from . import loaner
+from . import part
+from . import service_order
+from . import service_type
+from . import vehicle
+```
+
+Upgrade, and it refuses to start:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+TypeError: Model 'librefleet.vehicle' does not exist in registry.
+```
+
+`loaner.py` extends `librefleet.vehicle` and prototypes `librefleet.part`, so
+both have to be registered by the time it is imported. **Within a single module,
+`__init__.py` import order matters** whenever one file inherits from a model
+defined in another. Move the import to the end and it loads:
+
+```python
+from . import part
+from . import service_order
+from . import service_type
+from . import vehicle
+
+# loaner.py extends librefleet.vehicle and prototypes librefleet.part, so both
+# must already be registered: within a module, import order matters.
+from . import loaner
+```
+
+This bites people most often when they alphabetise imports out of tidiness, or
+when a linter does it for them.
+
+### 3. Ask Postgres what actually happened
+
+This is the part worth doing slowly. Three mechanisms, three completely
+different schema outcomes, all visible in one query each. First, the classic
+extension:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_vehicle' and column_name='is_loanable';"
+ column_name
+-------------
+ is_loanable
+(1 row)
+```
+
+A new column on the **existing** vehicle table. No new table, no new model.
+
+Now the prototype:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_consumable' order by ordinal_position;"
+  column_name
+---------------
+ id
+ create_uid
+ write_uid
+ name
+ code
+ unit
+ create_date
+ write_date
+ standard_cost
+ list_price
+(10 rows)
+```
+
+A whole new table carrying **copies** of `name`, `code`, `standard_cost` and
+`list_price` from `librefleet.part`, plus its own `unit`. And the delegation:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_loaner' order by ordinal_position;"
+ column_name
+-------------
+ id
+ vehicle_id
+ create_uid
+ write_uid
+ available
+ create_date
+ write_date
+ daily_rate
+(8 rows)
+```
+
+Look at what is **missing**: no `license_plate`, no `model_name`, no `year`. The
+loaner table holds only its own fields plus the link. The vehicle data stays in
+the vehicle table, which is the entire point.
+
+### 4. Delegation from the inside
+
+In the shell, watch one `create` write two rows:
+
+```console
+>>> V, L = env["librefleet.vehicle"], env["librefleet.loaner"]
+>>> V.search_count([])
+3
+>>> loaner = L.create({"license_plate": "LOAN-001", "model_name": "Fiat Panda", "daily_rate": 29.0})
+>>> V.search_count([])
+4
+```
+
+Creating a loaner created a vehicle. You passed `license_plate` and `model_name`
+to a model that has neither column, and Odoo routed them to the parent row.
+Reading and writing work the same way:
+
+```console
+>>> loaner.license_plate, loaner.model_name
+('LOAN-001', 'Fiat Panda')
+>>> loaner.vehicle_id.license_plate
+'LOAN-001'
+>>> loaner.license_plate = "LOAN-999"
+>>> loaner.vehicle_id.license_plate
+'LOAN-999'
+```
+
+Writing through the child changed the parent, because there is only one copy of
+that data. And because the backing row is a genuine vehicle, it shows up
+everywhere vehicles do:
+
+```console
+>>> V.search([("license_plate", "=", "LOAN-999")]).ids == loaner.vehicle_id.ids
+True
+```
+
+### 5. How delegation is actually implemented
+
+`_inherits` is not magic bolted into the ORM's read path. Ask the field itself
+what it is:
+
+```console
+>>> f = env["librefleet.loaner"]._fields["license_plate"]
+>>> f.inherited, f.related, f.store
+(True, 'vehicle_id.license_plate', False)
+```
+
+It is a **non-stored related field**, exactly the kind you wrote by hand back in
+chapter 13, generated automatically for every field on the parent. That single
+line explains all the behaviour above: why there is no column, why reads and
+writes pass through, and why `related` points along `vehicle_id`.
+
+### 6. Prototype records are strangers
+
+```console
+>>> P, C = env["librefleet.part"], env["librefleet.consumable"]
+>>> c = C.create({"name": "Engine oil 5W-30", "code": "OIL-530", "standard_cost": 6.5})
+>>> c.name, c.code, c.unit
+('Engine oil 5W-30', 'OIL-530', 'litre')
+>>> P.search([("code", "=", "OIL-530")]).ids
+[]
+```
+
+The consumable has part's fields and its own `unit` default, but searching parts
+for it finds nothing. Two tables, no relationship. The copy happened once, at
+class definition time, and the models have been strangers ever since.
+
+### 7. The cascade only runs one way
+
+Delete the backing vehicle and the loaner goes with it, which is what
+`ondelete="cascade"` on `vehicle_id` buys you:
+
+```console
+>>> loaner = L.create({"license_plate": "CASCADE-1", "daily_rate": 10.0})
+>>> lid = loaner.id
+>>> loaner.vehicle_id.unlink()
+>>> L.browse(lid).exists().ids
+[]
+```
+
+But go the other way and the vehicle survives on its own:
+
+```console
+>>> l = L.create({"license_plate": "ASYM-TEST", "daily_rate": 1.0})
+>>> vid = l.vehicle_id.id
+>>> l.unlink()
+>>> bool(V.browse(vid).exists())
+True
+```
+
+Deleting a loaner leaves an ordinary vehicle behind. That is defensible (the car
+still exists, it just is not a loaner any more) but it is rarely what people
+expect, and it quietly accumulates rows. Roll back when you are done
+experimenting.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch21
+✔ classic _inherit extended the vehicle in place
+✔ librefleet.consumable is a prototype copy of the part
+✔ librefleet.loaner delegates to the vehicle
+✔ creating a loaner creates its vehicle and reads through
+
+ch21 complete! On to the next chapter 🔧
+```
+
+The third check is the interesting one: it asserts that `license_plate` on the
+loaner exists but is **non-stored** and `related` to `vehicle_id.license_plate`,
+so it fails both if you forget `_inherits` and if you "helpfully" redeclare the
+parent's fields on the child. In the browser (author tour, screenshots pending):
+Fleet → Loaner Cars, create one, then check Fleet → Vehicles and find the car you
+just created sitting there as an ordinary vehicle.
+
+## Gotchas
+
+- **`_inherit` versus `_inherits` is one letter and a completely different
+  feature.** Reading code quickly, they look the same. If a model has a
+  mysterious required many2one and fields you cannot find declared anywhere,
+  look for the `s`.
+- **Adding `_name` to an existing extension silently forks it.** The class keeps
+  working, the module still installs, and your field quietly stops appearing on
+  the model you meant to change, because you just created a copy instead. Quiz
+  question 1 walks through exactly this scenario; in real life it usually happens
+  while copy-pasting a class as a starting point.
+- **Import order inside a module matters.** A file that inherits from a model
+  defined in a sibling file must be imported after it, or the registry raises
+  `Model '...' does not exist in registry`. Alphabetising imports is the usual
+  cause.
+- **Delegation cascades parent to child only.** Deleting the parent removes the
+  child (via `ondelete="cascade"`); deleting the child leaves the parent behind
+  as an orphan. Decide deliberately whether that is what you want, and clean up
+  in an override if it is not.
+- **Prototype inheritance copies definitions, not data, and not future
+  changes to records.** The two models are independent from the moment the
+  registry is built. Nothing you do to a part will ever touch a consumable.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You add a class with _inherit = "res.partner" and no _name, declaring one new field. What happens to the 4,000 partner records already in the database?',
+      options: [
+        'they are copied into a new table that has the extra column',
+        'they all gain the new column on the existing res_partner table, empty or at its default',
+        'only partners created after the upgrade get the field',
+      ],
+      answer: 1,
+      why: 'Classic extension edits the existing model in place. The upgrade adds the column to the existing table, so every existing record has the field immediately. That is exactly why it is the right tool for extending core.',
+    },
+    {
+      q: 'A colleague copies a model class as a starting point, keeps its _inherit line, and gives it a new _name. Their new field never shows up on the original model. Why?',
+      options: [
+        '_inherit is ignored whenever _name is present, so the class extended nothing at all',
+        'the new _name made it a prototype: a separate model and table, copied from the original',
+        'the copied class loaded before the original, so the registry silently dropped the field',
+      ],
+      answer: 1,
+      why: 'The presence of _name is the entire switch between "extend this model" and "make a new model starting from its fields". Option 1 is close enough to be tempting but wrong in a way that matters: _inherit is very much honoured, it is what supplies the copied fields, it just stops meaning "edit the original". Option 3 describes ch21\'s import-order failure, which would have raised loudly rather than doing nothing. Here nothing errors at all, which is exactly why the mistake survives review.',
+    },
+    {
+      q: 'librefleet.loaner delegates to librefleet.vehicle. Why is there no license_plate column on the librefleet_loaner table, even though loaner.license_plate works?',
+      options: [
+        'the ORM caches the value in memory instead of storing it',
+        'it is a related field through vehicle_id; the value stays on the vehicle',
+        'the column exists but Postgres hides inherited columns',
+      ],
+      answer: 1,
+      why: 'You checked this directly: the field reports inherited=True, related="vehicle_id.license_plate", store=False. Delegation is implemented with the same related-field machinery you wrote by hand in chapter 13.',
+    },
+    {
+      q: 'You delete a loaner record. What happens to the vehicle it delegated to?',
+      options: [
+        'it is deleted too, because the two are linked',
+        'it survives as an ordinary vehicle; the cascade only runs from parent to child',
+        'the delete is refused while a vehicle still references the loaner',
+      ],
+      answer: 1,
+      why: 'The cascade sits on the many2one that points at the parent, so removing the parent removes the child. The reverse is not automatic, which quietly leaves orphan parent rows unless you handle it.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Show `is_loanable` on the vehicle form (chapter 16 taught you how to reach
+   an existing view). Then confirm from psql that ticking it writes to
+   `librefleet_vehicle`, not to any new table.
+2. ⭐⭐ Give `librefleet.loaner` a `_rec_name` so that a loaner displays as its
+   license plate in many2one dropdowns, then explain in one sentence why the
+   obvious answer (`_rec_name = "license_plate"`) works even though that field
+   has no column on the loaner table.
+3. ⭐⭐ Make deleting a loaner also delete its vehicle when that vehicle has no
+   service orders, and leave it alone when it does. Override `unlink` (chapter 15
+   taught you overriding `create`; the same shape applies) and prove both
+   branches from the shell.
+4. ⭐⭐⭐ Find delegation in core: open `res.users` and identify the `_inherits`
+   line and the delegate field. Then work out, from what you learned in step 5,
+   why `env["res.users"].search([("email", "=", "...")])` can work at all when
+   `res_users` has no email column, and what that costs compared to a stored
+   field. Chapter 38 will come back to the performance side of this.
+
+## Further reading
+
+- [Model inheritance in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#inheritance-and-extension):
+  the three mechanisms, side by side, with the API rules for each.
+- [Server framework 101, chapter 12: inheritance (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/12_inheritance.html):
+  the official walkthrough, on the Real Estate module.
+- [`res.users` in the Odoo source (19.0)](https://github.com/odoo/odoo/blob/19.0/odoo/addons/base/models/res_users.py):
+  production delegation, and the model exercise 4 asks you to read.

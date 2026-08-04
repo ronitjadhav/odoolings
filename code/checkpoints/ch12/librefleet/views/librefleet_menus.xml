@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_librefleet_root"
+              name="LibreFleet"
+              web_icon="librefleet,static/description/icon.png"
+              sequence="60"/>
+
+    <menuitem id="menu_librefleet_fleet"
+              name="Fleet"
+              parent="menu_librefleet_root"
+              sequence="10"/>
+
+    <menuitem id="menu_librefleet_vehicles"
+              name="Vehicles"
+              parent="menu_librefleet_fleet"
+              action="action_librefleet_vehicle"
+              sequence="10"/>
+
+    <menuitem id="menu_librefleet_service_orders"
+              name="Service Orders"
+              parent="menu_librefleet_fleet"
+              action="action_librefleet_service_order"
+              sequence="20"/>
+
+    <menuitem id="menu_librefleet_config"
+              name="Configuration"
+              parent="menu_librefleet_root"
+              groups="group_librefleet_manager"
+              sequence="90"/>
+
+    <menuitem id="menu_librefleet_service_types"
+              name="Service Types"
+              parent="menu_librefleet_config"
+              action="action_librefleet_service_type"
+              sequence="10"/>
+
+    <menuitem id="menu_librefleet_parts"
+              name="Parts"
+              parent="menu_librefleet_config"
+              action="action_librefleet_part"
+              sequence="20"/>
+
+</odoo>

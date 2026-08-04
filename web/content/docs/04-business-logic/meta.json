@@ -1,0 +1,13 @@
+{
+  "title": "Part 4: Business Logic Like a Pro",
+  "pages": [
+    "21-the-three-inheritance-types",
+    "22-extending-core-apps",
+    "23-mail-chatter",
+    "24-data-files",
+    "25-cron-server-automated-actions",
+    "26-qweb-pdf-reports",
+    "27-controllers-portal",
+    "28-testing"
+  ]
+}

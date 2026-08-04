@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_service_type_list" model="ir.ui.view">
+        <field name="name">librefleet.service.type.list</field>
+        <field name="model">librefleet.service.type</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="name"/>
+                <field name="flat_fee"/>
+                <field name="default_duration_h"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_librefleet_service_type" model="ir.actions.act_window">
+        <field name="name">Service Types</field>
+        <field name="res_model">librefleet.service.type</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>

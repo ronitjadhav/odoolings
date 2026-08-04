@@ -1,0 +1,404 @@
+---
+title: Glossary
+description: Every piece of Odoo jargon, defined the day a chapter first uses it.
+---
+
+**AbstractModel**: a model with no table of its own (`models.AbstractModel`),
+meant to be mixed into other models via the list form of `_inherit`, never
+instantiated directly. `mail.thread` and `mail.activity.mixin` (chapter 23) are
+both `AbstractModel`.
+
+**access rights (ACL)**: `ir.model.access` records, conventionally loaded from
+`security/ir.model.access.csv`, granting a group read/write/create/unlink on one
+model. Additive across groups (rights union, never subtract) and model-wide; see
+*record rule* for per-record filtering.
+
+**active_test**: a context flag. Default searches silently add `active = True`;
+`with_context(active_test=False)` switches that off so archived records show up too.
+
+**addon**: see *module*. The two words are used interchangeably; `--addons-path` is
+the directory list Odoo scans for them.
+
+**addons path**: the ordered list of directories Odoo searches for modules.
+
+**arch (view architecture)**: the XML document stored in an `ir.ui.view` record's
+`arch` field describing how to render a model (`<list>`, `<form>`, ...). Validated
+against the model at load time: a field typo in an arch fails the upgrade.
+
+**archiving**: setting `active = False` on a record. Archived records keep their data
+and relations but are hidden from `search()` unless the `active_test=False` context
+asks for them. Odoo's "soft delete" (chapter 9).
+
+**automatic fields**: the columns the ORM maintains on every model without being
+asked: `id`, `create_uid`, `create_date`, `write_uid`, `write_date`, plus the
+computed (never stored) `display_name`.
+
+**button box**: the `<div name="button_box">` at the top of a form sheet holding
+smart buttons. Extensions target it by name to add their own buttons.
+
+**calendar view**: a view type placing records on a date grid via `date_start` /
+`date_stop`, with `color` bucketing events by another field's value.
+
+**chatter**: the message/activity feed at the bottom (or side) of most form views:
+emails, notes, followers, scheduled activities. Models opt in via `mail.thread` and
+`mail.activity.mixin`, and render it with the single `<chatter/>` view tag
+(chapter 23). Adds no columns to the model's own table; the thread lives in
+`mail.message`, keyed generically by model and record id.
+
+**classic extension**: `_inherit` with no `_name`. The class *is* the existing
+model: fields land on the same model and the same table. The mechanism behind
+almost all real extension work.
+
+**command list (x2many commands)**: the tuple language for writing relational
+fields: `(0, 0, {vals})` create, `(4, id)` link, `(3, id)` unlink, `(2, id)`
+delete, `(6, 0, [ids])` replace all. Spelled `Command.create/link/set/...` since
+Odoo 15; the tuples remain everywhere in existing code.
+
+**commit tags**: the `[TAG] module: description` convention Odoo and the OCA use for
+commit messages: `[FIX]` bugfix, `[IMP]` improvement, `[ADD]` new feature/module,
+`[MIG]` migration to a version, `[REF]` refactor.
+
+**computed field**: a field filled by a method instead of the user, with
+`@api.depends` declaring exactly which fields the value derives from (the ORM's
+recompute triggers). Non-stored by default (no column, computed on read);
+`store=True` adds a real column recomputed when dependencies change.
+
+**constraint (Python)**: a validation method decorated `@api.constrains(*fields)`
+that raises `ValidationError` when a rule is broken. Runs in the ORM on every write
+path (form, import, RPC, shell, code) but never on raw SQL, and only re-runs when a
+field it lists changes. Use it for rules that need judgment or other records
+(chapter 14).
+
+**constraint (SQL)**: a database-level rule (`UNIQUE`, `CHECK`, foreign key) enforced
+by Postgres itself, so nothing bypasses it, not even raw SQL. Declared on Odoo 19 with
+`models.Constraint` (see that entry). Limited to what SQL can express (chapter 14).
+
+**context**: the read-only dict of settings every ORM call carries (`lang`, `tz`,
+`uid`, behavior flags like `active_test`). Never mutated in place; `with_context()`
+derives a new recordset with an extended copy.
+
+**CSV data file**: a data file whose name IS the target model's technical name
+(`ir.model.access.csv`), optionally with a `-suffix` before `.csv`
+(`account.account-kw.csv` in core). Relational columns end in `:id` and hold an
+xml id. Always uniform, one row per record, and (chapter 24) always noupdate when
+listed under `demo`, never able to opt out of it when listed under `data`, since
+CSV has no equivalent of XML's `<data noupdate="...">` wrapper.
+
+**decoration-***: list (and badge) attributes carrying an expression over the view's
+loaded fields; matching rows render in the semantic color (muted, info, success,
+warning, danger) or style (bf, it).
+
+**default value**: a field's starting value on a new record, set with `default=`.
+Static (`default="draft"`) or a callable (`default=lambda self: ...`) evaluated once
+per record for dynamic values like today's date or the next sequence number. Fires on
+every creation path (chapter 14).
+
+**delegation (`_inherits`)**: note the `s`. Composition with automatic
+forwarding: the child holds a required many2one to the parent, and the parent's
+fields become non-stored related fields on the child. Two tables, one logical
+record. Core uses it for `res.users` to `res.partner`.
+
+**demo data**: fictional records (customers, products, orders) listed under a
+module's `demo` manifest key, for training and testing, never required config.
+Loads only when a module is *installed* with demo explicitly requested
+(`--with-demo`, Odoo 19's default is *without*); a later `-u` upgrade only reloads
+it if that module's very first install already had it, since Postgres remembers
+per module in `ir_module_module.demo`. See *master data* for the config a module
+does need. Chapter 24 goes deeper, including why an upgrade alone will not add it
+to a database that never had it.
+
+**depends**: the manifest list of modules yours builds on. It sets load order and is
+what makes extending their models legal: extend a model whose module is not in
+`depends` and the registry refuses to load at all. Transitive, so one entry can install
+several modules.
+
+**developer mode**: a per-session backend mode (`?debug=1` or Settings → General
+Settings) that reveals technical field tooltips and the Settings → Technical menu.
+`debug=assets` additionally serves unminified JS/CSS.
+
+**display_name**: the one-line string Odoo uses to present a record (breadcrumbs,
+dropdowns). Computed on demand from the field `_rec_name` points at, which defaults
+to a field literally named `name`; with neither, you get the `"model,id"` fallback.
+
+**domain**: the list-of-tuples filter language used by `search()`, record rules and
+filters: `[("license_plate", "=", "ZH 468 202")]`. Conditions AND together by
+default; `"|"` and `"&"` prefix operators change that. Domains can walk relations
+with dots (`order_id.technician_ids`).
+
+**editable list**: a list view with `editable="top|bottom"`, letting users add and
+edit rows inline instead of opening a form. The natural fit for flat config tables
+(LibreFleet's service types).
+
+**edition**: Community (open source, LGPL-3) or Enterprise (paid superset with extra
+apps, hosted options and the upgrade service). This tutorial uses Community.
+
+**env (environment)**: the object every piece of Odoo server code works through:
+`env["res.partner"]` reaches a model, `env.cr` the database cursor, `env.user` the
+current user. First met in `odoo shell` (chapter 6), studied properly in chapter 15.
+
+**ERP**: Enterprise Resource Planning. One system, one database for a company's
+operations (sales, stock, accounting...), so every department sees the same facts.
+
+**extension view**: an `ir.ui.view` with `inherit_id` set (mode `extension`): a list
+of patches (xpath or field locators plus a position) applied to its parent's arch at
+request time. The parent record itself is never modified.
+
+**filestore**: the on-disk directory where Odoo stores attachments and uploaded files
+(one subdirectory per database). Binary content lives here, not in PostgreSQL; in the
+tutorial's Docker setup it sits in the `odoo-data` volume.
+
+**filter (search view)**: a named, static domain toggle in a search view's arch.
+Distinct from `ir.filters`, which stores a user's own saved searches.
+
+**form view**: the one-record view type (`<form>` arch): a `<sheet>` canvas with
+`<group>`s laying out fields. Opened from a list row when the action's `view_mode`
+includes `form`.
+
+**get_view**: the model method the web client calls to obtain the combined arch of a
+view type; useful in the shell to see exactly what inheritance produced.
+
+**golden rule (never modify core)**: you extend Odoo's own modules from yours, never by
+editing their source. Editing core loses the change at the next upgrade, breaks other
+modules extending the same model, and leaves an Odoo nobody else can reproduce.
+
+**graph view**: a chart rendering of the same row/column/measure aggregation a
+pivot view describes, as a bar, line or pie.
+
+**group**: a `res.groups` record permissions are granted to (users are never granted
+rights directly). Groups can imply other groups (`implied_ids`): members of the
+implying group automatically hold everything the implied group has.
+
+**group-by**: a `<filter>` inside a search view's `<group>` block whose `context`
+sets `group_by`, delegating aggregation to a `read_group` call server-side.
+
+**integrator / partner**: a company implementing Odoo for clients: configuration,
+custom modules, migrations, support. Most Odoo developers work at one.
+
+**kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
+pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
+
+**list view**: the rows-and-columns view type (`<list>` arch; `<tree>` before
+Odoo 17, removed in 19). Each `<field>` in the arch is a column.
+
+**manifest**: `__manifest__.py`, the dict at a module's root declaring its name,
+version, `depends`, data files, and license. Its presence is what makes a directory a
+module.
+
+**many2many**: the both-ways relation (`technician_ids` on orders, orders on
+technicians) stored as an automatic table of id pairs in Postgres. Plural `_ids`
+naming, like one2many.
+
+**many2one**: *the* relation: an integer column holding another record's id, with a
+real foreign key and an `ondelete` policy. Singular `_id` naming. One2many and
+many2many are built on top of it.
+
+**mixin**: an `AbstractModel` inherited via the list form of `_inherit` to pull in a
+bundle of ready-made fields and methods (chatter, activities) without any of them
+belonging to a real parent record. Composition through classic extension, not a new
+inheritance mechanism.
+
+**master data**: config records a module needs to be useful on day one, shipped as
+regular data files (not `demo`), typically wrapped in `noupdate="1"` so a manager's
+later edits (a renamed stage, an adjusted price) survive the next upgrade instead
+of being silently overwritten. Chapter 24's `service_type_master.xml` is an
+example. Contrast with *demo data*, which is optional and disposable.
+
+**master password**: the `admin_passwd` option in `odoo.conf`. It guards
+database-manager operations (create, duplicate, drop), and is unrelated to any user's
+login password.
+
+**measure**: a field a pivot or graph view sums or averages. Requires the field to
+have a real database column (`store=True`); a non-stored computed field raises a
+ValueError the moment it's actually aggregated, even though the view installs fine.
+
+**menu item**: an `ir.ui.menu` record (usually written with the `<menuitem>`
+shortcut tag) forming the app's navigation tree. `action=` makes it open something,
+`groups=` trims who sees it (navigation only, not security), and a root item with a
+`web_icon` becomes an app tile.
+
+**model**: a Python class extending `models.Model` whose `_name` (like
+`librefleet.vehicle`) identifies it everywhere: `env[...]` lookups, and the Postgres
+table name with dots turned into underscores. Its fields become the table's columns.
+
+**models.Constraint**: the Odoo 19 way to declare an *SQL constraint* on a model:
+`_name_uniq = models.Constraint("unique(name)", "message")`. The attribute name
+becomes the Postgres constraint name; it replaces the pre-19 `_sql_constraints` list
+(chapter 14).
+
+**module**: a directory with `__manifest__.py` and `__init__.py` that adds models,
+views, data, or code to an Odoo database. An *app* is just a module with
+`'application': True`.
+
+**namespacing (field prefixes)**: naming fields you add to a model you do not own after
+your module (`librefleet_is_part`), so they cannot collide with core's or with another
+module extending the same model. Nothing enforces it, which is why the collision only
+surfaces much later.
+
+**notebook**: the tab container inside a form sheet; each `<page>` groups one concern.
+Give pages a stable `name` so xpaths can anchor on them.
+
+**noupdate**: a data file's protection against being silently rewritten on the next
+module upgrade. `<data noupdate="1">` opts an XML block in explicitly; every file
+listed under a module's `demo` key gets it automatically, whether XML or CSV
+(chapter 24, verified against Odoo's own loader: `noupdate=kind == 'demo'`). On
+upgrade, a noupdate record that already exists (matched by its xml id) is left
+alone, but a *new* noupdate record with no existing xml id is still created
+normally, which is why adding a second master-data record later still works.
+
+**OCA**: Odoo Community Association. A Swiss nonprofit hosting hundreds of
+community-maintained module repositories at [github.com/OCA](https://github.com/OCA).
+
+**Odoo SA**: the Belgian company that develops Odoo, ships the yearly release, and
+sells Enterprise subscriptions and hosting (Odoo Online, odoo.sh).
+
+**odoo shell**: `odoo shell -d <db>`, a Python REPL with a fully loaded `env`. The
+best place to experiment with the ORM. It never commits by itself; writes need an
+explicit `env.cr.commit()`.
+
+**onchange**: a method (`@api.onchange("field")`) run while a user edits a form,
+before saving, typically to prefill other fields. Never fires from code, imports or
+RPC, so it is a typing assistant, not a business rule.
+
+**ondelete**: the many2one policy for when the referenced record is deleted:
+`set null` (default, forget the link), `restrict` (block the deletion), `cascade`
+(delete me too). Becomes a real `ON DELETE` clause in Postgres.
+
+**one2many**: the mirror of a many2one, declared with the comodel and the inverse
+field name. Stored nowhere: it is a live query over the comodel's many2one, which
+is why it cannot exist without one.
+
+**ORM**: Odoo's object-relational mapper, the layer that turns Python model classes
+into PostgreSQL tables and back.
+
+**orphaned column**: a database column whose field no longer exists (renamed, deleted,
+or made non-stored). Odoo adds columns but never drops them, so these accumulate
+silently; clearing them is explicit migration work.
+
+**OWL**: Odoo Web Library, the in-house JavaScript component framework used by the web
+client since Odoo 14.
+
+**pinning**: fixing every external dependency (OCA repos, Odoo itself) to an exact
+commit or package version so a production build is reproducible from the project repo
+alone. Done with git submodules, git-aggregator, or pip requirements.
+
+**pivot view**: a view type describing a table of aggregated data: `row`/`col`
+fields group records, `measure` fields are summed per group, via `read_group`.
+
+**primary view**: a standalone view competing for the default slot of its model and
+type. With `inherit_id` plus `mode="primary"` it becomes a patched *copy* of another
+view instead of a patch on it.
+
+**privilege**: `res.groups.privilege`, new in Odoo 19: the row that gathers related
+groups ("Workshop" holding User and Manager) on the user form. Replaces the direct
+group-to-category link older versions used.
+
+**prototype inheritance**: `_inherit` *plus* a new `_name`. Creates a new model
+and table pre-filled with copies of the parent's field definitions. The two are
+unrelated from then on, and it is the rarest of the three in practice.
+
+**PSC**: Project Steering Committee, the maintainers governing one OCA repository.
+
+**QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
+pages) and client-side (OWL component templates).
+
+**record rule**: an `ir.rule` filtering *which records* of a model a group may
+touch, via a domain ("only orders assigned to you"). The per-record layer on top of
+access rights, which are model-wide. LibreFleet's first one lands in chapter 12.
+
+**recordset**: the value every ORM operation returns: an ordered collection of records
+of one model, which may hold zero, one, or many. Methods called on it apply to all of
+them.
+
+**registry**: the in-memory catalog of all models a server process builds at startup
+by importing every installed module's Python. `env["librefleet.vehicle"]` is a
+registry lookup. Rebuilt on restart; the database schema only changes at
+install/upgrade.
+
+**related field**: a computed field the framework writes for you from a path:
+`related="vehicle_id.owner_id"` mirrors the value at the end of the path and
+updates when it changes. Storable like any computed field.
+
+**Runboat**: OCA infrastructure that spins up a throwaway live Odoo instance for every
+pull request, so reviewers can click through changes.
+
+**`search_default_<name>`**: an action context key that pre-checks the search view
+filter of the same `name` when the view loads. Nothing validates the match; a typo
+fails silently.
+
+**Selection field**: a field storing one key from a closed list of
+`(key, "Label")` pairs, a `varchar` in Postgres. LibreFleet's order `stage` is one;
+chapter 17 dresses it as a statusbar.
+
+**sequence (ir.sequence)**: a named, concurrency-safe counter with a prefix, padding
+and optional per-period reset, read with `next_by_code("code")`. Non-transactional by
+design, so drawn numbers survive rollbacks and the counter has gaps. Powers order and
+invoice references (chapter 14).
+
+**singleton**: a recordset holding exactly one record. Scalar fields can only be read
+on singletons; violating that raises `Expected singleton`. `self.ensure_one()` asserts
+it explicitly at the top of single-record methods.
+
+**smart button**: the stat buttons at the top of a form view linking to related
+records ("3 Orders", "2 Deliveries"). You'll build one in chapter 17.
+
+**statusbar**: the widget rendering a Selection field as the stage bar in a form's
+header. With the clickable option users can change stage by clicking; it enforces no
+workflow rules by itself.
+
+**sudo()**: derives a recordset with the superuser bit (`env.su`) on: access rights
+and record rules stop applying, while `env.user` stays unchanged. Bypasses spread to
+records reached through the sudo'd set, so scope it to the smallest operation.
+
+**superuser**: uid 1 (`__system__`), the internal account that bypasses access
+rights and record rules entirely. `odoo shell` runs as it, `sudo()` switches to it.
+Not the same thing as the `admin` login, which is an ordinary user with powerful
+groups.
+
+**target="new"**: an action attribute that opens the action as a popup instead of
+navigating away from the current record. What makes a wizard a wizard, visually.
+
+**technical name**: a module's directory name (`librefleet`), as opposed to its
+display `name` ("LibreFleet"). Used by `-i`/`-u`, `depends`, XML ids and table
+prefixes; effectively immutable once a module ships.
+
+**tracking (`tracking=True`)**: a field attribute that posts a chatter message with
+the old and new value whenever an ORM write changes it, no method required. Fires
+only on a real database write, and only becomes visible after the transaction
+commits, since the message itself is built by a precommit hook (chapter 23).
+
+**uid**: the current logged-in user's id, substituted by the web client wherever it
+appears inside a domain or context string written in XML. Not a Python variable.
+
+**vacuum**: the scheduled process that deletes old transient records automatically,
+so a wizard's table never accumulates forever. Configurable per model via
+`_transient_max_hours`.
+
+**ValidationError**: the exception (`from odoo.exceptions import ValidationError`) a
+Python constraint raises to reject a write. Odoo rolls the transaction back and shows
+its message to the user (chapter 14).
+
+**view priority**: the tie-breaker among primary views: lowest number wins the
+default slot (base views sit at 16). Views with high priorities are only shown when
+an action requests them via `view_id`.
+
+**widget**: an attribute on a view field picking an alternative renderer for the
+same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17
+tours the built-ins; chapter 30 builds one.
+
+**window action**: an `ir.actions.act_window` record saying what to open: the
+model (`res_model`) and the view types in order (`view_mode="list,form"`). The glue
+between a menu click and the views that render.
+
+**with_user()**: derives a recordset acting as another user, with that user's groups,
+access rights and record rules. The standard way to test security from the shell.
+
+**wizard**: a `TransientModel`, a popup form used for a confirmation step,
+extra input, or validation before a write that a raw field change or button click
+can't provide on its own. Same fields and methods as a regular model, different
+lifecycle.
+
+**XML id (external id)**: the stable handle a data record is registered under
+(`librefleet.group_librefleet_user`), used by `ref()` in XML, `env.ref()` in Python,
+and CSV reference columns. Resolves against the database, which is why a missing one
+only fails where the record was never loaded (fresh installs). Chapter 24 goes
+deeper.

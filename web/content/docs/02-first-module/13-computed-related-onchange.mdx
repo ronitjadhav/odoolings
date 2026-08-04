@@ -1,0 +1,391 @@
+---
+title: "13. Computed, Related & Onchange"
+description: Fields that calculate themselves, follow other records, and react while the user types, plus the dependency system that keeps them honest.
+---
+
+**Goal:** give LibreFleet live money totals, a customer that follows the vehicle's
+owner, and a parts price that fills itself in. · **Time:** ~2.5 h ·
+**Checkpoint:** `code/checkpoints/ch13`
+
+## Why this matters
+
+Half the fields on any real Odoo screen were never typed by anyone: order totals,
+margins, counters, the customer on an invoice. They're derived, and the framework's
+dependency system keeps them correct while data changes around them. Do this well
+and your app feels alive; do it badly and you ship the worst class of bug there is,
+numbers that are *silently wrong*. This chapter builds all three derivation tools
+into LibreFleet and then breaks one on purpose so you recognize the failure forever.
+
+## Concepts
+
+### Computed fields: value = f(other fields)
+
+A computed field declares a method that fills it and, through `@api.depends`, the
+exact fields its value is built from:
+
+```python
+subtotal = fields.Float(compute="_compute_subtotal", store=True)
+
+@api.depends("qty", "price_unit")
+def _compute_subtotal(self):
+    for line in self:
+        line.subtotal = line.qty * line.price_unit
+```
+
+Two contracts to respect. The compute method receives a **recordset** and must
+assign a value to *every* record in it, hence the loop. And `depends` is not
+documentation: it is the trigger wiring. When `qty` changes, the ORM marks
+`subtotal` stale and recomputes it at the right moment, cascading into anything
+that depends on `subtotal` in turn. Dotted paths (`line_ids.subtotal`) let a parent
+watch its children.
+
+### Store or don't store
+
+- **Non-stored** (the default): no column, computed on read. Ideal for cheap
+  derivations. The cost: you can't (yet) search or group on it, since there's
+  nothing in SQL to query.
+- **`store=True`**: a real column, recomputed *on write* whenever a dependency
+  changes. Searchable, groupable, readable by raw SQL and reports, but now
+  correctness depends entirely on the completeness of `depends`.
+
+LibreFleet uses both deliberately: line `subtotal` is stored (reports and sums will
+want it), while the order's `parts_total`, `labor_total` and `margin` stay
+non-stored (cheap to derive, always fresh). You'll see the difference as the
+presence and absence of columns in psql.
+
+### Related fields: a path, not a formula
+
+`customer_id = fields.Many2one(related="vehicle_id.owner_id", store=True)` is a
+computed field the framework writes for you: follow the path, mirror the value. The
+blueprint stores this one, which buys a real column that search, group-by and the
+future portal can use, and the dependency system still updates it when the owner
+changes. That's worth staring at: change the *partner on the vehicle*, and every
+stored copy on every order fixes itself.
+
+### Onchange: a UI suggestion, nothing more
+
+`@api.onchange("part_id")` runs **in the form view only**, while the user edits,
+on a draft record that isn't saved yet. It's perfect for prefilling: pick a part,
+get its list price as the suggested `price_unit`, still editable for a discount.
+Its sharp edge: code paths (shell, RPC, imports, other modules) never trigger it.
+An onchange is UX sugar, not a business rule; anything that must *always* hold
+belongs in computes, defaults or constraints (chapter 14).
+
+<Callout type="info" title="In the field">
+  Modern Odoo code increasingly replaces onchange with "computed editable" fields
+  (`compute=` plus `readonly=False`, letting users override the computed value),
+  which fire on every path, not just forms. You'll convert this chapter's onchange
+  in the stretch exercise; knowing both idioms is mandatory for reading real
+  modules.
+</Callout>
+
+<Mermaid
+  chart={`flowchart LR
+    Q["line.qty"] -- "depends" --> S["line.subtotal<br/>stored column"]
+    P["line.price_unit"] -- "depends" --> S
+    S -- "depends (dotted:<br/>line_ids.subtotal)" --> T["order.parts_total<br/>no column"]
+    F["service_type.flat_fee"] -- "depends" --> L["order.labor_total<br/>no column"]
+    T --> M["order.margin<br/>no column"]
+    L --> M
+    O["vehicle.owner_id"] -- "related path" --> C["order.customer_id<br/>stored column"]`}
+/>
+
+## Hands-on
+
+### 1. The stored line subtotal
+
+In `models/service_order.py`, extend the imports (`from odoo import api, fields,
+models`), then give the line its subtotal exactly as in the Concepts section, and
+show it in the inline list in `views/service_order_views.xml` (a `<field
+name="subtotal"/>` after `price_unit`; computed fields render read-only by
+default).
+
+### 2. The order totals
+
+On the order model:
+
+```python
+    parts_total = fields.Float(compute="_compute_totals")
+    labor_total = fields.Float(compute="_compute_totals")
+    margin = fields.Float(compute="_compute_totals",
+                          help="What the order earns: parts revenue plus the flat "
+                               "fee, minus what the parts cost the workshop.")
+
+    @api.depends("line_ids.subtotal", "line_ids.qty",
+                 "line_ids.part_id.standard_cost", "service_type_id.flat_fee")
+    def _compute_totals(self):
+        for order in self:
+            order.parts_total = sum(order.line_ids.mapped("subtotal"))
+            order.labor_total = order.service_type_id.flat_fee
+            parts_cost = sum(
+                line.qty * line.part_id.standard_cost for line in order.line_ids)
+            order.margin = order.parts_total + order.labor_total - parts_cost
+```
+
+One method may fill several fields (they recompute together anyway). Read the
+`depends` list like an audit: subtotals, quantities, part costs, the fee. Miss one
+and the totals lie *sometimes*, which is worse than always. In the form, a "Money"
+group shows the three; put `groups="librefleet.group_librefleet_manager"` on the
+margin field so technicians don't see the workshop's cut (a view-level trim, like
+menu groups; the checkpoint has the XML).
+
+### 3. The customer that follows the owner
+
+On the order, right under `vehicle_id`:
+
+```python
+    customer_id = fields.Many2one(
+        related="vehicle_id.owner_id", store=True, string="Customer")
+```
+
+Add it to the order list and form. Then the counter on the vehicle, in
+`models/vehicle.py`. That file still has chapter 12's import line, and you are about to
+use a decorator it does not import, so widen it first:
+
+```python title="addons/librefleet/models/vehicle.py"
+from odoo import api, fields, models     # was: from odoo import fields, models
+```
+
+Miss that and the module will not load at all: `@api.depends` becomes
+`NameError: name 'api' is not defined` while Odoo is importing your package, which reads
+as the whole module being broken rather than one missing word. Then the field itself:
+
+```python
+    service_count = fields.Integer(compute="_compute_service_count")
+
+    @api.depends("service_order_ids")
+    def _compute_service_count(self):
+        for vehicle in self:
+            vehicle.service_count = len(vehicle.service_order_ids)
+```
+
+(Chapter 17 dresses this as the stat button every Odoo form has; the field is the
+hard part and it's four lines.)
+
+### 4. The onchange
+
+On the line model:
+
+```python
+    @api.onchange("part_id")
+    def _onchange_part_id(self):
+        if self.part_id:
+            self.price_unit = self.part_id.list_price
+```
+
+Bump the version to `19.0.1.5.0`, upgrade, restart. The upgrade backfills the new
+stored columns for existing rows, watch the log do it.
+
+### 5. See the dependency system work
+
+Open the oil change order in the UI: subtotals per line, totals in the Money group,
+customer Anna Keller. Add a line, pick "Brake pads, front", and watch `price_unit`
+snap to 79.00 before you save (that's the onchange; remove the line again). Now the
+same physics from the shell:
+
+```console
+>>> o1 = env["librefleet.service.order"].browse(1)
+>>> o1.parts_total, o1.labor_total, o1.margin
+(100.1, 89.0, 139.1)
+>>> line = o1.line_ids[1]
+>>> line.qty = 5
+>>> line.subtotal, o1.parts_total, o1.margin
+(94.5, 119.0, 148.5)
+```
+
+One write, and the change rippled through a stored field into two non-stored ones,
+no manual refresh. Put `qty` back to 4. Now the related field's party trick:
+
+```console
+>>> o1.vehicle_id.owner_id = env["res.partner"].search([("name", "=", "Beat Muster")])
+>>> o1.customer_id.name
+'Beat Muster'
+```
+
+You wrote on the *vehicle*; the stored copy on the order followed instantly.
+Roll that back (`env.cr.rollback()`), Anna keeps her car.
+
+### 6. Prove onchange's limit
+
+Still in the shell, create a line the way an import or another module would:
+
+```console
+>>> env["librefleet.service.order.line"].create({
+...     "order_id": 1,
+...     "part_id": env["librefleet.part"].search([("code", "=", "BP-201")]).id,
+...     "qty": 2,
+... }).price_unit
+0.0
+```
+
+Part chosen, price zero: the onchange never ran, because nobody was typing in a
+form. This is not a bug, it's the definition, and it's why business rules don't
+live in onchange. Roll back to discard the broken line.
+
+### 7. Break-it lab: the missing depends
+
+Delete the `@api.depends("qty", "price_unit")` line above `_compute_subtotal`
+(keep the method), upgrade, and change a quantity:
+
+```console
+>>> line = env["librefleet.service.order.line"].browse(1)
+>>> line.qty = 3
+>>> env.cr.commit()
+>>> line.qty, line.subtotal
+(3.0, 24.5)
+```
+
+Quantity three, subtotal for one, no error anywhere, and psql confirms the lie is
+durably stored:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select qty, price_unit, subtotal from librefleet_service_order_line where id=1;"
+ qty | price_unit | subtotal
+-----+------------+----------
+   3 |       24.5 |     24.5
+```
+
+Now restore the decorator and upgrade, and note something important: **the stale
+value stays stale** until a dependency actually changes (read it back: still 24.5).
+Fixing the code doesn't fix the data; touching `qty` again does. On a production
+database that's a targeted recompute script, not a shrug. Set `qty` back to 1 and
+commit, which both heals and restores the checkpoint state.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch13
+✔ line subtotals are computed and stored
+✔ order totals add up (parts, labor, margin)
+✔ order totals are NOT stored
+✔ customer_id is a stored related field that follows the owner
+✔ vehicle.service_count matches reality
+
+ch13 complete! On to the next chapter 🔧
+```
+
+These checks recompute everything independently over RPC and compare, so they'll
+catch a wrong or missing `depends` path, not just a missing field. And the
+store-vs-not decision, straight from the database:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_service_order' and column_name in ('customer_id','parts_total','labor_total','margin');"
+ column_name
+-------------
+ customer_id
+```
+
+Four derived fields, one column: exactly as designed.
+
+## Gotchas
+
+- **A missing depends is silent, durable corruption.** No traceback, no warning,
+  just stored numbers that stop tracking reality (you built it, you saw it).
+  Review `depends` lists in every code review like they're money, because they
+  are.
+- **Fixing depends doesn't heal existing data.** Recompute happens on dependency
+  *changes*; historic rows keep their stale values until touched. Production fixes
+  pair the code change with a one-off recompute.
+- **Onchange only fires in forms.** Imports, shell, RPC and other modules bypass
+  it, so never park validation or pricing *policy* there; it's a typing assistant.
+- **Compute methods must assign on every record.** Skip one (an `if` without an
+  `else`) and you get "Compute method failed to assign" errors on exactly the
+  records your test data didn't cover.
+- **Non-stored *computed* fields can't be searched, grouped, or aggregated.** There is
+  no column and no expression Postgres could evaluate, so if a filter, group-by, or a
+  pivot/graph measure matters, store the field or give it a `search=` method. Chapter
+  19 hits this exact wall with `margin`. Note the word *computed*: a non-stored
+  **related** field is different, because `related="a.b"` hands the ORM a path it can
+  rewrite into a JOIN, so those stay searchable without being stored. The rule is not
+  "unstored means unsearchable", it is "Postgres has to be able to get there".
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'qty changes on a line. Which fields update, in what causal order?',
+      options: [
+        'only subtotal, because it is the only stored one',
+        'subtotal recomputes on write; parts_total and margin follow when read',
+        'all three instantly rewrite their database columns',
+      ],
+      answer: 1,
+      why: 'The dependency graph cascades: qty invalidates subtotal, whose change invalidates the non-stored totals. Stored fields persist their new value; non-stored ones just compute fresh when read.',
+    },
+    {
+      q: 'Why store customer_id (related) but not parts_total (computed)?',
+      options: [
+        'related fields must always be stored',
+        'the customer must be searchable and groupable; the cheap total only needs display',
+        'floats cannot be stored from compute methods',
+      ],
+      answer: 1,
+      why: 'store= is a tradeoff you decide per field: a column and recompute bookkeeping in exchange for queryability. The blueprint wants customers searchable on orders; the money totals just need to display.',
+    },
+    {
+      q: 'A CSV import creates 500 order lines with part_id set. What is price_unit on them?',
+      options: [
+        'the part list price, onchange handles it',
+        'zero, onchange only runs while editing a form',
+        'an import error, because price_unit is required',
+      ],
+      answer: 1,
+      why: 'Every path except the form editor skips onchange. If the price must follow the part on all paths, that is a default, a computed-editable field, or explicit code, never an onchange.',
+    },
+    {
+      q: 'You fix a wrong @api.depends that shipped last month. What about the numbers already in the database?',
+      options: [
+        'the upgrade recomputes every stored computed field automatically',
+        'they stay wrong until their dependencies change or you recompute them explicitly',
+        'they fix themselves on the next server restart',
+      ],
+      answer: 1,
+      why: 'Recomputation is triggered by writes to dependencies, and neither the upgrade nor a restart writes your data. Real fixes ship code plus a migration/recompute step; you watched the stale 24.5 survive the fix.',
+    },
+    {
+      q: 'Why does the compute method loop with "for order in self" instead of just using self.parts_total = ...?',
+      options: [
+        'style preference from the OCA guidelines',
+        'compute methods receive recordsets and must assign every record',
+        'loops are faster than direct assignment',
+      ],
+      answer: 1,
+      why: 'Computes are batched: reading parts_total on 80 orders calls your method once with all 80. Direct attribute assignment only works on a single record, so the loop is correctness, not style.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add `duration_h` to the service order: computed from `scheduled_start` and
+   `scheduled_end` (Datetime subtraction gives a timedelta), non-stored, shown in
+   the form. Decide what an order with a missing end should show, and make the
+   compute honor it.
+2. ⭐⭐ Make `service_count` searchable: store it, upgrade, and confirm in psql
+   that the column exists and is correct for existing vehicles. Then filter
+   vehicles with more than one order from the shell with a search domain. Revert
+   to non-stored afterwards (the checkpoint keeps it lean) and note what happens
+   to the column.
+3. ⭐⭐ The workshop wants total billed value per customer, meaning parts plus labour
+   across every order on every vehicle that customer owns. Get the number for Anna
+   Keller from the shell. You will find it takes **two** calls, not one: `owner_id`
+   points from the vehicle *to* the partner, and nothing points back, so there is no
+   single `mapped()` path from a partner to their orders. Do it in two, then name the
+   one field on `res.partner` that would collapse it to one, and say where it would
+   have to live. (Chapter 22 adds exactly that field, so keep your answer.)
+4. ⭐⭐⭐ Convert the part-price onchange into a computed editable field:
+   `price_unit = fields.Float(compute=..., store=True, readonly=False)` depending
+   on `part_id`. Verify the shell-create case now gets the list price AND that a
+   user (or the shell) can still override it. The
+   [computed fields docs](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#computed-fields)
+   cover the pattern.
+
+## Further reading
+
+- [ORM reference: computed fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#computed-fields)
+  and [related fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#related-fields):
+  every attribute, including compute_sudo and the search= escape hatch.
+- [Server framework 101, chapter 8 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/08_compute_onchange.html):
+  the official computed/onchange chapter, including their advice on when *not* to
+  use onchange.

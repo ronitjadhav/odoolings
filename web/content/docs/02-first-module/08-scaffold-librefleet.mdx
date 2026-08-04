@@ -1,0 +1,289 @@
+---
+title: "8. Scaffold LibreFleet"
+description: Your first module, a manifest you understand line by line, and the install/upgrade cycle you'll run a thousand times.
+---
+
+**Goal:** create the LibreFleet module from nothing, install it, and own the
+install/upgrade cycle. · **Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/ch08`
+
+## Why this matters
+
+Part 2 starts here, and so does the capstone: **LibreFleet**, a vehicle-workshop and
+service-booking app you'll grow for the rest of the tutorial. Today it does exactly
+nothing, and that's the point. A module with no models, no views and no logic isolates
+the machinery every later chapter relies on: what makes a directory a module, what a
+manifest declares, and what actually happens when you install or upgrade. Get this
+cycle into your fingers now; from chapter 9 you'll run it dozens of times a day
+without thinking.
+
+## Concepts
+
+### Two files make a module
+
+Chapter 3 told you everything is a module. Concretely, a module is a directory on the
+addons path containing:
+
+- `__init__.py`: makes it a Python package (empty today, imports models from ch9 on).
+- `__manifest__.py`: a single Python dict describing the module. Its presence is what
+  makes Odoo treat the directory as a module at all.
+
+That's the whole entry bar. Everything else (models, views, security, data) is
+declared *from* the manifest.
+
+### The manifest, line by line
+
+Here is LibreFleet's first manifest, in `addons/librefleet/__manifest__.py`:
+
+```python
+{
+    "name": "LibreFleet",
+    "summary": "Vehicle workshop & service booking management",
+    "version": "19.0.1.0.0",
+    "category": "Services",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "application": True,
+    "depends": ["base"],
+    "data": [],
+}
+```
+
+- **`name`** is the display name. The *technical name* is the directory name
+  (`librefleet`), and that's what `-i`/`-u`, dependencies and table prefixes use.
+- **`version`**: the convention (from OCA, worth adopting on day one) is
+  `<odoo major>.<module major>.<module minor>.<patch>`, so `19.0.1.0.0` reads as
+  "first release of this module, for Odoo 19".
+- **`license`**: mandatory in practice; the server logs a warning without it. AGPL-3
+  is the OCA norm and this tutorial's choice (chapter 34 discusses why).
+- **`application: True`** is the apps-vs-modules flag from chapter 1: LibreFleet gets
+  a tile on the Apps screen. The extension modules you'll write later won't set it.
+- **`depends`**: install this module and Odoo first installs everything here. `base`
+  is the minimum. When ch23 adds chatter, `mail` joins this list, and installing
+  LibreFleet will pull it in automatically.
+- **`data`**: the XML/CSV files to load at install/upgrade, in order. Empty for
+  exactly one chapter.
+
+### Why "librefleet" and not "fleet"
+
+Odoo core already ships a module called `fleet` (vehicle management). If our
+directory were named `fleet`, the addons path would decide which one wins, and
+confusion follows. Technical names live in one global namespace, so real projects
+prefix them (`c2c_...`, client trigrams, or a product name like ours). Check for
+collisions before naming anything.
+
+### What "install" actually does
+
+When the server scans the addons path, each manifest becomes a *record* in
+`ir.module.module` (the UI's Apps list is just a view on it, one more case of
+chapter 3's "the UI is data"). Installing then:
+
+1. resolves `depends` and installs missing dependencies first,
+2. imports the module's Python (registering models, none yet for us),
+3. loads every file in `data` into the database,
+4. sets the record's `state` to `installed`.
+
+Upgrading (`-u`) redoes steps 2–3 for a module that's already installed: that's how
+changed XML gets back into the database (the chapter 6 rule). The `state` field walks
+a small lifecycle (`uninstalled`, `to install`, `installed`, `to upgrade`...) that
+you can watch from psql.
+
+<Callout title="Official docs">
+  The [manifest reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html)
+  lists every key. Also worth knowing: `odoo scaffold <name> <path>` generates a
+  fuller skeleton; we wrote ours by hand so every line is understood, which is the
+  better habit while learning.
+</Callout>
+
+## Hands-on
+
+### 1. Create the module
+
+In your workspace repository, everything goes under `addons/`:
+
+```console
+$ mkdir -p addons/librefleet/static/description
+$ touch addons/librefleet/__init__.py
+```
+
+Create `__manifest__.py` with the content from the Concepts section. For the app
+icon, drop any 140×140 PNG at `static/description/icon.png`; the reference clone set up
+in Verify below has one you can borrow if you don't feel artistic today.
+
+### 2. Install it from the CLI
+
+The directory is already visible inside the container thanks to the ch5 bind mount.
+Install (with the ch6 alias, this is `oc -d tutorial -i librefleet --stop-after-init`):
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Loading module librefleet (15/15)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.05s, 10 queries (+10 other)
+INFO tutorial odoo.modules.loading: Modules loaded.
+```
+
+Read that middle line with respect: your module, loaded 15th of 15, ten queries. Now
+find it in the UI: Apps, filter to *Services* (or search "LibreFleet"), and there's
+your tile with its icon, already installed.
+
+<Callout type="warn" title="Installing from the UI instead?">
+  Two extra steps bite everyone once. The running web server only scans the addons
+  path at startup, so after adding a brand-new module directory:
+  `docker compose restart odoo`, then (in developer mode) **Apps → Update Apps
+  List**. Only then does the tile appear for UI installation. The CLI path skips
+  both because it starts a fresh process.
+</Callout>
+
+### 3. Look at the record you just created
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, state, latest_version from ir_module_module where name='librefleet';"
+    name    |   state   | latest_version
+------------+-----------+----------------
+ librefleet | installed | 19.0.1.0.0
+```
+
+The Apps screen and this row are the same data.
+
+### 4. Run the upgrade cycle
+
+Bump `"version"` to `"19.0.1.0.1"` in the manifest, then:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose exec db psql -U odoo -d tutorial -c "select latest_version from ir_module_module where name='librefleet';"
+ latest_version
+----------------
+ 19.0.1.0.1
+```
+
+Edit file, `-u`, observe. That loop is the rest of this tutorial. Set the version
+back to `19.0.1.0.0` and upgrade again to match the checkpoint.
+
+### 5. Break-it lab: the unparseable manifest
+
+Delete the closing `}` of your manifest and upgrade again. You get no friendly
+syntax error:
+
+```text
+ERROR tutorial odoo.modules.loading: Some modules have inconsistent states, some dependencies may be missing: ['librefleet']
+```
+
+Decode it: the manifest failed to parse, so as far as the loader is concerned the
+module *doesn't exist*, and a database that says "librefleet is installed" now
+disagrees with an addons path that has never heard of it. "Inconsistent state" and
+"missing dependency" errors are very often just this: a manifest that stopped
+parsing. Restore the brace, upgrade, confirm calm returns.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch08
+✔ module librefleet is installed
+✔ manifest version is 19.0.x.y.z
+✔ LibreFleet is an app
+
+ch08 complete! On to the next chapter 🔧
+```
+
+### Compare against the checkpoint
+
+From this chapter on, every chapter has a **checkpoint**: a snapshot of LibreFleet as it
+should look when you finish. You never need to clone this tutorial to use one. Pull down
+just the chapter you care about, from inside your workspace:
+
+```console
+$ mkdir -p .checkpoints
+$ curl -sL https://github.com/ronitjadhav/odoolings/archive/main.tar.gz \
+    | tar -xz -C .checkpoints --strip-components=3 'odoolings-main/code/checkpoints/ch08'
+$ diff -r addons/librefleet .checkpoints/ch08/librefleet
+```
+
+That's the pattern for the whole tutorial: swap `ch08` for whichever chapter you want.
+The download is about 300 KB and always current, so there is nothing to keep in sync and
+nothing to remember to pull. Chapter 7's `.gitignore` already keeps `.checkpoints/` out
+of your commits, since it isn't your code.
+
+For chapter 8, exactly two differences are expected: the checkpoint's manifest carries a
+couple of comment lines this chapter never asked you to type, and it ships the `icon.png`
+you were told to supply yourself. Anything else is worth reading.
+
+<Callout type="info" title="Reading paths in this tutorial">
+  Anything starting `addons/` is **yours**, in your own repo. Anything starting
+  `code/checkpoints/`, including the **Checkpoint** line at the top of each chapter, names
+  a path in this tutorial's repository: fetch it with the command above, or just
+  [read it on GitHub](https://github.com/ronitjadhav/odoolings/tree/main/code/checkpoints)
+  when you only want a look.
+</Callout>
+
+## Gotchas
+
+- **Technical name = directory name, forever.** Renaming the directory later means a
+  migration, because the name is baked into the database (`ir_module_module`, XML
+  ids, table names). Choose carefully once.
+- **New module, invisible in Apps?** Restart the server, then Update Apps List
+  (developer mode). The CLI never needs this; the UI always does, for *new* modules.
+- **Uninstall is not "undo".** Uninstalling drops the module's data and models from
+  the database (its `ir_module_module` row remains, state `uninstalled`). What it
+  deletes can surprise you; on real databases, treat uninstall as a destructive
+  operation and test it on a `db duplicate` first.
+- **The manifest is Python but should stay a literal.** Odoo evaluates it as a plain
+  dict; resist imports or computation in there. Linters (Part 6) will insist too.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'What makes a directory on the addons path count as an Odoo module?',
+      options: [
+        'a models/ subdirectory',
+        'the presence of __manifest__.py (plus __init__.py to be importable)',
+        'being registered in odoo.conf',
+      ],
+      answer: 1,
+      why: 'The manifest is the marker. No manifest, no module: the loader never looks at the directory again, no matter what code is inside.',
+    },
+    {
+      q: 'The version "19.0.1.0.0" tells you...',
+      options: [
+        'the module was generated by Odoo 19 tooling',
+        'it is the first release of this module, targeting Odoo 19',
+        'it requires exactly Odoo 19.0.1',
+      ],
+      answer: 1,
+      why: 'Convention: Odoo major first, then the module’s own major.minor.patch. The prefix makes version branches (chapter 7) instantly readable.',
+    },
+    {
+      q: 'You added a brand-new module directory, but Apps in the browser cannot find it. The CLI installs it fine. Why the difference?',
+      options: [
+        'the UI only lists modules with application: True',
+        'the running server scanned the addons path at startup; a fresh CLI process scans again',
+        'the browser cache is stale',
+      ],
+      answer: 1,
+      why: 'Module discovery happens when a process starts (plus explicit Update Apps List). The CLI run is a new process, so it sees the new directory immediately.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Change the `summary` in the manifest, upgrade, and find where the new text
+   shows up in the Apps UI.
+2. ⭐⭐ Create a second minimal module `playground`, install it, uninstall it from the
+   Apps UI, and watch its `state` in `ir_module_module` at each step from psql.
+   Delete the directory afterwards and note what the Apps list does with the
+   leftover row.
+3. ⭐⭐⭐ Run `odoo scaffold demo_scaffold /mnt/extra-addons` inside the container and
+   study what the generated skeleton includes that ours doesn't (then delete it).
+   You'll recognize every file by the end of Part 2.
+
+## Further reading
+
+- [Module manifest reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html)
+- [Server framework 101, chapter 2 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/02_newapp.html):
+  the official take on a first module. Notice how much you already recognize.
+- [OCA module template](https://github.com/OCA/oca-addons-repo-template): what a
+  production-grade module skeleton grows into; Part 6 gets us there.

@@ -1,0 +1,15 @@
+{
+  "title": "Part 2: Your First Module",
+  "pages": [
+    "08-scaffold-librefleet",
+    "09-models-fields",
+    "10-security-first",
+    "11-menus-actions-first-views",
+    "12-relations",
+    "13-computed-related-onchange",
+    "14-constraints-defaults-sequences",
+    "15-recordsets-deep-dive",
+    "index",
+    "boss2-garage-inventory"
+  ]
+}

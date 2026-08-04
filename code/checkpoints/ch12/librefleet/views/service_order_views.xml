@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_service_order_list" model="ir.ui.view">
+        <field name="name">librefleet.service.order.list</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="vehicle_id"/>
+                <field name="service_type_id"/>
+                <field name="scheduled_start"/>
+                <field name="technician_ids" widget="many2many_tags"/>
+                <field name="stage"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_librefleet_service_order_form" model="ir.ui.view">
+        <field name="name">librefleet.service.order.form</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="What and for whom">
+                            <field name="vehicle_id"/>
+                            <field name="service_type_id"/>
+                            <field name="technician_ids" widget="many2many_tags"/>
+                        </group>
+                        <group string="When">
+                            <field name="scheduled_start"/>
+                            <field name="scheduled_end"/>
+                            <field name="stage"/>
+                        </group>
+                    </group>
+                    <group string="Parts used">
+                        <field name="line_ids" nolabel="1">
+                            <list editable="bottom">
+                                <field name="part_id"/>
+                                <field name="qty"/>
+                                <field name="price_unit"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1"
+                               placeholder="Diagnosis, customer requests, anything the invoice should remember..."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_librefleet_service_order" model="ir.actions.act_window">
+        <field name="name">Service Orders</field>
+        <field name="res_model">librefleet.service.order</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Book the first service</p>
+            <p>A service order is one vehicle, one visit: what gets done, by whom, and which parts it takes.</p>
+        </field>
+    </record>
+
+</odoo>

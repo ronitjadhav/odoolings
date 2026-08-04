@@ -1,0 +1,372 @@
+---
+title: "19. Kanban, Calendar, Pivot & Graph"
+description: "Give the workshop its pipeline board, its schedule, and its numbers, and pay off the one debt chapter 13 left open."
+---
+
+**Goal:** add the four remaining core view types (kanban, calendar, pivot, graph) to
+service orders, and understand exactly why one of them refuses to render until you
+fix something two chapters back. · **Time:** ~2.5 h · **Checkpoint:**
+`code/checkpoints/ch19`
+
+## Why this matters
+
+List and form get work done; kanban, calendar, pivot and graph are how a workshop
+manager actually runs the floor. A pipeline board answers "what's stuck in
+confirmed?" at a glance. A calendar answers "is Tuesday overbooked?" A pivot answers
+"which vehicle costs us the most to service?" without anyone opening a spreadsheet.
+You already know the pattern (another `ir.ui.view`, another `type` attribute), so this
+chapter moves fast through four view types and slows down for the one place a real
+limitation from chapter 13 finally bites, loudly this time, not silently like the last
+three chapters.
+
+## Concepts
+
+### Four views, one pattern you already know
+
+Every view type you've met since chapter 16 is the same shape: an `ir.ui.view`
+record, a `model`, an `arch`. Kanban, calendar, pivot and graph are no different,
+they just have their own root tag and their own vocabulary inside it:
+
+<Mermaid
+  chart={`flowchart TD
+    V["ir.ui.view, same as always"] --> K["kanban: cards grouped\nby a field, draggable"]
+    V --> C["calendar: records placed\nby a date range"]
+    V --> P["pivot: rows x columns\nof aggregated measures"]
+    V --> G["graph: pivot's data,\ncharted"]`}
+/>
+
+### Kanban: a card template, not a list
+
+A kanban view's arch wraps a QWeb template named `card` (older tutorials and some
+still-unmigrated modules call it `kanban-box`, the name Odoo used before this
+release cycle; `card` is what 19.0 expects):
+
+```xml
+<kanban default_group_by="stage">
+    <field name="stage"/>
+    <templates>
+        <t t-name="card">
+            <field name="reference" class="fw-bold"/>
+            <field name="vehicle_id"/>
+        </t>
+    </templates>
+</kanban>
+```
+
+`default_group_by` on a Selection field is what turns the kanban into a pipeline:
+one column per value, and dragging a card between columns writes that field, the
+same write a status bar button would make.
+
+A `<field>` written inside the card template counts as a declaration in its own right,
+which is why the arch below lists only `stage` at the kanban root while the card happily
+renders four other fields. The root declaration exists for fields the client needs but
+which never appear as a `<field>` element: the `default_group_by` target, and anything
+referenced only inside an expression such as a `t-if` condition. `stage` is there because
+it is grouped on, not because the template mentions it.
+
+The habit worth keeping from list views is narrower than "declare everything": if a field
+is used but never written as a `<field>`, say so at the root.
+
+### Calendar: two dates and a color
+
+```xml
+<calendar date_start="scheduled_start" date_stop="scheduled_end" color="vehicle_id">
+    <field name="reference"/>
+</calendar>
+```
+
+`date_start`/`date_stop` place each record on the grid; `color` buckets events by
+another field's value so records sharing that value get the same color band, handy
+here for spotting a vehicle booked twice at a glance (which chapter 14's constraint
+already refuses to let happen, but seeing it visually is still worth having).
+
+### Pivot and graph: the same aggregation, two renderings
+
+```xml
+<pivot>
+    <field name="vehicle_id" type="row"/>
+    <field name="stage" type="col"/>
+    <field name="margin" type="measure"/>
+</pivot>
+```
+
+A pivot's `row`/`col`/`measure` fields describe a table; a graph view (`type="bar"`,
+`"line"` or `"pie"`) describes the same kind of aggregation as a chart. Both are thin
+UI layers over the exact `read_group` mechanism chapter 18 used for the Group By
+menu: rows and columns become `groupby`, measures become the fields being summed.
+That shared foundation is about to matter.
+
+## Hands-on
+
+### 1. Add all four views
+
+In `views/service_order_views.xml`, add a kanban grouped by stage:
+
+```xml
+<record id="view_librefleet_service_order_kanban" model="ir.ui.view">
+    <field name="name">librefleet.service.order.kanban</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <kanban default_group_by="stage">
+            <field name="stage"/>
+            <templates>
+                <t t-name="card">
+                    <field name="reference" class="fw-bold"/>
+                    <field name="vehicle_id"/>
+                    <field name="customer_id"/>
+                    <field name="technician_ids" widget="many2many_avatar_user"/>
+                </t>
+            </templates>
+        </kanban>
+    </field>
+</record>
+```
+
+<Callout type="warn" title="Gotcha">
+  `widget="many2many_avatar_user"` is registered by the **mail** module, which LibreFleet
+  does not depend on yet (`depends` is still just `["base"]`; `mail` arrives in chapter 22
+  as a side effect of adding `product`). Widget names are not validated server-side, so
+  nothing errors: the view loads and the field quietly falls back to plain tags, with only
+  a browser-console warning to tell you. So expect tags rather than avatars here, and take
+  the lesson with you, because it generalises. A widget from an undeclared module fails
+  silently and only in the UI, which is a genuinely annoying class of bug to chase. If a
+  widget seems to do nothing, check which module defines it before you doubt your XML.
+</Callout>
+
+A calendar colored by vehicle:
+
+```xml
+<record id="view_librefleet_service_order_calendar" model="ir.ui.view">
+    <field name="name">librefleet.service.order.calendar</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <calendar date_start="scheduled_start" date_stop="scheduled_end"
+                  string="Service Schedule" color="vehicle_id" event_limit="5">
+            <field name="reference"/>
+            <field name="vehicle_id"/>
+        </calendar>
+    </field>
+</record>
+```
+
+A pivot and a graph, both measuring `margin` by vehicle:
+
+```xml
+<record id="view_librefleet_service_order_pivot" model="ir.ui.view">
+    <field name="name">librefleet.service.order.pivot</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <pivot string="Service Orders">
+            <field name="vehicle_id" type="row"/>
+            <field name="stage" type="col"/>
+            <field name="margin" type="measure"/>
+        </pivot>
+    </field>
+</record>
+
+<record id="view_librefleet_service_order_graph" model="ir.ui.view">
+    <field name="name">librefleet.service.order.graph</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <graph string="Margin by Vehicle" type="bar">
+            <field name="vehicle_id"/>
+            <field name="margin" type="measure"/>
+        </graph>
+    </field>
+</record>
+```
+
+Add them all to the action:
+
+```xml
+<field name="view_mode">list,kanban,calendar,pivot,graph,form</field>
+```
+
+Bump the manifest to `19.0.1.12.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Zero errors. All four views loaded, arch and all, `margin` field reference included.
+That's worth sitting with for a second: **the view installed completely cleanly with
+a measure it cannot actually compute yet.**
+
+### 2. Watch it fail, but only when it's actually used
+
+Loading a view's arch (what `get_view` returns, what the upgrade just validated) is
+metadata. Rendering a pivot means *fetching aggregated data*, a separate step that
+calls `read_group` under the hood. Try it in the shell:
+
+```console
+>>> arch = env["librefleet.service.order"].get_view(view_type="pivot")["arch"]
+>>> "margin" in arch
+True
+>>> env["librefleet.service.order"]._read_group([], groupby=["vehicle_id"], aggregates=["margin:sum"])
+ValueError: Cannot convert librefleet.service.order.margin to SQL because it is not stored
+```
+
+The arch loaded fine (that check passed a second ago). The aggregation itself throws,
+because `margin` has been a computed, non-stored field since chapter 13, exactly as
+designed at the time: no column exists for `read_group`'s SQL to sum. This is the
+promise chapter 13 made you and didn't collect on yet: "non-stored fields can't be
+searched, grouped, or aggregated." Chapters 16 through 18 taught you three ways a
+mistake stays completely silent. This one is the opposite: loud, unambiguous, and
+delayed until the exact moment someone opens the pivot tab.
+
+### 3. Pay the debt: store margin
+
+The fix is one attribute, in `models/service_order.py`:
+
+```python
+    margin = fields.Float(compute="_compute_totals", store=True,
+                          help="What the order earns: parts revenue plus the flat "
+                               "fee, minus what the parts cost the workshop.")
+```
+
+Leave `parts_total` and `labor_total` exactly as chapter 13 left them, non-stored.
+Only `margin` needs to be queryable as a pivot measure; storing the other two would
+just be two more columns to keep in sync for no benefit, the same store-vs-not
+judgment call chapter 13 taught you to make per field, not once for the whole model.
+
+Bump to `19.0.1.13.0`, upgrade, and restart (new Python, chapter 14's rule):
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose restart odoo
+```
+
+### 4. Confirm it recomputed on its own
+
+Unlike chapter 14's sequence backfill, toggling `store=True` on an existing compute
+triggers Odoo to recompute every existing row automatically as part of the upgrade,
+no manual shell loop required:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin from librefleet_service_order order by id;"
+   reference   | margin
+--------------+--------
+ SO/2026/0001 |  139.1
+ SO/2026/0002 |    120
+(2 rows)
+
+$ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_service_order' and column_name in ('parts_total','labor_total','margin');"
+ column_name
+-------------
+ margin
+(1 row)
+```
+
+One new column, correct values already in it, and `parts_total`/`labor_total`
+confirmed still absent from the table, exactly the selective storing this chapter is
+demonstrating.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch19
+✔ kanban, calendar, pivot and graph views exist
+✔ the kanban is grouped into the pipeline by default
+✔ margin is stored and aggregatable
+✔ parts_total and labor_total stay non-stored
+
+ch19 complete! On to the next chapter 🔧
+```
+
+The third check re-runs the exact `read_group` call from step 2 over RPC; if it still
+raised, the check would fail the same way the shell did. For the eyeball version
+(author tour, screenshots pending): open Service Orders, switch to Kanban and drag a
+card between stage columns, switch to Calendar and see the two bookings colored by
+vehicle, then Pivot and Graph to see the margin numbers actually render instead of
+crashing.
+
+## Gotchas
+
+- **Odoo 19 kanban templates are named `card`, not `kanban-box`.** You'll see
+  `kanban-box` in older tutorials, blog posts, and modules that haven't migrated;
+  writing it in a new 19.0 view produces a kanban with no template, not an error, so
+  the card area just renders blank. If a kanban looks empty, check the template name
+  first.
+- **A field the card template reads must also be declared at the kanban root.**
+  Same rule as list views: `<field name="technician_ids" .../>` inside `<t
+  t-name="card">` needs a matching plain `<field name="technician_ids"/>` sibling of
+  `<templates>`, or the client never fetches it and the template renders empty for
+  that field.
+- **Installing a pivot or graph view never validates its measures.** The arch is XML,
+  loaded like any other view; nothing checks whether a `type="measure"` field can
+  actually be aggregated until a real `read_group` call tries. Contrast this with the
+  chapter 16 to 18 gotchas: those failed silently forever, this one fails loudly, just
+  later than you'd expect.
+- **Storing a compute field recomputes existing rows for you.** Unlike `ir.sequence`
+  numbers (chapter 14), which draw fresh on each call and can't retroactively number
+  old records, an upgrade that adds `store=True` to an existing compute triggers Odoo
+  to run that compute over every row that already exists. No backfill script needed.
+- **`color` on a calendar buckets by value, it doesn't validate the field type.**
+  Any field works syntactically; whether the resulting colors are *meaningful*
+  depends on you picking a field where "same value, same color" tells the viewer
+  something (here, "same vehicle").
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A pivot view with <field name="margin" type="measure"/> installs and upgrades with zero errors, but margin is a non-stored computed field. What happens next?',
+      options: [
+        'the upgrade refuses the arch, since Odoo validates measures against stored fields',
+        'it loads, then the first read_group on margin raises because there is no column to sum',
+        'it loads and the pivot shows zeroes, because an absent column aggregates as nothing',
+      ],
+      answer: 1,
+      why: 'View XML is metadata, and nothing validates it against which aggregations are actually possible, so option 1 credits Odoo with a check it does not perform. The failure is real and loud, it just waits for the first read_group. Option 3 is the dangerous belief: a silent zero would be far worse than an exception, because a manager would read the dashboard and act on it. Odoo raises instead, which is the behaviour you want.',
+    },
+    {
+      q: 'You add store=True to an existing computed field on a model with 500 existing records. After upgrading, what do those 500 rows show for that field?',
+      options: [
+        'NULL or 0, until something touches each record to trigger a recompute',
+        'the correctly computed value, because Odoo recomputes automatically when a field newly becomes stored',
+        'a KeyError when read, since the column did not exist when the rows were created',
+      ],
+      answer: 1,
+      why: 'Toggling store=True on an existing compute is one of the cases Odoo handles automatically during upgrade: it runs the compute method over every existing row and fills the new column. No manual backfill needed here, unlike sequence numbers.',
+    },
+    {
+      q: 'Your kanban card template is named <t t-name="kanban-box"> in a fresh Odoo 19 module. What do you see?',
+      options: [
+        'a validation error at upgrade time naming the wrong template',
+        'the view loads, but cards are empty because Odoo 19 expects a template named "card"',
+        'it works identically to "card", the names are aliases',
+      ],
+      answer: 1,
+      why: '"card" is the template name Odoo 19 expects; "kanban-box" was the name used before this rename. Getting it wrong does not error, it just means the client finds no matching template and renders each card blank.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a progressbar-free stage count to the kanban: show each column's record
+   count in its header (hint: this is default kanban behavior once grouped, verify it
+   by counting cards yourself against `search_count` per stage).
+2. ⭐⭐ Try adding `parts_total` as a second pivot measure without storing it first,
+   and confirm you get the same `ValueError` this chapter walked through for
+   `margin` (a `search=` method, chapter 13's other escape hatch, helps domains, not
+   aggregation, so it won't save you here). Then decide, and defend in one sentence,
+   whether storing `parts_total` too is worth the tradeoff.
+3. ⭐⭐ Give the calendar view a `quick_create="0"` and explain, from what you know
+   about quick-create forms and required fields (`vehicle_id` is required on service
+   orders), why disabling quick-create here avoids a confusing dead end for the user.
+4. ⭐⭐⭐ Read core's `sale.report` pivot and graph views (`get_view` in the shell,
+   model `sale.report`) and identify a measure field that is stored specifically so it
+   can appear there, then find that field's definition and confirm it says so in a
+   comment or its `help` text. Compare the discipline to what you just did with
+   `margin`.
+
+## Further reading
+
+- [Kanban view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#kanban):
+  the `card` template, `default_group_by`, and everything else the root element takes.
+- [Calendar view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#calendar):
+  `date_start`/`date_stop`/`date_delay`, `color`, recurring events.
+- [Pivot and graph view architecture (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html#pivot):
+  `row`/`col`/`measure`, and the graph `type` options (bar, line, pie).

@@ -1,0 +1,524 @@
+---
+title: "14. Constraints, Defaults & Sequences"
+description: Make bad data impossible with SQL and Python constraints, fill sensible values automatically with defaults, and give records real numbers with sequences.
+---
+
+**Goal:** stop LibreFleet from ever storing a duplicate plate, an impossible model
+year, or a double-booked vehicle, and give every service order a proper reference
+number. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch14`
+
+## Why this matters
+
+Chapter 13 was about numbers that compute themselves. This one is about the values a
+user *does* type, and the promise that they'll never be nonsense. Two workshops can't
+share one license plate. A car built in the year 1200 is a typo. One vehicle can't be
+on two lifts at once. Every real Odoo module is ringed with these guarantees, because
+the alternative (trusting the form, trusting the importer, trusting next year's
+intern) is how databases rot. You'll build the two kinds of guard Odoo gives you, one
+enforced by Postgres and one by Python, learn exactly which paths each covers, and
+then hand every order a clean sequence number the way every invoice and sale order in
+Odoo gets one.
+
+## Concepts
+
+### Two places to enforce a rule
+
+Odoo lets you validate data at two different layers, and choosing correctly is the
+whole skill:
+
+- **SQL constraints** live in the database. Postgres itself refuses the write, so
+  *nothing* gets past them: not a buggy method, not a raw SQL script, not a
+  concurrent transaction racing yours. The catch is that SQL only speaks a few
+  dialects of "no": `UNIQUE`, `CHECK (simple expression)`, foreign keys. On Odoo 19
+  you declare them with `models.Constraint`.
+- **Python constraints** (`@api.constrains`) run in the ORM, in your own code. They
+  can express anything Python can: look at other records, follow relations, compare
+  datetimes, call a method. They raise `ValidationError` with a friendly message.
+  Their limit is the mirror image of SQL's strength: they only fire on ORM writes
+  (form, import, RPC, shell, other modules), never on raw SQL, and only re-run when a
+  field they *declare* actually changes.
+
+<Mermaid
+  chart={`flowchart TD
+    W["A write arrives"] --> P{"which path?"}
+    P -- "ORM: form, import,<br/>RPC, shell, code" --> PY["@api.constrains<br/>runs in Python"]
+    P -- "raw SQL" --> SKIP["Python checks skipped"]
+    PY --> DB[("Postgres commit")]
+    SKIP --> DB
+    DB --> SQL{"models.Constraint<br/>UNIQUE / CHECK"}
+    SQL -- "violated" --> REJECT["write refused,<br/>nobody bypasses this"]
+    SQL -- "ok" --> DONE["stored"]`}
+/>
+
+Read the diagram as a rule of thumb: **if a guarantee must hold no matter what, it
+belongs in SQL.** Uniqueness is the classic case. If the rule needs judgment (does
+this booking overlap another one? is this year plausible?), it belongs in Python.
+Many models use both.
+
+<Callout type="info" title="On Odoo 18 this differs">
+  Odoo 18 and earlier declare SQL constraints as a `_sql_constraints` list of
+  `(name, definition, message)` tuples. Odoo 19 replaced that with the
+  `models.Constraint` pseudo-field, and warns if you use the old list:
+  `Model attribute '_sql_constraints' is no longer supported`. The database result is
+  identical; only the Python spelling changed. You'll meet plenty of `_sql_constraints`
+  in existing code, so recognize both.
+</Callout>
+
+### Defaults: the value before the user types
+
+A field's `default` supplies its starting value on a brand-new record. Two forms:
+
+```python
+stage = fields.Selection([...], default="draft")        # static
+reference = fields.Char(default=lambda self: _next())    # callable, computed per record
+```
+
+A static default is a constant. A callable default is a function Odoo calls once per
+new record, so it can be dynamic (today's date, the current user, the next number
+from a sequence). Defaults are suggestions with teeth: they fill the field, but the
+user (or code) can still change the value before saving. They fire on every creation
+path, unlike onchange from chapter 13.
+
+### Sequences: real numbers, centrally managed
+
+You never want application code inventing `"SO/2026/0001"` with string formatting and
+a `SELECT max(...)`; two users creating orders at once would collide. Odoo ships
+`ir.sequence` for exactly this: a named counter with a prefix, padding, and
+per-period reset, safe under concurrency. You define one as a data record and pull
+numbers with `next_by_code("your.code")`.
+
+One property surprises everyone once: **sequences are not transactional.** Drawing a
+number advances the counter immediately, even if your transaction later rolls back.
+That's deliberate (it's what makes them collision-free without locking), and it means
+sequences have *gaps*. Gaps are normal. An auditor who demands gapless invoice numbers
+needs a different, locking strategy; for an internal order reference, gaps are a
+non-issue you should simply expect.
+
+## Hands-on
+
+### 1. A unique license plate (SQL constraint)
+
+In `models/vehicle.py`, import `ValidationError` (you'll need it in step 2) and
+declare the constraint at the top of the class:
+
+```python
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+
+
+class Vehicle(models.Model):
+    _name = "librefleet.vehicle"
+    _description = "Workshop Vehicle"
+    _rec_name = "license_plate"
+
+    _license_plate_unique = models.Constraint(
+        "unique(license_plate)",
+        "That license plate is already registered on another vehicle.",
+    )
+```
+
+The attribute name (`_license_plate_unique`) becomes the constraint's name in
+Postgres; the first string is raw SQL added with `ADD CONSTRAINT`; the second is the
+message users see when they hit it. That's the whole declaration, and Postgres does
+the enforcing.
+
+### 2. A believable model year (Python constraint)
+
+Uniqueness is a job for SQL. "Is this year plausible?" needs a comparison against
+*this* year, so it's Python. Add to the vehicle model:
+
+```python
+    @api.constrains("year")
+    def _check_year(self):
+        current_year = fields.Date.today().year
+        for vehicle in self:
+            if vehicle.year and not (1900 <= vehicle.year <= current_year + 1):
+                raise ValidationError(
+                    "Model year %s is out of range (1900 to next year)."
+                    % vehicle.year)
+```
+
+Three habits worth copying. The decorator lists the field(s) that trigger the check
+(`year`), so it only re-runs when `year` changes, not on every write. It loops over
+`self`, because constrains, like computes, receive a recordset. And it skips the
+empty case (`if vehicle.year`), so a blank year (not yet filled) doesn't trip the
+rule; `0` and `False` are legitimately "no year given".
+
+### 3. The sequence and the reference field
+
+Create `data/ir_sequence.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate: create once, never overwrite on upgrade, so the running
+         next-number is preserved (chapter 24 goes deeper on noupdate). -->
+    <data noupdate="1">
+        <record id="seq_librefleet_service_order" model="ir.sequence">
+            <field name="name">LibreFleet Service Order</field>
+            <field name="code">librefleet.service.order</field>
+            <field name="prefix">SO/%(year)s/</field>
+            <field name="padding">4</field>
+            <field name="company_id" eval="False"/>
+        </record>
+    </data>
+</odoo>
+```
+
+`code` is the handle you'll look the sequence up by. `prefix` supports date tokens, so
+`%(year)s` bakes the year in; `padding` zero-pads the counter to four digits.
+`noupdate="1"` matters: without it, every module upgrade would rewrite the record and
+reset its counter to 1, renumbering your live orders. You want this created once and
+then left alone.
+
+Register the file in `__manifest__.py`, after the security files and before the views:
+
+```python
+    "data": [
+        "security/librefleet_security.xml",
+        "security/ir.model.access.csv",
+        "data/ir_sequence.xml",
+        "views/vehicle_views.xml",
+        ...
+```
+
+Now the field. In `models/service_order.py`, add `reference` at the top of the model
+and make it the record's display name:
+
+```python
+    _rec_name = "reference"
+
+    reference = fields.Char(
+        required=True, copy=False, readonly=True,
+        default=lambda self: self.env["ir.sequence"].next_by_code(
+            "librefleet.service.order") or "New",
+        help="Human-readable order number, assigned from a sequence.")
+```
+
+The callable default draws the next number when an order is created. `copy=False` so
+duplicating an order gets a fresh number instead of a clashing one; `readonly=True`
+because nobody hand-edits an order number. The `or "New"` is a safety net for the one
+moment the sequence doesn't exist yet (you're about to see it). Show it in the views:
+a `<field name="reference"/>` first in the list, and a heading at the top of the form:
+
+```xml
+                <sheet>
+                    <h1><field name="reference" readonly="1"/></h1>
+```
+
+### 4. Upgrade, and watch the backfill quirk
+
+Bump the manifest to `19.0.1.6.0`, then upgrade and restart the running server so it
+loads the new Python (Python changes need the restart; the upgrade alone runs in a
+throwaway process):
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose restart odoo
+```
+
+Look at what the two orders you already have got for a reference:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select id, reference from librefleet_service_order order by id;"
+ id | reference
+----+-----------
+  1 | New
+  2 | New
+```
+
+Both say `New`, not `SO/2026/0001`. That's the safety net firing: when Odoo added the
+new required column it backfilled existing rows using the field default, but the
+database tables are built *before* the data files load, so the sequence didn't exist
+yet and `next_by_code` returned nothing. Brand-new orders from here on will number
+correctly; the legacy two need a one-time backfill.
+
+### 5. Backfill the legacy orders
+
+From the shell, hand the existing orders real numbers:
+
+```console
+>>> SO = env["librefleet.service.order"]
+>>> for rec in SO.search([], order="id"):
+...     rec.reference = env["ir.sequence"].next_by_code("librefleet.service.order")
+>>> env.cr.commit()
+>>> [(r.id, r.reference) for r in SO.search([], order="id")]
+[(1, 'SO/2026/0001'), (2, 'SO/2026/0002')]
+```
+
+This is the shape of a real data migration: new field, existing rows, a short script
+to bring history in line. In production it would live in a migration step (chapter
+37); here the shell is fine. Note `next_by_code` is how you pull a number outside a
+create, which is exactly what the default does under the hood.
+
+### 6. No double-booked vehicles (a Python constraint that searches)
+
+The overlap rule is the most interesting kind of constraint: it can't judge a record
+in isolation, it has to look at *other* orders. In `models/service_order.py`, with
+`ValidationError` imported at the top:
+
+```python
+    @api.constrains("scheduled_start", "scheduled_end", "vehicle_id", "stage")
+    def _check_no_overlap(self):
+        for order in self:
+            if not (order.scheduled_start and order.scheduled_end):
+                continue
+            if order.scheduled_end <= order.scheduled_start:
+                raise ValidationError(
+                    "An order must end after it starts (check the schedule).")
+            if order.stage == "cancelled":
+                continue
+            clash = self.search_count([
+                ("id", "!=", order.id),
+                ("vehicle_id", "=", order.vehicle_id.id),
+                ("stage", "!=", "cancelled"),
+                ("scheduled_start", "<", order.scheduled_end),
+                ("scheduled_end", ">", order.scheduled_start),
+            ])
+            if clash:
+                raise ValidationError(
+                    "%s is already booked during that window."
+                    % order.vehicle_id.license_plate)
+```
+
+The overlap test is the standard interval one: two windows overlap when each starts
+before the other ends. `("id", "!=", order.id)` excludes the order from clashing with
+itself; cancelled orders are ignored on both sides. It's in the `depends` list too
+(`stage`), so cancelling an order re-checks and un-cancelling re-validates. Bump the
+manifest to `19.0.1.7.0`, upgrade, and restart.
+
+### 7. See all three guards fire
+
+From the shell, try to break each rule. First the unique plate (order 1's vehicle is
+`ZH 468 202`):
+
+```console
+>>> env["librefleet.vehicle"].create({"license_plate": "ZH 468 202"})
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "librefleet_vehicle_license_plate_unique"
+DETAIL:  Key (license_plate)=(ZH 468 202) already exists.
+```
+
+That's Postgres talking, not Odoo: in the shell you get the raw database error. In the
+*UI*, Odoo catches it and shows your friendly message ("That license plate is already
+registered on another vehicle."). Same guard, two audiences.
+
+**Now do something that looks like housekeeping and is not.** A failed SQL statement
+poisons the whole Postgres transaction, so until you clear it every further command
+answers with the same complaint:
+
+```console
+>>> env.cr.rollback()
+```
+
+Skip it and the next two experiments report
+`psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands
+ignored until end of transaction block` instead of the errors you were trying to see,
+which is a confusing five minutes if you do not know why. Chapter 9's gotcha said the
+same thing; this is the chapter where it costs you something. Now the year and the
+overlap, both pure Python, each followed by its own rollback for the same reason:
+
+```console
+>>> env["librefleet.vehicle"].create({"license_plate": "NEW-CAR", "year": 1850})
+odoo.exceptions.ValidationError: Model year 1850 is out of range (1900 to next year).
+>>> env.cr.rollback()
+>>> env["librefleet.service.order"].create({
+...     "vehicle_id": 1,
+...     "scheduled_start": "2026-07-16 08:30:00",
+...     "scheduled_end": "2026-07-16 09:30:00"})
+odoo.exceptions.ValidationError: ZH 468 202 is already booked during that window.
+>>> env.cr.rollback()
+```
+
+The overlap create collides with order 1's existing 08:00–09:00 window on the same
+vehicle.
+
+Worth being precise about what those rollbacks did, because it is easy to read them as
+undoing the failures. They did not: a Python `ValidationError` already prevented its
+write, and the `UniqueViolation` was refused by Postgres. What the rollbacks cleared is
+the *transaction state* the first failure left behind. Your two orders and two vehicles
+are untouched throughout, but not because anything "rolled itself back" for you.
+
+### 8. Break-it lab: watch a sequence leak numbers
+
+Sequences give out numbers that a rollback can't take back. Watch the counter directly
+rather than trusting the references, because that makes the leak impossible to miss:
+
+```console
+>>> seq = env["ir.sequence"].search([("code", "=", "librefleet.service.order")])
+>>> seq.number_next_actual
+46
+>>> o = env["librefleet.service.order"].create({
+...     "vehicle_id": 1,
+...     "scheduled_start": "2026-09-01 08:00:00",
+...     "scheduled_end": "2026-09-01 09:00:00"})
+>>> o.reference
+'SO/2026/0046'
+>>> env.cr.rollback()
+>>> seq.number_next_actual
+47
+```
+
+**Your numbers will not be 46 and 47, and that is the point.** Do not try to match them:
+read whatever your own counter says, then check it went up by exactly one. Mine is at 46
+because this database has had orders created, `odoolings` run, and step 7's experiments
+done to it; yours has its own history. Any chapter that promises you a specific reference
+number is lying to you about a counter it cannot see.
+
+What matters is the arithmetic: the number was drawn, the rollback threw the *record*
+away, and the counter did not go back. That number is now gone forever.
+
+Step 7 already demonstrated this without saying so. Its overlap create failed on a Python
+constraint, yet the callable default had already drawn a number before the constraint ever
+ran, so that attempt spent one too. Every abandoned draft, every failed save, every
+validation error after the number was drawn leaves a gap. This is why you never treat a sequence as a
+count of records, and why the callable-default approach draws a number the instant a
+form opens (a user who opens "New" and closes it burns one). If gap-free numbering
+ever becomes a hard requirement, the usual fix is to draw the number in an overridden
+`create` at save time instead of in the default, which you'll be ready for after
+chapter 15. Roll back so no test order survives.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch14
+✔ license_plate has a UNIQUE database constraint
+✔ vehicle rejects an out-of-range model year
+✔ service orders get a reference from the sequence
+✔ overlapping bookings on the same vehicle are refused
+
+ch14 complete! On to the next chapter 🔧
+```
+
+Two of those checks work by *trying* to create bad data over RPC and confirming the
+server refuses it, so they prove the constraints actually fire, not merely that a
+method exists. And the SQL constraint, straight from Postgres:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "\d librefleet_vehicle" | grep -i unique
+    "librefleet_vehicle_license_plate_unique" UNIQUE CONSTRAINT, btree (license_plate)
+```
+
+The constraint is a real database object with the name you gave it, enforced on every
+insert and update regardless of what code runs above it.
+
+## Gotchas
+
+- **A Python constraint that isn't in its own `depends` won't re-run.**
+  `@api.constrains("year")` only fires when `year` changes. If your rule reads three
+  fields, list all three, or a write to the unlisted one slips a bad combination past
+  you.
+- **Constrains skip raw SQL, SQL constraints skip nothing.** `@api.constrains` runs in
+  the ORM only. A `psql` UPDATE or a `cr.execute` bypasses it entirely. If a rule must
+  survive even hand-written SQL, it has to be a `models.Constraint`, not Python.
+- **New Python behaviour reaches the server by reload, not by `-u`.** The upgrade
+  command runs in a separate, short-lived process, so it never touches the code the
+  long-running server holds in memory. What updates that is `dev_mode = all`'s
+  `reload` (chapter 6): the server watches your addons folder and restarts itself when
+  a `.py` file changes, logging `autoreload: python code updated`. It is filesystem
+  events, though, so it can miss a change (bind mounts on Docker Desktop are the usual
+  culprit). If a new `@api.constrains` stubbornly refuses to fire, stop debugging the
+  constraint and run `docker compose restart odoo` first. Rule of thumb: new columns
+  need the upgrade, new behaviour needs a reload, and a manual restart is the reliable
+  version of a reload.
+- **Sequences have gaps and that's fine.** They advance non-transactionally, so
+  rollbacks, cancelled drafts, and errors all leak numbers. Never derive a count or an
+  "expected next" from a sequence, and never promise gapless numbering without a
+  locking strategy built for it.
+- **A callable default draws its sequence number when the form opens, not on save.**
+  Open "New", walk away, and you've burned a number. Acceptable for an internal
+  reference; if it isn't, move the draw into `create` (chapter 15).
+- **`noupdate="1"` protects sequence counters across upgrades.** Leave it off and the
+  next upgrade resets the counter, renumbering live records. Config-style data that
+  users or the system mutate at runtime almost always wants `noupdate`.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You need to guarantee no two vehicles ever share a license plate, even if a future import script writes rows with raw SQL. Where does the rule belong?',
+      options: [
+        'an @api.constrains method, because it can raise a friendly message',
+        'a models.Constraint UNIQUE, because only a database constraint survives paths that bypass the ORM',
+        'an onchange on license_plate, so the UI warns while typing',
+      ],
+      answer: 1,
+      why: 'Raw SQL and other-module writes bypass Python entirely. A UNIQUE constraint lives in Postgres and is enforced on every insert or update no matter what code runs. Onchange only fires in a form and guarantees nothing.',
+    },
+    {
+      q: 'Your overlap check is decorated @api.constrains("scheduled_start", "scheduled_end", "vehicle_id"). A user moves an order to a different vehicle that is already busy at that time. Does the check catch it?',
+      options: [
+        'no, because only the times were meant to be validated',
+        'yes, because vehicle_id is in the depends list, so changing it re-runs the check',
+        'only after a server restart',
+      ],
+      answer: 1,
+      why: 'A constrains method re-runs whenever any field it lists changes. vehicle_id is listed, so reassigning the vehicle triggers a fresh overlap search. Leave a relevant field out of the list and that edit slips through.',
+    },
+    {
+      q: 'An order gets reference SO/2026/0007. What can you conclude about how many orders exist?',
+      options: [
+        'exactly seven orders have been created',
+        'at most seven; there may be fewer because rolled-back or cancelled creates leave gaps',
+        'the sequence is broken, numbers should be contiguous',
+      ],
+      answer: 1,
+      why: 'Sequences are non-transactional: a drawn number is spent even if the transaction rolls back. Gaps are the normal, expected result and mean the number is never a reliable record count.',
+    },
+    {
+      q: 'You add a required reference field with a sequence default and upgrade. The two orders already in the database show "New" instead of a number. Why?',
+      options: [
+        'existing rows never receive defaults on upgrade, so they keep whatever the column was given',
+        'the column is backfilled before the data file creates the sequence, so the fallback wins',
+        'the sequence was created but only numbers records made after it, leaving older rows alone',
+      ],
+      answer: 1,
+      why: 'Order of operations. An upgrade builds schema first and loads data files second, so when the new column is backfilled the ir.sequence record does not exist yet, next_by_code finds nothing, and the callable default falls through to "New". Option 1 is wrong because existing rows DO get the default applied during backfill, which is exactly why they show "New" rather than being blank. Option 3 describes sequences as if they were Postgres SERIAL columns, which they are not: nothing links a sequence to existing rows either way. The legacy rows need a one-time backfill.',
+    },
+    {
+      q: 'You edit a list view arch and add a new @api.constrains, then run -u librefleet. Which one is live afterwards, and why?',
+      options: [
+        'both, because -u reloads the module completely',
+        'the view, because -u writes it to the database; the constraint waits for the server to reload its Python',
+        'neither, because a running server always serves what it loaded at boot',
+      ],
+      answer: 1,
+      why: 'The upgrade runs in a separate process. It writes view arch into the database, which the running server reads per request, so the view is live at once. Python lives in the server process, so the constraint arrives only when reload fires (or you restart). This is why "I changed the view and nothing happened" and "my constraint never runs" have completely different fixes.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a `models.Constraint` `CHECK` that keeps `mileage_km` from being negative on
+   vehicles (`CHECK(mileage_km >= 0)`). Upgrade, restart, and confirm from psql that
+   the constraint exists, then try to set a negative mileage in the shell and read the
+   error.
+2. ⭐⭐ The workshop wants order references to reset per year automatically
+   (`SO/2027/0001` starting next January). Read the `ir.sequence` fields in the UI
+   (Settings, developer mode) and configure date-range sub-sequences so the counter
+   restarts each year, without changing any Python. Verify by creating a sequence
+   date range and drawing a number for a 2027 date.
+3. ⭐⭐ Add a Python constraint that a service order's `scheduled_start` cannot be in
+   the past when the stage is `confirmed` (draft orders may be backdated, confirmed
+   ones may not). Decide which fields belong in the `depends` list and defend the
+   choice, then prove both the allowed and the blocked case from the shell.
+4. ⭐⭐⭐ Break-it, then fix-it: stop forms from burning numbers. Move the number
+   draw out of the callable default and into an overridden
+   `create` (`@api.model_create_multi`) so a number is only spent when an order is
+   actually saved (an abandoned "New" form then costs nothing; a rollback after a
+   successful save still leaks, sequences always do). Confirm from the shell that
+   `default_get` no longer draws a number and a real create still numbers correctly.
+   Chapter 15 walks through exactly this refactor if you get stuck. The
+   [sequence docs](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#odoo.fields.Field)
+   and the core `sale.order` source are your references; this is the standard
+   production pattern.
+
+## Further reading
+
+- [ORM reference: `models.Constraint` and `@api.constrains` (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#constraints):
+  both constraint kinds, their signatures, and when each applies.
+- [Server framework 101, chapter 10: constraints (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/10_constraints.html):
+  the official SQL-vs-Python walkthrough.
+- [`ir.sequence` and `next_by_code` (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  prefixes, padding, date ranges, and the implementation options that control gaps.

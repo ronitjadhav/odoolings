@@ -1,0 +1,304 @@
+---
+title: "6. Daily Driver Workflow"
+description: The odoo-bin flags that matter, log reading, database lifecycle from the CLI, and the Odoo shell.
+---
+
+**Goal:** master the handful of commands and habits that make up 90% of an Odoo
+developer's day. · **Time:** ~2 h · **Checkpoint:** none, but `odoolings check ch06`
+must pass.
+
+## Why this matters
+
+Odoo development has a rhythm: change code, upgrade the module, read the log, poke the
+database, repeat. Developers who know the CLI do a lap of that loop in seconds;
+developers who don't restart everything and click through the UI hoping for the best.
+This chapter installs the fast loop, and every hands-on from chapter 8 onward assumes
+you have it.
+
+## Concepts
+
+### One binary, many commands
+
+Everything is a subcommand of the `odoo` executable (called `odoo-bin` when you run
+from source; the Docker image installs it as `odoo`). In our environment it lives
+inside the container, so the daily pattern is:
+
+```console
+$ docker compose exec odoo odoo <command> -c /etc/odoo/odoo.conf ...
+```
+
+That's a mouthful, so put two aliases in your shell profile now:
+
+```console
+$ alias oc='docker compose exec odoo odoo -c /etc/odoo/odoo.conf'
+$ alias ocdb='docker compose exec odoo odoo db -c /etc/odoo/odoo.conf'
+```
+
+Two, not one, and the reason is a genuine sharp edge in Odoo's CLI: **`-c` belongs to
+whichever command you are running.** The server accepts it up front, so `oc -d tutorial
+-u librefleet` works. The `db` command defines its own `-c`, so the config flag has to
+come *after* the word `db`. Get it wrong and you get a confusing error blaming the
+server for arguments it never asked for:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf db init scratch
+odoo [--addons-path=PATH,...] server: error: unrecognized parameters: db init scratch
+```
+
+Odoo read `db init scratch` as stray server arguments, because with `-c` in front it
+never recognised `db` as a command at all. The `ocdb` alias puts the flag in the right
+place once so you never think about it again.
+
+Run `docker compose exec odoo odoo help` once to see everything (`scaffold`,
+`populate`, `neutralize`, `cloc`...). Today we need three: the **server** (the default
+command), **`db`**, and **`shell`**.
+
+### Server flags that matter
+
+You'll rarely start the server by hand (Compose does it), but these flags are the
+vocabulary of every Odoo conversation, and you *will* type them constantly from
+chapter 8 on, mostly in module install/upgrade runs:
+
+| Flag | Meaning |
+|---|---|
+| `-d tutorial` | act on this database |
+| `-i librefleet` | **install** this module (comma-separated list allowed) |
+| `-u librefleet` | **upgrade** this module: reload its XML/data into the database |
+| `--stop-after-init` | do the install/upgrade, then exit instead of serving |
+| `--addons-path=...` | where to find modules (ours is in `odoo.conf`) |
+| `--dev=all` | developer features, see below |
+| `--test-enable`, `--test-tags` | run tests, the subject of chapter 28 |
+
+The pair to burn in now: **`-i` installs, `-u` upgrades.** Python code changes are
+picked up by a restart (or auto-reload), but XML and data files live *in the database*
+(chapter 3), and only an upgrade reloads them. "I changed the view and nothing
+happened" is the most common beginner complaint, and `-u` is almost always the answer.
+
+### What `--dev=all` gives you
+
+Our `odoo.conf` sets `dev_mode = all` (the config-file key is `dev_mode`, even though the CLI flag is `--dev`, and getting that wrong silently disables all of it). On Odoo 19, `all` expands to four features:
+
+- **`reload`**: the server restarts itself when Python source changes.
+- **`xml`**: view architectures are read directly from your XML files instead of the
+  database, which papers over many (not all) of the `-u` cases during development.
+- **`qweb`**: logs the compiled XML when a QWeb template breaks.
+- **`access`**: logs the full traceback of access errors, which will save you in
+  chapter 10.
+
+(A fifth, `werkzeug`, can be enabled by name: an interactive HTML debugger on request
+errors.)
+
+<Callout type="warn" title="Gotcha">
+  `dev` mode is why our workflow feels magic, and it is strictly a development
+  setting. It must never reach production; the werkzeug debugger alone is a remote
+  code execution hole.
+</Callout>
+
+### Reading the log
+
+The log is your primary debugging instrument, so learn its grammar. A real line from
+this environment:
+
+```text
+2026-07-13 13:23:54,147 1 INFO tutorial werkzeug: 172.21.0.1 - - "POST /xmlrpc/2/object#res.partner.search HTTP/1.1" 200 - 4 0.002 0.008
+```
+
+Left to right: timestamp, process id, **level**, **database name** (`?` when no
+database is bound yet), **logger name**, message. Habits that pay off:
+
+- Follow it live while you click around: `docker compose logs -f odoo`.
+- Python tracebacks read **bottom-up**: the last line is the actual error, the lines
+  above tell you how it got there. The frames that mention `/mnt/extra-addons` are
+  *your* code.
+- `WARNING` lines are not decoration. Odoo warns about real problems (missing access
+  rules, deprecated APIs) that will bite later. Read them.
+
+### The database lifecycle, without the browser
+
+Chapter 5 used the database-manager screen. The CLI equivalent is the `odoo db`
+command, and it's better: scriptable, and **filestore-aware** (dump, duplicate and
+drop also carry the attachments, which a naive `pg_dump` does not). Real session:
+
+```console
+$ ocdb init --with-demo scratch     # create + initialize, demo data included
+$ ocdb duplicate scratch scratch2   # instant copy, filestore included
+$ ocdb drop scratch2
+$ ocdb dump tutorial /tmp/tutorial.zip   # backup: SQL dump + filestore in one zip
+```
+
+`init` replaces the create screen (note the explicit `--with-demo`; the CLI default
+is no demo). `duplicate` is the underrated one: copy your database before a risky
+experiment, throw the copy away after.
+
+For looking *inside* a database, `psql` is the tool (chapter 9 leans on it hard):
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial
+tutorial=# \dt res_*          -- list tables matching a pattern
+tutorial=# \d res_partner     -- describe a table: columns, types, indexes
+tutorial=# select id, name, email from res_partner limit 5;
+```
+
+### The Odoo shell
+
+`odoo shell` opens a Python REPL with a fully loaded environment: the `env` object
+gives you every model, exactly like the code you'll write from chapter 9. It is the
+single best tool for experimenting with the ORM.
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> env["res.users"].search([]).mapped("login")
+['admin']
+>>> env.cr.dbname
+'tutorial'
+```
+
+Two things to know before the hands-on:
+
+- **`--no-http`** stops the shell from trying to serve on port 8069, which your real
+  server already occupies.
+- **The shell does not auto-commit.** It runs in one transaction, like a request
+  (chapter 3), but nothing ever triggers the commit. Write without
+  `env.cr.commit()` and your changes silently vanish when you quit. This is the
+  gotcha the Verify step below is built around.
+
+## Hands-on
+
+### 1. Make the alias real
+
+Add both aliases to your `~/.bashrc` / `~/.zshrc`, reload your shell, and prove they work:
+
+```console
+$ ocdb --help
+```
+
+### 2. Play the database lifecycle
+
+Run the `init` / `duplicate` / `drop` sequence from the Concepts section, then confirm
+from Postgres that only the databases you expect exist:
+
+```console
+$ docker compose exec db psql -U odoo -d postgres -c "select datname from pg_database where datistemplate = false;"
+```
+
+### 3. Create a contact from the shell
+
+Open the shell against `tutorial` and create a specific contact (odoolings will look
+for exactly this name):
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> partner = env["res.partner"].create({"name": "Ada Lovelace", "email": "ada@example.com"})
+>>> partner
+res.partner(6,)
+>>> env.cr.commit()
+>>> exit()
+```
+
+The number in `res.partner(6,)` is the new database id; yours may differ. Now check
+your work in *two* other tiers: find Ada in the UI, and in SQL:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select id, name, email from res_partner where name like 'Ada%';"
+```
+
+One create, visible in ORM, UI and SQL. That triangle is your daily verification
+toolkit from now on.
+
+### 4. Watch a request happen
+
+Keep `docker compose logs -f odoo` running in a second terminal, click around the UI,
+and match what you do to the request lines scrolling by. Find the line your shell
+session's login produced. Boring today, priceless the first time something 500s.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch06
+✔ can log in as admin
+✔ the partner created from odoo shell exists
+
+ch06 complete! On to the next chapter 🔧
+```
+
+If the second check fails, you almost certainly skipped `env.cr.commit()`. Do the
+shell exercise again and quit *without* committing to see the failure on purpose:
+that's the lesson.
+
+## Gotchas
+
+- **Shell writes need `env.cr.commit()`.** Worth repeating, because next time it
+  happens it will be a "fix" you ran on a real database that silently didn't stick.
+- **`-u` is not optional after XML changes.** `dev=xml` covers view *rendering* from
+  files, but records like menus, actions and security rules still only update on
+  upgrade. When in doubt, `-u`.
+- **Don't run a second server on a busy port.** Anything that loads the registry
+  (`shell`, `-i`/`-u` runs) is fine alongside the running server, but only with
+  `--no-http` or `--stop-after-init` keeping it off port 8069.
+- **`db drop` takes one database at a time.** `ocdb drop scratch scratch2` is an
+  error; run it twice instead.
+- **The log level is configurable, not fixed.** `--log-level=debug_sql` (or
+  `log_level` in the config) shows every SQL statement, which chapter 38 uses to hunt
+  performance problems.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You edited a view XML file and refreshed the browser. Nothing changed. Most likely fix?',
+      options: [
+        'restart the whole compose stack',
+        'upgrade the module with -u so the XML is reloaded into the database',
+        'clear the browser cache',
+      ],
+      answer: 1,
+      why: 'Views and other XML records live in the database and only reload on module upgrade. dev=xml hides this for view rendering during development, but upgrading is the reliable rule.',
+    },
+    {
+      q: 'In odoo shell you created three records, quit, and they are gone. Why?',
+      options: [
+        'the shell ran against the wrong database',
+        'shell sessions roll back unless you env.cr.commit()',
+        'records created via the ORM need a server restart to appear',
+      ],
+      answer: 1,
+      why: 'The shell is one open transaction with nothing to commit it. Explicit env.cr.commit() is the only way shell writes survive.',
+    },
+    {
+      q: 'What makes "ocdb duplicate" better than copying the database with plain PostgreSQL tools?',
+      options: [
+        'it is faster than createdb --template',
+        'it also copies the filestore, so attachments survive',
+        'it compresses the copy automatically',
+      ],
+      answer: 1,
+      why: 'Attachments live on disk in the filestore, not in PostgreSQL. The odoo db commands move both together; raw SQL copies quietly lose the files.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Dump your `tutorial` database with `ocdb dump`, drop it, and restore it with
+   `ocdb load`. (Do it now, while losing it is free. `odoolings check ch05` and
+   `ch06` confirm the restore worked.)
+2. ⭐⭐ From the shell, create five contacts named `Test 1` ... `Test 5` in one
+   `create()` call (hint: it accepts a list of dicts), commit, count them in `psql`,
+   then delete them again from the shell with `unlink()`.
+3. ⭐⭐ Break-it lab: stop only the database container (`docker compose stop db`),
+   try to load a page, and read the resulting traceback in the Odoo log from bottom
+   to top. Which tier failed? Start `db` again and confirm recovery without touching
+   the odoo container.
+4. ⭐⭐⭐ Restart the odoo service with `--log-level=debug_sql` (edit the compose
+   `command:` or use `log_level` in `odoo.conf`), open one form view, and count the
+   SQL statements a single page load costs. Keep that number in mind for chapter 38.
+
+## Further reading
+
+- [CLI reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html):
+  every flag and subcommand, including `odoo db` and `odoo shell`.
+- [Logging configuration (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/deploy.html#logging):
+  handlers and levels, useful long before deployment.
+- `psql` basics: the [official PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial-sql.html)
+  if raw SQL feels rusty. Chapter 9 assumes you can read a `select`.
