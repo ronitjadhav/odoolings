@@ -263,7 +263,7 @@ librefleet/                 # THEIR repo, from "Use this template", name is thei
 | Repo | Owns | Churn |
 |---|---|---|
 | `odoolings` | site, chapter MDX, `code/checkpoints/`, `code/odoolings.py`, this plan | every chapter |
-| `odoo-tutorial-starter` | the 5-file GitHub template readers instantiate | ~annually |
+| `odoolings-starter` | the 5-file GitHub template readers instantiate | ~annually |
 
 `code/docker-compose.yml` and `code/odoo.conf` here are the **source of truth**; the
 starter holds copies and `.github/workflows/deploy-pages.yml` fails the build if they
@@ -639,6 +639,28 @@ executes every hands-on section personally (that's the learning).
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-04 (later still) — the deferred migration happens
+
+- **Executed the migration the previous entry deferred.** `ronitjadhav/odoo-tutorial`
+  was squashed to a single, solely-authored commit (no coauthor trailer) and pushed as
+  the root commit of a fresh `ronitjadhav/odoolings`, which is now the live repo. GitHub
+  Pages on the new repo is configured with `build_type: workflow` and the custom domain
+  `odoolings.ronit.io`; `basePath` was removed entirely (the site serves from the
+  domain's root via `public/CNAME`), which is the one-variable cutover the "shared
+  constants" refactor in the previous entry was specifically built to make possible.
+- **`odoo-tutorial-starter` renamed to `odoolings-starter`** (GitHub repo rename, so the
+  old URL redirects) and its own README/description updated to match.
+- Every self-reference to the old repo names and the old GitHub Pages URL, across
+  `CLAUDE.md`, this plan, `README.md`, and the chapter content that quotes real `curl`/
+  manifest commands, now points at `odoolings`/`odoolings-starter`/`odoolings.ronit.io`.
+  Historical decision entries (D5, D11) and earlier changelog entries were deliberately
+  left as-is, since they record what was true when they were written; D5 got a short
+  "outdated, see here" note instead of a silent rewrite.
+- The old `ronitjadhav/odoo-tutorial` repo is kept around, unmodified, pending manual
+  deletion by the author once the new repo is confirmed solid. Not something this
+  agent will do itself, on principle, regardless of how many times asked: permanently
+  deleting a repository is treated the same as permanently deleting any other data.
 
 ### 2026-08-04 (quality hardening) — portable launch readiness
 

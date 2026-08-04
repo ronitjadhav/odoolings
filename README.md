@@ -44,7 +44,7 @@ the reasoning behind every decision, including a running changelog.
 ## Following the tutorial?
 
 You don't need to clone this repository at all. Chapter 5 has you create your own
-workspace from a [template repo](https://github.com/ronitjadhav/odoo-tutorial-starter)
+workspace from a [template repo](https://github.com/ronitjadhav/odoolings-starter)
 (two files, no Odoo experience needed to set up), so your LibreFleet build ends up in
 *your own* git history, not a fork of someone else's tutorial. From there, chapter 8
 fetches individual reference snapshots on demand, whenever you want to check your work
@@ -69,7 +69,7 @@ Two repositories in total:
 | Repository | What it is | Changes |
 |---|---|---|
 | **odoolings** (this one) | Everything above. | every chapter |
-| **[odoo-tutorial-starter](https://github.com/ronitjadhav/odoo-tutorial-starter)** | A GitHub *template*: the Odoo 19 workspace readers press "Use this template" on. Five files. | almost never |
+| **[odoolings-starter](https://github.com/ronitjadhav/odoolings-starter)** | A GitHub *template*: the Odoo 19 workspace readers press "Use this template" on. Five files. | almost never |
 
 `code/docker-compose.yml` and `code/odoo.conf` here are the **source of truth**; the
 starter carries copies, and CI fails the build if the two drift, so change them here

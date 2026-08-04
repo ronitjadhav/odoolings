@@ -28,7 +28,7 @@ jobs:
       - name: Starter repo has not drifted
         working-directory: .
         run: |
-          base=https://raw.githubusercontent.com/ronitjadhav/odoo-tutorial-starter/main
+          base=https://raw.githubusercontent.com/ronitjadhav/odoolings-starter/main
           fail=0
           for f in docker-compose.yml odoo.conf; do
             curl -fsSL "$base/$f" -o "/tmp/starter-$f" || { echo "::error::cannot fetch $f from the starter"; exit 1; }
