@@ -385,6 +385,10 @@ arrives as **its own order line with a negative `price_unit`**, not as an edit t
 product line and not as the `discount` field. From `sale_loyalty`, which also brings
 `loyalty.program` and its eight programme types (chapter 23).
 
+**RFQ / purchase order**: the same `purchase.order` record before and after
+confirmation. `state` runs `draft` (RFQ), `sent`, `to approve`, `purchase`, `cancel`, and
+confirming is what spawns the incoming transfer (chapter 24).
+
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
 them.
@@ -440,6 +444,11 @@ navigating away from the current record. What makes a wizard a wizard, visually.
 **technical name**: a module's directory name (`librefleet`), as opposed to its
 display `name` ("LibreFleet"). Used by `-i`/`-u`, `depends`, XML ids and table
 prefixes; effectively immutable once a module ships.
+
+**three-way match**: the practice of tracking ordered, received and billed quantities
+separately (`product_qty`, `qty_received`, `qty_invoiced` on a purchase line, summarised by
+`receipt_status` and `invoice_status`). They are *allowed* to disagree, and that visible
+disagreement is the point: it is how an over-billing supplier gets caught (chapter 24).
 
 **tracking (`tracking=True`)**: a field attribute that posts a chatter message with
 the old and new value whenever an ORM write changes it, no method required. Fires

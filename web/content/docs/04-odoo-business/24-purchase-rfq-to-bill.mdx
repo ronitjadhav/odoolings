@@ -1,25 +1,338 @@
 ---
 title: "24. Purchase: From RFQ to Vendor Bill"
-description: Not written yet, tracked in the roadmap.
+description: Buy the parts you sold in chapter 22, and watch one receipt unblock a customer delivery that had been waiting for stock.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** run procure-to-pay end to end, meet the three-way match, and see stock move in
+two directions at once. · **Time:** ~2 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+Purchase is the mirror of Sales, and learning it costs you much less than the first one
+did, because the shapes repeat: a draft document, a confirmation that spawns a transfer, a
+bill, a state machine. If you understood chapter 22 you already understand most of this.
+
+What is genuinely new is the **three-way match**, the discipline of tracking what you
+ordered, what actually arrived, and what you were billed as three separate numbers.
+Reconciling those is one of the oldest problems in business software and one of the most
+common sources of real tickets: a supplier bills for ten and ships nine, and something has
+to notice.
+
+The other reason to do this chapter properly is that it is where the apps stop looking
+like separate apps. You are about to receive the exact part you sold in chapter 22, and
+the customer delivery that has been sitting there unable to reserve stock will quietly
+change state while you are looking at something else.
+
 ## Concepts
+
+### The RFQ lifecycle
+
+`purchase.order` has five states, and the vocabulary shift matters: the same record is
+called a **request for quotation** while it is a draft and a **purchase order** once
+confirmed.
+
+| `state` | Label |
+|---|---|
+| `draft` | RFQ |
+| `sent` | RFQ Sent |
+| `to approve` | To Approve |
+| `purchase` | Purchase Order |
+| `cancel` | Cancelled |
+
+`to approve` exists because purchases often need authorisation above a threshold, which is
+configuration rather than code.
+
+### The three-way match, as three fields
+
+This is the part worth slowing down for. Odoo does not store "is this order done". It
+stores three quantities per line and two summary fields on the order:
+
+| Where | Field | Question it answers |
+|---|---|---|
+| line | `product_qty` | how much did we order? |
+| line | `qty_received` | how much actually arrived? |
+| line | `qty_invoiced` | how much were we billed for? |
+| order | `receipt_status` | `pending`, `partial` or `full` |
+| order | `invoice_status` | `no`, `to invoice` or `invoiced` |
+
+Keeping them apart is the whole point. A supplier who ships nine and bills for ten
+produces `product_qty` 10, `qty_received` 9, `qty_invoiced` 10, and that visible
+disagreement is what an accounts-payable clerk is paid to chase. A system with one "done"
+flag could not express it.
+
+<Mermaid
+  chart={`flowchart LR
+    R["RFQ<br/>draft"] -- "Confirm" --> P["Purchase Order<br/>state = purchase"]
+    P --> K["receipt<br/>WH/IN"]
+    K -- "Validate" --> Q["stock: +10 in WH/Stock<br/>-10 at Vendors"]
+    K --> RS["receipt_status<br/>pending to full"]
+    P --> B["vendor bill<br/>account.move, in_invoice"]
+    B --> IS["invoice_status<br/>to invoice, then invoiced"]
+    RS --> M["three-way match:<br/>ordered = received = billed"]
+    IS --> M`}
+/>
+
+### A stock move always has two ends
+
+Chapter 27 said value never appears or vanishes, it moves, and that an accounting entry
+records both ends. Inventory works identically: a `stock.move` has a source location and a
+destination, and receiving goods does not create them out of nothing. It moves them **from
+the Vendors location into your warehouse**, leaving a negative quantity behind.
+
+That sounds like bookkeeping pedantry until you see it in the data, which you are about to.
+It is also why Odoo can tell you what you bought from whom without a separate purchase
+history: the negative quants *are* the history.
+
+### The vendor bill is the invoice, mirrored
+
+A vendor bill is an `account.move` with `move_type = 'in_invoice'`. Same model as chapter
+28's customer invoice, opposite direction, mirrored accounts: where a customer invoice
+debits Account Receivable and credits income, a vendor bill **debits an expense** and
+**credits Account Payable**. It also comes from a different journal, so it is numbered
+`BILL/...` rather than `INV/...`.
 
 ## Hands-on
 
+Continuing in `functional`.
+
+### Movement 1: run the flow
+
+#### 1. Raise an RFQ
+
+Snapshot first, then **Purchase → Orders → Requests for Quotation → New**:
+
+1. **Vendor**: any partner with a vendor rank (the demo has a couple).
+2. Add a line for `Brake Pad Set (Front)`, quantity **10**, unit price **42.00**.
+3. Save, and leave it as an RFQ.
+
+#### 2. Confirm it
+
+Press **Confirm Order**. Note the title changes from Request for Quotation to Purchase
+Order, and a **Receipt** smart button appears.
+
+#### 3. Receive the goods
+
+Open the receipt, set the received quantity to 10, and **Validate**.
+
+#### 4. Bill it
+
+Back on the purchase order, press **Create Bill**. Give the draft bill an
+**invoice date**, then post it.
+
+### Movement 2: read what it did
+
+#### 5. The RFQ, and what it does not have yet
+
+```console
+$ python3 odoolings.py diff --db functional
+purchase.order      +1
+      new   P00013                   state=draft  amount_total=420.0
+```
+
+```python
+>>> po.state, po.receipt_status, po.invoice_status
+('draft', False, 'no')
+```
+
+`receipt_status` is `False`, not `'pending'`. A draft RFQ has no receipt expectation at
+all, because nothing has been promised yet.
+
+#### 6. Confirming spawns a receipt
+
+```console
+$ python3 odoolings.py diff --db functional
+purchase.order      ~
+      chg   P00013                   state: draft -> purchase
+      chg   P00013                   receipt_status: None -> pending
+stock.move          +1
+      new   Brake Pad Set (Front)    reference=WH/IN/00007  product_uom_qty=10.0  state=assigned
+stock.picking       +1
+      new   WH/IN/00007              state=assigned  picking_type_id=YourCompany: Receipts
+```
+
+Compare that with chapter 22's confirmation, which produced `WH/OUT` and a Delivery Order.
+Same mechanism, opposite direction: `purchase_stock` overrides confirmation the way
+`sale_stock` does, and each bridge module contributes the transfer its own direction needs.
+
+#### 7. The receipt, and the surprise
+
+This is the diff worth reading twice.
+
+```console
+$ python3 odoolings.py diff --db functional
+purchase.order      ~
+      chg   P00013                   receipt_status: pending -> full
+      chg   P00013                   invoice_status: no -> to invoice
+purchase.order.line ~
+      chg   Brake Pad Set (Front)    qty_received: 0.0 -> 10.0
+stock.move          ~
+      chg   Brake Pad Set (Front)    state: assigned -> done
+      chg   Brake Pad Set (Front)    state: confirmed -> assigned
+stock.picking       ~
+      chg   WH/IN/00007              state: assigned -> done
+      chg   WH/OUT/00044             state: confirmed -> assigned
+stock.quant         +2
+      new   Brake Pad Set (Front)    location_id=Vendors  quantity=-10.0
+      new   Brake Pad Set (Front)    location_id=WH/Stock  quantity=10.0
+```
+
+Three separate things happened, and only one of them was your purchase order.
+
+**The two quants are the move's two ends.** `WH/Stock` gained 10 and `Vendors` lost 10.
+Nothing was created; ten brake pads moved across a boundary, and Odoo recorded both sides,
+exactly as an accounting entry records a debit and a credit.
+
+**`WH/OUT/00044` changed state, and you did not touch it.** That is the *customer delivery
+from chapter 22*, which had been sitting at `confirmed` because there was no stock to
+reserve. Your receipt gave it stock, so it advanced to `assigned`, meaning reserved and
+ready to pick. Nobody ran anything: it is a consequence of inventory being a shared pool
+rather than a per-order ledger. This is the moment Parts 4 and 5 stop being a tour of
+separate apps.
+
+**And `invoice_status` moved to `to invoice`.** Receiving is what makes the order billable,
+which mirrors chapter 22's delivered-versus-ordered invoicing policy from the buying side.
+
+#### 8. The bill, mirrored
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   BILL/2026/08/0002        move_type=in_invoice  state=posted  amount_total=420.0  payment_state=not_paid
+account.move.line   +2
+      new   Brake Pad Set (Front)    account_id=Expenses  debit=420.0
+      new   Account Payable          credit=420.0
+purchase.order      ~
+      chg   P00013                   invoice_status: to invoice -> invoiced
+purchase.order.line ~
+      chg   Brake Pad Set (Front)    qty_invoiced: 0.0 -> 10.0
+```
+
+Put that beside chapter 28's customer invoice and the symmetry is complete:
+
+| | debit | credit |
+|---|---|---|
+| customer invoice (`out_invoice`) | Account Receivable | income |
+| vendor bill (`in_invoice`) | expense | Account Payable |
+
+Same model, same balance rule, opposite direction. And note the number: `BILL/2026/08/0002`
+comes from the Purchases journal, not the Sales one.
+
+#### 9. The match, closed
+
+```python
+>>> l = po.order_line[0]
+>>> l.product_qty, l.qty_received, l.qty_invoiced
+(10.0, 10.0, 10.0)
+>>> po.receipt_status, po.invoice_status
+('full', 'invoiced')
+```
+
+Ordered, received and billed all agree. That is what a clean purchase looks like, and now
+you know which three numbers to compare when one does not.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch24 --db functional
+✔ an RFQ for the brake pads was confirmed
+✔ the goods were received
+✔ ordered, received and billed all agree
+✔ the receipt moved stock out of the vendor location
+
+ch24 complete! On to the next chapter 🔧
+```
 
 ## Gotchas
 
+- **`receipt_status` is `False` on a draft RFQ, not `'pending'`.** Code that assumes it
+  always holds one of the three documented values breaks on drafts, and `False` is not in
+  the selection.
+- **Receiving goods can change documents you were not looking at.** Any outgoing transfer
+  waiting on stock may reserve as a side effect. This is correct behaviour and it makes
+  "who changed this delivery" a confusing question: often nobody did, directly.
+- **A vendor bill needs an invoice date before it will post.** Odoo does not guess it from
+  today, because the bill's date drives the accounting period. Forgetting it is the most
+  common reason a `Create Bill` flow stalls.
+- **Ordered, received and billed are three numbers, and they are allowed to disagree.**
+  Do not "fix" a mismatch in code without asking which of the three is wrong. That
+  disagreement is a feature: it is how an over-billing supplier gets caught.
+- **The negative quant at Vendors is not a bug.** New readers try to clean it up. It is
+  the other end of the move, and deleting it would destroy the audit trail of what you
+  bought.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You validate a receipt for 10 brake pads. Which stock.quant rows does it leave behind?',
+      options: [
+        'One row, adding 10 to your warehouse, since the goods came from outside the system',
+        'Two rows: plus 10 in your warehouse and minus 10 at the Vendors location',
+        'Two rows in your warehouse, one for the incoming batch and one running total',
+      ],
+      answer: 1,
+      why: 'Verified in the diff: WH/Stock plus 10.0 and Vendors minus 10.0. A stock move always has a source and a destination, so nothing is created, it is moved across a boundary, and both ends are recorded. That is the same idea as an accounting entry recording a debit and a credit, and the negative quants at Vendors are what make purchase history reconstructable.',
+    },
+    {
+      q: 'While validating a purchase receipt, an unrelated customer delivery changes from confirmed to assigned. What happened?',
+      options: [
+        'The receipt validation reserved stock for any waiting outgoing transfer',
+        'Odoo re-ran the delivery order because both documents share a product',
+        'A scheduled action fired during validation and reassigned open transfers',
+      ],
+      answer: 0,
+      why: 'That delivery had been waiting at confirmed because no stock existed to reserve. Inventory is a shared pool, not a per-order ledger, so the moment the receipt put brake pads in WH/Stock the outgoing move could reserve them and advanced to assigned. Nobody triggered it directly, which is exactly why "who changed this delivery" is often answered by nobody.',
+    },
+    {
+      q: 'A supplier ships 9 of the 10 you ordered but bills you for all 10. How does Odoo represent that?',
+      options: [
+        'The order is flagged as blocked until the quantities are manually reconciled',
+        'product_qty 10, qty_received 9, qty_invoiced 10, all stored side by side',
+        'qty_received is set to 10 to match the bill, and the shortfall is logged separately',
+      ],
+      answer: 1,
+      why: 'The three quantities are tracked independently on the line precisely so they can disagree, which is the three-way match. Odoo does not reconcile them for you or block the order: the visible disagreement is the deliverable, because it is what an accounts-payable clerk needs in order to chase the supplier.',
+    },
+    {
+      q: 'How does a posted vendor bill differ, in accounting terms, from a posted customer invoice?',
+      options: [
+        'It is stored in a separate model, since payables and receivables are different ledgers',
+        'It is the same model with move_type in_invoice, debiting an expense and crediting payables',
+        'It reverses the customer invoice entry, using the same accounts with the signs flipped',
+      ],
+      answer: 1,
+      why: 'Both are account.move, told apart by move_type, which is chapter 27 duality once more. The vendor bill debits Expenses 420.00 and credits Account Payable 420.00, the mirror of an invoice debiting Account Receivable and crediting income. It also draws its number from the Purchases journal, so it reads BILL/... rather than INV/...',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Raise a second RFQ, receive only **6** of 10, then create the bill and read
+   `product_qty`, `qty_received` and `qty_invoiced` plus `receipt_status`. Say which value
+   Odoo proposed for the bill and why that is the sensible default.
+2. ⭐⭐ Give the brake pads a vendor pricelist entry (`product.supplierinfo`) with a
+   `min_qty` of 20 and a lower `price`, then raise RFQs for 10 and for 25 and compare the
+   unit prices Odoo proposes. Then explain how this differs from the customer-side
+   pricelist of chapter 23, in mechanism and not just direction.
+3. ⭐⭐ Ticket-shaped: "we paid this supplier twice". Using only the fields from this
+   chapter plus chapter 28's, write the sequence of checks you would run to prove or
+   disprove it, and name the field that would settle it. At least one step must distinguish
+   a duplicated *bill* from a duplicated *payment*.
+4. ⭐⭐⭐ Break-it lab: find the negative quant at the Vendors location and try to delete
+   it. Read whatever Odoo says. Then work out, from the models, what would have to be true
+   for that quant to be safely removable, and explain what the stock valuation of chapter
+   30 would report afterwards if it were gone.
+
 ## Further reading
+
+- [Purchase (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/purchase.html):
+  the functional documentation, including approval thresholds and vendor pricelists.
+- [Manage vendor bills (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/vendor_bills.html):
+  the accounting side of the flow this chapter ended on.
+- [`purchase_order.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/purchase/models/purchase_order.py):
+  read `button_confirm` and compare it with the sale order's, now that you have run both.
+- [`purchase_order.py` in `purchase_stock`](https://github.com/odoo/odoo/blob/19.0/addons/purchase_stock/models/purchase_order.py):
+  the bridge module that turns confirmation into a receipt, mirroring `sale_stock`.

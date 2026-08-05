@@ -1488,6 +1488,72 @@ def a_promotion_added_a_negative_line(env):
         "does not change the price of the product line, and it is not the discount field.")
 
 
+# --- ch24: purchase, RFQ to vendor bill ----------------------------------------
+
+def _ch24_po(env):
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    lines = env.call("purchase.order.line", "search_read",
+                     [("product_id", "in", variants)], fields=["order_id"])
+    return sorted({l["order_id"][0] for l in lines})
+
+
+def purchase_order_confirmed(env):
+    ids = _ch24_po(env)
+    assert ids, ("no purchase order contains a Brake Pad Set line. The hands-on raises an "
+                 "RFQ for 10 of them from a vendor.")
+    orders = env.call("purchase.order", "read", ids,
+                      fields=["name", "state", "receipt_status", "invoice_status"])
+    confirmed = [o for o in orders if o["state"] == "purchase"]
+    assert confirmed, (
+        "found the order but its state is %r. An RFQ becomes a purchase order when you "
+        "Confirm it, which is also what creates the receipt." % orders[0]["state"])
+    env._ch24 = confirmed[0]
+
+
+def goods_were_received(env):
+    o = getattr(env, "_ch24", None)
+    assert o, "run the previous check first"
+    assert o["receipt_status"] == "full", (
+        "receipt_status is %r, not 'full'. Validate the incoming transfer the confirmation "
+        "created, remembering to set the received quantities first."
+        % o["receipt_status"])
+
+
+def three_way_match_is_complete(env):
+    """ordered == received == invoiced, the whole point of the chapter."""
+    o = getattr(env, "_ch24", None)
+    assert o, "run the previous check first"
+    oid = env.call("purchase.order", "search", [("name", "=", o["name"])])
+    lines = env.call("purchase.order.line", "search_read", [("order_id", "in", oid)],
+                     fields=["product_qty", "qty_received", "qty_invoiced"])
+    for l in lines:
+        assert l["product_qty"] == l["qty_received"] == l["qty_invoiced"], (
+            "this line reads ordered %.1f, received %.1f, billed %.1f. Odoo tracks all "
+            "three separately on purpose: that is the three-way match, and a mismatch is "
+            "exactly what it exists to surface."
+            % (l["product_qty"], l["qty_received"], l["qty_invoiced"]))
+    assert o["invoice_status"] == "invoiced", (
+        "invoice_status is %r. Use Create Bill on the confirmed order, set an invoice "
+        "date, and post it." % o["invoice_status"])
+
+
+def receipt_moved_stock_both_ways(env):
+    """A stock move debits one location and credits another, like an accounting entry."""
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    quants = env.call("stock.quant", "search_read", [("product_id", "in", variants)],
+                      fields=["location_id", "quantity"])
+    assert quants, "no stock.quant rows exist for the brake pads at all"
+    positive = [q for q in quants if q["quantity"] > 0]
+    negative = [q for q in quants if q["quantity"] < 0]
+    assert positive and negative, (
+        "expected the receipt to leave both a positive quant in your warehouse and a "
+        "negative one at the vendor location, since a move always has a source and a "
+        "destination. Found quantities %s."
+        % sorted(q["quantity"] for q in quants))
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1763,6 +1829,18 @@ CHAPTERS = {
          "Install Coupons & Loyalty, then apply the demo code 10pc. The reward is a new "
          "order line with a negative price_unit."),
     ],
+    "ch24": [
+        ("an RFQ for the brake pads was confirmed", purchase_order_confirmed,
+         "Purchase > New, add 10 of Brake Pad Set (Front) from a vendor, then Confirm."),
+        ("the goods were received", goods_were_received,
+         "Confirming creates an incoming transfer. Set quantities and validate it."),
+        ("ordered, received and billed all agree", three_way_match_is_complete,
+         "Create Bill on the order, give it an invoice date, and post it. Odoo tracks the "
+         "three quantities separately so a mismatch is visible."),
+        ("the receipt moved stock out of the vendor location", receipt_moved_stock_both_ways,
+         "A stock move always has a source and a destination, so receiving leaves a "
+         "negative quant at Vendors and a positive one in WH/Stock."),
+    ],
     "ch27": [
         ("a manual journal entry was posted", manual_journal_entry_posted,
          "Accounting > Accounting > Journal Entries > New, journal Miscellaneous, two "
@@ -1914,7 +1992,8 @@ WATCHED = {
     "crm.lead":          ["name", "stage_id", "probability"],
     "sale.order":        ["name", "state", "amount_untaxed", "amount_total", "invoice_status"],
     "sale.order.line":   ["product_id", "product_uom_qty", "price_unit", "discount"],
-    "purchase.order":    ["name", "state", "amount_total"],
+    "purchase.order":    ["name", "state", "amount_total", "receipt_status", "invoice_status"],
+    "purchase.order.line": ["product_id", "product_qty", "price_unit", "qty_received", "qty_invoiced"],
     "stock.picking":     ["name", "state", "picking_type_id"],
     "stock.move":        ["reference", "product_id", "product_uom_qty", "state"],
     "stock.quant":       ["product_id", "location_id", "quantity"],
@@ -1956,6 +2035,7 @@ _LABEL_OVERRIDE = {
     "stock.move": "product_id",
     "stock.quant": "product_id",
     "sale.order.line": "product_id",
+    "purchase.order.line": "product_id",
     "account.move.line": "name",
 }
 
