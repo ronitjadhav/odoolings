@@ -933,6 +933,46 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch23) — pricing, and three things called "the discount"
+
+- **Ch23 written and executed.** The chapter's spine is that a price can be changed by
+  three unrelated mechanisms, each leaving a different trace, which is why "the discount is
+  wrong" is such a hard ticket. All three were produced for real on one product: a
+  **pricelist rule** rewrites `price_unit` (79.00 to 60.00) and leaves `discount` at zero;
+  the **discount field** would do the opposite; a **claimed reward** appends *its own line*
+  at `price_unit=-12.0` and touches neither.
+- **Verified**: pricelists are **off by default** (zero records until the
+  `product.group_product_pricelist` flag is ticked), and enabling it creates **three**
+  Default pricelists, one per company. `applied_on`'s numeric prefixes are literally the
+  specificity sort key, demonstrated with two competing rules: the brake pads take the flat
+  variant price of 60.00 while an Office Chair with no rule of its own falls through to the
+  global 10% and prices at 63.00. Rules do not stack.
+- **`_try_apply_code` validates but does not apply**, returning a mapping of claimable
+  rewards; claiming needs a second `_apply_program_reward` call per reward. Calling only the
+  first is a **silent** no-op, which is how I first "applied" a promotion and got nothing.
+  Now taught rather than rediscovered.
+- **A check that could not fail, caught by testing red.** The first version of "the more
+  specific rule wins" read a *saved* order line's `price_unit`, so editing the rule
+  afterwards left it green: a line takes its price at creation and is never repriced. Fixed
+  to assert the rule's configuration **and** its observed effect, which then goes red
+  properly. Worth generalising: for these functional checks, verifying only stored
+  outcomes can produce checks that never fail, so assert the configuration that caused
+  them too.
+- `product.pricelist._get_product_price` is private and RPC-refuses, same boundary as
+  ch28's `_create_invoices`, so there is no public "what would this cost" call. Noted in
+  the chapter and worked around in the check.
+- Glossary +2 (*pricelist*, *reward*).
+- **Repaired 14 glossary entries I had been silently breaking since ch21.** The helper I
+  was using to insert entries alphabetically wrote `new_text + "\n" + anchor`, with no blank
+  line, so every insertion glued the *following* entry onto the new one's paragraph. Fourteen
+  entries across the ch21, ch22, ch27, ch28 and ch23 additions were affected, and **four
+  merged PRs shipped with the damage**. Only `recordset` ever surfaced, because it is the one
+  a `<Term>` component actually looks up, which failed the build with
+  `<Term k="recordset">: no such glossary entry`. Anything not referenced by a `<Term>` was
+  broken invisibly. Lesson for future entries: markdown needs the blank line, and the
+  glossary is only self-checking where a `<Term>` happens to reference it.
+- Screenshots pending the author, per standing rule 5.
+
 ### 2026-08-05 (hotfix) — the renumber broke a test I never ran
 
 - **Main was red and I put it there.** `tests/export-preview.test.mjs` asserts that
