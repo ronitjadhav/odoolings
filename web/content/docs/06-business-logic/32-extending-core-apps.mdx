@@ -1,0 +1,508 @@
+---
+title: "32. Extending Core Apps"
+description: Add fields and buttons to models you do not own, declare the dependency that makes it legal, and survive the next upgrade.
+---
+
+**Goal:** extend `res.partner` and `product.template` from LibreFleet, without editing a
+single line of Odoo's source. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch32`
+
+## Why this matters
+
+Almost nothing you are paid to do in Odoo is greenfield. The ticket is "customers need to
+see their vehicles on the contact form", or "products need a workshop flag", and the model
+in question was written by Odoo SA years ago and is used by forty other modules. Chapter 31
+gave you the mechanism. This chapter gives you the discipline that has to come with it,
+because the mechanism is the easy part.
+
+The discipline has a name that every Odoo team says out loud during code review: **never
+modify core, always extend.** It sounds like style advice. It is actually the difference
+between a project that upgrades in an afternoon and one that quietly becomes unupgradeable.
+
+## Concepts
+
+### The golden rule, and the three reasons behind it
+
+You could open `odoo/addons/base/models/res_partner.py` in the container and add your field
+there. It would work. It would also be the single most expensive mistake in this tutorial:
+
+<Mermaid
+  chart={`flowchart TD
+    A["ticket: partners need vehicle info"] --> B{"where do you write it?"}
+    B -- "edit odoo/addons/base" --> C["works today"]
+    C --> D["next upgrade replaces core<br/>your change is silently gone"]
+    B -- "_inherit from librefleet" --> E["works today"]
+    E --> F["upgrade replaces core only<br/>your module re-applies on top"]`}
+/>
+
+Three concrete reasons, in the order they will bite you:
+
+1. **Upgrades overwrite core.** Moving to Odoo 20 means new core source. Anything you edited
+   in place is gone, and nobody remembers what it was. Your module, by contrast, is your
+   code: it gets reviewed, ported, and re-applied.
+2. **You are not the only one extending.** Sales, Inventory and six OCA modules all add to
+   `res.partner`. Odoo's inheritance is built for that pile-up. Editing the file directly is
+   not, and whoever loses the merge loses silently.
+3. **You would be running an unsupported Odoo.** A patched core is one nobody else can
+   reproduce, which turns every future bug report into an archaeology project.
+
+### Extending a model you do not own
+
+Mechanically this is exactly ch31's classic extension, aimed at somebody else's model:
+
+```python
+class ResPartner(models.Model):
+    _inherit = "res.partner"        # no _name, so this IS res.partner
+
+    librefleet_vehicle_ids = fields.One2many("librefleet.vehicle", "owner_id")
+```
+
+Nothing new in the syntax. What *is* new are three obligations that come with touching a
+model you did not write.
+
+### Obligation 1: declare the dependency
+
+Your module may only extend models from modules it declares in `depends`. `res.partner`
+comes from `base`, which everything depends on, so partners work out of the box. The moment
+you reach for `product.template` you need this:
+
+```python
+"depends": ["base", "product"],
+```
+
+Skip it and the module does not merely misbehave, it refuses to load. You will trigger that
+error on purpose in the hands-on, and the message is worth memorising because it is the same
+one ch31's import-order lab produced, from a completely different cause.
+
+### Obligation 2: namespace everything you add
+
+Core has no idea your module exists, and neither does the next module that extends the same
+model. A field called `vehicle_ids` on `res.partner` is a landmine: if any other addon adds
+`vehicle_ids` too, one of you wins and the other breaks in a way that is genuinely painful to
+diagnose. So prefix with your module name:
+
+```python
+librefleet_vehicle_ids = fields.One2many(...)     # yes
+vehicle_ids = fields.One2many(...)                # no
+```
+
+<Callout type="info" title="In the field">
+  This is not merely a convention, it is an OCA review requirement, and integrators enforce
+  it on client projects too. The prefix also makes `grep` honest: every field that belongs to
+  your module is findable by name, which matters enormously three years later when someone
+  asks what a module actually touches.
+</Callout>
+
+### Obligation 3: extend views additively
+
+Chapter 16 covered view inheritance mechanics, so this is one extra rule, not a new topic:
+when the view belongs to somebody else, the `ref` is module-qualified
+(`base.view_partner_form`) and you **only add nodes**. Every `position="replace"` on a core
+view is a bet that no other module needed the node you deleted.
+
+## Hands-on
+
+### 1. Give partners their vehicles
+
+`librefleet.vehicle` already has an `owner_id` pointing at `res.partner` (chapter 12), so the
+inverse side is free. Create `addons/librefleet/models/res_partner.py`:
+
+```python title="addons/librefleet/models/res_partner.py"
+from odoo import api, fields, models
+
+
+class ResPartner(models.Model):
+    _inherit = "res.partner"
+
+    librefleet_vehicle_ids = fields.One2many(
+        "librefleet.vehicle", "owner_id", string="Vehicles")
+    librefleet_vehicle_count = fields.Integer(
+        compute="_compute_librefleet_vehicle_count", string="Vehicle Count")
+
+    @api.depends("librefleet_vehicle_ids")
+    def _compute_librefleet_vehicle_count(self):
+        for partner in self:
+            partner.librefleet_vehicle_count = len(partner.librefleet_vehicle_ids)
+
+    def action_librefleet_vehicles(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Vehicles",
+            "res_model": "librefleet.vehicle",
+            "view_mode": "list,form",
+            "domain": [("owner_id", "=", self.id)],
+            "context": {"default_owner_id": self.id},
+        }
+```
+
+Register it in `addons/librefleet/models/__init__.py`. **Append** these two lines, keeping
+everything already there; the whole file should end up looking like this:
+
+```python title="addons/librefleet/models/__init__.py"
+from . import part
+from . import service_order
+from . import service_type
+from . import vehicle
+
+# loaner.py extends librefleet.vehicle and prototypes librefleet.part, so both
+# must already be registered: within a module, import order matters.
+from . import loaner
+
+# ch32: extensions of CORE models. These resolve against the registry built from
+# our manifest's depends, not against this package, so their position here is
+# free. Grouped last only to keep "ours" and "theirs" visually separate.
+from . import product_template
+from . import res_partner
+```
+
+Unlike ch31's `loaner.py`, position genuinely does not matter for these two: they resolve
+against models that were already in the registry before your module started loading,
+because they come from your dependencies. They are grouped last only to keep "ours" and
+"theirs" visually apart.
+
+`product_template.py` does not exist yet, so do not upgrade until step 3 creates it.
+
+### 2. Add the smart button to a form you do not own
+
+You need core's form id, and guessing is not a plan. Ask the database:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "
+select d.module||'.'||d.name as xmlid, v.priority, v.mode
+from ir_ui_view v join ir_model_data d on d.res_id=v.id and d.model='ir.ui.view'
+where v.model='res.partner' and v.type='form' order by v.priority;"
+```
+
+```text
+              xmlid              | priority |  mode
+---------------------------------+----------+---------
+ base.view_partner_form          |        1 | primary
+ base.view_partner_simple_form   |       16 | primary
+ base.view_partner_address_form  |       20 | primary
+```
+
+The first one, lowest priority, is the main form. Now `addons/librefleet/views/res_partner_views.xml`:
+
+```xml title="addons/librefleet/views/res_partner_views.xml"
+<record id="view_partner_form_librefleet" model="ir.ui.view">
+    <field name="name">res.partner.form.librefleet</field>
+    <field name="model">res.partner</field>
+    <field name="inherit_id" ref="base.view_partner_form"/>
+    <field name="arch" type="xml">
+        <div name="button_box" position="inside">
+            <button class="oe_stat_button" type="object"
+                    name="action_librefleet_vehicles" icon="fa-car"
+                    invisible="librefleet_vehicle_count == 0">
+                <field name="librefleet_vehicle_count" widget="statinfo"
+                       string="Vehicles"/>
+            </button>
+        </div>
+    </field>
+</record>
+```
+
+Core ships `<div class="oe_button_box" name="button_box"/>` empty, so `position="inside"` is
+the right choice: there is no sibling node to anchor `before` or `after` against. Add the file
+to `data` in your manifest, above the menus.
+
+### 3. Break-it lab: extend a model you never declared
+
+Now the product side, and deliberately in the wrong order so you meet the error. Create
+`addons/librefleet/models/product_template.py`:
+
+```python title="addons/librefleet/models/product_template.py"
+from odoo import fields, models
+
+
+class ProductTemplate(models.Model):
+    _inherit = "product.template"
+
+    librefleet_is_part = fields.Boolean(
+        string="Workshop Part",
+        help="Tick to offer this product as a spare part on service orders.")
+```
+
+Leave `depends` as `["base"]` for the moment and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+```text
+ERROR tutorial odoo.registry: Failed to load registry
+CRITICAL tutorial odoo.service.server: Failed to initialize database `tutorial`.
+Traceback (most recent call last):
+    raise TypeError(f"Model {name!r} does not exist in registry.")
+TypeError: Model 'product.template' does not exist in registry.
+```
+
+Read that message next to ch31's. They are **identical in shape and different in cause**, and
+telling them apart quickly is a genuinely useful skill:
+
+| The message says | ch31's cause | this chapter's cause |
+|---|---|---|
+| `Model 'X' does not exist in registry` | X is in *your* module, imported too early in `__init__.py` | X is in *another* module, missing from `depends` |
+
+The rule of thumb: if `X` has your module's prefix, it is an import-order problem. If it is
+somebody else's model, it is a manifest problem. Fix it:
+
+```python
+"depends": ["base", "product"],
+```
+
+Upgrade again and watch Odoo pull the dependency chain in for you:
+
+```text
+INFO tutorial odoo.modules.loading: Loading module uom (15/30)
+INFO tutorial odoo.modules.loading: Loading module mail (16/30)
+INFO tutorial odoo.modules.loading: Loading module product (26/30)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.23s, 525 queries
+INFO tutorial odoo.modules.loading: 30 modules loaded in 6.15s, 13259 queries
+```
+
+<Callout type="info" title="You just installed three apps by adding one word">
+  `product` needs `uom` and `mail`, so all three arrived. This is what "an integrator project
+  is mostly an assembly" (chapter 7) feels like in practice: dependencies are transitive, and
+  one line in a manifest can change what is installed on a client's production database.
+  Convenient here, and a very good reason to read a module's `depends` before adding it.
+  `mail` landing early is harmless, and chapter 33 puts it to work.
+
+  One cosmetic oddity in that same upgrade output, so you do not go hunting for it:
+  `<string>:38: (ERROR/3) Unexpected indentation.` That is docutils complaining about the
+  RST in a **core** module's own description text, not about anything you wrote. It comes
+  from `product`, which you can prove by installing `product` alone into a throwaway
+  database and watching it appear with LibreFleet nowhere in sight. Nothing is broken and
+  nothing needs fixing; it just looks alarming because it says ERROR.
+</Callout>
+
+### 4. Bridge the part to the catalogue
+
+`librefleet.part` has been deliberately self-contained since chapter 12: `name`, `code`,
+`standard_cost`, `list_price`, and no dependency on core's product model. That was the right
+call for Tier 1, and now it is time to open the door. Add to `addons/librefleet/models/part.py`:
+
+```python title="addons/librefleet/models/part.py"
+    product_id = fields.Many2one(
+        "product.product",
+        string="Catalogue Product",
+        domain="[('librefleet_is_part', '=', True)]",
+        help="Link to the real product, once this part is sold or stocked.")
+```
+
+Note the `domain`: it filters the dropdown using the flag you just added to
+`product.template`. Optional on purpose too, because a workshop shelves a part long before
+anyone decides it deserves a product record.
+
+### 5. Ask what actually happened to the schema
+
+Extension talks about "the same table", so verify it rather than trusting the word:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "
+select f.model, f.name, f.ttype, f.store,
+       coalesce(d.module,'?') as declared_by
+from ir_model_fields f
+left join ir_model_data d on d.res_id=f.id and d.model='ir.model.fields'
+where f.name like 'librefleet%'
+  and f.model in ('res.partner','product.template','product.product')
+order by f.model, f.name;"
+```
+
+```text
+      model       |        name              | ttype    | store | declared_by
+------------------+--------------------------+----------+-------+-------------
+ product.product  | librefleet_is_part       | boolean  | f     | librefleet
+ product.template | librefleet_is_part       | boolean  | t     | librefleet
+ res.partner      | librefleet_vehicle_count | integer  | f     | librefleet
+ res.partner      | librefleet_vehicle_ids   | one2many | t     | librefleet
+```
+
+Two things in that output deserve a second look.
+
+**No new table exists.** Our partner fields are attributed to `librefleet` but they live on
+core's model, and there is no `librefleet_res_partner` anywhere:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -tAc "
+select count(*) from information_schema.tables
+where table_name like 'librefleet%partner%';"
+```
+
+```text
+0
+```
+
+**We never declared `librefleet_is_part` on `product.product`, yet there it is**, unstored.
+That is not a bug and not magic, it is chapter 31 paying you back. Ask the registry why:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+```python
+>>> env["product.product"]._inherits
+{'product.template': 'product_tmpl_id'}
+>>> f = env["product.product"]._fields["librefleet_is_part"]
+>>> f.inherited, f.related, f.store
+(True, 'product_tmpl_id.librefleet_is_part', False)
+```
+
+Core's `product.product` **delegates** to `product.template`, so every field on the template
+is exposed on the variant as a non-stored related field. You added one field to one model and
+both got it, with the column existing only on the template. Confirm that last part:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "
+select table_name, column_name from information_schema.columns
+where column_name = 'librefleet_is_part' order by table_name;"
+```
+
+```text
+    table_name    |    column_name
+------------------+--------------------
+ product_template | librefleet_is_part
+```
+
+This is why ch31 spent a whole chapter on three mechanisms that look alike: you do not only
+choose between them for your own models, you inherit the consequences of core's choices.
+
+### 6. Watch the computed count work
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+```python
+>>> p = env["res.partner"].create({"name": "Marta Ferreira"})
+>>> env["librefleet.vehicle"].create({"license_plate": "CH22-AAA", "owner_id": p.id})
+>>> env["librefleet.vehicle"].create({"license_plate": "CH22-BBB", "owner_id": p.id})
+>>> p.invalidate_recordset()
+>>> p.librefleet_vehicle_ids.mapped("license_plate")
+['CH22-AAA', 'CH22-BBB']
+>>> p.librefleet_vehicle_count
+2
+```
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch32
+✔ the product dependency is declared and installed
+✔ res.partner is extended in place
+✔ fields added to core are namespaced
+✔ the core partner form is extended, not replaced
+✔ the vehicle count computes for a partner
+✔ librefleet.part bridges to a catalogue product
+✔ the template flag reaches variants via delegation
+
+ch32 complete! On to the next chapter 🔧
+```
+
+Then prove your button really merged into core's form rather than living in a view of its own,
+which is the whole point of extension:
+
+```python
+>>> arch = env["res.partner"].get_view(env.ref("base.view_partner_form").id, "form")["arch"]
+>>> "action_librefleet_vehicles" in arch
+True
+```
+
+In the UI, open any contact that owns a vehicle: the **Vehicles** stat button is on core's
+contact form, next to buttons other apps put there, and it disappears for contacts with no
+vehicles thanks to the `invisible` expression.
+
+## Gotchas
+
+- **Odoo never drops columns.** Un-store a field, rename it, or delete the class, and the
+  database column stays behind forever. You can prove it: declare a field on
+  `product.product`, upgrade, move it to `product.template`, upgrade again, and
+  `information_schema.columns` still lists the orphan on `product_product`. Nothing breaks,
+  but old projects accumulate dead columns, which is why `ALTER TABLE ... DROP COLUMN` shows
+  up in real migration scripts (chapter 47).
+- **A missing `depends` is a hard failure, not a warning.** The registry error stops the whole
+  database from loading, including the modules that were fine. Read the model name in the
+  message to tell an import-order bug from a manifest bug.
+- **Dependencies are transitive and permanent-ish.** Adding `product` installed `uom` and
+  `mail` too. Uninstalling your module does not uninstall them, and on a client database that
+  is a conversation to have *before* you push the manifest change.
+- **`position="replace"` on a core view is how you break other modules.** Your extension is
+  one of many. Delete a node another addon xpaths into and you break them, with an error that
+  points at their code rather than yours.
+- **An un-prefixed field on a core model is a collision waiting to happen.** It may work for
+  a year, until the client installs the OCA module that had the same idea.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You add a field to res.partner from your module. What happens to core\'s res_partner table?',
+      options: [
+        'nothing, your field lives in a new table linked by a foreign key',
+        'it gains a column, and no new table is created',
+        'core\'s table is copied, and your module uses the copy',
+      ],
+      answer: 1,
+      why: 'Classic extension IS the model: same model, same table, one extra column. A new table would mean you accidentally wrote a prototype (a new _name) instead.',
+    },
+    {
+      q: 'Your upgrade dies with "Model \'sale.order\' does not exist in registry". Most likely cause?',
+      options: [
+        'sale.order was renamed in Odoo 19',
+        '"sale" is missing from your manifest\'s depends',
+        'your models/__init__.py imports the file too early',
+      ],
+      answer: 1,
+      why: 'The model belongs to another module, so it is a manifest problem. Import order (the ch31 flavour of this same message) only explains models your own module defines.',
+    },
+    {
+      q: 'You declare a Boolean on product.template only. What does product.product get?',
+      options: [
+        'nothing, you must declare it on both',
+        'the same field, stored again on the variant table',
+        'the same field as a non-stored related field, no extra column',
+      ],
+      answer: 2,
+      why: 'product.product _inherits product.template, so delegation exposes every template field on the variant, related through product_tmpl_id and unstored. Declaring it on both would create a real second column and two sources of truth.',
+    },
+    {
+      q: 'Why prefix fields you add to core models with your module name?',
+      options: [
+        'Odoo rejects un-prefixed fields on models you do not own',
+        'so they sort together in the database',
+        'because other modules extend the same models, and identical names collide',
+      ],
+      answer: 2,
+      why: 'Nothing enforces it, which is exactly why it matters: the failure arrives later, when a client installs another addon that had the same idea for the same name.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add `librefleet_notes` (Text) to `res.partner` and show it on the contact form under the
+   existing fields, using an `xpath` into core's form. Confirm with `psql` that
+   `res_partner` gained exactly one column.
+2. ⭐⭐ Flag a product as a workshop part in the UI, then link a `librefleet.part` to it and
+   confirm the `domain` on `product_id` hides every product without the flag. Then work out
+   why the dropdown still filters correctly even though `librefleet_is_part` is not stored on
+   `product.product`.
+3. ⭐⭐ Add a stat button to core's **product** form showing how many `librefleet.part`
+   records point at that product. You will need the reverse relation, so decide whether to
+   add a One2many to `product.template` or to `product.product`, and be able to defend it.
+4. ⭐⭐⭐ Break-it lab, then repair it: change your partner extension's field to plain
+   `vehicle_ids`, upgrade, and confirm everything still works. Now explain in writing what
+   would happen the day the client installs a module that also defines `vehicle_ids` on
+   partners, and which of the two definitions would win. Rename it back afterwards, then check
+   `information_schema.columns` and notice that `vehicle_ids` is still there.
+
+## Further reading
+
+- [Inheritance and extension (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/12_inheritance.html):
+  the official framing of the same golden rule.
+- [Module manifests (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html#manifest):
+  every manifest key, including how `depends` drives load order.
+- [View inheritance reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_records.html#inheritance-position):
+  every `position` value, and how Odoo resolves a stack of extensions.
+- [`product.product` in core](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_product.py):
+  read its `_inherits` line and see chapter 31's delegation in production code.

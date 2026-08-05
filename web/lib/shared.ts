@@ -20,7 +20,7 @@ export const gitConfig = {
   branch: 'main',
 };
 
-export const TOTAL_CHAPTERS = 40;
+export const TOTAL_CHAPTERS = 50;
 
 /** Canonical page URLs always match Next's trailingSlash export setting. */
 export function canonicalUrl(path = '/') {

@@ -55,11 +55,11 @@ Here is LibreFleet's first manifest, in `addons/librefleet/__manifest__.py`:
   `<odoo major>.<module major>.<module minor>.<patch>`, so `19.0.1.0.0` reads as
   "first release of this module, for Odoo 19".
 - **`license`**: mandatory in practice; the server logs a warning without it. AGPL-3
-  is the OCA norm and this tutorial's choice (chapter 34 discusses why).
+  is the OCA norm and this tutorial's choice (chapter 44 discusses why).
 - **`application: True`** is the apps-vs-modules flag from chapter 1: LibreFleet gets
   a tile on the Apps screen. The extension modules you'll write later won't set it.
 - **`depends`**: install this module and Odoo first installs everything here. `base`
-  is the minimum. When ch23 adds chatter, `mail` joins this list, and installing
+  is the minimum. When ch33 adds chatter, `mail` joins this list, and installing
   LibreFleet will pull it in automatically.
 - **`data`**: the XML/CSV files to load at install/upgrade, in order. Empty for
   exactly one chapter.

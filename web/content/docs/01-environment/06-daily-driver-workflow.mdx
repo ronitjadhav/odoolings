@@ -67,7 +67,7 @@ chapter 8 on, mostly in module install/upgrade runs:
 | `--stop-after-init` | do the install/upgrade, then exit instead of serving |
 | `--addons-path=...` | where to find modules (ours is in `odoo.conf`) |
 | `--dev=all` | developer features, see below |
-| `--test-enable`, `--test-tags` | run tests, the subject of chapter 28 |
+| `--test-enable`, `--test-tags` | run tests, the subject of chapter 38 |
 
 The pair to burn in now: **`-i` installs, `-u` upgrades.** Python code changes are
 picked up by a restart (or auto-reload), but XML and data files live *in the database*
@@ -238,7 +238,7 @@ that's the lesson.
 - **`db drop` takes one database at a time.** `ocdb drop scratch scratch2` is an
   error; run it twice instead.
 - **The log level is configurable, not fixed.** `--log-level=debug_sql` (or
-  `log_level` in the config) shows every SQL statement, which chapter 38 uses to hunt
+  `log_level` in the config) shows every SQL statement, which chapter 48 uses to hunt
   performance problems.
 
 ## Quick check
@@ -292,7 +292,7 @@ that's the lesson.
    the odoo container.
 4. ⭐⭐⭐ Restart the odoo service with `--log-level=debug_sql` (edit the compose
    `command:` or use `log_level` in `odoo.conf`), open one form view, and count the
-   SQL statements a single page load costs. Keep that number in mind for chapter 38.
+   SQL statements a single page load costs. Keep that number in mind for chapter 48.
 
 ## Further reading
 

@@ -142,7 +142,7 @@ proper reference. And until chapter 13 computes them, prices sit as plain floats
 `addons/librefleet/models/part.py` is chapter 9 material, four fields, no
 relations (`name` required, `code`, `standard_cost`, `list_price`; see the
 checkpoint). Deliberately *not* Odoo's `product` module: bridging LibreFleet to
-real products is chapter 22's whole point. Import both new files in
+real products is chapter 32's whole point. Import both new files in
 `models/__init__.py` (alphabetical, so `part`, `service_order`, `service_type`,
 `vehicle`).
 
@@ -172,7 +172,7 @@ restriction comes next.
 
 Append the technician rule to `security/librefleet_security.xml`, inside a
 `<data noupdate="1">` block (rules are policy, not code; `noupdate` keeps a later
-upgrade from overwriting what a client tuned in production; chapter 24 returns to
+upgrade from overwriting what a client tuned in production; chapter 34 returns to
 this):
 
 ```xml
@@ -355,7 +355,7 @@ librefleet.service.order(1,)
   by Postgres itself.
 - **`noupdate="1"` cuts both ways.** Your record rules won't be clobbered by
   upgrades, but your *own* domain fixes won't apply either; during development,
-  uninstall/reinstall or edit the rule in the UI, and revisit this in chapter 24.
+  uninstall/reinstall or edit the rule in the UI, and revisit this in chapter 34.
 - **Commit before switching hats.** Shell experiments with `with_user` on
   uncommitted records can confuse you: the rule check happens against what the
   cursor sees, but a rollback after an AccessError also throws away your seed
@@ -428,7 +428,7 @@ librefleet.service.order(1,)
    Then do the reverse: add an order to a vehicle by writing the one2many with a
    command tuple.
 3. ⭐⭐ Owners will one day see their fleet on the partner form (extending
-   `res.partner` is chapter 22). Today, build the read-only path: from the shell,
+   `res.partner` is chapter 32). Today, build the read-only path: from the shell,
    given partner Anna Keller, reach her vehicles and all their service orders in
    two ORM calls, using only relation fields declared this chapter.
 4. ⭐⭐ Technicians can currently delete *any* order line (the ACL allows it).

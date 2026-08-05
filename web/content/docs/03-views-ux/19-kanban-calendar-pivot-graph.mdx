@@ -124,7 +124,7 @@ In `views/service_order_views.xml`, add a kanban grouped by stage:
 
 <Callout type="warn" title="Gotcha">
   `widget="many2many_avatar_user"` is registered by the **mail** module, which LibreFleet
-  does not depend on yet (`depends` is still just `["base"]`; `mail` arrives in chapter 22
+  does not depend on yet (`depends` is still just `["base"]`; `mail` arrives in chapter 32
   as a side effect of adding `product`). Widget names are not validated server-side, so
   nothing errors: the view loads and the field quietly falls back to plain tags, with only
   a browser-console warning to tell you. So expect tags rather than avatars here, and take
