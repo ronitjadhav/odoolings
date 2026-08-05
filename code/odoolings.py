@@ -12,6 +12,7 @@ Stdlib only, nothing to install. Defaults match the tutorial's Docker env
 (http://localhost:8069, database "tutorial", admin/admin).
 """
 import argparse
+import json
 import sys
 import xmlrpc.client
 
@@ -1488,6 +1489,184 @@ CHAPTERS = {
 }
 
 
+# ------------------------------------------------- snapshot / diff (ch21+) --
+# "What did that button actually do?" You snapshot, click something in the UI,
+# then diff. Built for Parts 4-5, where every chapter's job is to run a business
+# flow and then read what it did to the database.
+#
+# Two deliberate limits, both stated rather than silent:
+#   * Only the models below are watched. Odoo has ~900; watching all of them
+#     would be slow and would bury the signal. Add a model here when a chapter
+#     needs it.
+#   * At most SNAPSHOT_LIMIT records per model are compared field by field.
+#     Beyond that only the count is tracked, and the diff says so out loud.
+#
+# This is the one part of odoolings that touches the filesystem (a single JSON
+# dotfile in the current directory). It still never reads the reader's module,
+# so §4.5's "location-independent" contract holds: the tool works against any
+# --url/--db from any directory.
+
+SNAPSHOT_FILE = ".odoolings-snapshot.json"
+SNAPSHOT_LIMIT = 800
+
+# model -> fields worth showing when a record is created or changes.
+WATCHED = {
+    "crm.lead":          ["name", "stage_id", "probability"],
+    "sale.order":        ["name", "state", "amount_untaxed", "amount_total", "invoice_status"],
+    "sale.order.line":   ["product_id", "product_uom_qty", "price_unit", "discount"],
+    "purchase.order":    ["name", "state", "amount_total"],
+    "stock.picking":     ["name", "state", "picking_type_id"],
+    "stock.move":        ["reference", "product_id", "product_uom_qty", "state"],
+    "stock.quant":       ["product_id", "location_id", "quantity"],
+    "mrp.production":    ["name", "state", "product_qty"],
+    "account.move":      ["name", "move_type", "state", "amount_total", "payment_state"],
+    "account.move.line": ["name", "account_id", "debit", "credit", "reconciled"],
+    "account.payment":   ["state", "amount"],
+    "product.template":  ["name", "list_price"],
+    "product.pricelist": ["name"],
+    "res.partner":       ["name"],
+}
+
+
+def _flatten(value):
+    """XML-RPC gives many2one as [id, "Display Name"]. Keep the name only."""
+    if isinstance(value, list) and len(value) == 2 and isinstance(value[0], int):
+        value = value[1]
+    if value is False:
+        return None
+    if isinstance(value, str):
+        # Invoice-line names carry the whole product description, newlines and
+        # all, which would wreck the one-record-per-line output.
+        value = " ".join(value.split())
+    return value
+
+
+# Which field names the record best. Defaults to the first hit in _LABEL_ORDER,
+# overridden where a different field is the actual point of the record (a stock
+# move is about its product, not the picking reference it inherits).
+_LABEL_ORDER = ("name", "reference", "product_id", "account_id")
+_LABEL_OVERRIDE = {
+    "stock.move": "product_id",
+    "stock.quant": "product_id",
+    "sale.order.line": "product_id",
+    "account.move.line": "name",
+}
+
+
+def _label(model, vals):
+    """The most human thing we know about a record, on one line, bounded."""
+    key = _LABEL_OVERRIDE.get(model)
+    candidates = ([key] if key else []) + list(_LABEL_ORDER)
+    for key in candidates:
+        value = vals.get(key)
+        # A draft invoice has no number yet, and Odoo stores that as "/".
+        if value and str(value) != "/":
+            text = str(value)
+            return text if len(text) <= 40 else text[:37] + "..."
+    return "id=%s" % vals.get("id")
+
+
+def _detail(model, vals):
+    """The remaining watched fields, so a new record shows what it was born with."""
+    shown = _label(model, vals)
+    bits = []
+    for field in WATCHED.get(model, []):
+        value = vals.get(field)
+        if value in (None, "", 0, 0.0) or str(value) == shown:
+            continue
+        bits.append("%s=%s" % (field, value))
+    return "  ".join(bits)
+
+
+def take_snapshot(env):
+    """Read every watched model's current state. Returns a plain dict."""
+    installed = set(env.call("ir.model", "search_read", [], fields=["model"]) and
+                    [m["model"] for m in env.call("ir.model", "search_read", [], fields=["model"])])
+    state, skipped = {}, []
+    for model, fields in sorted(WATCHED.items()):
+        if model not in installed:
+            continue  # app not installed in this database; not an error
+        count = env.call(model, "search_count", [])
+        entry = {"count": count, "records": {}, "truncated": count > SNAPSHOT_LIMIT}
+        if entry["truncated"]:
+            skipped.append("%s (%d records)" % (model, count))
+        rows = env.call(model, "search_read", [], fields=fields + ["id"],
+                        limit=SNAPSHOT_LIMIT, order="id desc")
+        for row in rows:
+            entry["records"][str(row["id"])] = {k: _flatten(v) for k, v in row.items()}
+        state[model] = entry
+    return state, skipped
+
+
+def cmd_snapshot(env):
+    state, skipped = take_snapshot(env)
+    with open(SNAPSHOT_FILE, "w") as fh:
+        json.dump({"db": env.db, "state": state}, fh)
+    watched = len(state)
+    total = sum(e["count"] for e in state.values())
+    print("snapshot: %d models, %d records (database %r)" % (watched, total, env.db))
+    if skipped:
+        print("  count-only beyond %d records: %s" % (SNAPSHOT_LIMIT, ", ".join(skipped)))
+    print("\nNow do something in the interface, then: odoolings.py diff"
+          + ("" if env.db == "tutorial" else " --db %s" % env.db))
+    return 0
+
+
+def cmd_diff(env):
+    try:
+        with open(SNAPSHOT_FILE) as fh:
+            saved = json.load(fh)
+    except FileNotFoundError:
+        print("No snapshot found. Run: odoolings.py snapshot"
+              + ("" if env.db == "tutorial" else " --db %s" % env.db))
+        return 2
+    if saved.get("db") != env.db:
+        print("Snapshot was taken against database %r, but you are pointing at %r."
+              % (saved.get("db"), env.db))
+        return 2
+
+    before = saved["state"]
+    after, _ = take_snapshot(env)
+    any_change = False
+
+    for model in sorted(set(before) | set(after)):
+        old = before.get(model, {"count": 0, "records": {}, "truncated": False})
+        new = after.get(model, {"count": 0, "records": {}, "truncated": False})
+        delta = new["count"] - old["count"]
+        added = [i for i in new["records"] if i not in old["records"]]
+        removed = [i for i in old["records"] if i not in new["records"]]
+        changed = []
+        for rid, vals in new["records"].items():
+            if rid in old["records"]:
+                for field, value in vals.items():
+                    if field == "id":
+                        continue
+                    was = old["records"][rid].get(field)
+                    if was != value:
+                        changed.append((rid, vals, field, was, value))
+        if not (delta or added or removed or changed):
+            continue
+
+        any_change = True
+        sign = "+%d" % delta if delta > 0 else str(delta) if delta else "~"
+        note = "" if not new["truncated"] else "   (count-only: over %d records)" % SNAPSHOT_LIMIT
+        print("%-19s %s%s" % (model, sign, note))
+        for rid in sorted(added, key=int):
+            vals = new["records"][rid]
+            print("      new   %-24s %s" % (_label(model, vals), _detail(model, vals)))
+        for rid in sorted(removed, key=int):
+            print("      gone  %s" % _label(model, old["records"][rid]))
+        for rid, vals, field, was, value in changed:
+            print("      chg   %-24s %s: %s -> %s"
+                  % (_label(model, vals), field, was, value))
+
+    if not any_change:
+        print("Nothing changed in the watched models.")
+        print("If you expected a change, the model may not be in WATCHED "
+              "(see the list at the top of this section).")
+    return 0
+
+
 def cmd_check(env, chapter):
     checks = CHAPTERS.get(chapter)
     if checks is None:
@@ -1510,8 +1689,8 @@ def cmd_check(env, chapter):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="odoolings", description=__doc__.split("\n")[0])
-    p.add_argument("command", choices=["check", "list"])
-    p.add_argument("chapter", nargs="?", help="e.g. ch05")
+    p.add_argument("command", choices=["check", "list", "snapshot", "diff"])
+    p.add_argument("chapter", nargs="?", help="e.g. ch05 (not needed by snapshot/diff)")
     p.add_argument("--url", default="http://localhost:8069")
     p.add_argument("--db", default="tutorial")
     p.add_argument("--user", default="admin")
@@ -1522,9 +1701,14 @@ def main(argv=None):
         for ch in sorted(CHAPTERS):
             print("%s  (%d checks)" % (ch, len(CHAPTERS[ch])))
         return 0
+    env = Env(a.url, a.db, a.user, a.password)
+    if a.command == "snapshot":
+        return cmd_snapshot(env)
+    if a.command == "diff":
+        return cmd_diff(env)
     if not a.chapter:
         p.error("check needs a chapter, e.g.: odoolings.py check ch05")
-    return cmd_check(Env(a.url, a.db, a.user, a.password), a.chapter)
+    return cmd_check(env, a.chapter)
 
 
 if __name__ == "__main__":

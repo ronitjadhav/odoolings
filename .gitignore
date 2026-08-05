@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .claude/settings.local.json
+
+# odoolings snapshot/diff scratch state (ch21+), never worth committing.
+.odoolings-snapshot.json

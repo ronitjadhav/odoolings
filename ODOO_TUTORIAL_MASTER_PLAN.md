@@ -931,6 +931,49 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (later) — M3.5 renumber executed, and `snapshot`/`diff` proven
+
+- **M3.5 done.** §5.8's runbook executed: ch21-40 → ch31-50, Parts 4-7 → 6-9, 4
+  checkpoint dirs, odoolings keys, `ch24-demo` → `ch34-demo`, plus Parts 4-5 scaffolded
+  with 10 stubs. Sidebar now reads 1 to 50 with no backwards jump. The dry run earned
+  its place three times over: **range expressions** (`chapters 21–32` shifted only its
+  first endpoint, producing `31–32` and the nonsensical `43–40`, so ranges are now
+  excluded from the script and fixed by hand as semantic edits since the *Parts* numbers
+  change too); **title frontmatter** (bare leading numbers were not covered by the
+  chapter-reference patterns at all, leaving all 20 renamed files claiming their old
+  number); and three line-wrapped refs plus a quiz string containing *version* numbers
+  that each needed individual inspection. Keeping the `ch` pattern case-sensitive spared
+  the `CH22-AAA` license plates in ch32's real transcript from being rewritten.
+- **`odoolings snapshot` / `odoolings diff` built and validated against a real
+  `functional` demo database**, because §4.4 committed ten chapters to depending on it
+  and it was recommended on theory rather than evidence. It holds up. Confirming a
+  quotation reports the state flip *and* the silently created delivery order; creating
+  an invoice reports `+1 account.move` with `+2 account.move.line` showing **debit
+  173.00 Account Receivable / credit 173.00 Product Sales**, which is double-entry made
+  visible from one button click, exactly the ch27 lesson demonstrated rather than
+  asserted. It also correctly reports "nothing changed" when an action fails, so it does
+  not invent activity.
+- **Facts learned while validating, all of which are chapter material** (verified, not
+  recalled): `sale.order._create_invoices` is private and **cannot** be called over
+  RPC, so the reader-facing path is the `sale.advance.payment.inv` wizard, which is what
+  the "Create Invoice" button actually opens. `stock.picking.button_validate` returns an
+  `ir.actions.act_window` for a `confirm.stock.sms` popup rather than completing, and
+  needs `context={"skip_sms": True}` to run headless (a real gotcha for ch25 and for any
+  test that drives deliveries). Odoo 19 refuses to invoice before delivery when the
+  product's invoicing policy is "Delivered Quantities", and the error text names the fix,
+  which is ch22's delivery-vs-invoice-policy lesson arriving unprompted. An invoice's
+  `name` is `None` until posting, when the sequence assigns `INV/2026/00010`: numbering
+  happens at post time, not creation, which connects ch27's inalterability material to
+  ch34's sequences.
+- Two defects found and fixed in the tool itself: invoice-line names carry the whole
+  multi-line product description, which wrecked the one-record-per-line output (now
+  whitespace-collapsed and length-bounded), and `stock.move` was labelled by the picking
+  reference it inherits rather than by its product (now a per-model label override).
+- `.odoolings-snapshot.json` added to both this repo's and the starter's `.gitignore`.
+  The tool writes exactly one dotfile in the working directory and still never reads the
+  reader's module, so §4.5's location-independence contract holds.
+- **Next:** ch21, ch22, ch27, ch28 (the highest-unblocking-value set per M4).
+
 ### 2026-08-05 — D12/D13: the functional act, and a renumber to make room for it
 
 Planning only. No chapter written, no renumber executed yet; §5.8 is the runbook and
