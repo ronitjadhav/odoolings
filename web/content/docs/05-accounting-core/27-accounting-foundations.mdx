@@ -1,25 +1,371 @@
 ---
 title: "27. Accounting Foundations: Double-Entry & account.move"
-description: Not written yet, tracked in the roadmap.
+description: Write a journal entry by hand, then discover that the invoice you made in chapter 22 is the very same model.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** understand double-entry well enough to read any Odoo accounting record, and
+learn the one fact that separates developers who write correct accounting code from those
+who do not. · **Time:** ~2.5 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+You do not need to be an accountant to work on Odoo. You do need to stop being surprised
+by accounting, because a large share of real tickets touch it: an invoice with the wrong
+tax, a report that does not tie, a payment that will not reconcile, a month that will not
+close.
+
+There is exactly one idea to internalise, and it is this chapter's title. **An invoice
+and a journal entry are the same model.** Not similar, not related by a foreign key: the
+same table, the same class, told apart by one field. Every developer who has not
+internalised that eventually writes code that treats invoices as a special case and then
+cannot explain why the accounting is wrong.
+
+So this chapter does it in the honest order. First you hand-write a journal entry, which
+forces you to meet debits and credits with nothing else in the way. Then you go and look
+at the invoice chapter 22 produced, and find it is built from exactly the same parts.
+
 ## Concepts
+
+### Double-entry, in the only two sentences you need
+
+Every transaction is recorded at least twice: once as a **debit**, once as a **credit**,
+and the two totals must be equal. That is the whole rule.
+
+What debits and credits *mean* depends on the account, and the mnemonic that actually
+survives contact with software is positional rather than moral:
+
+- A **debit** increases an asset or an expense, and decreases a liability, equity or
+  income.
+- A **credit** does the reverse.
+
+So buying a 250.00 tool cabinet with money from the bank is a debit of 250.00 to an
+equipment account (an expense went up) and a credit of 250.00 to the bank account (an
+asset went down). Nothing was created or destroyed; value moved, and the entry records
+both ends. This is the same shape as chapter 25's stock moves, where goods always come
+*from* one location and go *to* another. Accounting does it with money.
+
+Odoo does not treat balance as a convention you should respect. It **refuses to post an
+unbalanced entry**, which you will see for yourself.
+
+### The three models
+
+<Mermaid
+  chart={`flowchart TD
+    J["account.journal<br/>Sales, Purchases, Bank, Misc"]
+    M["account.move<br/>one document<br/>(move_type says which kind)"]
+    L1["account.move.line<br/>debit 250.00<br/>account: Purchase of Equipments"]
+    L2["account.move.line<br/>credit 250.00<br/>account: Bank"]
+    A["account.account<br/>the chart of accounts"]
+    J --> M
+    M --> L1
+    M --> L2
+    L1 -.-> A
+    L2 -.-> A`}
+/>
+
+- **`account.account`** is the chart of accounts: the list of buckets value can sit in.
+  Each carries an `account_type` (`asset_receivable`, `asset_cash`, `expense`, `income`,
+  `equity`, and so on) which is what reports group by. The demo database installs a
+  generic chart of 157 accounts.
+- **`account.journal`** is the book an entry is written in, and it owns the numbering
+  sequence. Sales, Purchases, Bank and Miscellaneous are the ones you will meet first.
+- **`account.move`** is one accounting document, and **`account.move.line`** are its
+  debit and credit lines. The lines are where the money actually is.
+
+### The duality, stated plainly
+
+`account.move` has a `move_type` field, and this is its entire selection:
+
+| `move_type` | What it is |
+|---|---|
+| `entry` | Journal Entry (a plain, hand-written or machine-written entry) |
+| `out_invoice` | Customer Invoice |
+| `out_refund` | Customer Credit Note |
+| `in_invoice` | Vendor Bill |
+| `in_refund` | Vendor Credit Note |
+| `out_receipt` | Sales Receipt |
+| `in_receipt` | Purchase Receipt |
+
+There is no `account.invoice` model. There has not been one for years. An invoice is an
+`account.move` whose `move_type` is `out_invoice`, with the same balanced
+`account.move.line` children as any other entry, plus some invoice-flavoured fields on
+top. Its "invoice lines" and its "journal items" are the same records looked at through
+two different views.
+
+Once you see it this way, a lot of Odoo stops being surprising: why invoices balance, why
+posting an invoice affects reports immediately, why you can find an invoice's accounting
+impact without leaving the model you started on.
+
+### Draft, posted, and where numbers come from
+
+A move is `draft` until you post it. Two things follow, and both matter:
+
+- **A draft move has no number.** Its `name` is `False`, not a placeholder. The journal's
+  sequence is asked for a number at *posting* time.
+- That is precisely why accounting numbering has no gaps: a number is never spent on
+  something that might be abandoned. It also means numbering is legally defensible, which
+  is the point of the whole arrangement.
+
+Chapter 34's sequences are the same mechanism you already met, applied where the stakes
+are highest.
 
 ## Hands-on
 
+Two movements again, continuing in the `functional` database.
+
+### Movement 1: run the flow
+
+#### 1. Look at the chart of accounts and the journals
+
+In **Accounting → Configuration → Chart of Accounts**, sort by code and scroll. Note the
+**Type** column: that is `account_type`, and it is what makes a report able to say
+"assets" without hard-coding account numbers.
+
+Then **Accounting → Configuration → Journals**. Seven for this company:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> for j in env["account.journal"].search([("company_id", "=", env.company.id)]):
+...     print(j.code, j.name, j.type)
+...
+INV Sales sale
+BILL Purchases purchase
+BNK1 Bank bank
+MISC Miscellaneous Operations general
+CABA Cash Basis Taxes general
+EXCH Exchange Difference general
+STJ Inventory Valuation general
+```
+
+Two of those are worth noticing now. **STJ, Inventory Valuation**, is where chapter 30's
+stock accounting lands. **CABA** and **EXCH** exist so tax-on-payment and currency
+movements have somewhere to go, which is a good early hint that Odoo would rather create
+a journal than fudge a number.
+
+#### 2. Try to post an entry that does not balance
+
+Go to **Accounting → Accounting → Journal Entries → New**, pick the **Miscellaneous
+Operations** journal, and add two lines:
+
+- Debit 250.00 to `611000 Purchase of Equipments`, labelled `Workshop tool cabinet`
+- Credit **200.00** to `101401 Bank`, labelled `Paid from bank`
+
+Press **Post**. Odoo stops you:
+
+```text
+The entry is not balanced.
+```
+
+That is not a warning you can dismiss. Double-entry is enforced at the database boundary,
+not left to your good intentions.
+
+#### 3. Balance it and post
+
+Change the credit to **250.00** and post. The entry gets a number, and the status becomes
+Posted.
+
+### Movement 2: read what it did
+
+#### 4. The number arrives on posting, not on creation
+
+Take a snapshot before you post, and watch the two states from the shell:
+
+```python
+>>> mv.name, mv.state          # before posting
+(False, 'draft')
+>>> mv.name, mv.state          # after posting
+('MISC/2026/08/0002', 'posted')
+```
+
+`False`, not `"/"` and not an empty string. There was no number to show, because none had
+been requested. Your own number will differ, and it encodes the journal code and the
+period: `MISC`, year, month, counter.
+
+Then confirm the rule Odoo just enforced:
+
+```python
+>>> sum(mv.line_ids.mapped('debit')), sum(mv.line_ids.mapped('credit'))
+(250.0, 250.0)
+>>> mv.move_type
+'entry'
+```
+
+#### 5. What the diff saw
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   MISC/2026/08/0002        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
+account.move.line   +2
+      new   Workshop tool cabinet    account_id=Purchase of Equipments  debit=250.0
+      new   Paid from bank           account_id=Bank  credit=250.0
+```
+
+One document, two lines, one debit, one credit, equal amounts. That is a complete
+accounting transaction and there is nothing else hiding behind it.
+
+#### 6. Now go and look at an invoice
+
+This is the payoff. Ask the model how many of each kind of document it is holding:
+
+```python
+>>> M = env["account.move"]
+>>> for mt, label in M._fields["move_type"].selection:
+...     n = M.search_count([("move_type", "=", mt)])
+...     if n:
+...         print(f"{mt:12} {n}")
+...
+entry        26
+out_invoice  18
+out_refund   8
+in_invoice   4
+in_refund    2
+```
+
+Five different document types, one model, one table. (If you reach for `read_group`
+here instead, note that in Odoo 19 the count comes back under a key named after the
+grouping field, `move_type_count`, not the `__count` older code expects.) Now open a real customer invoice and
+check what it is made of:
+
+```python
+>>> inv = env["account.move"].search([("move_type", "=", "out_invoice"),
+...                                   ("state", "=", "posted"),
+...                                   ("company_id", "=", env.company.id)], limit=1)
+>>> inv.name, inv.move_type, inv._name
+('INV/2026/00008', 'out_invoice', 'account.move')
+>>> for l in inv.line_ids:
+...     print(l.account_id.code, l.account_id.name, l.debit, l.credit)
+...
+400000 Product Sales 0.0 750.0
+121000 Account Receivable 750.0 0.0
+```
+
+Read those two lines like the entry you just wrote. The customer owes you 750.00, so
+**Account Receivable is debited** (an asset went up). You earned 750.00, so **Product
+Sales is credited** (income went up). Same structure, same balance, same model. The only
+thing that made it look like "an invoice" was `move_type` and a different form view.
+
+```python
+>>> sum(inv.line_ids.mapped('debit')) == sum(inv.line_ids.mapped('credit'))
+True
+```
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch27 --db functional
+✔ a manual journal entry was posted
+✔ its debits equal its credits
+✔ the sequence numbered it at posting time
+✔ an invoice is the same model as that entry
+
+ch27 complete! On to the next chapter 🔧
+```
 
 ## Gotchas
 
+- **A draft move's `name` is `False`, not `"/"` or `""`.** Code that formats
+  `move.name` for a draft entry prints `False` into a report, and code that tests
+  `if move.name` behaves differently before and after posting. If you need a label for an
+  unposted move, use `display_name`.
+- **`account.account.code` is computed, not stored, and company-dependent in Odoo 19.**
+  Reading it while a different company is active returns `False`, silently. Verified: the
+  same line read as the wrong company gives `False` and as the right one gives
+  `'400000'`. Use `account.with_company(move.company_id).code`, and be very careful with
+  psql queries against a `code` column, because the value lives in
+  `account.code.mapping` rather than on the account row.
+- **The shell does not apply the company filter the interface does.** This demo database
+  has three companies and fourteen journals, but only seven belong to the active one. A
+  bare `search([])` in a script crosses company boundaries in a way the same action in
+  the interface would not, which is a genuinely dangerous difference when you are writing
+  a fix against production data.
+- **Do not look for `account.invoice`.** It does not exist. Searching core for it, or
+  writing `env["account.invoice"]`, is the clearest sign of a tutorial or answer written
+  for Odoo 8 or 9.
+- **Unbalanced means unpostable, so "my code posted a broken entry" is never the bug.**
+  If a move will not post, the arithmetic really is wrong, usually because a rounding
+  difference or a tax line was computed rather than taken from Odoo.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You need every accounting effect of a customer invoice. Where do you look?',
+      options: [
+        'account.move.line records whose move_id is that invoice, since the invoice is an account.move',
+        'In account.invoice, then follow its generated journal entry through the move_id link',
+        'In a separate posting table that account.move writes to when an invoice is validated',
+      ],
+      answer: 0,
+      why: 'There is no account.invoice model and no separate posting table. An invoice is an account.move with move_type "out_invoice", and its debit and credit lines are ordinary account.move.line children of it. The chapter reads one directly: Account Receivable debited 750.00, Product Sales credited 750.00, balancing exactly like the hand-written entry.',
+    },
+    {
+      q: 'A report prints "False" where a journal entry number should be. What is the most likely cause?',
+      options: [
+        'The move failed to post, so its sequence was consumed and then rolled back',
+        'The move is still in draft, and a draft move has no name yet',
+        'The journal has no sequence configured, so numbering silently returns nothing',
+      ],
+      answer: 1,
+      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0002", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
+    },
+    {
+      q: 'Reading line.account_id.code in a script returns False, though the account clearly has a code in the interface. Why?',
+      options: [
+        'The code field was renamed in Odoo 19 and now needs to be read through the chart template',
+        'code is computed, unstored and company-dependent, so it resolves against whichever company is active',
+        'The account is archived, and archived accounts return False for code until reactivated',
+      ],
+      answer: 1,
+      why: 'Confirmed in the shell: the same line read with the wrong active company gives False and with_company(move.company_id) gives "400000". In Odoo 19 code is a non-stored computed field backed by account.code.mapping, so it resolves per company. This also means a psql query expecting a code column on the account row will not find what you expect.',
+    },
+    {
+      q: 'Why does Odoo refuse to post an entry whose debits and credits differ?',
+      options: [
+        'Because reports would be slower to compute if they had to detect imbalance at read time',
+        'Because a move that does not balance is not a valid accounting record at all',
+        'Because the journal sequence cannot assign a number to a move of indeterminate total',
+      ],
+      answer: 1,
+      why: 'Double-entry is the definition of the record, not a preference: value has to come from somewhere and go somewhere, so the two sides are equal by construction. The chapter triggers the actual refusal, "The entry is not balanced.", which is why a broken posted entry is never the explanation for a reporting problem.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Post a second entry recording 90.00 of rent paid from the bank, using `612000 Rent`.
+   Before you post it, predict which side each line takes, then check yourself with
+   `odoolings diff --db functional`.
+2. ⭐⭐ Find, in the shell, the total debits and total credits across **every** posted
+   `account.move` in the active company, and show they are equal. Then explain why that
+   result is guaranteed rather than lucky, and what it would mean about your database if
+   it were ever false.
+3. ⭐⭐ Take the invoice from step 6 and work out, from its lines alone and without
+   opening any report, how much of it is revenue and how much the customer still owes.
+   Then say which `account_type` values you used to decide, and why hard-coding account
+   codes instead would be a bug waiting for the next client's chart of accounts.
+4. ⭐⭐⭐ Break-it lab: the company-dependent `code` field. Read the same
+   `account.move.line`'s `account_id.code` three ways: as the active company, with
+   `with_company(inv.company_id)`, and via a direct psql query against the
+   `account_account` table. Explain each result, then find `account.code.mapping` in the
+   shell and describe what it stores. Finally, say what this means for any report you
+   might write that groups by account code in a multi-company database.
+
 ## Further reading
+
+- [Accounting cheat sheet (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/get_started/cheat_sheet.html):
+  Odoo's own one-page summary of debits, credits and the main statements. Worth keeping
+  open for the rest of Part 5.
+- [Journal entries and journals (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting.html):
+  the functional documentation for what this chapter did by hand.
+- [`account_move.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_move.py):
+  large, and worth skimming precisely because it is one model serving invoices, bills,
+  refunds and plain entries. Find `move_type` and see how much behaviour branches on it.
+- [`account_move_line.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_move_line.py):
+  where debit, credit and the balance constraint live.

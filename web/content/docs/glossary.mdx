@@ -8,6 +8,10 @@ meant to be mixed into other models via the list form of `_inherit`, never
 instantiated directly. `mail.thread` and `mail.activity.mixin` (chapter 33) are
 both `AbstractModel`.
 
+**account.move / account.move.line**: one accounting document and its debit/credit
+lines. **The same model holds invoices, bills, credit notes and plain journal entries**,
+told apart by `move_type`; there is no `account.invoice` model. Every move balances, and
+Odoo refuses to post one that does not (chapter 27).
 **access rights (ACL)**: `ir.model.access` records, conventionally loaded from
 `security/ir.model.access.csv`, granting a group read/write/create/unlink on one
 model. Additive across groups (rights union, never subtract) and model-wide; see
@@ -39,6 +43,10 @@ smart buttons. Extensions target it by name to add their own buttons.
 **calendar view**: a view type placing records on a date grid via `date_start` /
 `date_stop`, with `color` bucketing events by another field's value.
 
+**chart of accounts (`account.account`)**: the list of buckets value can sit in. Each
+account carries an `account_type` (`asset_receivable`, `expense`, ...) which is what
+reports group by, so code should branch on the type rather than on account codes. In
+Odoo 19 `code` itself is computed, unstored and **company-dependent** (chapter 27).
 **chatter**: the message/activity feed at the bottom (or side) of most form views:
 emails, notes, followers, scheduled activities. Models opt in via `mail.thread` and
 `mail.activity.mixin`, and render it with the single `<chatter/>` view tag
@@ -84,6 +92,10 @@ xml id. Always uniform, one row per record, and (chapter 34) always noupdate whe
 listed under `demo`, never able to opt out of it when listed under `data`, since
 CSV has no equivalent of XML's `<data noupdate="...">` wrapper.
 
+**debit / credit**: the two sides of every accounting entry. A debit increases an asset
+or expense and decreases a liability, equity or income; a credit does the reverse. The
+totals of the two sides are equal by definition, which is what "double-entry" means
+(chapter 27).
 **decoration-***: list (and badge) attributes carrying an expression over the view's
 loaded fields; matching rows render in the semantic color (muted, info, success,
 warning, danger) or style (bf, it).
@@ -193,6 +205,10 @@ replaces the old `type = 'product'` storable type (chapter 21).
 **lead / opportunity**: the two values of `crm.lead.type`, not two models. Converting a
 lead flips the field on the record that already existed, which is why the pipeline has
 no `crm.opportunity` model and no second table (chapter 22).
+**journal (`account.journal`)**: the book an accounting entry is written in (Sales,
+Purchases, Bank, Miscellaneous), and the owner of its numbering sequence. The sequence is
+asked for a number at **posting** time, not creation, which is why accounting numbering
+has no gaps (chapter 27).
 **kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
 pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
 

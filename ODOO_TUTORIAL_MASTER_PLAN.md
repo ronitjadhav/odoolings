@@ -933,6 +933,39 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch27) — accounting foundations, and a company-dependent field
+
+- **Ch27 written and executed**, the chapter §5.3 called the highest-value one in Parts
+  4-5, and it earns that: the reader hand-writes a balanced journal entry, then opens the
+  invoice ch22 produced and finds it is the same model. Odoo's refusal, **"The entry is
+  not balanced."**, was triggered for real rather than described.
+- **A significant Odoo 19 finding: `account.account.code` is computed, NOT stored, and
+  company-dependent**, backed by an `account.code.mapping` model. Reading it while a
+  different company is active returns `False` **silently**: verified on one
+  `account.move.line`, where the wrong company gives `False` and
+  `with_company(inv.company_id)` gives `'400000'`. This is a trap for any report or
+  migration script, and it also means a psql query against a `code` column on
+  `account_account` will not find what its author expects. Now a Gotcha and a ⭐⭐⭐ lab.
+- **Second multi-company trap, also verified**: the demo database has **three** companies
+  and 14 journals, only 7 of which belong to the active one, and the shell does **not**
+  apply the company filter the interface does. A bare `search([])` in a script crosses
+  company boundaries in a way the equivalent UI action would not.
+- Verified: `move_type` has seven values (`entry`, `out_invoice`, `out_refund`,
+  `in_invoice`, `in_refund`, `out_receipt`, `in_receipt`); a draft move's `name` is
+  `False`, not `"/"`, and the journal sequence numbers it at posting
+  (`MISC/2026/08/0002`); the generic chart installs 157 accounts.
+- **Two chapter snippets corrected by running the exact printed text.** `read_group`
+  returns the count under `move_type_count` in 19, **not** `__count`, so the printed
+  loop raised `KeyError`; replaced with a `search_count` loop over the selection (clearer,
+  and it orders to match the Concepts table), with the key change noted as an aside since
+  ch48 will use `read_group` properly. An escaped apostrophe in a quiz option also broke
+  the MDX build, caught pre-merge.
+- Check design note: the balance check now validates **one** move rather than summing
+  across the matched set, because a reader may legitimately have written more than one
+  entry. My own leftover test entry is what exposed that.
+- Glossary +4 (*account.move / account.move.line*, *chart of accounts*, *debit / credit*,
+  *journal*). Screenshots pending the author, per standing rule 5.
+
 ### 2026-08-05 (ch22) — sales, and core's empty hook
 
 - **Ch22 written and executed** in the `functional` database, continuing from ch21's end
