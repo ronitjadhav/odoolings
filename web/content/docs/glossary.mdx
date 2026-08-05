@@ -12,6 +12,7 @@ both `AbstractModel`.
 lines. **The same model holds invoices, bills, credit notes and plain journal entries**,
 told apart by `move_type`; there is no `account.invoice` model. Every move balances, and
 Odoo refuses to post one that does not (chapter 27).
+
 **access rights (ACL)**: `ir.model.access` records, conventionally loaded from
 `security/ir.model.access.csv`, granting a group read/write/create/unlink on one
 model. Additive across groups (rights union, never subtract) and model-wide; see
@@ -47,6 +48,7 @@ smart buttons. Extensions target it by name to add their own buttons.
 account carries an `account_type` (`asset_receivable`, `expense`, ...) which is what
 reports group by, so code should branch on the type rather than on account codes. In
 Odoo 19 `code` itself is computed, unstored and **company-dependent** (chapter 27).
+
 **chatter**: the message/activity feed at the bottom (or side) of most form views:
 emails, notes, followers, scheduled activities. Models opt in via `mail.thread` and
 `mail.activity.mixin`, and render it with the single `<chatter/>` view tag
@@ -160,6 +162,7 @@ other modules can override it and add behaviour. `sale.order._action_confirm` is
 clearest example: it holds only a docstring, and each installed bridge module
 (`sale_stock`, `sale_purchase`, ...) overrides it to create its own document on
 confirmation (chapter 22).
+
 **filestore**: the on-disk directory where Odoo stores attachments and uploaded files
 (one subdirectory per database). Binary content lives here, not in PostgreSQL; in the
 tutorial's Docker setup it sits in the `odoo-data` volume.
@@ -196,19 +199,23 @@ can mix both (chapter 22).
 **invoice_status**: the billing state of a `sale.order` (`no`, `to invoice`,
 `invoiced`, `upselling`), tracked independently of `state` because commercial and
 billing progress move at different speeds.
+
 **integrator / partner**: a company implementing Odoo for clients: configuration,
 custom modules, migrations, support. Most Odoo developers work at one.
 
 **is_storable ("Track Inventory")**: the boolean deciding whether Odoo counts a
 product in stock. Contributed by the Inventory app, not by `product`, and in Odoo 19 it
 replaces the old `type = 'product'` storable type (chapter 21).
+
 **lead / opportunity**: the two values of `crm.lead.type`, not two models. Converting a
 lead flips the field on the record that already existed, which is why the pipeline has
 no `crm.opportunity` model and no second table (chapter 22).
+
 **journal (`account.journal`)**: the book an accounting entry is written in (Sales,
 Purchases, Bank, Miscellaneous), and the owner of its numbering sequence. The sequence is
 asked for a number at **posting** time, not creation, which is why accounting numbering
 has no gaps (chapter 27).
+
 **kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
 pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
 
@@ -323,8 +330,15 @@ and the lines' `reconciled` flags, so writing it directly fixes nothing (chapter
 **payment term (`account.payment.term`)**: sets an invoice's due date, and can split it
 into dated instalments. It changes *when* money is expected, never which accounts are
 used: overdue is a date question, unpaid is a reconciliation question (chapter 28).
+
 **pivot view**: a view type describing a table of aggregated data: `row`/`col`
 fields group records, `measure` fields are summed per group, via `read_group`.
+
+**pricelist (`product.pricelist`)**: an optional, feature-flagged bag of
+`product.pricelist.item` rules that override a product's own price on an order. Each rule
+declares an `applied_on` scope whose numeric prefix (`0_product_variant` through
+`3_global`) **is** the specificity sort key, so the most specific applicable rule wins and
+rules never stack (chapter 23).
 
 **primary view**: a standalone view competing for the default slot of its model and
 type. With `inherit_id` plus `mode="primary"` it becomes a patched *copy* of another
@@ -343,6 +357,7 @@ on save. An attribute with a single value multiplies nothing (chapter 21).
 `product.product` is a specific sellable, stockable thing ("Brake Pad Set (Front)").
 A template with no attributes still has exactly one variant, and core code asking for
 `product_id` always means the variant.
+
 **prototype inheritance**: `_inherit` *plus* a new `_name`. Creates a new model
 and table pre-filled with copies of the parent's field definitions. The two are
 unrelated from then on, and it is the rarest of the three in practice.
@@ -355,13 +370,20 @@ pages) and client-side (OWL component templates).
 **rank (`customer_rank` / `supplier_rank`)**: integer counters on `res.partner` that
 rise as a partner appears on sales or purchase documents. Odoo has no customer *type*
 and no supplier table: being both at once is just both counters above zero.
+
 **reconciliation (`account.partial.reconcile`)**: the act of declaring that a debit and a
 credit cancel out, and the record that stores it. Two instalments against one invoice
 create two partial reconciliations whose amounts sum to the total. This, not
 `payment_state`, is where "paid" actually lives (chapter 28).
+
 **record rule**: an `ir.rule` filtering *which records* of a model a group may
 touch, via a domain ("only orders assigned to you"). The per-record layer on top of
 access rights, which are model-wide. LibreFleet's first one lands in chapter 12.
+
+**reward (loyalty)**: what a claimed coupon, code or promotion adds to an order, and it
+arrives as **its own order line with a negative `price_unit`**, not as an edit to the
+product line and not as the `discount` field. From `sale_loyalty`, which also brings
+`loyalty.program` and its eight programme types (chapter 23).
 
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
@@ -431,6 +453,7 @@ appears inside a domain or context string written in XML. Not a Python variable.
 unit declares `relative_factor` against a `relative_uom_id` (Dozens is 12 Units),
 forming a tree whose absolute `factor` is computed recursively. The pre-19 model of unit
 *categories* with a reference unit and a `uom_type` is gone (chapter 21).
+
 **vacuum**: the scheduled process that deletes old transient records automatically,
 so a wizard's table never accumulates forever. Configurable per model via
 `_transient_max_hours`.

@@ -1,25 +1,366 @@
 ---
 title: "23. Pricing: Pricelists, Discounts & Promotions"
-description: Not written yet, tracked in the roadmap.
+description: Find out why "the discount is wrong" is such a hard ticket, by watching one price come from three different places.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** learn every route by which a line's price stops being the product's price, so you
+can diagnose a wrong one. · **Time:** ~2 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+"The price on this quote is wrong" is one of the most common tickets an Odoo developer
+receives, and one of the most annoying, because the price in front of you could have come
+from at least three unrelated mechanisms. Until you can name all of them and tell which
+one fired, you are guessing.
+
+That is this chapter's whole job. By the end you will have made one product's price change
+three different ways, and you will be able to tell from the database alone which mechanism
+did it.
+
 ## Concepts
+
+### Pricelists are optional, and off by default
+
+Start from the baseline, because it is easy to forget it exists. In a fresh database with
+the Sales app installed there are **no pricelists at all**, and a line's `price_unit` is
+simply the product's own sales price. Pricelists sit behind a feature flag
+(`product.group_product_pricelist`), and ticking it is what brings the machinery into
+existence.
+
+Worth knowing before you debug anything: if `pricelist_id` on the order is empty, no
+pricelist rule can possibly be responsible for the price.
+
+### A pricelist is a bag of rules, and specificity decides
+
+`product.pricelist` holds `product.pricelist.item` rules. Each says **what it applies to**
+and **how it computes a price**:
+
+| `applied_on` | Scope |
+|---|---|
+| `0_product_variant` | one specific variant |
+| `1_product` | one template, so all its variants |
+| `2_product_category` | a product category |
+| `3_global` | everything |
+
+Look at those values again. The numeric prefixes are not decoration, **they are the sort
+key**. Odoo orders candidate rules by that string, so `0_product_variant` is considered
+before `3_global` and the most specific applicable rule wins. Once you see that, resolution
+order stops being folklore you have to memorise.
+
+How a rule computes is a separate axis, `compute_price`: `fixed` (a flat price),
+`percentage` (a discount off a base), or `formula` (a margin calculation with rounding and
+limits). A rule can also carry a `min_quantity` and a date window, which is how volume and
+seasonal pricing are expressed without code.
+
+### Three different things all called "the discount"
+
+Here is the part that makes tickets hard. All three of these change what a customer pays,
+and they leave different traces:
+
+| Mechanism | What it touches | How you spot it |
+|---|---|---|
+| **Pricelist rule** | `price_unit` on the product line | line price differs from the product's `lst_price`, and the order has a `pricelist_id` |
+| **Discount field** | `discount` percent on the line | `price_unit` still equals the product price, `discount` is non-zero |
+| **Promotion / reward** | adds a **new line** with a negative `price_unit` | an extra line you did not add, priced below zero |
+
+The third one surprises people. A claimed reward does not edit your product line and does
+not touch the discount field. It appends its own line, and the order total falls because
+that line is negative. So "the 10% is missing from the line" and "the 10% is a separate
+line" can both be accurate descriptions of different mechanisms.
+
+<Mermaid
+  chart={`flowchart TD
+    P["product.product<br/>lst_price 79.00"]
+    PL["pricelist rule<br/>0_product_variant, fixed 60.00"]
+    L["sale.order.line<br/>price_unit 60.00"]
+    D["discount field<br/>a percent ON this line"]
+    R["reward line<br/>price_unit -12.00<br/>(a separate line)"]
+    T["order total"]
+    P --> L
+    PL -- "wins over 3_global" --> L
+    L --> T
+    D -. "applies to the line" .-> L
+    R -- "appended to the order" --> T`}
+/>
+
+### Promotions are a separate app, and claiming is two steps
+
+Coupons, discount codes, loyalty cards and "buy X get Y" all come from `sale_loyalty`,
+which is not installed by default. It brings `loyalty.program`, and Odoo 19 offers eight
+programme types: coupons, gift cards, loyalty cards, promotions, eWallets, discount codes,
+buy X get Y, and next-order coupons.
+
+Applying a code is **two operations**, and knowing that saves confusion if you automate it.
+`_try_apply_code` *validates* the code and returns what could be claimed; it does not
+change the order. Claiming is a second call. Fire only the first and nothing happens,
+silently.
 
 ## Hands-on
 
+Continuing in `functional`.
+
+### Movement 1: run the flow
+
+#### 1. Confirm the baseline before changing anything
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> env["product.pricelist"].search_count([])
+0
+>>> so = env["sale.order"].search([("state", "=", "sale")], order="id desc", limit=1)
+>>> l = so.order_line[0]
+>>> so.pricelist_id.name, l.price_unit, l.product_id.lst_price
+(False, 79.0, 79.0)
+```
+
+No pricelists exist, the order has none, and the line price is exactly the product price.
+That is the "no mechanism fired" state, and it is what you compare against.
+
+#### 2. Turn pricelists on
+
+**Settings → Sales → Pricing → Pricelists**, tick it, save. Then look again:
+
+```python
+>>> env["product.pricelist"].search_count([])
+3
+```
+
+Three, not one: this demo database has three companies, and enabling the feature creates a
+Default pricelist for each. Chapter 27's warning about the shell crossing company
+boundaries applies here too.
+
+#### 3. Add two rules that compete
+
+On **your own company's** Default pricelist, add two items:
+
+1. **All Products**, Discount, **10%**.
+2. **Product Variant** = `Brake Pad Set (Front)`, Fixed Price, **60.00**.
+
+#### 4. Quote it and watch the price
+
+Make a new quotation, set its **Pricelist** to that Default, and add 2 of
+`Brake Pad Set (Front)`.
+
+#### 5. Apply a promotion
+
+Install **Coupons & Loyalty** (Apps, search `sale_loyalty`). The demo data includes a
+discount-code programme called *Code for 10% on orders*, whose code is `10pc`. On your
+quotation, open the **Discount & Loyalty** section and enter that code.
+
+### Movement 2: read what it did
+
+#### 6. Specificity, proved
+
+```python
+>>> pl = env["product.pricelist"].search([("company_id", "=", env.company.id)], limit=1)
+>>> for it in pl.item_ids:
+...     print(it.applied_on, it.compute_price, it.fixed_price or it.percent_price,
+...           it.product_id.display_name or "(any)")
+...
+0_product_variant fixed 60.0 Brake Pad Set (Front)
+3_global percentage 10.0 (any)
+```
+
+Two rules, both applicable to the brake pads. Now ask the pricelist for prices, once for a
+product that has a specific rule and once for a product that does not:
+
+```python
+>>> front = env["product.product"].search([("product_tmpl_id.name", "=", "Brake Pad Set")], limit=1)
+>>> other = env["product.product"].search([("product_tmpl_id.name", "=", "Office Chair")], limit=1)
+>>> front.lst_price, pl._get_product_price(front, 1)
+(79.0, 60.0)
+>>> other.lst_price, pl._get_product_price(other, 1)
+(70.0, 63.0)
+```
+
+The brake pads land on 60.00, the flat variant price. The chair has no rule of its own, so
+it falls through to the global 10% and lands on 63.00. That is the whole resolution order,
+in two lines of output.
+
+<Callout type="warn" title="Gotcha">
+  `_get_product_price` works in the shell but is **private**, so RPC refuses it, exactly
+  like `sale.order._create_invoices` in chapter 28. There is no public "what would this
+  cost" call, which is why this chapter's odoolings check inspects the rule and a quoted
+  line rather than asking the pricelist directly.
+</Callout>
+
+#### 7. What the quotation took
+
+```console
+$ python3 odoolings.py diff --db functional
+sale.order          +1
+      new   S00026                   state=draft  amount_untaxed=120.0  amount_total=138.0  invoice_status=no
+sale.order.line     +1
+      new   Brake Pad Set (Front)    product_uom_qty=2.0  price_unit=60.0
+```
+
+`price_unit=60.0` against a 79.00 product. Note what is **not** here: the `discount` field
+is untouched.
+
+```python
+>>> l = so.order_line[0]
+>>> l.price_unit, l.discount, l.product_id.lst_price
+(60.0, 0.0, 79.0)
+```
+
+A pricelist rule rewrites the price. It does not populate the discount column, so a
+customer reading this quote sees 60.00 with no visible reduction. Whether that is what your
+client wants is a configuration question, and it is a common source of "where did our
+discount go".
+
+#### 8. What the promotion did, which is different
+
+```console
+$ python3 odoolings.py diff --db functional
+sale.order          ~
+      chg   S00026                   amount_untaxed: 120.0 -> 108.0
+      chg   S00026                   amount_total: 138.0 -> 124.2
+sale.order.line     +1
+      new   10% on your order        product_uom_qty=1.0  price_unit=-12.0
+```
+
+**A new line, priced at minus 12.00.** The product line is untouched at 60.00; the total
+fell because a negative line joined the order.
+
+```python
+>>> for l in so.order_line:
+...     print(l.product_id.display_name[:32], l.price_unit, l.price_subtotal)
+...
+Brake Pad Set (Front) 60.0 120.0
+10% on your order -12.0 -12.0
+```
+
+Ten percent of 120.00 is 12.00, and it arrived as its own row. If you were hunting for a
+missing discount on the product line, you would never have found it.
+
+#### 9. The two-step claim, seen once
+
+Worth doing once so you recognise it later. Validating a code is not applying it:
+
+```python
+>>> so._try_apply_code("10pc")
+defaultdict(<function ...>, {loyalty.card(1,): loyalty.reward(2,)})
+```
+
+That return value is a mapping of *claimable* rewards, and the order has not changed. The
+second step is what appends the line:
+
+```python
+>>> claimable = so._try_apply_code("10pc")
+>>> for coupon, rewards in claimable.items():
+...     so._apply_program_reward(rewards[0], coupon)
+```
+
+Call only the first and nothing happens, with no error to tell you why.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch23 --db functional
+✔ the pricelists feature is enabled
+✔ two rules compete on one pricelist
+✔ the more specific rule wins
+✔ a claimed promotion added a negative line
+
+ch23 complete! On to the next chapter 🔧
+```
 
 ## Gotchas
 
+- **No pricelist on the order means no pricelist rule can be to blame.** Check
+  `pricelist_id` first when diagnosing a price. It is the cheapest possible test and it
+  rules out a whole mechanism.
+- **A line takes its price when it is created.** Editing a pricelist rule does not reprice
+  quotations that already exist. "I fixed the rule and the quote still shows the old price"
+  is this, and the fix is to re-add the line or use the order's price-recompute action, not
+  to hunt for a caching bug.
+- **A pricelist rule and the `discount` field are different features.** A rule rewrites
+  `price_unit` and leaves `discount` at zero, so the reduction is invisible on the printed
+  quote. If the client wants the discount *shown*, that is a configuration decision, not a
+  bug in the pricelist.
+- **A reward is a new line, not an edit.** Look for a negative `price_unit` before
+  concluding a promotion did not apply. Totals that are right while lines "look wrong" are
+  usually this.
+- **`_try_apply_code` validates, it does not apply.** It returns claimable rewards and
+  changes nothing. Automating promotions with only that call produces silent no-ops.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A quotation line shows 60.00 for a product that lists at 79.00, and the line discount field reads 0. Which mechanism is responsible?',
+      options: [
+        'A pricelist rule, which rewrites price_unit and leaves the discount field alone',
+        'The discount field, which stores the reduction while price_unit keeps the list price',
+        'A claimed promotion, which reduces the price of the line it applies to',
+      ],
+      answer: 0,
+      why: 'Verified on this exact line: price_unit 60.0, discount 0.0, product lst_price 79.0. A pricelist rule replaces the price outright, which is why the printed quote shows no visible reduction. The discount field would have left price_unit at 79.00, and a promotion would have appended a separate negative line rather than touching this one.',
+    },
+    {
+      q: 'A pricelist has a 10% global rule and a fixed 60.00 rule on one variant. Which applies to that variant, and why?',
+      options: [
+        'The global rule, because rules are evaluated in creation order and it was added first',
+        'The fixed rule, because applied_on values are prefixed so the most specific sorts first',
+        'Both in sequence: the fixed price is set, then the 10% comes off that',
+      ],
+      answer: 1,
+      why: 'The values are 0_product_variant, 1_product, 2_product_category and 3_global, and that numeric prefix is the sort key, so specificity decides rather than creation order. Confirmed by output: the brake pads price at the flat 60.00 while an Office Chair with no rule of its own falls through to the global 10% and prices at 63.00. Rules do not stack.',
+    },
+    {
+      q: 'You apply a 10% discount code and the product line still reads 60.00. What should you check?',
+      options: [
+        'Whether the code failed validation, since a successful claim always edits the product line',
+        'Whether a separate line with a negative price_unit was appended to the order',
+        'Whether the pricelist overrode the promotion, since pricelists take precedence',
+      ],
+      answer: 1,
+      why: 'A reward arrives as its own order line: the diff shows a new "10% on your order" line at price_unit -12.0 while the product line stays at 60.00, and the order total falls from 138.00 to 124.20. Nothing about the product line changes, so looking there for the reduction finds nothing and wrongly suggests the code failed.',
+    },
+    {
+      q: 'You script promotion codes and call _try_apply_code, but nothing happens to the order. Why?',
+      options: [
+        'It only validates, returning claimable rewards; a second call claims them',
+        'The order must be confirmed before any reward can attach to it',
+        'It queues the reward for the next recompute, which a script has to trigger',
+      ],
+      answer: 0,
+      why: 'Its return value is a mapping of loyalty cards to claimable rewards, and the order is untouched at that point, which the chapter shows directly. Applying takes a second call, _apply_program_reward, once per claimable reward. It no-ops silently rather than raising, which is exactly why it is worth meeting deliberately once.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Add a third rule: 20% off `Brake Pad Set` at the **template** level (`1_product`),
+   then predict whether the Front variant's price changes before you test it. Explain the
+   result using the `applied_on` sort order.
+2. ⭐⭐ Give one rule a `min_quantity` of 10, then quote first 2 and then 12 of the same
+   product on separate lines. Read both `price_unit` values and explain how Odoo picked
+   differently for two lines on one order.
+3. ⭐⭐ Ticket-shaped: "we gave this customer 15% and the quote shows full price". Write the
+   diagnosis order you would follow, naming the exact field you would read at each step,
+   and make sure your sequence can distinguish all three mechanisms from this chapter. Then
+   say which single field you would ask for a screenshot of first, and why that one.
+4. ⭐⭐⭐ Break-it lab: edit the variant rule's fixed price to 50.00 and reload your existing
+   quotation. The line does not change. Work out from the models what Odoo would have to do
+   to reprice it, find the action or method that does that, and explain why repricing is
+   not automatic. What would break in a real business if it were?
+
 ## Further reading
+
+- [Pricelists (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/sales/products_prices/prices/pricing.html):
+  the configuration side, including the formula rules this chapter only mentions.
+- [Discounts and loyalty (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/sales/products_prices/loyalty_discount.html):
+  all eight programme types and what each is for.
+- [`product_pricelist_item.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_pricelist_item.py):
+  read the `applied_on` selection and the ordering, now that you know why the prefixes are
+  numbers.
+- [`sale_order.py` in `sale_loyalty`](https://github.com/odoo/odoo/blob/19.0/addons/sale_loyalty/models/sale_order.py):
+  where `_try_apply_code` and `_apply_program_reward` live, and where the reward line is
+  built.

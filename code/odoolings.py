@@ -1409,6 +1409,85 @@ def receivable_line_is_reconciled(env):
         "line and the account.partial.reconcile records linking it to the payment.")
 
 
+# --- ch23: pricing, pricelists, promotions -------------------------------------
+
+def _ch23_front(env):
+    return env.call("product.product", "search",
+                    [("product_tmpl_id.name", "=", "Brake Pad Set")], limit=1)
+
+
+def pricelists_feature_is_on(env):
+    n = env.call("product.pricelist", "search_count", [])
+    assert n, (
+        "no product.pricelist records exist at all, which means the feature is still off. "
+        "Pricelists are optional in Odoo 19: tick Settings > Sales > Pricelists and Odoo "
+        "creates a Default pricelist per company.")
+
+
+def two_rules_compete_on_one_pricelist(env):
+    pls = env.call("product.pricelist", "search", [])
+    items = env.call("product.pricelist.item", "search_read", [("pricelist_id", "in", pls)],
+                     fields=["applied_on", "compute_price"])
+    assert len(items) >= 2, (
+        "found %d pricelist rule(s); the hands-on adds two so they can compete: a global "
+        "percentage and a variant-specific fixed price." % len(items))
+    kinds = {i["applied_on"] for i in items}
+    assert "3_global" in kinds and "0_product_variant" in kinds, (
+        "the rules present are %s. You need one '3_global' and one '0_product_variant' to "
+        "see resolution order, because those numeric prefixes ARE the specificity order."
+        % sorted(kinds))
+
+
+def specific_rule_beats_global(env):
+    """The whole point: a 79.00 product is quoted at the 60.00 variant rule.
+
+    Checks the rule AND its effect. product.pricelist._get_product_price is
+    private and RPC refuses it (the boundary chapter 28 meets with
+    _create_invoices), so there is no public way to ask the pricelist for a live
+    price. Asserting only the saved order line would be a check that cannot fail:
+    editing the rule afterwards does not reprice a line that is already stored.
+    So the rule's own configuration is verified too.
+    """
+    front = _ch23_front(env)
+    assert front, "no Brake Pad Set variant found (chapter 21 created it)"
+    listed = env.call("product.product", "read", front, fields=["lst_price"])[0]["lst_price"]
+
+    rules = env.call("product.pricelist.item", "search_read",
+                     [("applied_on", "=", "0_product_variant"), ("product_id", "in", front)],
+                     fields=["compute_price", "fixed_price"])
+    assert rules, (
+        "no '0_product_variant' rule points at the Brake Pad Set (Front). Without it there "
+        "is nothing to beat the global rule, and nothing to demonstrate.")
+    fixed = [r for r in rules if r["compute_price"] == "fixed"
+             and round(r["fixed_price"], 2) == 60.0]
+    assert fixed, (
+        "the variant rule computes %r at %.2f. The hands-on uses a fixed 60.00 against a "
+        "79.00 list price, so the discount is unmistakable."
+        % (rules[0]["compute_price"], rules[0]["fixed_price"]))
+
+    lines = env.call("sale.order.line", "search_read",
+                     [("product_id", "in", front), ("order_id.pricelist_id", "!=", False)],
+                     fields=["price_unit"])
+    assert lines, (
+        "the rule exists but nothing was quoted with it. Make a quotation whose Pricelist "
+        "field is set, then add the Front variant to it.")
+    assert any(round(l["price_unit"], 2) == 60.0 for l in lines), (
+        "quoted prices are %s, none of them 60.00, though the product lists at %.2f. The "
+        "line takes its price when it is created, so a line added before the rule existed "
+        "keeps the old price: add a fresh line."
+        % (sorted({round(l["price_unit"], 2) for l in lines}), listed))
+
+
+def a_promotion_added_a_negative_line(env):
+    """A reward is a NEW line with a negative price, not an edit to an existing one."""
+    lines = env.call("sale.order.line", "search_read", [("price_unit", "<", 0)],
+                     fields=["name", "price_unit", "order_id"])
+    assert lines, (
+        "no order line has a negative price_unit, so no promotion has been claimed. Apply "
+        "the demo code '10pc' to your quotation. Note a reward arrives as its own line: it "
+        "does not change the price of the product line, and it is not the discount field.")
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1670,6 +1749,19 @@ CHAPTERS = {
          "sale itself. Read its two-line _action_confirm override."),
         ("the order became invoiceable", order_is_invoiceable_on_confirmation,
          "invoice_status is driven by the product's invoice policy, not by the order."),
+    ],
+    "ch23": [
+        ("the pricelists feature is enabled", pricelists_feature_is_on,
+         "Settings > Sales > Pricelists. Until it is ticked, price_unit comes straight "
+         "from the product and there are no pricelist records at all."),
+        ("two rules compete on one pricelist", two_rules_compete_on_one_pricelist,
+         "One global percentage rule and one variant-specific fixed rule."),
+        ("the more specific rule wins", specific_rule_beats_global,
+         "applied_on values are prefixed 0_ to 3_ precisely so the most specific rule "
+         "sorts first. A 79.00 product should price at the 60.00 variant rule."),
+        ("a claimed promotion added a negative line", a_promotion_added_a_negative_line,
+         "Install Coupons & Loyalty, then apply the demo code 10pc. The reward is a new "
+         "order line with a negative price_unit."),
     ],
     "ch27": [
         ("a manual journal entry was posted", manual_journal_entry_posted,
