@@ -898,7 +898,7 @@ def loaner_creates_and_reads_through(env):
             env.call("librefleet.vehicle", "unlink", [vehicle[0]])
 
 
-# --- ch22: extending core apps ----------------------------------------------
+# --- ch32: extending core apps ----------------------------------------------
 
 def product_dependency_declared(env):
     """Extending product.template requires "product" in the manifest depends."""
@@ -989,7 +989,7 @@ def product_template_flag_reaches_variants(env):
     """A field added to product.template is readable on product.product.
 
     Not because we declared it twice: product.product uses delegation
-    (_inherits) on product.template, so ch21's mechanism hands it over as a
+    (_inherits) on product.template, so ch31's mechanism hands it over as a
     non-stored related field. The column exists only on the template.
     """
     tmpl = env.call("ir.model.fields", "search_read",
@@ -1012,7 +1012,7 @@ def product_template_flag_reaches_variants(env):
 
 
 
-# --- ch23: mail & chatter -----------------------------------------------------
+# --- ch33: mail & chatter -----------------------------------------------------
 
 def order_has_mail_mixins(env):
     """mail.thread and mail.activity.mixin bring their own fields with them."""
@@ -1090,7 +1090,7 @@ def order_tracking_actually_posts(env):
             env.call("mail.message", "unlink", msgs)
 
 
-# --- ch24: data files -------------------------------------------------------
+# --- ch34: data files -------------------------------------------------------
 
 def service_type_master_data_shipped(env):
     """Tire Rotation ships as noupdate master data, not a manual UI entry."""
@@ -1389,7 +1389,7 @@ CHAPTERS = {
          "raise UserError when order.margin < 0 and not "
          "self.override_negative_margin."),
     ],
-    "ch21": [
+    "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
          "Add is_loanable via a class with _inherit = \"librefleet.vehicle\" and "
          "NO _name, so it lands on the existing model and table."),
@@ -1403,7 +1403,7 @@ CHAPTERS = {
          "With _inherits, create() on the child writes the parent row too, and "
          "the parent's fields are readable straight off the child."),
     ],
-    "ch22": [
+    "ch32": [
         ("the product dependency is declared and installed", product_dependency_declared,
          "Add \"product\" to depends in __manifest__.py, then upgrade. Extending a "
          "model you did not declare fails with \"does not exist in registry\"."),
@@ -1423,9 +1423,9 @@ CHAPTERS = {
          "Add product_id = fields.Many2one(\"product.product\") to librefleet.part."),
         ("the template flag reaches variants via delegation", product_template_flag_reaches_variants,
          "Declare librefleet_is_part on product.template ONLY. product.product "
-         "_inherits the template, so ch21's delegation exposes it unstored."),
+         "_inherits the template, so ch31's delegation exposes it unstored."),
     ],
-    "ch23": [
+    "ch33": [
         ("the order inherits mail.thread and mail.activity.mixin", order_has_mail_mixins,
          "_inherit = [\"mail.thread\", \"mail.activity.mixin\"] alongside _name: the "
          "list form of _inherit pulls in mixins without renaming your model."),
@@ -1441,7 +1441,7 @@ CHAPTERS = {
          "tracking=True plus mail.thread does this for you. If it posts nothing, check "
          "the field really has tracking=True and that mail.thread is in _inherit."),
     ],
-    "ch24": [
+    "ch34": [
         ("Tire Rotation shipped as noupdate master data", service_type_master_data_shipped,
          "Add data/service_type_master.xml with a noupdate=\"1\" <record>, register "
          "it in the manifest's \"data\" list, then upgrade."),
@@ -1450,10 +1450,10 @@ CHAPTERS = {
          "and upgrade again: noupdate blocks re-writing existing records, not "
          "creating new ones."),
     ],
-    "ch24-demo": [
+    "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
          "Run this against a SCRATCH database installed with --with-demo, e.g. "
-         "python3 odoolings.py check ch24-demo --db tutorial_demo_check. Your real "
+         "python3 odoolings.py check ch34-demo --db tutorial_demo_check. Your real "
          "tutorial database never loads demo data, by design."),
         ("the demo vehicle is owned by the demo partner", demo_vehicle_owned_by_demo_partner,
          "In data/librefleet.vehicle-demo.csv, the owner_id:id column's value must "

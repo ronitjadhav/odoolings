@@ -28,14 +28,14 @@ const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; 
   {
     icon: BookOpenCheck,
     name: 'Professional',
-    parts: 'Parts 4–5 · ch 21–32',
+    parts: 'Parts 4–7 · ch 21–42',
     blurb: 'Extend core apps safely, write tests, build OWL UI, debug anything.',
     tone: 'sky',
   },
   {
     icon: GitPullRequest,
     name: 'Expert / Integrator',
-    parts: 'Parts 6–7 · ch 33–40',
+    parts: 'Parts 8–9 · ch 43–50',
     blurb: 'Work the OCA way: contributions, migrations, performance, deployments.',
     tone: 'violet',
   },

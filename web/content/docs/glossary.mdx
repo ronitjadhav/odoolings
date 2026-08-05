@@ -5,7 +5,7 @@ description: Every piece of Odoo jargon, defined the day a chapter first uses it
 
 **AbstractModel**: a model with no table of its own (`models.AbstractModel`),
 meant to be mixed into other models via the list form of `_inherit`, never
-instantiated directly. `mail.thread` and `mail.activity.mixin` (chapter 23) are
+instantiated directly. `mail.thread` and `mail.activity.mixin` (chapter 33) are
 both `AbstractModel`.
 
 **access rights (ACL)**: `ir.model.access` records, conventionally loaded from
@@ -42,7 +42,7 @@ smart buttons. Extensions target it by name to add their own buttons.
 **chatter**: the message/activity feed at the bottom (or side) of most form views:
 emails, notes, followers, scheduled activities. Models opt in via `mail.thread` and
 `mail.activity.mixin`, and render it with the single `<chatter/>` view tag
-(chapter 23). Adds no columns to the model's own table; the thread lives in
+(chapter 33). Adds no columns to the model's own table; the thread lives in
 `mail.message`, keyed generically by model and record id.
 
 **classic extension**: `_inherit` with no `_name`. The class *is* the existing
@@ -80,7 +80,7 @@ derives a new recordset with an extended copy.
 **CSV data file**: a data file whose name IS the target model's technical name
 (`ir.model.access.csv`), optionally with a `-suffix` before `.csv`
 (`account.account-kw.csv` in core). Relational columns end in `:id` and hold an
-xml id. Always uniform, one row per record, and (chapter 24) always noupdate when
+xml id. Always uniform, one row per record, and (chapter 34) always noupdate when
 listed under `demo`, never able to opt out of it when listed under `data`, since
 CSV has no equivalent of XML's `<data noupdate="...">` wrapper.
 
@@ -104,7 +104,7 @@ Loads only when a module is *installed* with demo explicitly requested
 (`--with-demo`, Odoo 19's default is *without*); a later `-u` upgrade only reloads
 it if that module's very first install already had it, since Postgres remembers
 per module in `ir_module_module.demo`. See *master data* for the config a module
-does need. Chapter 24 goes deeper, including why an upgrade alone will not add it
+does need. Chapter 34 goes deeper, including why an upgrade alone will not add it
 to a database that never had it.
 
 **depends**: the manifest list of modules yours builds on. It sets load order and is
@@ -200,7 +200,7 @@ inheritance mechanism.
 **master data**: config records a module needs to be useful on day one, shipped as
 regular data files (not `demo`), typically wrapped in `noupdate="1"` so a manager's
 later edits (a renamed stage, an adjusted price) survive the next upgrade instead
-of being silently overwritten. Chapter 24's `service_type_master.xml` is an
+of being silently overwritten. Chapter 34's `service_type_master.xml` is an
 example. Contrast with *demo data*, which is optional and disposable.
 
 **master password**: the `admin_passwd` option in `odoo.conf`. It guards
@@ -240,7 +240,7 @@ Give pages a stable `name` so xpaths can anchor on them.
 **noupdate**: a data file's protection against being silently rewritten on the next
 module upgrade. `<data noupdate="1">` opts an XML block in explicitly; every file
 listed under a module's `demo` key gets it automatically, whether XML or CSV
-(chapter 24, verified against Odoo's own loader: `noupdate=kind == 'demo'`). On
+(chapter 34, verified against Odoo's own loader: `noupdate=kind == 'demo'`). On
 upgrade, a noupdate record that already exists (matched by its xml id) is left
 alone, but a *new* noupdate record with no existing xml id is still created
 normally, which is why adding a second master-data record later still works.
@@ -364,7 +364,7 @@ prefixes; effectively immutable once a module ships.
 **tracking (`tracking=True`)**: a field attribute that posts a chatter message with
 the old and new value whenever an ORM write changes it, no method required. Fires
 only on a real database write, and only becomes visible after the transaction
-commits, since the message itself is built by a precommit hook (chapter 23).
+commits, since the message itself is built by a precommit hook (chapter 33).
 
 **uid**: the current logged-in user's id, substituted by the web client wherever it
 appears inside a domain or context string written in XML. Not a Python variable.
@@ -383,7 +383,7 @@ an action requests them via `view_id`.
 
 **widget**: an attribute on a view field picking an alternative renderer for the
 same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17
-tours the built-ins; chapter 30 builds one.
+tours the built-ins; chapter 40 builds one.
 
 **window action**: an `ir.actions.act_window` record saying what to open: the
 model (`res_model`) and the view types in order (`view_mode="list,form"`). The glue
@@ -400,5 +400,5 @@ lifecycle.
 **XML id (external id)**: the stable handle a data record is registered under
 (`librefleet.group_librefleet_user`), used by `ref()` in XML, `env.ref()` in Python,
 and CSV reference columns. Resolves against the database, which is why a missing one
-only fails where the record was never loaded (fresh installs). Chapter 24 goes
+only fails where the record was never loaded (fresh installs). Chapter 34 goes
 deeper.

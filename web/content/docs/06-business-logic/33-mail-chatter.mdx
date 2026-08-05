@@ -1,0 +1,391 @@
+---
+title: "33. Mail & Chatter"
+description: Give a service order a message thread, followers and scheduled activities, and meet the one commit rule that makes all three work.
+---
+
+**Goal:** wire `mail.thread` and `mail.activity.mixin` into the service order, track its
+important fields, and send a real templated email. · **Time:** ~2 h ·
+**Checkpoint:** `code/checkpoints/ch33`
+
+## Why this matters
+
+Open almost any record in Odoo, a partner, an invoice, a lead, and there is a column of
+messages and log entries down the right side: who changed what, who was notified, what
+still needs doing. That is the **chatter**, and it is not a plugin bolted onto a handful
+of special models. It is two mixins any model can inherit, and by the end of this chapter
+your service orders have the same audit trail, follower list and to-do scheduler as a core
+Odoo invoice. This is also the chapter where `_inherit` finally shows you its fourth face:
+chapter 31 covered a single string, a new `_name`, and `_inherits` with an `s`, but never
+the form you will actually type the most in real modules, a **list**.
+
+## Concepts
+
+### `_inherit` as a list: mixing in, not extending
+
+```python
+_inherit = ["mail.thread", "mail.activity.mixin"]
+```
+
+This is still classic extension (chapter 31), just aimed at more than one target at once,
+and with `_name` still present. Read it as "this model *is* `librefleet.service.order`,
+and it also picks up everything `mail.thread` and `mail.activity.mixin` contribute." Both
+of those are `AbstractModel`, a model with no table of its own that exists purely to be
+mixed into others this way, which is exactly the alternative chapter 31 pointed you at
+when prototype inheritance felt like the wrong tool.
+
+<Mermaid
+  chart={`flowchart LR
+    A["librefleet.service.order"] -- "_inherit = [...]" --> B["mail.thread<br/>(AbstractModel)"]
+    A -- "_inherit = [...]" --> C["mail.activity.mixin<br/>(AbstractModel)"]
+    B --> D["message_ids, message_follower_ids<br/>message_post(), message_subscribe()"]
+    C --> E["activity_ids, activity_state<br/>activity_schedule()"]`}
+/>
+
+Neither mixin adds a single column to `librefleet_service_order`. You can prove that
+yourself once the module is upgraded:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "\d librefleet_service_order"
+```
+
+Same fourteen columns as chapter 32 left it, nothing new. The thread lives in
+`mail_message`, keyed back to your record by a generic `(model, res_id)` pair, the same
+polymorphic pattern that lets one `mail.message` table serve every model in Odoo:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "\d mail_message" | grep -E "model |res_id"
+```
+
+```text
+ model               | character varying |
+ res_id              | integer           |
+```
+
+Followers (`mail.followers`) and activities (`mail.activity`) work the same way. The
+mixin gives your model the *fields and methods* to read and write that shared storage; it
+never touches your table.
+
+### `tracking=True`: the field decides, the framework writes the message
+
+Add `tracking=True` to a field and every value change posts itself to the chatter, before
+and after, with no code beyond the one keyword:
+
+```python
+stage = fields.Selection([...], default="draft", required=True, tracking=True)
+```
+
+Track the fields that answer "what happened to this record and when", not everything.
+`notes` changing constantly would bury the two changes that actually matter under noise
+nobody reads.
+
+### The chatter widget: one tag, three panels
+
+```xml
+<chatter/>
+```
+
+That is the entire Odoo 19 syntax. It renders the message thread, the follower list, and
+the activity scheduler, wired to whichever mixins the model inherited. Put it as the last
+child of `<form>`, after `</sheet>`, the same place every core form puts it.
+
+<Callout type="info" title="On Odoo 18 this differs">
+  18 spells this out as three separate elements inside a `<div class="oe_chatter">`:
+  `<field name="message_follower_ids"/>`, `<field name="activity_ids"/>`, and
+  `<field name="message_ids"/>`. The single `<chatter/>` tag is new in 19. If you ever
+  read an older module's form view, that expanded form is what you are looking at.
+</Callout>
+
+### The rule that will cost you an evening if you don't know it: tracking needs a commit
+
+Here is the fact this chapter is really about, found by testing, not by reading a
+changelog. Write a tracked field in the shell and check `message_ids` right away:
+
+```console
+>>> o = env["librefleet.service.order"].search([], limit=1)
+>>> o.write({"stage": "confirmed"})
+>>> len(o.message_ids)
+0
+```
+
+Nothing. Not a bug, and not something `env.flush_all()` fixes either, flushing writes
+your pending changes to the database but tracking messages are built by a **precommit**
+hook, which only runs when the transaction actually commits:
+
+```console
+>>> env.cr.commit()
+>>> o.invalidate_recordset()
+>>> len(o.message_ids)
+1
+>>> m = o.message_ids[0]
+>>> m.subtype_id.name
+'Note'
+>>> tv = m.tracking_value_ids[0]
+>>> tv.field_id.name, tv.old_value_char, tv.new_value_char
+('stage', 'Draft', 'Confirmed')
+```
+
+That message did not exist a moment ago; the commit is what materialized it, complete
+with the exact before and after values. This is precisely why the odoolings check for
+this chapter tests it over XML-RPC rather than a bare recordset write: every RPC call is
+its own transaction, so by the time the call returns, the commit already happened and the
+message is really there. In the shell, where you control the transaction yourself, you
+have to ask for it.
+
+## Hands-on
+
+### 1. Inherit the mixins
+
+In `models/service_order.py`:
+
+```python title="addons/librefleet/models/service_order.py"
+class ServiceOrder(models.Model):
+    _name = "librefleet.service.order"
+    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _description = "Service Order"
+    _rec_name = "reference"
+    _order = "scheduled_start desc, id desc"
+```
+
+### 2. Track the two fields worth an audit trail
+
+```python
+    customer_id = fields.Many2one(
+        related="vehicle_id.owner_id", store=True, string="Customer",
+        tracking=True)
+```
+
+```python
+    stage = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("confirmed", "Confirmed"),
+            ("in_progress", "In Progress"),
+            ("done", "Done"),
+            ("cancelled", "Cancelled"),
+        ],
+        default="draft", required=True, tracking=True)
+```
+
+### 3. Add the chatter to the form
+
+In `views/service_order_views.xml`, right after the sheet closes:
+
+```xml
+                </sheet>
+                <chatter/>
+            </form>
+```
+
+Bump the manifest to `19.0.1.18.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Loading module librefleet (27/30)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.29s, 522 queries (+522 other)
+INFO tutorial odoo.modules.loading: 30 modules loaded in 0.57s, 522 queries (+522 extra)
+```
+
+No new module got pulled in this time, unlike chapter 32's `product`: `mail` was already
+installed, a side effect of `product` depending on it.
+
+### 4. Post, subscribe, schedule
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+```python
+>>> o = env["librefleet.service.order"].search([], limit=1)
+>>> o.message_post(body="Customer called: OK to keep the vehicle overnight.")
+>>> env.cr.commit()
+>>> o.message_ids[0].body
+'<p>Customer called: OK to keep the vehicle overnight.</p>'
+>>> o.message_subscribe(partner_ids=o.customer_id.ids)
+>>> env.cr.commit()
+>>> o.message_follower_ids.mapped("partner_id.name")
+['Administrator', 'Beat Muster']
+>>> o.activity_schedule("mail.mail_activity_data_call",
+...     summary="Call about pickup time", user_id=env.uid)
+>>> env.cr.commit()
+>>> o.activity_state, o.activity_ids[0].activity_type_id.name
+('today', 'Call')
+```
+
+`message_post` is the manual, no-tracking way to add a note. `message_subscribe` adds a
+follower without posting anything; every follower gets notified the next time a message
+is logged. `activity_schedule` needs an activity type's XML id (`mail_activity_data_call`
+is core's built-in "Call" type) and gives you `activity_state` back for free, one of
+`overdue`, `today`, or `planned`, computed from the earliest deadline across all of a
+record's activities.
+
+Refresh the order in the browser and the chatter panel shows all three: the tracked
+stage change from earlier, your note, and the scheduled call.
+
+### 5. A template that writes itself, correctly, per customer
+
+Create `data/mail_template.xml`:
+
+```xml title="addons/librefleet/data/mail_template.xml"
+<record id="mail_template_service_done" model="mail.template">
+    <field name="name">Service Order: ready for collection</field>
+    <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
+    <field name="subject">Your vehicle is ready ({{ object.reference }})</field>
+    <field name="email_from">{{ user.email_formatted }}</field>
+    <field name="partner_to">{{ object.customer_id.id }}</field>
+    <field name="body_html" type="html">
+        <div>
+            <p>Hello <t t-out="object.customer_id.name or ''">Customer</t>,</p>
+            <p>
+                The work on <t t-out="object.vehicle_id.license_plate or ''">plate</t>
+                is finished and the vehicle is ready for collection.
+            </p>
+        </div>
+    </field>
+</record>
+```
+
+`{{ }}` is [QWeb inline expressions](https://www.odoo.com/documentation/19.0/developer/reference/backend/mixins.html#reference-mixins-mail-chatter):
+`object` is always the record the template renders against, so `{{ object.reference }}`
+in the subject and `{{ object.customer_id.id }}` in `partner_to` mean this one template
+produces a different subject and a different recipient for every single order, with no
+Python at all. Wrap the file in `<data noupdate="1">`, the same tag ch14 used for the
+sequence: a template is master data a manager is expected to edit in the UI, and an
+upgrade must never overwrite their wording. Register it in the manifest, above the view
+files:
+
+```python
+"data": [
+    "security/librefleet_security.xml",
+    "security/ir.model.access.csv",
+    "data/ir_sequence.xml",
+    "data/mail_template.xml",
+    ...
+```
+
+Upgrade, then render it against a real order without sending anything:
+
+```console
+>>> tmpl = env.ref("librefleet.mail_template_service_done")
+>>> tmpl._render_field("subject", o.ids)[o.id]
+'Your vehicle is ready (SO/2026/0002)'
+>>> tmpl._render_field("body_html", o.ids)[o.id]
+'...The work on ZH 468 202 is finished...'
+```
+
+Two different orders render two different subjects. That is the entire point of a
+template: write the wording once, let every send fill in its own facts.
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch33
+✔ the order inherits mail.thread and mail.activity.mixin
+✔ stage and customer are tracked
+✔ the order form renders a chatter
+✔ a mail template targets service orders
+✔ a tracked change posts a message with before/after values
+
+ch33 complete! On to the next chapter 🔧
+```
+
+The last check is the interesting one: it changes `stage` over XML-RPC and expects a
+message to already be there by the time the call returns, no explicit commit needed from
+the check itself. Reread the Concepts section on why that is not a contradiction of what
+you saw in the shell.
+
+## Gotchas
+
+- **A tracked write posts nothing until the transaction commits.** In the shell that means
+  you, explicitly, with `env.cr.commit()`. Over RPC, a form save, or any normal request,
+  it already happened by the time you can look. This is the single most likely thing to
+  make you think tracking is broken when it is not.
+- **`tracking=True` on every field is worse than on none.** A chatter that logs
+  `notes` changing every time someone fixes a typo trains everyone to stop reading it,
+  right before the stage change that actually mattered scrolls past unnoticed.
+- **`message_post` and a tracked write look similar and are not.** `message_post` is a
+  manual note with no before/after values and nothing enforcing you wrote something true.
+  Tracking is automatic, sourced from the ORM's own diff, and cannot be forgotten to call.
+- **The message body wants HTML, not plain text.** `message_post(body="...")` works with
+  a plain string because Odoo wraps it in `<p>`, but anything containing `<`, `>` or `&`
+  from user input should be escaped first, or a stray angle bracket in a customer's note
+  corrupts the rendered thread.
+- **`activity_schedule` needs a real activity type's XML id.** Guessing a name that looks
+  right (`"call"`, `"mail.activity_call"`) fails with `ValueError: External ID not found`.
+  Confirm one from the `res.groups`-style search you already know:
+  `env.ref("mail.mail_activity_data_call")`.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You write o.write({"stage": "done"}) in the shell and immediately check len(o.message_ids). It reads 0. What is the most likely explanation?',
+      options: [
+        'tracking=True was left off the stage field, so nothing was ever going to be logged',
+        'the message is waiting on a commit that has not happened yet',
+        'mail.thread silently failed to load, so the mixin never took effect at all',
+      ],
+      answer: 1,
+      why: 'Tracking messages are built by a precommit hook, so they do not exist until the transaction actually commits, which in the shell means you, explicitly, with env.cr.commit(). Verified directly: the same write shows 0 messages before commit and 1 immediately after, with the correct before/after values attached. The other two options would produce a permanent absence that no commit fixes, which is not what happens here.',
+    },
+    {
+      q: 'Why does _inherit = ["mail.thread", "mail.activity.mixin"] still count as classic extension rather than something new?',
+      options: [
+        'it does not: a list of targets makes this a distinct, fourth inheritance mechanism',
+        '_name stays present, so nothing here differs from a single-string _inherit except the count',
+        'mail.thread and mail.activity.mixin are core models being extended, exactly like the res.partner work in chapter 32',
+      ],
+      answer: 1,
+      why: 'Chapter 31\'s rule was "_inherit with no new _name extends in place", and that is unchanged: a list is just more than one target for the same mechanism. Option 2 sounds like chapter 32 but is not that case: mail.thread and mail.activity.mixin are AbstractModel, models with no table of their own, so nothing pre-existing is being extended the way res.partner was.',
+    },
+    {
+      q: 'What does mail.thread add to the librefleet_service_order Postgres table?',
+      options: [
+        'a single JSON column that serializes the whole message thread inline',
+        'nothing at all: not one new column',
+        'a message_ids column, on the theory that it has to live somewhere',
+      ],
+      answer: 1,
+      why: 'Checked directly with \\d librefleet_service_order before and after: same fourteen columns. The thread lives in mail_message instead, a separate table with generic model and res_id columns that every model with a chatter shares, which is exactly why adding a chatter never touches your own schema.',
+    },
+    {
+      q: 'A manager wants every field on the service order tracked, "just in case". What is wrong with that instinct?',
+      options: [
+        'tracking has a real performance cost per field, so Odoo caps it at five tracked fields per model',
+        'it fills the chatter with low-value noise until nobody reads it, burying the changes that actually mattered',
+        'nothing is wrong with it; tracking every field is the recommended default for audit purposes',
+      ],
+      answer: 1,
+      why: 'There is no hard limit (option 0 is invented), but tracking is a judgment call, not a safety setting. A stage change or a reassigned customer earns a place in the audit trail; a notes field edited on every pass through a record does not, and drowning the important entries defeats the entire point of having a chatter.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add `tracking=True` to `technician_ids` and confirm from the shell that reassigning
+   technicians posts a message (remember the commit). Then explain why a Many2many field's
+   tracking message looks different from a Selection field's, once you have seen both.
+2. ⭐⭐ Write a second `mail.template` for a cancelled order, addressed to the customer,
+   apologising and naming the reference. Send it for real to a partner with a valid email
+   using `template.send_mail(order_id, force_send=True)` and confirm a `mail.mail` record
+   was created (chapter 37 covers actually receiving mail; for now, reading the outgoing
+   record is proof enough).
+3. ⭐⭐ A technician should be automatically subscribed as a follower the moment they are
+   added to `technician_ids`. Override `create` and `write` to call `message_subscribe`
+   for any technician not already following, and prove it with a shell session that adds a
+   technician and checks `message_follower_ids` afterward.
+4. ⭐⭐⭐ Break-it lab: remove `tracking=True` from `stage`, keep everything else, and
+   write an odoolings-style check (shell is fine) that would have caught the regression
+   without knowing in advance which field lost tracking. Hint: compare `_track_get_fields()`
+   before and after against a list you keep somewhere durable.
+
+## Further reading
+
+- [Mixins reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/mixins.html#reference-mixins-mail-chatter):
+  the authoritative field and method list for `mail.thread` and `mail.activity.mixin`.
+- [Email communication (19.0)](https://www.odoo.com/documentation/19.0/applications/general/email_communication.html):
+  how templates, outgoing mail servers and the mailbox actually connect in a live deployment.
+- [`res.partner` in core](https://github.com/odoo/odoo/blob/19.0/addons/mail/models/res_partner.py):
+  see `mail.thread` consumed by a model you already know well.

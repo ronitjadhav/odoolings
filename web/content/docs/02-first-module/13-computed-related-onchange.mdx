@@ -373,7 +373,7 @@ Four derived fields, one column: exactly as designed.
    points from the vehicle *to* the partner, and nothing points back, so there is no
    single `mapped()` path from a partner to their orders. Do it in two, then name the
    one field on `res.partner` that would collapse it to one, and say where it would
-   have to live. (Chapter 22 adds exactly that field, so keep your answer.)
+   have to live. (Chapter 32 adds exactly that field, so keep your answer.)
 4. ⭐⭐⭐ Convert the part-price onchange into a computed editable field:
    `price_unit = fields.Float(compute=..., store=True, readonly=False)` depending
    on `part_id`. Verify the shell-create case now gets the list price AND that a

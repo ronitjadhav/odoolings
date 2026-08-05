@@ -1,0 +1,9 @@
+{
+  "title": "Part 5: Odoo's Accounting Core",
+  "pages": [
+    "27-accounting-foundations",
+    "28-invoicing-payments-reconciliation",
+    "29-taxes-fiscal-positions",
+    "30-inventory-valuation"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "title": "Part 4: How Odoo Runs a Business",
+  "pages": [
+    "21-the-business-spine",
+    "22-sales-lead-to-order",
+    "23-pricing-pricelists-promotions",
+    "24-purchase-rfq-to-bill",
+    "25-inventory-moves-quants",
+    "26-manufacturing-bom-orders"
+  ]
+}

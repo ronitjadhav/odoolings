@@ -5,10 +5,12 @@
     "01-environment",
     "02-first-module",
     "03-views-ux",
-    "04-business-logic",
-    "05-frontend-owl",
-    "06-oca-way",
-    "07-integrator-craft",
+    "04-odoo-business",
+    "05-accounting-core",
+    "06-business-logic",
+    "07-frontend-owl",
+    "08-oca-way",
+    "09-integrator-craft",
     "glossary",
     "roadmap"
   ]

@@ -152,7 +152,7 @@ Create `data/ir_sequence.xml`:
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!-- noupdate: create once, never overwrite on upgrade, so the running
-         next-number is preserved (chapter 24 goes deeper on noupdate). -->
+         next-number is preserved (chapter 34 goes deeper on noupdate). -->
     <data noupdate="1">
         <record id="seq_librefleet_service_order" model="ir.sequence">
             <field name="name">LibreFleet Service Order</field>
@@ -248,7 +248,7 @@ From the shell, hand the existing orders real numbers:
 
 This is the shape of a real data migration: new field, existing rows, a short script
 to bring history in line. In production it would live in a migration step (chapter
-37); here the shell is fine. Note `next_by_code` is how you pull a number outside a
+47); here the shell is fine. Note `next_by_code` is how you pull a number outside a
 create, which is exactly what the default does under the hood.
 
 ### 6. No double-booked vehicles (a Python constraint that searches)
