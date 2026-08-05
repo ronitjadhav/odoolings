@@ -933,6 +933,34 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch24) — purchase, and the moment the apps stop being separate
+
+- **Ch24 written and executed.** Procure-to-pay as the mirror of ch22, which makes it cheap
+  to learn, plus the **three-way match** as the genuinely new idea: `product_qty`,
+  `qty_received` and `qty_invoiced` are tracked separately *so they can disagree*, and the
+  disagreement is the deliverable.
+- **The best thing in this chapter was unscripted.** Validating the receipt produced, in one
+  diff: the two equal-and-opposite quants (`WH/Stock` +10, `Vendors` -10, the move's two ends
+  and a literal parallel to ch27's debit/credit), **and** `WH/OUT/00044 state: confirmed ->
+  assigned`, which is *ch22's customer delivery reserving stock it had been waiting for*.
+  Nobody triggered it: inventory is a shared pool, not a per-order ledger. That is the
+  moment Parts 4-5 stop reading as a tour of separate apps, and it only exists because the
+  chapters share one database in sequence. Worth protecting when ch25-26 are written.
+- **Verified**: `purchase.order.state` is draft/sent/to approve/purchase/cancel;
+  `receipt_status` is **`False`** on a draft, not `'pending'` (so it is not always one of
+  the three documented values); a vendor bill is `account.move` with `move_type='in_invoice'`
+  debiting **Expenses** and crediting **Account Payable**, the exact mirror of ch28's
+  invoice, numbered from the Purchases journal (`BILL/2026/08/0002`); posting needs an
+  `invoice_date` or it stalls.
+- Tool: added `purchase.order.line` to the watched allowlist (and `receipt_status`/
+  `invoice_status` to `purchase.order`), since the RFQ diff showed the order but not its
+  line. **Third instance of the same pattern** after ch21's `product.product` and ch28's
+  `account.payment`: the allowlist is only right for chapters already written against it.
+- Glossary +2 (*RFQ / purchase order*, *three-way match*), this time inserted **with the
+  blank line** the previous PR's 14-entry repair taught me to add, and verified afterwards
+  that no entry is glued.
+- Screenshots pending the author, per standing rule 5.
+
 ### 2026-08-05 (ch23) — pricing, and three things called "the discount"
 
 - **Ch23 written and executed.** The chapter's spine is that a price can be changed by
