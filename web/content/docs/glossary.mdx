@@ -174,6 +174,9 @@ sets `group_by`, delegating aggregation to a `read_group` call server-side.
 **integrator / partner**: a company implementing Odoo for clients: configuration,
 custom modules, migrations, support. Most Odoo developers work at one.
 
+**is_storable ("Track Inventory")**: the boolean deciding whether Odoo counts a
+product in stock. Contributed by the Inventory app, not by `product`, and in Odoo 19 it
+replaces the old `type = 'product'` storable type (chapter 21).
 **kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
 pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
 
@@ -292,6 +295,15 @@ view instead of a patch on it.
 groups ("Workshop" holding User and Manager) on the user form. Replaces the direct
 group-to-category link older versions used.
 
+**product attribute**: a `product.attribute` (Colour, Axle) whose values, when its
+variant mode is "Instantly", make Odoo generate one `product.product` per combination
+on save. An attribute with a single value multiplies nothing (chapter 21).
+
+**product template / product variant**: the two halves of an Odoo product.
+`product.template` is the product as a person names it ("Brake Pad Set");
+`product.product` is a specific sellable, stockable thing ("Brake Pad Set (Front)").
+A template with no attributes still has exactly one variant, and core code asking for
+`product_id` always means the variant.
 **prototype inheritance**: `_inherit` *plus* a new `_name`. Creates a new model
 and table pre-filled with copies of the parent's field definitions. The two are
 unrelated from then on, and it is the rarest of the three in practice.
@@ -301,6 +313,9 @@ unrelated from then on, and it is the rarest of the three in practice.
 **QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
 pages) and client-side (OWL component templates).
 
+**rank (`customer_rank` / `supplier_rank`)**: integer counters on `res.partner` that
+rise as a partner appears on sales or purchase documents. Odoo has no customer *type*
+and no supplier table: being both at once is just both counters above zero.
 **record rule**: an `ir.rule` filtering *which records* of a model a group may
 touch, via a domain ("only orders assigned to you"). The per-record layer on top of
 access rights, which are model-wide. LibreFleet's first one lands in chapter 12.
@@ -369,6 +384,10 @@ commits, since the message itself is built by a precommit hook (chapter 33).
 **uid**: the current logged-in user's id, substituted by the web client wherever it
 appears inside a domain or context string written in XML. Not a Python variable.
 
+**unit of measure (`uom.uom`)**: the unit a quantity is expressed in. In Odoo 19 each
+unit declares `relative_factor` against a `relative_uom_id` (Dozens is 12 Units),
+forming a tree whose absolute `factor` is computed recursively. The pre-19 model of unit
+*categories* with a reference unit and a `uom_type` is gone (chapter 21).
 **vacuum**: the scheduled process that deletes old transient records automatically,
 so a wizard's table never accumulates forever. Configurable per model via
 `_transient_max_hours`.

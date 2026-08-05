@@ -1,25 +1,448 @@
 ---
 title: "21. The Business Spine: Partners, Products & Units"
-description: Not written yet, tracked in the roadmap.
+description: Meet the three models every Odoo app is built on, then read exactly what saving one product form did to the database.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** build the demo database Parts 4 and 5 run in, then learn the partner, product
+and unit models well enough that sales, purchase, inventory and accounting all make
+sense. · **Time:** ~2 h · **Checkpoint:** none, this part runs in its own demo database
 
 ## Why this matters
 
+For thirteen chapters you have been building LibreFleet as an island. Your
+`librefleet.part` carries its own `standard_cost` and `list_price`, your service orders
+compute their own totals, and nothing you wrote touches a single core app. That was the
+right way to learn the ORM: no core surface area in the way.
+
+Now the bill arrives. Odoo already ships all of it, and better than your version does.
+Part 6 is going to ask you to "extend the Sales flow" and to bridge `librefleet.part` to
+`product.product`, and neither instruction means anything until you know what the Sales
+flow is and what a product actually is in this system.
+
+So this part changes the exercise. Instead of writing code, you run a business in the
+interface and then read what it did to the database. That second half is the part no
+functional training does, and it is the only reason a developer should care about the
+first half. By the end of Part 5 you will have watched a quotation become an order, a
+delivery, an invoice, a payment and a pair of balanced journal lines, and you will have
+seen every table it touched on the way.
+
+Three models sit under all of it. Get these right and the next nine chapters are mostly
+consequences.
+
 ## Concepts
+
+### The functional database, and why it is not your tutorial one
+
+Everything in Parts 4 and 5 happens in a **separate database with demo data**. Three
+reasons, all practical:
+
+- Functional exploration is miserable without demo data. You want a chart of accounts,
+  products, customers and a few historic orders to look at, not an empty shell.
+- Installing Sales, Purchase, Inventory and Accounting into your `tutorial` database
+  would change every checkpoint diff from here on, and Part 6 still needs that database
+  clean.
+- Odoo 19 installs **without** demo data unless you ask, and that flag only works on a
+  fresh database. Chapter 34 explains exactly why an upgrade cannot add it later.
+
+`odoolings` already takes `--db`, so nothing new is needed to check your work here.
+
+### One model wears four hats: `res.partner`
+
+Most systems have a customers table and a suppliers table. Odoo has neither. It has
+**one** `res.partner` model, and the distinctions you would expect to be types are
+fields on it:
+
+- **Company or person**: `is_company`, a boolean. Companies can have people under them
+  through `parent_id`, and read them back through `child_ids`.
+- **Customer, vendor, or both**: not a type at all, but two counters, `customer_rank`
+  and `supplier_rank`. They rise as a partner appears on orders. A partner with both
+  above zero is a company you buy from *and* sell to, which is completely normal, and
+  which a two-table design makes awkward.
+
+This is why chapter 12 had you point `librefleet.vehicle.owner_id` at `res.partner`
+rather than inventing an owner model. You were already using the spine.
+
+### One product, two models: `product.template` and `product.product`
+
+This one confuses every new Odoo developer, and it is worth slowing down for.
+
+- **`product.template`** is the product as a human talks about it: "Brake Pad Set".
+- **`product.product`** is the specific thing you can put in a box: "Brake Pad Set
+  (Front)". Odoo calls these **variants**.
+
+Add an attribute to a template with two values and Odoo generates one `product.product`
+per combination, by itself, on save. Everything that moves through stock, gets sold, or
+gets costed is a `product.product`. Everything a person names and prices is usually a
+`product.template`.
+
+<Mermaid
+  chart={`flowchart TD
+    T["product.template<br/>Brake Pad Set<br/>list_price 79.00"]
+    A["product.attribute<br/>Axle"]
+    V1["value: Front"]
+    V2["value: Rear"]
+    P1["product.product<br/>Brake Pad Set (Front)"]
+    P2["product.product<br/>Brake Pad Set (Rear)"]
+    T --> A
+    A --> V1
+    A --> V2
+    V1 --> P1
+    V2 --> P2
+    P1 -. "product_tmpl_id" .-> T
+    P2 -. "product_tmpl_id" .-> T`}
+/>
+
+A template with no attributes still gets exactly one variant. There is no such thing as
+a `product.template` you can sell directly, which is why so much core code takes
+`product_id` (a variant) even when the form you were looking at was a template.
+
+The field split follows the same logic. `name` is stored on the template, and
+`product.product.name` is a *related* field reading `product_tmpl_id.name`, which you
+can confirm yourself in the Hands-on. So renaming a template renames every variant,
+because there was only ever one name.
+
+### Product types changed in Odoo 19
+
+If you have seen older Odoo, unlearn this one. The type field now offers exactly three
+choices:
+
+| `type` | Label in the interface |
+|---|---|
+| `consu` | Goods |
+| `service` | Service |
+| `combo` | Combo |
+
+There is **no `product` type any more**. The old "storable product" idea is now a
+separate boolean, `is_storable`, labelled **Track Inventory**, and it is contributed by
+the Inventory app rather than by `product`. So "is this a physical thing" and "do we
+count it in stock" became two independent questions, which is the better model: a
+consumable you buy and immediately expense is Goods without inventory tracking.
+
+<Callout type="info" title="On Odoo 18 this differs">
+  Odoo 18 and earlier used `type = 'product'` to mean "storable", alongside `consu` and
+  `service`, with no `is_storable` field and no `combo`. Any tutorial, forum answer or
+  module written against 18 or older that branches on `type == 'product'` needs
+  rewriting for 19. This is exactly the kind of change chapter 47's migration work is
+  made of.
+</Callout>
+
+### Units of measure are a tree in Odoo 19
+
+Units also changed, and more deeply than the product type did. A `uom.uom` record now
+declares its size **relative to another unit**:
+
+- `relative_uom_id` points at the unit it is defined against (Dozens points at Units).
+- `relative_factor` says how many of that unit it contains (12).
+- `factor` is the absolute quantity, computed recursively up the chain and stored.
+- `parent_path` indexes the resulting hierarchy.
+
+Older Odoo grouped units into a category with one reference unit each and a `uom_type`
+of bigger, smaller or reference. **Both `category_id` and `uom_type` are gone in 19.**
+Conversion still works the same way from the outside: ask a unit to convert a quantity
+into another unit and it walks the chain.
+
+### The habit worth building today: which model is this screen?
+
+Every functional chapter from here on ends with you reading the database, and that is
+impossible until you can answer "what model am I even looking at?" for any screen in
+Odoo. Two ways:
+
+- **In the interface**, turn on developer mode (chapter 1 covered where the toggle
+  lives) and the bug menu in the top bar names the model behind the current view and
+  lets you inspect its fields.
+- **In the shell**, which is the one you can automate: `env["ir.model"]` is a table of
+  every model, and `fields_get` on any model returns its fields with their types and
+  labels. The Hands-on uses this, and so does every check `odoolings` runs.
 
 ## Hands-on
 
+This chapter's Hands-on has two movements, and every chapter in Parts 4 and 5 follows
+the same shape. First you **run the flow** like a user. Then you **read what it did**,
+which is where the learning is.
+
+### Movement 1: run the flow
+
+#### 1. Build the functional database
+
+Once, and reused by chapters 22 to 30:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -i sale_management,purchase,stock,mrp,crm --with-demo --stop-after-init
+...
+INFO functional odoo.modules.loading: Modules loaded.
+```
+
+That installs six apps, because `account` arrives as a dependency of Sales:
+
+```console
+$ docker compose exec db psql -U odoo -d functional -t -c \
+  "select string_agg(name,', ' order by name) from ir_module_module where state='installed' and name in ('sale_management','purchase','stock','mrp','crm','account');"
+ account, crm, mrp, purchase, sale_management, stock
+```
+
+Restart the web server so it picks up the new database, then log in at
+[http://localhost:8069](http://localhost:8069) and choose `functional`. Your `tutorial`
+database is untouched, and stays that way for the whole of Parts 4 and 5.
+
+#### 2. Take a snapshot before you touch anything
+
+This is the tool that makes the second movement possible. It records the current state
+of the models these two parts care about, so you can ask what changed afterwards:
+
+```console
+$ python3 odoolings.py snapshot --db functional
+snapshot: 15 models, 705 records (database 'functional')
+
+Now do something in the interface, then: odoolings.py diff --db functional
+```
+
+#### 3. Create a product with variants, in the interface
+
+Go to **Sales → Products → Products → New** and build a brake pad set:
+
+1. **Product Name**: `Brake Pad Set` (exactly, so the check can find it).
+2. **Product Type**: `Goods`. Note there is no "storable" option to pick.
+3. Tick **Track Inventory**. That is the storable behaviour, as its own field.
+4. **Sales Price**: `79.00`.
+5. On the **Attributes** tab, add an attribute named `Axle` with values `Front` and
+   `Rear`. Leave its variant creation mode as "Instantly".
+6. Save.
+
+Now look at the top of the form: a **Variants** smart button appeared, reading 2. You
+created one product and Odoo made two.
+
+### Movement 2: read what it did
+
+#### 4. Ask the database what that save actually changed
+
+```console
+$ python3 odoolings.py diff --db functional
+product.product     +2
+      new   Brake Pad Set (Front)    lst_price=79.0
+      new   Brake Pad Set (Rear)     lst_price=79.0
+product.template    +1
+      new   Brake Pad Set            list_price=79.0  type=consu
+```
+
+Read that carefully, because it is the whole concept in four lines. **One** form save
+created **three** records: the template you named, and two variants you never typed. The
+attribute values became products. This is what people mean when they say Odoo "generates
+variants", and now you have watched it happen instead of reading about it.
+
+#### 5. Confirm the relationship from the shell
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> t = env["product.template"].search([("name", "=", "Brake Pad Set")])
+>>> t.product_variant_count
+2
+>>> t.product_variant_ids.mapped("display_name")
+['Brake Pad Set (Front)', 'Brake Pad Set (Rear)']
+```
+
+Then prove where the name lives, rather than taking the Concepts section's word for it:
+
+```python
+>>> env["product.template"]._fields["name"].store
+True
+>>> env["product.product"]._fields["name"].related
+'product_tmpl_id.name'
+```
+
+Stored on the template, *related* on the variant. Exactly the mechanism chapter 13
+taught you, used by core on the model you will meet most often.
+
+#### 6. See both tables in Postgres
+
+```console
+$ docker compose exec db psql -U odoo -d functional -c "
+select t.id as tmpl_id, t.name->>'en_US' as template, p.id as product_id, p.default_code
+from product_template t join product_product p on p.product_tmpl_id = t.id
+where t.name->>'en_US' = 'Brake Pad Set' order by p.id;"
+ tmpl_id |   template    | product_id | default_code
+---------+---------------+------------+--------------
+      51 | Brake Pad Set |         69 |
+      51 | Brake Pad Set |         70 |
+(2 rows)
+```
+
+Two rows, one `tmpl_id`. Your ids will differ from these. The `name->>'en_US'` is not a
+typo: translatable fields are stored as JSON, so a plain `where name = '...'` finds
+nothing. Worth remembering the first time a psql query on a name comes back empty.
+
+#### 7. Look at the partner model wearing all four hats
+
+```python
+>>> P = env["res.partner"]
+>>> P.search_count([("is_company", "=", True)])
+12
+>>> P.search_count([("customer_rank", ">", 0)])
+4
+>>> P.search_count([("supplier_rank", ">", 0)])
+2
+>>> P.search_count([("customer_rank", ">", 0), ("supplier_rank", ">", 0)])
+0
+```
+
+Twelve companies, four customers, two vendors, and in a fresh demo database no overlap
+yet. That last number is the interesting one: nothing structural prevents it, and it
+climbs the moment you buy from someone you also sell to. Confirm the hierarchy too:
+
+```python
+>>> c = P.search([("is_company", "=", True), ("child_ids", "!=", False)], limit=1)
+>>> c.name, c.is_company, c.parent_id.name
+('Acme Corporation', True, False)
+>>> c.child_ids[:3].mapped("name")
+['Addison Olson', 'Douglas Fletcher', 'Floyd Steward']
+```
+
+One model, one table, a company and its people.
+
+#### 8. Walk the unit tree and convert something
+
+```python
+>>> unit = env.ref("uom.product_uom_unit")
+>>> dozen = env.ref("uom.product_uom_dozen")
+>>> dozen.relative_uom_id.name
+'Units'
+>>> dozen.relative_factor
+12.0
+>>> unit._compute_quantity(12, dozen)
+1.0
+>>> dozen._compute_quantity(1, unit)
+12.0
+```
+
+Dozens is defined as twelve Units, and conversion walks that link in both directions. If
+you go looking for the old category field to confirm the grouping, you will not find it:
+
+```python
+>>> "category_id" in env["uom.uom"]._fields
+False
+>>> "uom_type" in env["uom.uom"]._fields
+False
+```
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch21 --db functional
+✔ the functional database has the Part 4-5 apps
+✔ it was built with demo data
+✔ a 'Brake Pad Set' template exists, typed as Goods
+✔ it generated at least two variants from one template
+✔ it tracks inventory
+
+ch21 complete! On to the next chapter 🔧
+```
+
+Note the `--db functional` on every check in Parts 4 and 5. Run these against your
+`tutorial` database and the first check fails immediately, telling you so.
 
 ## Gotchas
 
+- **`product_variant_count` is computed and not stored, so you cannot search on it.** A
+  domain like `[("product_variant_count", ">", 1)]` does not return an empty set, it
+  raises `ValueError: Cannot convert product.template.product_variant_count to SQL
+  because it is not stored`. Filter in Python instead:
+  `templates.filtered(lambda t: t.product_variant_count > 1)`. Chapter 13's stored
+  versus unstored distinction, met in the wild.
+- **There is no `product` product type in Odoo 19.** Code written for 18 or earlier
+  branches on `type == 'product'` to mean storable. In 19 that comparison is always
+  false, and silently so. The storable question is `is_storable`.
+- **`is_storable` comes from the Inventory app, not from `product`.** Without `stock`
+  installed the field does not exist at all, so a module that reads it must depend on
+  `stock` or guard for its absence.
+- **A translatable field is JSON in Postgres.** `where name = 'Brake Pad Set'` matches
+  nothing on `product_template`; you need `name->>'en_US'`. This catches everyone once,
+  usually while debugging a query that "should" return a row.
+- **Almost everything downstream wants a variant, not a template.** When core code asks
+  for `product_id` it means `product.product`. Passing a template id where a variant is
+  expected fails in confusing ways, because both are integers and neither the ORM nor
+  Postgres can tell you which kind you meant.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You save a new product template with one attribute that has three values, variant creation set to "Instantly". How many records exist afterwards?',
+      options: [
+        'One product.template and three product.product records, one per attribute value',
+        'One product.template only, with the three values kept as attribute data until something needs them',
+        'Three product.template records, one per attribute value, sharing a single attribute',
+      ],
+      answer: 0,
+      why: 'This is the diff the chapter runs: one save produced +1 product.template and +2 product.product for two values, so three values give three variants. Odoo generates one product.product per attribute combination at save time, not lazily, which is why the Variants smart button already shows a count before you do anything else.',
+    },
+    {
+      q: 'A module you are reading branches on product.type == "product" to decide whether to reserve stock. What happens on Odoo 19?',
+      options: [
+        'It works, since "product" is still the storable type alongside goods and service',
+        'The comparison is never true, and nothing warns you about it',
+        'The module refuses to install, because the type field rejects the unknown value',
+      ],
+      answer: 1,
+      why: 'Odoo 19 offers exactly consu (Goods), service and combo. Nothing raises: the field simply never holds "product", so the branch is dead code and stock is never reserved. Storable moved to the separate is_storable boolean, contributed by the Inventory app. Silent behaviour changes like this one are the substance of chapter 47 migration work.',
+    },
+    {
+      q: 'Why does renaming a product template rename every one of its variants?',
+      options: [
+        'An onchange on the template loops over the variants and copies the new name down',
+        'There is only one name: product.product.name is a related field reading product_tmpl_id.name',
+        'Each variant stores its own copy, kept in step by a recomputation on write',
+      ],
+      answer: 1,
+      why: 'Confirmed in the shell rather than assumed: product.template._fields["name"].store is True, and product.product._fields["name"].related is "product_tmpl_id.name". The variant never had its own name to update, so there is nothing to copy or recompute. What distinguishes variants is their attribute values, which is why display_name differs while name does not.',
+    },
+    {
+      q: 'A partner in your database is both a customer and a vendor. What does that tell you about how Odoo models partners?',
+      options: [
+        'Two linked partner records exist, one per role, joined by a commercial partner field',
+        'One res.partner record has both customer_rank and supplier_rank above zero',
+        'A dedicated role table joins res.partner to whichever roles it currently holds',
+      ],
+      answer: 1,
+      why: 'There is one res.partner model and one row, with customer_rank and supplier_rank as counters that rise as the partner appears on orders. Being both is ordinary and needs no extra records, which is the advantage over separate customer and supplier tables. is_company and parent_id answer the company-versus-contact question independently.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Add a second attribute to `Brake Pad Set`, `Compound` with values `Standard` and
+   `Ceramic`, and predict the variant count before you save. Run
+   `odoolings.py diff --db functional` afterwards and check whether your prediction and
+   the diff agree. Then explain why an attribute with only one value does not multiply
+   anything (the demo database's `Acoustic Bloc Screens` is exactly that case).
+2. ⭐⭐ Find, from the shell, every template in the demo database with more than one
+   variant. The obvious domain raises an error, so you will need the first Gotcha. Then
+   report which attribute is doing the multiplying for each one, using
+   `attribute_line_ids`.
+3. ⭐⭐ Ticket-shaped: a colleague says "our supplier Azure Interior should not be
+   showing up in the customer list". Using only `res.partner` fields, work out how Odoo
+   decides who appears in each list, then describe what would have to be true of that
+   record for the complaint to be valid. Change nothing, just diagnose it, which is most
+   of what a support ticket actually needs.
+4. ⭐⭐⭐ Break-it lab: create a unit called `Half Dozen` with `relative_uom_id` set to
+   `Dozens` and `relative_factor` of `0.5`, then convert 3 Half Dozens into Units and
+   explain the number from the chain rather than from arithmetic you did in your head.
+   Now try setting its `relative_uom_id` to itself and read what happens. What does that
+   tell you about how `factor` is computed, and why `parent_path` exists on this model?
+
 ## Further reading
+
+- [Product variants (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/sales/products_prices/products/variants.html):
+  the template and variant split from the user's point of view.
+- [Units of measure (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/uom.html):
+  how the relative unit chain is meant to be configured in practice.
+- [`product.template` in core](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_template.py):
+  worth opening now that you know what it models. The `type` selection and the variant
+  generation both live here.
+- [`is_storable` in the Inventory app](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/product.py):
+  proof that the field is contributed by `stock`, using the classic extension pattern
+  from chapter 31.

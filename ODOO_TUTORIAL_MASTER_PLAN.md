@@ -438,7 +438,9 @@ matrix; get the author's sign-off before writing Part 2.)
 21. The business spine: partners, products & units. `res.partner` (the
     company/contact hierarchy, customer *and* vendor on one model),
     `product.template` vs `product.product` and how variants generate, product types,
-    UoM and UoM categories, product categories. Everything in Parts 4-5 sits on this,
+    units of measure (a `relative_uom_id` tree in 19, **not** the pre-19 categories:
+    corrected 2026-08-05 after checking the container), product categories.
+    Everything in Parts 4-5 sits on this,
     and it is where the reader first meets `odoolings snapshot`/`diff` plus the
     "identify the model behind any screen" developer-mode habit. Connects straight back
     to ch12 (relations) and forward to ch32's `part` to `product.product` bridge.
@@ -930,6 +932,37 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-05 (ch21) — the business spine, and two facts the plan had wrong
+
+- **Ch21 written and fully executed** against a purpose-built `functional` demo database
+  (six apps, demo data), following §4.3 rule 3's two-movement shape: run the flow in the
+  interface, then read what it did. Checks ran red before the hands-on and green after,
+  and every transcript was recaptured on a **clean** database after the exploratory one
+  had drifted (on the polluted database "customer and vendor both" read 1; on a fresh one
+  it is 0, so the first number was unreproducible, which is precisely the failure mode the
+  2026-08-03 audit was about).
+- **Two version-sensitive facts corrected, both checked in the container rather than
+  recalled.** Odoo 19's `product.template.type` is `consu` (Goods), `service`, `combo`,
+  with **no `product` type**; storable became a separate boolean `is_storable`
+  ("Track Inventory") contributed by `stock`, not by `product`. And `uom.uom` has **no
+  `category_id` and no `uom_type`** any more: each unit declares `relative_factor`
+  against a `relative_uom_id`, giving a tree with a recursively computed `factor` and a
+  `parent_path`. §5.3's ch21 line said "UoM categories" and has been fixed.
+- **A defect in `snapshot`/`diff` that only writing a chapter could expose**:
+  `product.product` was missing from the watched allowlist, so creating a template with
+  attributes reported `+1 product.template` and hid the two generated variants, which is
+  the chapter's entire lesson. Added, along with a `display_name` label override, since a
+  freshly generated variant has no internal reference and rendered as `id=71`. Worth
+  remembering as a pattern: the allowlist is only right for the chapters already written
+  against it, so expect to extend it in ch22-30.
+- Also verified and used: `product_variant_count` is not stored, so searching on it
+  raises `ValueError: Cannot convert ... to SQL because it is not stored` (now a Gotcha,
+  and it ties back to ch13); translatable fields are JSON in Postgres, so psql needs
+  `name->>'en_US'`; `product.product.name` is `related='product_tmpl_id.name'`.
+- Glossary +4 (*product attribute*, *product template / product variant*, *rank*,
+  *is_storable*, *unit of measure*). Screenshots for the product form and the
+  developer-mode bug menu are **pending the author's own pass**, per standing rule 5.
 
 ### 2026-08-05 (later) — M3.5 renumber executed, and `snapshot`/`diff` proven
 
