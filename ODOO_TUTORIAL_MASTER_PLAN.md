@@ -933,6 +933,27 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (hotfix) — the renumber broke a test I never ran
+
+- **Main was red and I put it there.** `tests/export-preview.test.mjs` asserts that
+  planned (stub) lessons stay navigable and that the sitemap lists only complete pages,
+  and it hard-codes routes. The D13 renumber moved
+  `04-business-logic/25-cron-server-automated-actions` to
+  `06-business-logic/35-...` and `24-data-files` to `34-data-files`, so the test 404'd.
+- **Why every local check passed anyway:** `npm test` is only
+  `test:progress && test:quiz`. `test:export` is a **separate script**, run by CI *after*
+  the build because it serves `out/`. So the one suite that could catch a renumber
+  regression was the one suite I never invoked. §5.8's runbook step 9 said "npm run build,
+  npm test" and was therefore incomplete as written.
+- **Fixed the brittleness, not just the paths.** The magic `30` ("home plus 29 complete
+  docs pages") would have gone stale again on the very next chapter, and did: the sitemap
+  is now 34. The test now derives the expected count by walking `content/docs` and
+  counting `.mdx` files that lack the Stub callout, which self-maintains as stubs become
+  chapters.
+- **Process fix so this cannot recur:** added `npm run test:ci`
+  (`test && build && test:export`, CI's exact order) and pointed CLAUDE.md's command list
+  at it, with a note about why `npm test` alone is insufficient. Use that before any push.
+
 ### 2026-08-05 (ch28) — invoicing, payments, reconciliation; M4's key set done
 
 - **Ch28 written and executed**, closing the loop ch22 opened: the confirmed order is

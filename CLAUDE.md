@@ -54,7 +54,11 @@ Rules that matter when working here:
 ```bash
 cd web && npm run dev        # local site
 cd web && npm test           # progress logic + quiz quality gates
-cd web && npm run build     # must pass before any push (validates all MDX)
+cd web && npm run test:ci   # what CI runs, IN ORDER: test, build, test:export.
+                            # Use this before any push. `npm test` alone skips
+                            # test:export, which needs out/ and so only fails in
+                            # CI (that gap let the D13 renumber break main).
+cd web && npm run build     # build alone: validates all MDX
 cd code && docker compose up -d          # the tutorial's Odoo environment
 python3 code/odoolings.py check chNN     # verify a chapter's hands-on state
 ```

@@ -11,7 +11,8 @@
     "test:export": "node tests/export-preview.test.mjs",
     "test:progress": "node tests/run-progress.mjs",
     "test:quiz": "node tests/quiz-balance.mjs",
-    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit"
+    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "test:ci": "npm run test && npm run build && npm run test:export"
   },
   "dependencies": {
     "cnfast": "^0.1.0",
