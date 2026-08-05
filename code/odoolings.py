@@ -1273,7 +1273,11 @@ def confirming_created_a_delivery(env):
 def order_is_invoiceable_on_confirmation(env):
     order = getattr(env, "_ch22_order", None)
     assert order, "run the previous check first"
-    assert order["invoice_status"] == "to invoice", (
+    # Not pinned to 'to invoice': a reader who has since done chapter 28 will have
+    # actually invoiced this same order, moving it to 'invoiced'. Either value
+    # proves the point this check exists for, that confirming alone made it
+    # invoiceable; only 'no' means confirmation never did.
+    assert order["invoice_status"] in ("to invoice", "invoiced"), (
         "invoice_status is %r. The Brake Pad Set keeps the default 'Ordered quantities' "
         "invoice policy, so confirming alone makes it invoiceable. A product set to "
         "'Delivered quantities' would read 'no' until the delivery is validated."
@@ -1552,6 +1556,99 @@ def receipt_moved_stock_both_ways(env):
         "negative one at the vendor location, since a move always has a source and a "
         "destination. Found quantities %s."
         % sorted(q["quantity"] for q in quants))
+
+
+# --- ch25: inventory, moves, quants & warehouses -------------------------------
+
+def a_multi_step_transfer_happened(env):
+    """A reception under a 2-step route creates a lazy internal transfer."""
+    n = env.call("stock.picking", "search_count",
+                [("picking_type_id.code", "=", "internal"), ("state", "=", "done")])
+    assert n, (
+        "no completed internal transfer found. Switch the warehouse's Incoming "
+        "Shipments to 'Receive goods in input, then stock (2 steps)', raise and "
+        "receive a small purchase, then validate both the Receipt and the internal "
+        "transfer it creates when the receipt is done.")
+
+
+def a_reordering_rule_exists_for_brake_pads(env):
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    rules = env.call("stock.warehouse.orderpoint", "search_read",
+                     [("product_id", "in", variants)],
+                     fields=["product_min_qty", "product_max_qty"])
+    assert rules, (
+        "no reordering rule exists for the Brake Pad Set. Inventory > Configuration > "
+        "Reordering Rules > New, and set a minimum and maximum. Chapter 35 covers the "
+        "scheduled action that actually acts on it.")
+    assert rules[0]["product_max_qty"] > rules[0]["product_min_qty"] >= 0, (
+        "the rule's max (%s) should be greater than its min (%s)"
+        % (rules[0]["product_max_qty"], rules[0]["product_min_qty"]))
+
+
+def warehouse_reverted_to_one_step(env):
+    """Leave the simple case for chapters that have not asked for routes yet."""
+    wh = env.call("stock.warehouse", "search_read", [], fields=["reception_steps"], limit=1)
+    assert wh and wh[0]["reception_steps"] == "one_step", (
+        "the warehouse's reception route is %r, not the one-step default. Switch it "
+        "back once you have seen the 2-step transfer: later chapters assume the "
+        "simple case unless they say otherwise."
+        % (wh[0]["reception_steps"] if wh else None))
+
+
+# --- ch26: manufacturing, BoM & manufacturing orders ---------------------------
+
+def brake_pad_bom_has_components_and_an_operation(env):
+    boms = env.call("mrp.bom", "search_read",
+                    [("product_tmpl_id.name", "=", "Brake Pad Set")],
+                    fields=["id"])
+    assert boms, (
+        "no bill of materials exists for the Brake Pad Set. Manufacturing > Products "
+        "> Bills of Materials > New, product Brake Pad Set.")
+    bom_id = boms[0]["id"]
+    lines = env.call("mrp.bom.line", "search_count", [("bom_id", "=", bom_id)])
+    assert lines >= 2, (
+        "the BoM has %d component line(s); add at least two so the recipe is a real "
+        "bag of components, not a single substitute part." % lines)
+    ops = env.call("mrp.routing.workcenter", "search_count", [("bom_id", "=", bom_id)])
+    assert ops >= 1, (
+        "the BoM has no operations. Add one against a work center (Assembly 1 exists "
+        "in the demo data), since a real BoM usually names both what it consumes and "
+        "where the work happens.")
+
+
+def a_manufacturing_order_completed(env):
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    mos = env.call("mrp.production", "search_read",
+                  [("product_id", "in", variants), ("state", "=", "done")],
+                  fields=["id", "product_qty"])
+    assert mos, (
+        "no completed manufacturing order for the Brake Pad Set. Manufacturing > "
+        "Manufacturing Orders > New, set a quantity, Confirm, then Mark as Done.")
+    env._ch26_mo = mos[0]
+
+
+def components_were_consumed_by_bom_ratio(env):
+    """The BoM says 0.5 Friction and 1.0 Plate per unit; consumption must match."""
+    mo = getattr(env, "_ch26_mo", None)
+    assert mo, "run the previous check first"
+    moves = env.call("stock.move", "search_read",
+                     [("raw_material_production_id", "=", mo["id"])],
+                     fields=["product_id", "product_uom_qty", "quantity", "state"])
+    assert moves, "the manufacturing order has no component moves at all"
+    done = [m for m in moves if m["state"] == "done"]
+    assert done, "no component move reached 'done', so nothing was actually consumed"
+    by_name = {m["product_id"][1]: m["quantity"] for m in done}
+    produced = mo["product_qty"]
+    for name, expected_each in (("Friction Material", 0.5), ("Backing Plate", 1.0)):
+        got = by_name.get(name)
+        assert got is not None, "no consumed move found for %s" % name
+        expected = expected_each * produced
+        assert abs(got - expected) < 0.01, (
+            "%s: consumed %.2f, expected %.2f (%.2f per unit x %.1f produced). "
+            "Component consumption should scale exactly with the BoM ratio."
+            % (name, got, expected, expected_each, produced))
 
 
 # Each chapter: list of (description, check_fn, hint shown on failure).
@@ -1841,6 +1938,27 @@ CHAPTERS = {
          "A stock move always has a source and a destination, so receiving leaves a "
          "negative quant at Vendors and a positive one in WH/Stock."),
     ],
+    "ch25": [
+        ("a multi-step reception created an internal transfer", a_multi_step_transfer_happened,
+         "Switch Incoming Shipments to 2 steps, receive a small purchase, and validate "
+         "both the Receipt and the Storage transfer it spawns."),
+        ("a reordering rule exists for the brake pads", a_reordering_rule_exists_for_brake_pads,
+         "Inventory > Configuration > Reordering Rules > New, with a min and a max."),
+        ("the warehouse is back on the one-step route", warehouse_reverted_to_one_step,
+         "Switch Incoming Shipments back to 'Receive goods directly (1 step)' once "
+         "you have seen the multi-step transfer."),
+    ],
+    "ch26": [
+        ("the Brake Pad Set has a BoM with components and an operation",
+         brake_pad_bom_has_components_and_an_operation,
+         "Manufacturing > Bills of Materials > New: at least two component lines and "
+         "one operation against a work center."),
+        ("a manufacturing order for it was completed", a_manufacturing_order_completed,
+         "Manufacturing > Manufacturing Orders > New, Confirm, then Mark as Done."),
+        ("components were consumed exactly by the BoM ratio", components_were_consumed_by_bom_ratio,
+         "Consumption should scale with product_qty times each component's BoM "
+         "quantity. If it does not, check the reservation matched what was produced."),
+    ],
     "ch27": [
         ("a manual journal entry was posted", manual_journal_entry_posted,
          "Accounting > Accounting > Journal Entries > New, journal Miscellaneous, two "
@@ -2007,6 +2125,7 @@ WATCHED = {
     "product.product":   ["display_name", "default_code", "lst_price"],
     "product.pricelist": ["name"],
     "res.partner":       ["name"],
+    "stock.warehouse.orderpoint": ["product_id", "product_min_qty", "product_max_qty", "trigger"],
 }
 
 

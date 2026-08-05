@@ -1,25 +1,296 @@
 ---
 title: "26. Manufacturing: Bills of Materials & Orders"
-description: Not written yet, tracked in the roadmap.
+description: Give the brake pads you have been selling and buying a recipe, then manufacture some and watch a third location do the accounting.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** define a bill of materials, run a manufacturing order end to end, and confirm
+that component consumption is exactly as double-entry as everything else you have moved
+this part. · **Time:** ~2 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+Everything up to here has been *moving* value: goods between locations, money between
+accounts. Manufacturing is where something is **transformed**, raw components become a
+finished product, and the temptation is to think that needs a different mental model.
+It does not. It needs a third location.
+
+By the end of this chapter you will have manufactured actual `Brake Pad Set` units, the
+same product you have sold and bought throughout this part, from components you stocked
+yourself, and you will have watched the arithmetic tie back to the recipe exactly.
+
 ## Concepts
+
+### A bill of materials is a recipe with an optional routing
+
+`mrp.bom` says what a product is made of: a `product_tmpl_id` (or a specific variant), a
+`product_qty` the recipe yields, and `bom_line_ids`, the components and their quantities.
+Its `type` is usually `normal` (build it), occasionally `phantom` (a kit: the components
+appear directly on whatever order references it, with no separate manufacturing step at
+all).
+
+A BoM can also list `operation_ids`, work to be done against a `mrp.workcenter`
+(Assembly, Drill, Paint, whatever your shop has) with a cycle time. Operations are
+**optional**. Plenty of real BoMs, including several in this demo database, have zero:
+sometimes a recipe is just "these parts, combined", with no routing worth tracking.
+
+### The manufacturing order's lifecycle
+
+`mrp.production` has six states, more than the documents you have seen so far, because
+factory work has a middle that pure paperwork does not:
+
+| `state` | Label |
+|---|---|
+| `draft` | Draft |
+| `confirmed` | Confirmed |
+| `progress` | In Progress |
+| `to_close` | To Close |
+| `done` | Done |
+| `cancel` | Cancelled |
+
+A simple order with no tracked work orders or quality checks often skips straight from
+`confirmed` to `done` when you mark it complete, which is exactly what you are about to
+see. The middle states exist for shop floors that track work order by work order; this
+chapter's recipe does not need them.
+
+<Callout type="info" title="Gotcha, found by testing">
+  Every document so far, sales orders, purchase orders, invoices, has had no `name` until
+  it was confirmed or posted. A manufacturing order **breaks that pattern**: it gets its
+  sequence number, `WH/MO/00007` or similar, the moment you create it, still in `draft`.
+  Verified directly: a brand-new draft order already had a real name, not `False`. Do not
+  assume every document in Odoo waits to be numbered.
+</Callout>
+
+### Manufacturing is two more stock moves, through a third location
+
+Confirming a manufacturing order creates raw material moves, one per component, from
+Stock into a virtual **Production** location, and a finished-good move from Production
+back into Stock. Marking the order done is what actually executes them.
+
+<Mermaid
+  chart={`flowchart LR
+    S1["WH/Stock<br/>components"] -- "consumed" --> P["Production<br/>(virtual)"]
+    P -- "produced" --> S2["WH/Stock<br/>finished good"]`}
+/>
+
+Look at that shape again. It is chapter 24's Vendors-to-Stock move and chapter 27's
+debit-and-credit, a third time. Components leave Stock and arrive, negative, at
+Production; the finished good leaves Production, negative, and arrives, positive, at
+Stock. Nothing is created from nothing, not even in a factory: quantity always has a
+source and a destination, and Production is simply the location where the transformation
+is recorded.
 
 ## Hands-on
 
+Continuing in `functional`. This chapter's product is the Brake Pad Set from chapter 21,
+now with a real recipe.
+
+### Movement 1: build the recipe and run an order
+
+#### 1. Stock two components
+
+Create two simple products, both tracking inventory: `Friction Material` (cost 8.00) and
+`Backing Plate` (cost 5.00). Give yourself 20 of each via **Inventory → Physical Inventory
+→ New**, setting the counted quantity for each and applying it.
+
+```console
+$ python3 odoolings.py diff --db functional
+product.template     +2
+      new   Friction Material        list_price=1.0  type=consu
+      new   Backing Plate            list_price=1.0  type=consu
+stock.quant          +4
+      new   Friction Material        location_id=WH/Stock  quantity=20.0
+      new   Friction Material        location_id=Inventory adjustment  quantity=-20.0
+      new   Backing Plate            location_id=WH/Stock  quantity=20.0
+      new   Backing Plate            location_id=Inventory adjustment  quantity=-20.0
+```
+
+Even a manual stock count is double-entry: Odoo invents nothing, it moves the 20 units
+from a virtual **Inventory adjustment** location into your warehouse, the same pattern
+one more time.
+
+#### 2. Give the brake pads a bill of materials
+
+**Manufacturing → Products → Bills of Materials → New**:
+
+- **Product**: `Brake Pad Set`
+- **Quantity**: 1
+- Components: `Friction Material` × **0.5**, `Backing Plate` × **1**
+- One operation: **Bond friction material**, work center **Assembly 1**
+
+#### 3. Manufacture 4 of them
+
+**Manufacturing → Manufacturing Orders → New**, product `Brake Pad Set (Front)`,
+quantity **4**. Look at the order before you do anything else to it:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> mo = env["mrp.production"].search([], order="id desc", limit=1)
+>>> mo.name, mo.state
+('WH/MO/00007', 'draft')
+```
+
+Named, in draft. Press **Confirm**, then **Mark as Done** (skip the quality/work-order
+prompts if you are asked; a basic recipe like this one does not need them).
+
+### Movement 2: read what it did
+
+#### 4. Confirming reserved the components
+
+```console
+$ python3 odoolings.py diff --db functional
+mrp.production       +1
+      new   WH/MO/00007              state=confirmed  product_qty=4.0
+stock.move           +3
+      new   Friction Material        reference=WH/MO/00007  product_uom_qty=2.0  state=assigned
+      new   Backing Plate            reference=WH/MO/00007  product_uom_qty=4.0  state=assigned
+      new   Brake Pad Set (Front)    reference=WH/MO/00007  product_uom_qty=4.0  state=assigned
+```
+
+Three moves for one order: two raw materials, already scaled to 4 units (0.5 x 4 = 2,
+1 x 4 = 4), and one for the finished good. All three are only `assigned`, reserved, not
+yet moved.
+
+#### 5. Marking it done executes all three at once
+
+```console
+$ python3 odoolings.py diff --db functional
+mrp.production       ~
+      chg   WH/MO/00007              state: confirmed -> done
+stock.move           ~
+      chg   Brake Pad Set (Front)    state: assigned -> done
+      chg   Backing Plate            state: assigned -> done
+      chg   Friction Material        state: assigned -> done
+stock.quant          +3
+      new   Friction Material        location_id=Production  quantity=2.0
+      new   Backing Plate            location_id=Production  quantity=4.0
+      new   Brake Pad Set (Front)    location_id=Production  quantity=-4.0
+      chg   Backing Plate            quantity: 20.0 -> 16.0
+      chg   Friction Material        quantity: 20.0 -> 18.0
+      chg   Brake Pad Set (Front)    quantity: 15.0 -> 19.0
+```
+
+Read the Production quants as one small ledger. Friction Material and Backing Plate
+arrive there positive (that is where the components went), and Brake Pad Set arrives
+there **negative** (that is where the finished good came from). Meanwhile Stock lost 2
+Friction, lost 4 Backing Plate, and gained 4 Brake Pad Set. Every number ties exactly to
+the recipe: 0.5 and 1.0 per unit, times 4 produced.
+
+```python
+>>> friction = env["product.product"].search([("name", "=", "Friction Material")])
+>>> plate = env["product.product"].search([("name", "=", "Backing Plate")])
+>>> front = env["product.product"].search([("product_tmpl_id.name", "=", "Brake Pad Set")], limit=1)
+>>> friction.qty_available, plate.qty_available, front.qty_available
+(18.0, 16.0, 19.0)
+```
+
+Two components in, one product out, every quantity accounted for.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch26 --db functional
+✔ the Brake Pad Set has a BoM with components and an operation
+✔ a manufacturing order for it was completed
+✔ components were consumed exactly by the BoM ratio
+
+ch26 complete! On to the next chapter 🔧
+```
 
 ## Gotchas
 
+- **A manufacturing order gets its name at creation, not confirmation.** This is the one
+  document type in this whole part that breaks the "no name until posted" pattern
+  chapters 27 and 28 established. Do not assume it generalises to every document.
+- **Confirming reserves; Mark as Done executes.** Between the two, the raw material and
+  finished-good moves sit at `assigned`, which is a real, inspectable state, not a
+  placeholder. If component quantities look unconsumed, check whether the order was ever
+  actually marked done.
+- **Production is a real location with real quants, briefly.** During the moment of
+  transformation, components genuinely sit there positive and the output sits there
+  negative. That is not a rounding artifact, it is the same double-entry idea inventory
+  uses everywhere else, applied to a virtual point instead of a physical shelf.
+- **A BoM with zero operations is normal, not incomplete.** Several demo BoMs have none.
+  Only add one if there is real work worth tracking against a work center.
+- **Component consumption should scale exactly with the BoM ratio.** If a produced
+  quantity does not match `product_qty` times each line's `product_qty`, something was
+  reserved or consumed against the wrong ratio, not a rounding quirk to shrug off.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You create a brand-new manufacturing order and, before touching it further, check its name. What do you find?',
+      options: [
+        'False, the same as any other document, until it is confirmed',
+        'A real sequence number, assigned the moment the record was created',
+        'A temporary placeholder name that becomes permanent once confirmed',
+      ],
+      answer: 1,
+      why: 'Verified directly: a fresh draft mrp.production already carried a real name like WH/MO/00007. Every other document this part has produced (sale, purchase, invoice) has name False until posted or confirmed, so manufacturing orders are the one exception, worth remembering rather than assuming the pattern is universal.',
+    },
+    {
+      q: 'A manufacturing order for 4 units uses a BoM needing 0.5 Friction Material per unit. How much Friction Material should a completed order have consumed?',
+      options: [
+        '0.5, since that is the quantity written on the BoM line itself',
+        '2.0, the BoM line quantity multiplied by the quantity produced',
+        '4.0, one unit of every component per unit produced regardless of the BoM ratio',
+      ],
+      answer: 1,
+      why: 'The BoM line quantity is per single unit of the finished product, so a run of 4 scales it: 0.5 times 4 equals 2.0, which is exactly what the completed order consumed. Backing Plate at 1.0 per unit consumed 4.0 for the same run. Consumption should always scale with product_qty times each line, never stay fixed at the BoM line value.',
+    },
+    {
+      q: 'Right after Mark as Done, where do you find a quant showing the finished product with a negative quantity?',
+      options: [
+        'Nowhere; negative quants are always an error and should be investigated',
+        'At the Production location, the virtual point the output move is recorded as leaving',
+        'At WH/Stock, cancelling out the positive quantity that was just added',
+      ],
+      answer: 1,
+      why: 'The finished-good move has Production as its source and Stock as its destination, so Production shows the negative side (goods leaving) and Stock shows the positive side (goods arriving), the same two-sided pattern as every other stock move in this part. A negative quant at Production is exactly as normal as the negative quant at Vendors was in chapter 24.',
+    },
+    {
+      q: 'A manufacturing order is stuck at confirmed with reserved but unconsumed component moves. What is the most direct explanation?',
+      options: [
+        'The BoM has no operations, so nothing can execute',
+        'It has not been marked done yet: confirming reserves, executing needs a separate action',
+        'The components are the wrong product, so Odoo silently refuses to consume them',
+      ],
+      answer: 1,
+      why: 'Confirming an order reserves its raw materials and creates the finished-good move, but everything stays at assigned until Mark as Done actually executes the moves. Missing operations do not block execution (plenty of valid BoMs have none), and a wrong component would raise an error rather than sitting reserved silently.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Add a third component to the BoM, `Retaining Clip`, quantity 2 per unit, stock 20
+   of it, and manufacture 3 more brake pads. Predict every consumption number before you
+   run `odoolings diff`, then check yourself.
+2. ⭐⭐ Manufacture 4 more brake pads, but this time consume only 3 of the required 4
+   Backing Plates before marking the order done (Odoo will let you, with a warning).
+   Compare the resulting stock quants against a normal run, and explain what an
+   under-consumed component means for a real business's component stock accuracy.
+3. ⭐⭐ Ticket-shaped: "the cost report says this batch cost more in components than the
+   BoM says it should have." Using only what this chapter covered, name two different,
+   legitimate reasons the actual consumption on a manufacturing order could differ from
+   the BoM's stated ratio.
+4. ⭐⭐⭐ Break-it lab: set the BoM's `type` to `phantom` (a kit) and manufacture the
+   brake pads again. Read what happens to `mrp.production` this time, whether one is even
+   created, and where the component consumption shows up instead. Explain, from what you
+   observe, when a kit is the right modelling choice and when it is not.
+
 ## Further reading
+
+- [Bills of materials (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html):
+  the functional configuration, including kits and BoM variants.
+- [Manufacturing orders (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/one_step_manufacturing.html):
+  the flow this chapter ran, plus the multi-step variants for tracked work orders.
+- [`mrp_production.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_production.py):
+  read `button_mark_done` now that you have watched what it executes.
+- [`mrp_bom.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_bom.py):
+  where component quantities are scaled to the quantity being produced.

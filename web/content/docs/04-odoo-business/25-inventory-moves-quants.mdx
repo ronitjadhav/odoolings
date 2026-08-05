@@ -1,25 +1,308 @@
 ---
 title: "25. Inventory: Moves, Quants & Warehouses"
-description: Not written yet, tracked in the roadmap.
+description: Read the stock you already have, then watch a warehouse split one transfer into two and reorder itself.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** read on-hand versus forecast correctly, make a receipt route through an extra
+warehouse step, and set up a reordering rule. · **Time:** ~2 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+Chapter 24 already showed you the core idea: a `stock.move` has a source and a
+destination, and receiving goods moves them across a boundary rather than creating them.
+This chapter does not repeat that. It goes one level deeper, into the questions a
+developer actually gets asked once the basic flow is understood: how much do we really
+have, why does a warehouse sometimes need more than one transfer for one delivery, and
+what makes Odoo reorder something on its own.
+
 ## Concepts
+
+### On-hand and forecast are different questions
+
+A product carries several quantity fields, and mixing them up is a common source of "the
+stock count is wrong" tickets that are not actually wrong:
+
+| Field | Question it answers |
+|---|---|
+| `qty_available` | how much is physically in a location right now |
+| `outgoing_qty` | how much is already reserved to leave |
+| `incoming_qty` | how much is expected to arrive |
+| `virtual_available` (**Forecasted**) | on-hand, plus incoming, minus outgoing |
+| `free_qty` | on-hand minus outgoing (what is left to promise *today*) |
+
+`qty_available` never lies about what is on a shelf. It also never tells you whether that
+stock is already spoken for. That is what forecast is for.
+
+### A warehouse is more than one location
+
+`stock.warehouse` owns a small tree of locations, not just "the stock". A default company
+warehouse already has an **Input**, an **Output**, a **Quality Control** area and a
+**Packing Zone**, alongside the main **Stock** location, whether or not you use them.
+
+Whether goods pass through any of them is a routing setting, `reception_steps` (and its
+outgoing twin, `delivery_steps`), with three options: receive directly into Stock (one
+step), receive into Input then move to Stock (two steps), or add a Quality Control stop
+in between (three steps). Chapter 24's purchase used the simplest case. Real warehouses
+often do not.
+
+### A route is not built all at once
+
+Here is the detail that catches people. Confirming a purchase order under a two-step
+route creates only the **first** transfer, Vendor to Input. The second leg, Input to
+Stock, does not exist yet as a document, only as a rule waiting for something to trigger
+it. It is created the moment the first transfer is validated, not before.
+
+<Mermaid
+  chart={`flowchart LR
+    V["Vendors"] -- "step 1: Receipt" --> I["WH/Input"]
+    I -- "step 2: created only<br/>once step 1 is done" --> S["WH/Stock"]
+    S -- "already reserved<br/>(chapter 22's delivery)" --> C["Customers"]`}
+/>
+
+One consequence worth knowing before you hit it: `purchase.order.picking_ids` only shows
+the transfer directly tied to the purchase, the receipt. The second leg is linked to it
+through the move chain (`move_dest_ids`), not through the order, so looking at the order
+alone under-reports the route.
+
+### Reordering rules are a promise, not an action
+
+A `stock.warehouse.orderpoint` states a minimum and a maximum for one product at one
+location: when forecast quantity falls below the minimum, replenish up to the maximum.
+Creating the rule does nothing by itself. A scheduled action checks it, on the trigger you
+set (`auto` or `manual`), and chapter 35 is where you learn how scheduled actions actually
+run. For now, treat the rule as a fact you can read and reason about, not something you
+need to fire yourself.
 
 ## Hands-on
 
+Continuing in `functional`, with the brake pads from chapter 21.
+
+### Movement 1: read what is already true
+
+#### 1. On-hand versus forecast, before you touch anything
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> front = env["product.product"].search([("product_tmpl_id.name", "=", "Brake Pad Set")], limit=1)
+>>> front.qty_available, front.virtual_available, front.outgoing_qty, front.free_qty
+(10.0, 6.0, 4.0, 6.0)
+```
+
+Ten physically on the shelf. Four of them are already promised, the delivery chapter 22
+confirmed and chapter 24's receipt made reservable. So the honest number to quote a new
+customer is the forecast, 6.0, not the ten sitting in the warehouse. This is the single
+most common inventory misunderstanding in a support ticket: the shelf count and the
+number you can safely promise are not the same field.
+
+### Movement 2: run a multi-step route, then read what it did
+
+#### 2. Switch to a two-step reception
+
+**Inventory → Configuration → Warehouses**, open the one warehouse, and set **Incoming
+Shipments** to *Receive goods in input, then stock (2 steps)*.
+
+#### 3. Raise and confirm a small purchase
+
+Take a snapshot, then raise an RFQ for **5** more `Brake Pad Set (Front)` from a vendor
+and confirm it.
+
+```console
+$ python3 odoolings.py diff --db functional
+purchase.order      +1
+      new   P00014                   state=purchase  amount_total=210.0  receipt_status=pending  invoice_status=no
+purchase.order.line +1
+      new   Brake Pad Set (Front)    product_qty=5.0  price_unit=42.0
+stock.move          +1
+      new   Brake Pad Set (Front)    reference=WH/IN/00008  product_uom_qty=5.0  state=assigned
+stock.picking       +1
+      new   WH/IN/00008              state=assigned  picking_type_id=YourCompany: Receipts
+```
+
+One transfer, not two. Confirm it from the shell:
+
+```python
+>>> po = env["purchase.order"].search([("name", "=", "P00014")])
+>>> po.picking_ids.mapped("name")
+['WH/IN/00008']
+```
+
+The second leg genuinely does not exist yet.
+
+#### 4. Validate the receipt, and watch the second leg appear
+
+```console
+$ python3 odoolings.py diff --db functional
+purchase.order      ~
+      chg   P00014                   receipt_status: pending -> full
+      chg   P00014                   invoice_status: no -> to invoice
+purchase.order.line ~
+      chg   Brake Pad Set (Front)    qty_received: 0.0 -> 5.0
+stock.move          +1
+      new   Brake Pad Set (Front)    reference=WH/STOR/00001  product_uom_qty=5.0  state=assigned
+      chg   Brake Pad Set (Front)    state: assigned -> done
+stock.picking       +1
+      new   WH/STOR/00001            state=assigned  picking_type_id=YourCompany: Storage
+      chg   WH/IN/00008              state: assigned -> done
+stock.quant         +1
+      new   Brake Pad Set (Front)    location_id=WH/Input  quantity=5.0
+      chg   Brake Pad Set (Front)    quantity: -10.0 -> -15.0
+```
+
+Read that carefully. `receipt_status` already reads `full`, and the goods have not left
+`WH/Input` yet. The purchase order's receipt status tracks whether the vendor has
+delivered, not whether the warehouse has finished putting the stock away. And there it is:
+`WH/STOR/00001`, the second leg, created only now.
+
+#### 5. Validate the internal transfer
+
+```console
+$ python3 odoolings.py diff --db functional
+stock.move          ~
+      chg   Brake Pad Set (Front)    state: assigned -> done
+stock.picking       ~
+      chg   WH/STOR/00001            state: assigned -> done
+stock.quant         ~
+      chg   Brake Pad Set (Front)    quantity: 5.0 -> 0.0
+      chg   Brake Pad Set (Front)    quantity: 10.0 -> 15.0
+```
+
+The Input quant drains back to zero as the goods finish their journey into Stock, which
+now reads 15 (the 10 from chapter 24 plus these 5).
+
+```python
+>>> front.invalidate_recordset()
+>>> front.qty_available
+15.0
+```
+
+#### 6. Set a reordering rule
+
+**Inventory → Configuration → Reordering Rules → New**: product `Brake Pad Set (Front)`,
+minimum **5**, maximum **15**.
+
+```console
+$ python3 odoolings.py diff --db functional
+stock.warehouse.orderpoint +1
+      new   Brake Pad Set (Front)    product_min_qty=5.0  product_max_qty=15.0  trigger=auto
+```
+
+Current stock sits exactly at 15, the maximum, so this rule is not due yet, and nothing
+should happen until forecast falls under 5. Chapter 35 covers the scheduled action that
+would notice.
+
+#### 7. Switch the route back
+
+Set **Incoming Shipments** back to *Receive goods directly (1 step)*. Later chapters
+assume the simple case unless they say otherwise, the same discipline chapter 23 used
+when it turned pricelists on deliberately and chapter 34 used reverting a price it had
+only bumped to prove a point.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch25 --db functional
+✔ a multi-step reception created an internal transfer
+✔ a reordering rule exists for the brake pads
+✔ the warehouse is back on the one-step route
+
+ch25 complete! On to the next chapter 🔧
+```
 
 ## Gotchas
 
+- **A two-step route's second transfer does not exist until the first is validated.**
+  `purchase.order.picking_ids` only ever shows what is tied directly to the order, so a
+  route with more steps is under-reported if you look at the order alone. Follow
+  `move_dest_ids` on the move, or just check `stock.picking` directly.
+- **`receipt_status` tracks the vendor leg, not the warehouse's internal putaway.** A
+  two-step order can read `full` while the goods are still sitting in Input. Do not read
+  it as "everything is on the shelf".
+- **Forecast, not on-hand, is the number you can promise.** `qty_available` says nothing
+  about what is already reserved. `virtual_available` (or `free_qty` for the simpler,
+  same-day version) is what already accounts for it.
+- **A reordering rule is inert until a scheduled action checks it.** Creating one changes
+  nothing by itself. If replenishment "isn't happening", the rule not being due yet is a
+  much more likely explanation than the rule being broken.
+- **Intermediate-location quants are real and temporary.** Goods parked at `WH/Input`
+  have their own quant, which is normal, not a sign that stock is stuck.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A product shows qty_available 10 and virtual_available 6. A customer asks how many you can sell them today. Which number answers that honestly?',
+      options: [
+        'qty_available, because it reflects what is physically on the shelf right now',
+        'virtual_available, because it already subtracts what is reserved to leave',
+        'Neither alone; you must add qty_available and incoming_qty together first',
+      ],
+      answer: 1,
+      why: 'qty_available (10) does not know that 4 units are already promised to another order (outgoing_qty). virtual_available (6) already nets that out, which is exactly the gap this chapter opens with: the shelf count and the number safe to promise are different fields, and confusing them is a common source of tickets that are not actually bugs.',
+    },
+    {
+      q: 'You confirm a purchase order under a two-step reception route. How many transfers exist immediately afterward?',
+      options: [
+        'Two: the receipt into Input and the internal transfer into Stock, both created together',
+        'One: the receipt into Input, with the internal transfer created only once that is validated',
+        'Zero: pickings are only generated once the vendor confirms a ship date',
+      ],
+      answer: 1,
+      why: 'Verified directly: po.picking_ids showed only WH/IN/00008 immediately after confirmation. The second leg, WH/STOR/00001, appeared only after the receipt was validated. Routes are built one step at a time as each preceding step completes, not all at once at confirmation.',
+    },
+    {
+      q: 'A two-step purchase order reads receipt_status "full", but the goods are still sitting in the Input location, not yet in Stock. Is that a bug?',
+      options: [
+        'Yes, receipt_status should not read full until the goods reach the final stock location',
+        'No, receipt_status tracks whether the vendor has delivered, which already happened',
+        'No, but only because the purchase order and the warehouse disagree on what "received" means',
+      ],
+      answer: 1,
+      why: 'Verified in the chapter: receipt_status flipped to full immediately after the vendor-facing receipt was validated, while the goods were still in WH/Input and the internal transfer had not run yet. The field answers "did the vendor deliver", not "is the warehouse finished putting it away", and those are legitimately different questions.',
+    },
+    {
+      q: 'You create a reordering rule with a minimum of 5 and a maximum of 15 while stock sits at 15. What happens next?',
+      options: [
+        'Odoo immediately raises a purchase to top up to the maximum',
+        'Nothing yet: the rule only acts once forecast falls below the minimum, which a scheduled action checks',
+        'The rule is invalid, since current stock already equals the maximum',
+      ],
+      answer: 1,
+      why: 'Creating an orderpoint records a promise, not an action. It becomes relevant only when forecast quantity drops below product_min_qty, and something has to notice that: a scheduled action, which chapter 35 covers. At 15 units against a minimum of 5, this rule is simply not due, which is a normal and common state, not an error.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Read `qty_available`, `virtual_available` and `outgoing_qty` for the Office Chair
+   used elsewhere in this part's demo data, and explain the gap between the first two
+   using only the third.
+2. ⭐⭐ Switch **delivery_steps** (not reception) to two steps, confirm a fresh sales
+   order for the brake pads, and find both transfers it creates. Read
+   `warehouse.out_type_id.code`, `warehouse.in_type_id.code` and
+   `warehouse.int_type_id.code`, and explain why the first two must differ while the
+   third is the same single type shared by both the reception and delivery routes you
+   have now used.
+3. ⭐⭐ Ticket-shaped: "the reorder we set up for this product never fired, even though
+   we ran out." List, in order, the fields and records you would check, distinguishing
+   "the rule was never due" from "the rule was due but nothing acted on it".
+4. ⭐⭐⭐ Break-it lab: switch reception to **three steps** (adding Quality Control) and
+   confirm one more small purchase. Predict, before you look, how many transfers exist
+   right after confirmation and how many exist once every step is validated. Then explain
+   why the answer to the first question is not "three".
+
 ## Further reading
+
+- [Warehouses and locations (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/warehouses_locations.html):
+  the full location tree and what each zone is for.
+- [Receiving and delivery routes (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/receipts_delivery_one_step.html):
+  the one, two and three-step configurations in detail.
+- [Reordering rules (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/reordering_rules.html):
+  the functional side of what this chapter set up.
+- [`stock_move.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py):
+  where `move_dest_ids` and the chaining between transfers actually live.

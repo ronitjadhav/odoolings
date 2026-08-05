@@ -933,6 +933,53 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch25/ch26, one PR) — inventory and manufacturing, plus a cross-chapter check bug
+
+- **Ch25 and ch26 written and executed together**, continuing in `functional` from ch24's
+  end state in one coherent sequence (ch25's purchase adds 5 brake pads to reach 15 on
+  hand, ch26 manufactures 4 more to reach 19), so the numbers quoted in each chapter tie
+  together across both.
+- **Ch25** deepens ch24's stock-move idea rather than repeating it: on-hand vs forecast
+  (verified: `qty_available` 10.0 vs `virtual_available` 6.0, the gap being `outgoing_qty`
+  4.0 already reserved to chapter 22's delivery), multi-step routes (switching reception
+  to two steps confirmed that the **second leg is created only once the first is
+  validated**, not upfront, and that `purchase.order.picking_ids` only ever shows the
+  first leg, under-reporting a multi-step route), and reordering rules (created for real,
+  explicitly deferred to chapter 35 for the scheduled action that acts on them, since this
+  is a "meet the fact, not the mechanism" chapter for cron). The warehouse is reverted to
+  one-step at the end so later chapters see the simple case by default.
+- **Ch26** gives the Brake Pad Set an actual bill of materials (two components, one
+  operation against a work center) and manufactures it for real. **Verified, found by
+  testing**: an `mrp.production` gets its sequence number at **creation**, in `draft`,
+  breaking the "no name until confirmed/posted" pattern every other document in this part
+  follows (sale orders, purchase orders, invoices). Component consumption was checked
+  against the BoM ratio exactly (0.5 Friction + 1.0 Plate per unit, times 4 produced =
+  2.0 and 4.0 consumed), and the whole thing plays out as a third instance of the
+  double-entry-for-goods idea: components arrive positive at a virtual **Production**
+  location, the finished good leaves it negative, mirroring ch24's Vendors/Stock quants
+  and ch27's debit/credit.
+- **Found and fixed a real cross-chapter bug during the regression sweep, not introduced by
+  this PR.** Ch22's `order_is_invoiceable_on_confirmation` check asserted
+  `invoice_status == 'to invoice'`, but ch28's own hands-on later invoices that exact
+  order, moving it to `'invoiced'`. Any reader who finishes ch28 and re-runs `check ch22`
+  (to double-check earlier work, which the tool explicitly invites) got a false failure.
+  Widened to accept either value. Caught only because the regression sweep re-runs every
+  chapter's checks together rather than checking each one in isolation once and moving on;
+  worth doing after every new chapter from here on, not just at milestone boundaries.
+- **Two more allowlist gaps**, same recurring pattern as ch21/24/28: `purchase.order.line`
+  needed `receipt_status`/`invoice_status` added to its parent, `stock.warehouse.orderpoint`
+  was entirely unwatched. Both fixed with label overrides where the default rendered as a
+  bare id.
+- **A second draft caught a real transcript bug before it shipped**: ch26 originally
+  referenced a shell variable (`front`) carried over from ch25's *separate* shell session,
+  and was missing the `docker compose exec ... odoo shell` line before its first Python
+  block. Neither chapter's session state crosses a file boundary; only the database does.
+  Fixed by defining `front` in ch26's own session and adding the missing shell-entry line.
+- Glossary +7 across both chapters (*on-hand vs forecast*, *picking*, *reordering rule*,
+  *routing*, *bill of materials*, *manufacturing order*, *Production*), inserted with the
+  blank line and verified afterwards that nothing is glued.
+- Screenshots pending the author, per standing rule 5.
+
 ### 2026-08-05 (ch24) — purchase, and the moment the apps stop being separate
 
 - **Ch24 written and executed.** Procure-to-pay as the mirror of ch22, which makes it cheap

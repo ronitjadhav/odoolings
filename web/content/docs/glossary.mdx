@@ -41,6 +41,10 @@ computed (never stored) `display_name`.
 **button box**: the `<div name="button_box">` at the top of a form sheet holding
 smart buttons. Extensions target it by name to add their own buttons.
 
+**bill of materials (`mrp.bom`)**: the recipe for a product: a `product_qty` it
+yields, `bom_line_ids` for its components, and optional `operation_ids` against work
+centers. Operations are optional; several real BoMs have none (chapter 26).
+
 **calendar view**: a view type placing records on a date grid via `date_start` /
 `date_stop`, with `color` bucketing events by another field's value.
 
@@ -222,6 +226,11 @@ pipeline grouped by stage). One of the standard view types you'll build in chapt
 **list view**: the rows-and-columns view type (`<list>` arch; `<tree>` before
 Odoo 17, removed in 19). Each `<field>` in the arch is a column.
 
+**manufacturing order (`mrp.production`)**: the document that executes a bill of
+materials. Unlike every other transactional document in this part, it gets its sequence
+number at *creation*, not confirmation. Confirming reserves the component and
+finished-good moves; marking it done executes them (chapter 26).
+
 **manifest**: `__manifest__.py`, the dict at a module's root declaring its name,
 version, `depends`, data files, and license. Its presence is what makes a directory a
 module.
@@ -297,6 +306,11 @@ sells Enterprise subscriptions and hosting (Odoo Online, odoo.sh).
 best place to experiment with the ORM. It never commits by itself; writes need an
 explicit `env.cr.commit()`.
 
+**on-hand vs forecast (`qty_available` vs `virtual_available`)**: `qty_available` is
+what physically sits in a location right now; `virtual_available` nets in what is already
+reserved to leave (`outgoing_qty`) and expected to arrive (`incoming_qty`). The number
+safe to promise a customer is the forecast, not the shelf count (chapter 25).
+
 **onchange**: a method (`@api.onchange("field")`) run while a user edits a form,
 before saving, typically to prefill other fields. Never fires from code, imports or
 RPC, so it is a typing assistant, not a business rule.
@@ -331,6 +345,11 @@ and the lines' `reconciled` flags, so writing it directly fixes nothing (chapter
 into dated instalments. It changes *when* money is expected, never which accounts are
 used: overdue is a date question, unpaid is a reconciliation question (chapter 28).
 
+**picking (`stock.picking`)**: one transfer, a batch of `stock.move` lines sharing a
+source, a destination and a `picking_type_id`. A multi-step route (chapter 25) is a chain
+of pickings, and later legs are created only once the ones before them are done, not all
+at once.
+
 **pivot view**: a view type describing a table of aggregated data: `row`/`col`
 fields group records, `measure` fields are summed per group, via `read_group`.
 
@@ -362,6 +381,12 @@ A template with no attributes still has exactly one variant, and core code askin
 and table pre-filled with copies of the parent's field definitions. The two are
 unrelated from then on, and it is the rarest of the three in practice.
 
+**Production (location)**: the virtual location a manufacturing order's stock moves
+run through. Components arrive there positive (consumed from stock); the finished good
+leaves from there negative (produced into stock). The same two-sided move pattern as
+every other stock transfer, applied to a transformation rather than a delivery
+(chapter 26).
+
 **PSC**: Project Steering Committee, the maintainers governing one OCA repository.
 
 **QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
@@ -389,9 +414,20 @@ product line and not as the `discount` field. From `sale_loyalty`, which also br
 confirmation. `state` runs `draft` (RFQ), `sent`, `to approve`, `purchase`, `cancel`, and
 confirming is what spawns the incoming transfer (chapter 24).
 
+**reordering rule (`stock.warehouse.orderpoint`)**: a minimum and maximum for one
+product at one location. Creating one is a promise, not an action: it does nothing until
+a scheduled action checks whether forecast has fallen below the minimum (chapter 25,
+chapter 35).
+
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
 them.
+
+**routing (`reception_steps` / `delivery_steps`)**: how many transfers a warehouse
+makes goods pass through on the way in or out: directly (1 step), via Input/Output
+(2 steps), or via Input/Output plus Quality Control (3 steps). Confirming a document
+under a multi-step route creates only the first transfer; later legs appear only once
+the one before completes (chapter 25).
 
 **registry**: the in-memory catalog of all models a server process builds at startup
 by importing every installed module's Python. `env["librefleet.vehicle"]` is a
