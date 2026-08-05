@@ -1346,6 +1346,69 @@ def an_invoice_is_the_same_model(env):
         % (inv[0]["name"], d, c))
 
 
+# --- ch28: invoicing, payments, reconciliation --------------------------------
+
+def _ch28_invoice(env):
+    """The reader's invoice: posted, out_invoice, carrying tax, for the brake pads."""
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    lines = env.call("account.move.line", "search_read",
+                     [("product_id", "in", variants),
+                      ("move_id.move_type", "=", "out_invoice"),
+                      ("move_id.state", "=", "posted")],
+                     fields=["move_id"])
+    return sorted({l["move_id"][0] for l in lines})
+
+
+def brake_pad_invoice_posted(env):
+    ids = _ch28_invoice(env)
+    assert ids, (
+        "no posted customer invoice contains a Brake Pad Set line. Open the confirmed "
+        "order from chapter 22 and use Create Invoice, then Confirm. Remember the "
+        "invoice is created in draft: creating is not posting.")
+
+
+def invoice_carries_a_tax_line(env):
+    mid = _ch28_invoice(env)[0]
+    lines = env.call("account.move.line", "search_read", [("move_id", "=", mid)],
+                     fields=["name", "debit", "credit", "tax_line_id"])
+    assert any(l["tax_line_id"] for l in lines), (
+        "this invoice has no tax line. The demo products carry a 15% tax, so a posted "
+        "invoice should have three lines: the product, the tax, and the receivable. "
+        "Chapter 29 takes the tax apart.")
+    debit = round(sum(l["debit"] for l in lines), 2)
+    credit = round(sum(l["credit"] for l in lines), 2)
+    assert debit == credit, (
+        "the invoice's debits (%.2f) and credits (%.2f) differ, which should be "
+        "impossible for a posted move" % (debit, credit))
+
+
+def invoice_is_fully_paid(env):
+    mid = _ch28_invoice(env)[0]
+    mv = env.call("account.move", "read", [mid],
+                  fields=["name", "payment_state", "amount_total", "amount_residual"])[0]
+    assert mv["payment_state"] == "paid", (
+        "invoice %s reads payment_state %r with %.2f still outstanding. Use Register "
+        "Payment until nothing remains. Paying part of it leaves 'partial', which is "
+        "the state the hands-on visits on the way."
+        % (mv["name"], mv["payment_state"], mv["amount_residual"]))
+    assert round(mv["amount_residual"], 2) == 0.0, (
+        "payment_state says paid but %.2f is still residual" % mv["amount_residual"])
+
+
+def receivable_line_is_reconciled(env):
+    """Paid is a summary; reconciled on the receivable line is the mechanism."""
+    mid = _ch28_invoice(env)[0]
+    lines = env.call("account.move.line", "search_read",
+                     [("move_id", "=", mid), ("debit", ">", 0)],
+                     fields=["name", "reconciled", "account_id"])
+    assert lines, "the invoice has no debit line, which should be impossible"
+    assert all(l["reconciled"] for l in lines), (
+        "the receivable line is not reconciled, even though the invoice looks paid. "
+        "payment_state is a computed summary; the truth is the 'reconciled' flag on the "
+        "line and the account.partial.reconcile records linking it to the payment.")
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1622,6 +1685,19 @@ CHAPTERS = {
          "account.move holds both, told apart by move_type. Compare your entry with any "
          "demo invoice: both balance, both are account.move."),
     ],
+    "ch28": [
+        ("a customer invoice for the brake pads was posted", brake_pad_invoice_posted,
+         "From the confirmed order: Create Invoice, then Confirm. Creating leaves it in "
+         "draft, and a draft invoice has no number and no accounting effect."),
+        ("it balances and carries a tax line", invoice_carries_a_tax_line,
+         "Three lines: product revenue, tax, and the receivable that equals their sum."),
+        ("it is fully paid", invoice_is_fully_paid,
+         "Register Payment. The hands-on pays part of it first, on purpose, so you can "
+         "see the 'partial' state before it reaches 'paid'."),
+        ("the receivable line is reconciled", receivable_line_is_reconciled,
+         "payment_state is a summary. Reconciliation on the line is the mechanism, and "
+         "account.partial.reconcile is where the link actually lives."),
+    ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
          "Add is_loanable via a class with _inherit = \"librefleet.vehicle\" and "
@@ -1753,7 +1829,7 @@ WATCHED = {
     "mrp.production":    ["name", "state", "product_qty"],
     "account.move":      ["name", "move_type", "state", "amount_total", "payment_state"],
     "account.move.line": ["name", "account_id", "debit", "credit", "reconciled"],
-    "account.payment":   ["state", "amount"],
+    "account.payment":   ["display_name", "state", "amount", "payment_type"],
     "product.template":  ["name", "list_price", "type"],
     # product.product matters as much as the template: generating variants is the
     # one thing a template does that you cannot see by watching templates alone.
@@ -1784,6 +1860,7 @@ _LABEL_OVERRIDE = {
     # A generated variant has no internal reference yet, so its display_name
     # ("Brake Pad Set (Rear)") is the only thing that identifies it usefully.
     "product.product": "display_name",
+    "account.payment": "display_name",
     "stock.move": "product_id",
     "stock.quant": "product_id",
     "sale.order.line": "product_id",
