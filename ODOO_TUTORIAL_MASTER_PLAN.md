@@ -59,6 +59,8 @@ diff their work against a known-good state at any point.
 | D8 | Language | English | Widest reach; author's working language. |
 | D9 | License | Content: CC BY-SA 4.0; Code: AGPL-3 (matches OCA convention) | OCA modules are AGPL/LGPL; using AGPL for tutorial modules teaches the norm. |
 | D11 | Repo split | **Two repos**: `odoo-tutorial` (site, content, checkpoints, odoolings, plan; main only) and `odoo-tutorial-starter` (a GitHub **template**, 5 files, branch per Odoo version). Supersedes D5's "one monorepo" for the starter only (added 2026-08-03, see §4.5) | Measured the split along the right line at last: the starter surface (`docker-compose.yml` + `odoo.conf`) is 778 bytes that changed **3 times in the project's history**, versus 20 commits touching checkpoints/odoolings. So splitting the *starter* out costs ~zero recurring work, while splitting the *reference* out would have cost 2 coordinated PRs per chapter (which is why D5 was right to keep one repo, and why the earlier rejections were answering the wrong question). Buys four reader-facing wins: setup needs no shell at all (kills the WSL/POSIX prerequisite), `addons/.gitkeep` makes the root-owned-bind-mount bug structurally impossible, readers get a clean repo with their own history from commit one, and the starter can carry `19.0`/`20.0` branches, which is the branch-per-version convention ch7 already teaches. |
+| D12 | Functional literacy | **Two new parts teaching Odoo's business apps** (Parts 4 and 5, ch 21-30), inserted at the Foundations/Professional tier boundary, plus targeted enrichment of seven existing chapters (added 2026-08-05, see §5.3 and §5.8) | Odoo is not domain-agnostic the way Django is: its core abstractions *are* business objects, so `account.move`, `stock.move` and `sale.order` are the substance of every real ticket rather than examples layered on a framework. The existing plan already leans on knowledge it never teaches (ch32 says "extend the Sales flow", ch36's report is an invoice, ch37's portal shows invoices and orders, ch48's N+1 examples are over `account.move.line`, and LibreFleet's `part` to `product.product` bridge is abstract without it). So this fills a hole the plan already depends on rather than adding scope. Taught the developer way (run the flow in the UI, then inspect the models, tables, state transitions and core source it drove), which is what neither functional training nor developer tutorials do, and which odoolings can verify over XML-RPC. |
+| D13 | Chapter renumbering | **Renumber ch21-40 to ch31-50 once, before writing any new content**, so the new parts sit in their pedagogically correct position with sequential numbering (added 2026-08-05, runbook in §5.8) | The new parts must land after Part 3 (the "read it" half needs the ORM, psql and shell from ch9-15) and before the old ch22 (extending the Sales flow is unlearnable without knowing the Sales flow). Any scheme that avoids renumbering produces a sidebar where numbering runs ch20, ch41, ch21, which reads as permanently bolted on. Measured the cost rather than guessing: 20 file renames of which only 4 are written chapters, 4 part folders, 4 checkpoint dirs, ~21 mechanical forward references in ch1-20, ~46 mixed references inside the four written chapters, plus glossary, odoolings keys and meta.json. **This is the cheapest this migration will ever be** (4 of 20 affected chapters written today, 20 of 20 if deferred). |
 | D10 | Reader's workspace | **The reader builds in a repo they own**, bootstrapped in ch5 from two curl'd config files; this repo is read-only reference to them (added 2026-08-03, see §4.5 and the changelog) | The old flow told them to clone this repo and later fork it, which shipped the finished capstone into the exact directory ch8 says to create (silently, since `mkdir -p` and `touch` no-op on existing paths) and guaranteed `git pull upstream main` conflicts on every chapter. Owning their repo removes both failure modes structurally, matches real practice (a custom addon is its own repo, never a fork of a tutorial), and is only possible because `odoolings.py` is stdlib-only with no filesystem access. |
 
 ---
@@ -215,6 +217,25 @@ odoolings/                          # public GitHub repo
    its end state, and its Verify section must reference them. Quizzes must test the
    chapter's *ideas* (predict behavior, choose the right approach), not recall of
    syntax that the reader can look up.
+3. **Functional chapters (Parts 4 and 5) use the same skeleton, no fork.** Keeping one
+   template is what stops them reading as a bolted-on track. What changes is only what
+   each section contains, and one rule about Hands-on:
+   - **Concepts** covers the business idea *and* the models behind it, so the reader
+     always meets `sale.order` next to "quotation".
+   - **Hands-on splits into two numbered movements, always in this order:**
+     "Run the flow" (do it in the UI, as a user would) then "Read what it did"
+     (`psql`, `odoo shell`, `ir.model.fields`, the generated `stock.move` /
+     `account.move` records, and the core source method that ran, e.g. reading
+     `sale/models/sale_order.py::_action_confirm` after confirming an order).
+     The second movement is the whole point. A functional chapter that only narrates
+     clicking is a failed chapter, and is exactly the weakness of existing Odoo
+     functional training.
+   - **Verify** runs odoolings against the reader's *separate demo database*, never
+     the `tutorial` DB (see §5.3's note on the functional database).
+   - **Exercises** are ticket-shaped wherever possible: "the client says the discount
+     on this quote is wrong, here is the pricelist config, find why" beats "explore
+     the pricelist screen". This extends the break-it-lab philosophy (§5.6) into
+     functional territory, and trains the actual job.
 
 ### 4.4 Interactive mechanics — inventory & roadmap
 
@@ -237,8 +258,20 @@ Planned (build at the milestone that needs them, not before):
 - **Predict-the-output quizzes** — a `code` field on quiz questions rendering a
   snippet above the options ("what does this recordset expression return?"). Extends
   `<Quiz>`, not a new component. M2 (recordsets chapter is the natural debut).
-- **ch37 interactive migration checklist** — trackable checkboxes for the OCA
-  migration procedure. Build when writing ch37.
+- **ch47 interactive migration checklist** — trackable checkboxes for the OCA
+  migration procedure. Build when writing ch47 (was ch37 before the D13 renumber).
+- **`odoolings snapshot` / `odoolings diff`** — the one genuinely new tool, and the
+  thing that makes Parts 4 and 5 active rather than narrated. `snapshot` records
+  per-model record counts and max ids over XML-RPC; `diff` reports what changed since.
+  So the reader clicks **Confirm** on a quotation and gets back: `sale.order.state`
+  draft to sale, +1 `stock.picking`, +2 `stock.move`, +0 `account.move`. It turns
+  "what did that button actually do?" from a paragraph of prose into a repeatable
+  forensic method the reader owns, and it exists nowhere else in the Odoo ecosystem.
+  Stays inside D10's constraint: pure XML-RPC, no filesystem access, so it works
+  against any database the reader points it at. Build it **before ch21**, since every
+  functional chapter's "Read what it did" movement uses it. Scope it small: a model
+  allowlist (the ~15 models Parts 4-5 touch) rather than introspecting all ~900, and
+  JSON state in a gitignored dotfile.
 
 ### 4.5 The reader's workspace contract (decided 2026-08-03, see D10 and D11 in §2)
 
@@ -308,13 +341,26 @@ Rules that follow, and that every chapter must respect:
 ## 5. Curriculum — The Complete Syllabus
 
 ### 5.1 Shape of the journey
-Seven parts, ~40 chapters, three proficiency tiers:
+Ten parts, 50 chapters, three proficiency tiers (revised 2026-08-05 by D12/D13, which
+added Parts 4-5 and pushed the old Parts 4-7 to 6-9):
 
-- **Tier 1 — Foundations (Parts 0–3):** can build and ship a clean custom module.
-- **Tier 2 — Professional (Parts 4–5):** can extend core apps safely, write tests,
-  build UI, debug anything.
-- **Tier 3 — Expert/Integrator (Parts 6–7):** works the OCA way, migrates modules,
-  tunes performance, reasons about deployments and upgrades.
+- **Tier 1 — Foundations (Parts 0–3, ch 1–20):** can build and ship a clean custom
+  module.
+- **Tier 2 — Professional (Parts 4–7, ch 21–42):** understands the business system
+  Odoo actually is, extends core apps safely, writes tests, builds UI, debugs anything.
+- **Tier 3 — Expert/Integrator (Parts 8–9, ch 43–50):** works the OCA way, migrates
+  modules, tunes performance, reasons about deployments and upgrades.
+
+**The narrative turn, and why Parts 4-5 sit exactly here.** Parts 2-3 build LibreFleet
+as an island: `librefleet.part` carries its own `standard_cost` and `list_price`, which
+quietly reimplements a slice of `product.product`. That is correct pedagogy (learn the
+framework in isolation, without core's surface area in the way) but it is not how a
+real integrator would build it. Parts 4-5 are the reveal: here is what Odoo already
+ships, and here is the system your module lives inside. Part 6 then becomes the payoff
+rather than an abstraction, because "extend the Sales flow" and "bridge `part` to
+`product.product`" now describe flows the reader has personally run and inspected.
+So the tutorial reads as three acts: **build a module → meet the system → work inside
+the system**, which is also the real arc of a developer's first year on Odoo.
 
 ### 5.2 The capstone project
 An original, non-trivial domain that exercises every framework feature and does not
@@ -343,6 +389,9 @@ matrix; get the author's sign-off before writing Part 2.)
    the addons path. (Mermaid diagrams.)
 4. Guided tour as a *user*: install a demo DB, click through Sales/CRM/Inventory for
    30 minutes, enable developer mode — you must know the product to develop it.
+   **Scope note (D12):** this stays *first contact* only, deliberately shallow. It must
+   not try to teach the flows, and it should now close by pointing forward to Parts 4-5
+   ("you will come back and take these apart properly once you can read the database").
 
 **Part 1 — Environment**
 5. Dev setup with Docker Compose: Odoo 19 + Postgres 16, volumes for addons and
@@ -373,38 +422,136 @@ matrix; get the author's sign-off before writing Part 2.)
 19. Kanban views (with the service-order pipeline) + calendar, pivot, graph views.
 20. Wizards: `TransientModel`, an "approve & invoice" wizard for service orders.
 
-**Part 4 — Business logic like a pro**
-21. Model inheritance the three ways: classic `_inherit` extension, prototype
+**Part 4 — How Odoo runs a business** (NEW, D12; the "meet the system" act)
+
+> **All ten chapters in Parts 4-5 run in a separate demo database**, never the reader's
+> `tutorial` DB: `odoo -d functional -i <apps> --with-demo --stop-after-init`, verified
+> with `odoolings check chNN --db functional`. Three reasons: functional exploration
+> needs demo data (chart of accounts, products, partners), installing `sale`/`purchase`/
+> `stock`/`mrp`/`account` into `tutorial` would pollute the dev DB and change every
+> later checkpoint diff, and `--db` already exists so this needs no new tooling.
+> **Verified installable on Odoo 19 Community** (checked in the container 2026-08-05):
+> `crm`, `sale`, `sale_management`, `sale_stock`, `purchase`, `purchase_stock`, `stock`,
+> `stock_account`, `stock_landed_costs`, `mrp`, `mrp_account`, `account`, `analytic`,
+> `payment`, `delivery`, `sale_loyalty`, `point_of_sale`, `website`, `website_sale`.
+
+21. The business spine: partners, products & units. `res.partner` (the
+    company/contact hierarchy, customer *and* vendor on one model),
+    `product.template` vs `product.product` and how variants generate, product types,
+    UoM and UoM categories, product categories. Everything in Parts 4-5 sits on this,
+    and it is where the reader first meets `odoolings snapshot`/`diff` plus the
+    "identify the model behind any screen" developer-mode habit. Connects straight back
+    to ch12 (relations) and forward to ch32's `part` to `product.product` bridge.
+22. Sales: from lead to confirmed order. The CRM pipeline briefly (lead vs
+    opportunity, stages, activities the reader will *build* in ch33), then quotation to
+    `sale.order`, order lines, delivery and invoice policies, and the `state` machine
+    ch32 will extend. Read-what-it-did payoff: `sale/models/sale_order.py::_action_confirm`.
+23. Pricing: pricelists, discounts & promotions. `product.pricelist` rules and their
+    resolution order, discounts, `sale_loyalty` promotions and coupons, and how
+    `price_unit` on a line is actually arrived at. High-value because price computation
+    is one of the most common real ticket sources. Ticket-shaped exercise lives here.
+24. Purchase: from RFQ to vendor bill. `purchase.order` lifecycle, vendor pricelists,
+    reordering rules, receipts, and the three-way match (order, receipt, bill).
+25. Inventory: moves, quants & warehouses. Locations, `stock.move` as double-entry for
+    goods (a move always has a source and a destination, which is the same idea
+    accounting uses for money), pickings, `stock.quant`, on-hand vs forecast, lead times.
+26. Manufacturing: bills of materials & manufacturing orders. `mrp.bom`, components,
+    operations and work centers, the `mrp.production` lifecycle, component consumption
+    and finished-goods receipt. Kept in Part 4 because it is a transactional flow like
+    the others, not a specialism.
+
+**Part 5 — Odoo's accounting core** (NEW, D12) + `boss4`
+
+> Split from Part 4 deliberately: double-entry is a genuinely different mental model
+> and deserves its own part rather than being the tail of a six-chapter slog. It also
+> gives the reader a part-completion milestone (and a mastery bar, §4.4) halfway
+> through the functional act. **Verified in the container:** Community `account` ships
+> the full core (`account.move`/`.move.line`, journals, chart of accounts, `account.tax`
+> + `fiscal.position` + repartition lines, `account.payment` + payment terms,
+> `partial`/`full.reconcile` + `reconcile.model`, bank statements, all six lock dates,
+> and the `account.report` *engine*). Enterprise-only and confirmed absent from disk:
+> `account_accountant`, `account_reports` (the P&L/Balance-Sheet/Aged *definitions*),
+> `sale_commission`. `sale_subscription` has an `ir.module.module` row but no files and
+> state `uninstallable`.
+
+27. Accounting foundations: double-entry and the `account.move` duality. Debits and
+    credits, chart of accounts, journals, and **the single highest-value fact in these
+    two parts: an invoice and a journal entry are the same model.** One `account.move`
+    with `account.move.line` children carrying debit/credit, distinguished by
+    `move_type`. Draft vs posted, sequences and inalterability. Every developer who has
+    not internalised this writes wrong accounting code.
+28. Invoicing, payments & reconciliation. Invoice from a sales order, invoicing policy
+    (ordered vs delivered), credit notes, vendor bills, `account.payment`, payment
+    terms and partial payments, reconciliation via `account.partial.reconcile`,
+    `payment_state`, bank statements and `account.reconcile.model`. (Community has the
+    reconciliation *engine*; the slick bank-rec widget is the Enterprise part, so this
+    chapter reconciles the honest way, which is also the way the ORM sees it.)
+29. Taxes & fiscal positions. Tax computation, price-included vs price-excluded,
+    tax groups, `account.tax.repartition.line`, fiscal positions mapping taxes by
+    country, and why rounding differences appear. Bites developers constantly.
+30. Inventory valuation: where stock meets accounting. Costing methods (standard,
+    FIFO, AVCO), manual vs automated valuation, stock interim accounts, how a delivery
+    posts journal entries, landed costs, COGS. This is the chapter that explains the
+    "why is the P&L wrong" class of ticket, and it is the natural join between Part 4
+    and Part 5. Closes with lock dates and period close, plus **defining a small custom
+    `account.report`**, which is a real Community exercise precisely because the engine
+    ships but the statements do not.
+- **`boss4` — Run the business end to end.** The cross-app use case (the "branded
+  merchandise" shape borrowed from Odoo's own T-shirt training exercise, retold for
+  LibreFleet): purchase blank stock, manufacture the branded item, sell it online,
+  deliver it, invoice it, collect and reconcile the payment, then prove the inventory
+  valuation and the resulting journal entries are what you expect. Spec only, no steps.
+  odoolings verifies the whole chain links up (lead → order → picking → invoice →
+  payment → reconciliation), which is something no functional training can do.
+  **Stretch (and the best developer content in these two parts):** the two things
+  Community lacks become *builds*, not omissions. Implement recurring maintenance-plan
+  billing (the `sale_subscription` substitute) and a service-advisor commission
+  calculation (the `sale_commission` substitute) as LibreFleet features. A developer
+  who builds recurring billing has learned more than one who clicked through the
+  Enterprise app.
+
+**Part 6 — Business logic like a pro** (was Part 4, ch 21-28; +10 by D13)
+31. Model inheritance the three ways: classic `_inherit` extension, prototype
     (`_inherit` + new `_name`), delegation `_inherits` — and when to use each.
-22. Extending core apps: add fields to `res.partner`, extend Sales flow; never
-    modify core, always extend (the golden rule).
-23. Mail & chatter: `mail.thread`, activities, followers, email templates,
-    automated notifications.
-24. Data files: XML vs CSV, `noupdate`, demo data vs master data, `ref()`/xml-ids
+32. Extending core apps: add fields to `res.partner`, extend Sales flow; never
+    modify core, always extend (the golden rule). **Now assumes ch21-22**, so the
+    `part` to `product.product` bridge and the Sales-flow extension describe flows the
+    reader has run and inspected rather than abstractions.
+33. Mail & chatter: `mail.thread`, activities, followers, email templates,
+    automated notifications. (The reader met chatter and activities as a *user* in
+    ch22's CRM pipeline; here they build them.)
+34. Data files: XML vs CSV, `noupdate`, demo data vs master data, `ref()`/xml-ids
     across modules.
-25. Scheduled actions (cron), server actions, automated actions.
-26. QWeb reports: PDF service report with header/footer, paper formats.
-27. Controllers & portal: HTTP routes, `type='http'` vs `'json'`, auth levels,
-    building the customer portal page; a taste of the website builder.
-28. Testing: `TransactionCase`, `HttpCase`/tours intro, `--test-tags`, demo-data
+35. Scheduled actions (cron), server actions, automated actions.
+36. QWeb reports: PDF service report with header/footer, paper formats. **Now assumes
+    ch27-28**, so the canonical invoice-report example is grounded.
+37. Controllers & portal: HTTP routes, `type='http'` vs `'json'`, auth levels,
+    building the customer portal page; a taste of the website builder. **Now assumes
+    ch22/28** (the portal shows real orders and invoices), and this is where
+    eCommerce's functional context belongs rather than in Parts 4-5.
+38. Testing: `TransactionCase`, `HttpCase`/tours intro, `--test-tags`, demo-data
     pitfalls, writing tests for everything built so far.
 
-**Part 5 — Frontend (OWL) & the web client**
-29. OWL fundamentals: components, props, state, hooks, QWeb templates in JS,
+**Part 7 — Frontend (OWL) & the web client** (was Part 5, ch 29-32; +10 by D13)
+39. OWL fundamentals: components, props, state, hooks, QWeb templates in JS,
     assets bundles (`web.assets_backend`).
-30. Extending the web client: a custom field widget, patching existing components.
-31. The LibreFleet dashboard: a client action with an OWL component pulling data
+40. Extending the web client: a custom field widget, patching existing components.
+41. The LibreFleet dashboard: a client action with an OWL component pulling data
     via ORM RPC (`useService("orm")`).
-32. (Survey chapter, lighter) Website themes & snippets, POS customization —
-    what exists, where the docs are, when you'd go deeper.
+42. (Survey chapter, lighter) Website themes & snippets, POS customization —
+    what exists, where the docs are, when you'd go deeper. **This is where POS's
+    functional context belongs** (session → orders → payment methods → session close
+    and its journal entries), because POS is Odoo's largest OWL application and an
+    offline-first one, which makes it the right case study for *this* part rather than
+    a chapter in Part 4.
 
-**Part 6 — The OCA way (expert tier begins)**
-33. OCA safari: how repos/PSCs are organized, finding modules (odoo-community.org,
+**Part 8 — The OCA way (expert tier begins)** (was Part 6, ch 33-36; +10 by D13)
+43. OCA safari: how repos/PSCs are organized, finding modules (odoo-community.org,
     GitHub, Odoo Apps store), judging maturity levels, reading OCA module source
     as study material.
-34. OCA tooling on your own module: pre-commit (ruff, pylint-odoo, prettier),
+44. OCA tooling on your own module: pre-commit (ruff, pylint-odoo, prettier),
     readme fragments, manifest conventions, module naming rules.
-35. Contributing: CLA, fork/branch/commit conventions (`[FIX] module: ...`), PR
+45. Contributing: CLA, fork/branch/commit conventions (`[FIX] module: ...`), PR
     targeting version branches, Runboat, review etiquette, the ocabot; do a real
     first contribution (docs fix or small improvement).
     **Must cover fork mechanics in full** (`fork` → `git remote add upstream` →
@@ -412,20 +559,20 @@ matrix; get the author's sign-off before writing Part 2.)
     moved here from ch7 on 2026-08-03 (D10, §4.5): forking is genuinely required to
     contribute to OCA, whereas in ch7 it only existed to work around the reader
     living inside this repo.
-36. Refactor a LibreFleet feature into a standalone OCA-quality module —
+46. Refactor a LibreFleet feature into a standalone OCA-quality module —
     the capstone-of-the-capstone.
 
-**Part 7 — Integrator craft**
-37. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
+**Part 9 — Integrator craft** (was Part 7, ch 37-40; +10 by D13)
+47. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
     views, API changes — the deprecation list from the D1 revision is the exercise
     material), OCA migration process & preserving git history, OpenUpgrade
     for database migrations, Enterprise upgrade service (concept level).
-38. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
+48. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
     indexes, `prefetch`, profiling; when to drop to SQL (and the rules for doing so).
-39. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
+49. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
     backups, staging/prod flows, odoo.sh vs Docker platforms; multi-company and
     localization awareness.
-40. Career map: reading core source effectively, Odoo certification, OCA Days /
+50. Career map: reading core source effectively, Odoo certification, OCA Days /
     Odoo Experience, keeping up with version releases; what changes in Odoo 19/20
     and how to re-learn efficiently each October.
 
@@ -436,6 +583,16 @@ wizards ▢ security (groups/ACL/record rules/sudo) ▢ mail.thread ▢ cron ▢
 server actions ▢ QWeb reports ▢ controllers ▢ portal ▢ OWL component ▢ widget ▢
 assets ▢ tests (unit + tour) ▢ data files/noupdate ▢ i18n basics ▢ pre-commit/OCA
 conventions ▢ migration exercise ▢ performance patterns ▢ deployment concepts ▢
+
+Functional coverage (added 2026-08-05, D12; Parts 4-5):
+partner/company model ▢ product.template vs product.product + variants ▢ UoM ▢
+sale.order lifecycle ▢ CRM pipeline ▢ pricelist resolution ▢ discounts/promotions ▢
+purchase.order + three-way match ▢ stock.move/quant/picking ▢ warehouses & locations ▢
+mrp.bom + mrp.production ▢ double-entry ▢ account.move duality (invoice = journal
+entry) ▢ journals & chart of accounts ▢ payment + reconciliation ▢ payment terms ▢
+taxes (incl./excl.) + fiscal positions ▢ inventory valuation (std/FIFO/AVCO) + COGS ▢
+lock dates/period close ▢ account.report engine ▢ POS session → journal entry ▢
+eCommerce order → sale.order ▢
 
 ### 5.5 LibreFleet blueprint (data model & feature map — added 2026-07-13)
 
@@ -476,8 +633,19 @@ Security (ch10): two groups — *Workshop / User* (technicians: read all, write 
 assigned to them via record rule) and *Workshop / Manager* (full CRUD + config
 models). The record rule lands in ch10 and is *felt* throughout Part 2–3.
 
-Part 6 extraction candidate (ch36): the maintenance-reminder feature becomes a
+Part 8 extraction candidate (ch46): the maintenance-reminder feature becomes a
 standalone OCA-quality `librefleet_maintenance_reminder` module.
+
+**How LibreFleet relates to Parts 4-5 (D12).** The blueprint above is deliberately an
+*island*: `librefleet.part` carries its own `standard_cost`/`list_price`, and service
+orders have their own totals, none of it touching `product`, `sale` or `account`. That
+is the right call for Parts 2-3 (learn the ORM without core's surface area in the way),
+and Parts 4-5 are where the reader finds out what it cost: Odoo already ships all of
+it. Nothing in the blueprint changes; what changes is that ch32's bridge to
+`product.product`, ch36's invoice report and ch37's portal stop being abstractions.
+The two Community gaps (`sale_subscription`, `sale_commission`) become LibreFleet
+features in `boss4`'s stretch: a recurring maintenance plan (which §5.5 already hints
+at) and a service-advisor commission.
 
 ### 5.6 Challenge design (added 2026-07-13 — makes the tutorial *hard* in the right places)
 
@@ -497,10 +665,23 @@ a small feature or mini-module built from memory, verified by an odoolings check
   with something *checkable*.
 - **Part 3 boss (`boss3`):** full view suite (search defaults, kanban with grouping,
   a wizard) for a provided model spec.
-- **Part 4 boss (`boss4`):** extend a core app per spec (field on `res.partner` +
-  automated activity + a test that proves it).
-- **Part 5 boss (`boss5`):** a small OWL component against a documented RPC shape.
+- **Parts 4-5 boss (`boss4`):** run the business end to end across every app touched
+  in the functional act (see §5.3). The only boss verified mostly by *state* rather
+  than by code: odoolings walks the chain lead → order → picking → invoice → payment →
+  reconciliation and checks it links up.
+- **Part 6 boss (`boss5`, was `boss4`):** extend a core app per spec (field on
+  `res.partner` + automated activity + a test that proves it).
+- **Part 7 boss (`boss6`, was `boss5`):** a small OWL component against a documented
+  RPC shape.
 Boss specs live on the site; solutions live in `code/checkpoints/bossN/`.
+**Boss renumbering (D13):** only `boss2` is written, so renaming the planned ones is
+free. Do it as part of the §5.8 migration, not later.
+
+**Ticket-shaped exercises (added 2026-08-05, D12)** — in Parts 4-5 especially, frame
+exercises as the ticket an integrator actually receives rather than as a tour: "the
+client says the discount on this quote is wrong, here is the pricelist config, find
+why" instead of "explore the pricelist screen". Same spirit as the break-it labs below,
+applied to configuration rather than code, and it trains the real job.
 
 **Break-it labs** — one per chapter where instructive: deliberately cause the failure
 the chapter protects against (delete the ACL line and upgrade; make two fields depend
@@ -511,6 +692,80 @@ and no existing tutorial teaches it systematically — this is our differentiato
 **End-of-part review quizzes** — a cumulative `<Quiz>` on each part's index page
 mixing questions from all its chapters (spaced repetition; pairs with the per-part
 mastery bar from §4.4).
+
+### 5.7 Functional-track scope: what is taught where (added 2026-08-05, D12)
+
+The source for Parts 4-5 is Camptocamp's own functional onboarding curriculum. Mapping
+it, with the Community feasibility verified in the container on 2026-08-05:
+
+| Training topic | Lands in | Community? |
+|---|---|---|
+| Getting started, navigation | ch21 (+ ch4 first contact) | yes |
+| CRM | ch22 (pipeline, briefly) | yes (`crm`) |
+| Sales | ch22 | yes (`sale`, `sale_management`) |
+| Pricelists, Promotions | ch23 | yes (`sale_loyalty` for promos/coupons) |
+| Sales Tax | ch29 | yes |
+| Delivery | ch25 | yes (`delivery`, `stock`) |
+| Commissions | `boss4` stretch, as a **build** | **no** (`sale_commission` is Enterprise) |
+| Purchase | ch24 | yes |
+| MRP: overview, basics, manufacturing, orders | ch26 | yes (`mrp`, `mrp_account`) |
+| Accounting basics | ch27 | yes |
+| Invoicing, Payments | ch28 | yes |
+| Banks and Cash | ch28 | engine yes; the bank-rec *widget* is Enterprise |
+| Taxes | ch29 | yes |
+| Inventory valuation | ch30 | yes (`stock_account`, `stock_landed_costs`) |
+| Accounting management, End of period | ch30 | yes (all six lock dates present) |
+| Reporting | ch30 | `account.report` **engine** yes, statements Enterprise |
+| Point of Sale | ch42 (with the OWL part) | yes (`point_of_sale`) |
+| Website, Ecommerce | ch37 + ch42 | yes (`website`, `website_sale`) |
+| Subscriptions | `boss4` stretch, as a **build** | **no** (`sale_subscription` unusable) |
+| Use Case: Branded T-shirt | `boss4` | yes |
+
+**Deliberately not attempted:** turning the reader into a functional consultant.
+Chart-of-accounts design, jurisdiction tax compliance and requirements gathering are
+career skills, not chapters. The goal is the literacy a *developer* needs to not write
+wrong code, plus enough breadth to follow a client conversation.
+
+### 5.8 Migration runbook for D13's renumber (execute before writing any new chapter)
+
+Ordered, and **must be one PR, fully verified, before ch21 is written**, or new content
+collides with old numbering. Measured surface as of 2026-08-05:
+
+1. **Rename part folders** (git mv), then fix the root `web/content/docs/meta.json`
+   `pages` array to the new order, inserting the two new part folders:
+   `04-business-logic` → `06-business-logic`, `05-frontend-owl` → `07-frontend-owl`,
+   `06-oca-way` → `08-oca-way`, `07-integrator-craft` → `09-integrator-craft`.
+   New: `04-odoo-business`, `05-accounting-core`.
+2. **Rename 20 chapter files**, `NN` → `NN+10`, highest first to avoid collisions
+   (40→50, 39→49, … 21→31). Update each file's own `title:` frontmatter and its
+   `**Checkpoint:** code/checkpoints/chNN` line. Also update each part folder's
+   `meta.json` `pages` array.
+3. **Rename 4 checkpoint dirs**: `code/checkpoints/ch21..ch24` → `ch31..ch34`.
+4. **Rename odoolings keys**: `CHAPTERS["ch21".."ch24"]` → `"ch31".."ch34"`, plus
+   `"ch24-demo"` → `"ch34-demo"`, plus the section comments naming those chapters.
+   Then rename planned bosses: `boss4` → `boss5`, `boss5` → `boss6` (only `boss2`
+   exists, so this is documentation-only today).
+5. **Fix cross-references. This is the only step with a real trap.** References to
+   ch1-20 must NOT move; references to ch21-40 must gain 10; and both kinds appear
+   *mixed inside the same paragraph* in the four written chapters, so a blind
+   `sed s/chapter 2/chapter 3/` corrupts the content. Use a script that matches
+   `(chapter|ch)\s*(\d\d?)` , parses the number, and rewrites only when `21 <= n <= 40`.
+   Known counts to reconcile against afterwards: ~21 forward refs in ch1-20
+   (ch4, ch6, ch7, ch8, ch12, ch13, ch14, ch15, ch16, ch17, ch19, ch20, boss2),
+   ~46 mixed refs inside ch21-24, 9 in `glossary.mdx`, 11 in `odoolings.py`.
+6. **The master plan is the exception:** its §10 changelog entries are a historical
+   record and must keep their original numbers. Only §4-§6 current-state text gets
+   renumbered. Do this by hand, not by script.
+7. **Update the site's chapter arithmetic:** `web/lib/shared.ts` `TOTAL_CHAPTERS`
+   40 → 50, and the homepage `TIERS` array's `parts` strings to
+   `Parts 0–3 · ch 1–20` / `Parts 4–7 · ch 21–42` / `Parts 8–9 · ch 43–50`.
+8. **Update `roadmap.mdx`** to the §6 milestone remap below.
+9. **Verify:** `npm run build`, `npm test`, `grep -rn '—' web/content/docs/` empty,
+   full odoolings suite green ch05-ch34 (the renamed keys), and a link check that no
+   MDX references a chapter number that no longer exists. Spot-check the four written
+   chapters by reading them end to end: the mixed-reference step is where a silent
+   error would hide, and this repo's own audit history says cross-references are the
+   most common defect class.
 
 Work in milestones; each ends in a deployable state. The author reviews each milestone
 before the next starts. **Cadence assumption:** the author studies/writes ~1–2 h on
@@ -551,26 +806,62 @@ executes every hands-on section personally (that's the learning).
 - **Acceptance:** LibreFleet core installs from any checkpoint; author completes
   `boss2` from the spec alone with odoolings green.
 
-### M3 — Parts 3 & 4 (weeks 4–6)
-- [ ] Chapters 16–28 + checkpoints; test suite grows with ch28 and CI (`ci.yml`)
-      starts running module tests on every push.
-- [ ] `boss3` + `boss4` challenges; Part 3/4 review quizzes.
-- **Acceptance:** CI green; PDF report renders; portal page works logged-in and
-  logged-out; ≥ 15 meaningful tests; author clears both bosses.
+### M3 — Part 3 (week 4) — ✅ chapters done 2026-08-02
+Rescoped 2026-08-05 by D12/D13: M3 was "Parts 3 & 4 (ch 16-28)", but the old Part 4 is
+now Part 6 and moved to M5, so M3 is just Part 3.
+- [x] Chapters 16–20 + checkpoints, each registering odoolings checks.
+- [ ] `boss3` challenge; Part 3 review quiz.
+- **Acceptance:** author clears `boss3`; the view suite works on the service-order
+  pipeline.
 
-### M4 — Part 5 (weeks 7–8)
-- [ ] Chapters 29–32; OWL dashboard functional; `boss5`; Part 5 review quiz.
+### M3.5 — The D13 renumber (½ day, blocking) — NEW
+- [ ] Execute §5.8's runbook end to end, as one verified PR.
+- **Acceptance:** full odoolings suite green on the renamed keys (ch05-ch34), site
+  builds, `npm test` passes, and no MDX references a chapter number that no longer
+  exists. **Nothing in M4 may start until this lands.**
+
+### M4 — Parts 4 & 5, the functional act (weeks 5–7) — NEW (D12)
+- [ ] `odoolings snapshot` / `odoolings diff` (§4.4) built and used from ch21 on. This
+      comes first: every functional chapter's "Read what it did" movement depends on it.
+- [ ] The shared `functional` demo database recipe, documented once in ch21 and reused:
+      `-d functional -i <apps> --with-demo`.
+- [ ] Chapters 21–30 per §5.3, each with odoolings checks that verify *business state*
+      (confirmed order, quant at a location, `payment_state == 'paid'` with reconciled
+      lines, `mrp.production` done) rather than module structure.
+- [ ] `boss4` (end-to-end business run) + its two stretch builds (recurring maintenance
+      billing, commission calc) + Parts 4/5 review quizzes.
+- [ ] Glossary: the functional vocabulary block (journal entry, reconciliation, quant,
+      BoM, fiscal position, payment term, COGS, AVCO/FIFO, MO, RFQ, UoM, pricelist).
+- **Write order if the whole part cannot be done at once** (highest unblocking value
+  first, because Part 6 depends on them): ch21, ch22, ch27, ch28, then ch23-26, ch29-30.
+- **Acceptance:** the author can run the full order-to-cash and procure-to-pay flows
+  from memory in a fresh demo DB, explain what each posted to `account.move` and
+  `stock.move`, and clears `boss4`.
+
+### M5 — Part 6, business logic (weeks 8–10)
+- [ ] Chapters 31–38 (ch31-34 already written as the old ch21-24) + checkpoints; test
+      suite grows with ch38 and CI (`ci.yml`) starts running module tests on every push.
+- [ ] `boss5` (was `boss4`); Part 6 review quiz.
+- [ ] Revisit ch32/ch36/ch37 once Parts 4-5 exist: each gains a short prerequisite
+      pointer and can drop any hand-waving it currently does about Sales/invoices.
+- **Acceptance:** CI green; PDF report renders; portal page works logged-in and
+  logged-out; ≥ 15 meaningful tests; author clears the boss.
+
+### M6 — Part 7, frontend (weeks 11–12)
+- [ ] Chapters 39–42; OWL dashboard functional; `boss6` (was `boss5`); Part 7 review quiz.
+- [ ] ch42 absorbs the POS functional context (§5.3), so POS arrives as an OWL case
+      study rather than a Part 4 chapter.
 - **Acceptance:** custom widget + client action work with `--dev=all` hot reload.
 
-### M5 — Parts 6 & 7 (weeks 9–11)
-- [ ] Chapters 33–40; pre-commit adopted repo-wide; the extracted OCA-style module
+### M7 — Parts 8 & 9, the expert tier (weeks 13–15)
+- [ ] Chapters 43–50; pre-commit adopted repo-wide; the extracted OCA-style module
       passes `pre-commit run -a` and has readme fragments.
-- [ ] Author makes one real (small) OCA contribution as the ch35 exercise.
-- [ ] ch37 interactive migration checklist (§4.4).
+- [ ] Author makes one real (small) OCA contribution as the ch45 exercise.
+- [ ] ch47 interactive migration checklist (§4.4).
 - **Acceptance:** the extracted module would plausibly survive an OCA review;
   migration exercise completed against a real 18.0 module (18→19).
 
-### M6 — Polish & launch (week 12)
+### M8 — Polish & launch (week 16)
 - [ ] Full read-through edit; consistency pass on admonitions and footers.
 - [ ] Landing page with learning-path graphic; "how to use this tutorial" guide.
 - [ ] README, CONTRIBUTING, licenses; announce (LinkedIn, r/Odoo, OCA Discord —
@@ -639,6 +930,82 @@ executes every hands-on section personally (that's the learning).
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-05 — D12/D13: the functional act, and a renumber to make room for it
+
+Planning only. No chapter written, no renumber executed yet; §5.8 is the runbook and
+M3.5 is the blocking milestone.
+
+- **Why this exists.** The author's Camptocamp onboarding includes functional training
+  (CRM, Sales, Purchase, Inventory, MRP, Accounting, POS, Website/eCommerce,
+  Subscriptions, and a cross-app "branded T-shirt" use case), and asked whether it
+  belongs in Odoolings. It does, but not as an add-on: **the existing plan already
+  leans on functional knowledge it never teaches.** The old ch22 says "extend the Sales
+  flow", ch26's report is an invoice, ch27's portal shows invoices and orders, ch38's
+  N+1 examples are over `account.move.line`, and LibreFleet's `part` to
+  `product.product` bridge is an abstraction without it. Odoo is not domain-agnostic
+  the way Django is: `account.move`, `stock.move` and `sale.order` *are* the framework's
+  substance, so functional illiteracy is a hole in the framework, not a gap in breadth.
+- **Two new parts, not a parallel track** (D12): **Part 4 "How Odoo runs a business"**
+  (ch 21-26: the partner/product spine, sales, pricing, purchase, inventory,
+  manufacturing) and **Part 5 "Odoo's accounting core"** (ch 27-30: double-entry and the
+  `account.move` duality, invoicing/payments/reconciliation, taxes/fiscal positions,
+  inventory valuation and period close) plus `boss4`. Split into two parts of 6 and 4
+  rather than one of 10, so both match the size of existing parts (Part 2 has 8, Part 3
+  has 5, Parts 5-7 have 4 each), and so the reader gets a completion milestone and a
+  mastery bar halfway through. A separate "functional track" with its own F1-F14
+  numbering was considered and **rejected**: it would read as bolted on forever, which
+  is exactly what the author asked to avoid.
+- **Framed as the story's turning point, which is what stops it feeling out of place.**
+  Parts 2-3 build LibreFleet as an island (its own `standard_cost`/`list_price`, quietly
+  reimplementing a slice of `product.product`); Parts 4-5 are the reveal that Odoo
+  already ships all of it; Part 6 is then the payoff. Three acts: build a module, meet
+  the system, work inside the system, which is also a developer's real first year.
+- **Taught the developer way, and this is the differentiator.** One template, no fork
+  (§4.3 rule 3): Hands-on always splits into "Run the flow" (UI) then "Read what it
+  did" (psql, shell, the generated `stock.move`/`account.move`, and the core source
+  method that ran, e.g. `sale_order.py::_action_confirm`). A functional chapter that
+  only narrates clicking is a failed chapter, and that is precisely the weakness of
+  existing Odoo functional training. Exercises become ticket-shaped ("the discount on
+  this quote is wrong, find why"). odoolings verifies *business state* over XML-RPC,
+  which no functional training anywhere does.
+- **New tool: `odoolings snapshot` / `odoolings diff`** (§4.4). Click Confirm on a
+  quotation, get back "+1 `stock.picking`, +2 `stock.move`, state draft→sale". Turns
+  "what did that button actually do?" into a method the reader owns. Stays inside D10
+  (pure XML-RPC, no filesystem). Must be built before ch21.
+- **Verified in the container rather than assumed** (2026-08-05). Installable on 19
+  Community: `crm`, `sale`(+`_management`/`_stock`), `purchase`(+`_stock`),
+  `stock`(+`_account`/`_landed_costs`), `mrp`(+`_account`), `account`, `analytic`,
+  `payment`, `delivery`, `sale_loyalty`, `point_of_sale`, `website`, `website_sale`.
+  Community `account` is much richer than its "Invoicing" label suggests: full
+  `account.move`/`.move.line`, journals, chart of accounts, taxes + fiscal positions +
+  repartition lines, payments + terms, partial/full reconcile + reconcile models, bank
+  statements, all six lock dates, and the `account.report` **engine**. Confirmed absent
+  from disk (Enterprise): `account_accountant`, `account_reports` (so the P&L/Balance
+  Sheet/Aged *definitions*, though the engine ships, which becomes a Community
+  exercise), `sale_commission`. `sale_subscription` has an `ir.module.module` row but no
+  files and state `uninstallable`.
+- **The two Community gaps become builds, not omissions.** Subscriptions and
+  commissions are `boss4` stretch goals implemented as LibreFleet features. A developer
+  who builds recurring billing has learned more than one who clicked through the
+  Enterprise app, and it converts a limitation into the most dev-relevant content there.
+- **Renumber (D13), and why now.** The new parts must land after Part 3 (the "read it"
+  half needs ch9-15's ORM/psql/shell) and before the old ch22. Every scheme that avoids
+  renumbering yields a sidebar reading ch20, ch41, ch21. So ch21-40 → ch31-50, Parts 4-7
+  → 6-9, planned `boss4`/`boss5` → `boss5`/`boss6`, total 40 → 50 chapters. Cost was
+  measured, not guessed: 20 file renames (**only 4 are written chapters**), 4 part
+  folders, 4 checkpoint dirs, ~21 forward refs in ch1-20, ~46 mixed refs inside ch21-24,
+  9 in the glossary, 11 in odoolings. **This is the cheapest the migration will ever
+  be**, and the one real trap is documented in §5.8 step 5: refs to ch1-20 must not
+  move while ch21-40 must, and both appear in the same paragraphs, so a blind sed
+  corrupts content.
+- **Also distributed rather than duplicated:** POS lands in ch42 (it is Odoo's largest,
+  offline-first OWL app, so it belongs with the OWL part), eCommerce context in ch37
+  (controllers and portal), and ch4 is explicitly rescoped to stay *first contact* with
+  a forward pointer instead of trying to teach flows.
+- Scope honesty: this grows the syllabus 40 → 50 chapters (+25%) and adds real tooling
+  work. It does not attempt to produce functional consultants; chart-of-accounts design
+  and jurisdiction tax compliance are career skills, not chapters (§5.7).
 
 ### 2026-08-04 (SEO foundation) — earn discovery with complete lessons
 
