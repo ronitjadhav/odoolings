@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+/**
+ * Every docs page that is NOT a stub is expected in the sitemap, so derive the
+ * count instead of hard-coding it. A literal number here goes stale the moment a
+ * stub becomes a written chapter, which is exactly how the chapter renumber
+ * (D13) slipped past this test.
+ */
+function completeDocsPageCount(dir = 'content/docs') {
+  let total = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += completeDocsPageCount(full);
+    } else if (entry.name.endsWith('.mdx')) {
+      if (!readFileSync(full, 'utf8').includes('title="Stub"')) total += 1;
+    }
+  }
+  return total;
+}
 
 const port = 49173;
 const origin = `http://127.0.0.1:${port}`;
@@ -44,7 +65,7 @@ try {
   assert.match(lessonBody, /rel="canonical" href="https:\/\/odoolings\.ronit\.io\/docs\/00-orientation\/01-what-odoo-is\/"/);
   assert.match(lessonBody, /"@type":"LearningResource"/);
 
-  const stubRoute = '/docs/04-business-logic/25-cron-server-automated-actions/';
+  const stubRoute = '/docs/06-business-logic/35-cron-server-automated-actions/';
   const stub = await fetch(`${origin}${stubRoute}`);
   assert.equal(stub.status, 200, 'planned lessons should remain navigable');
   const stubBody = await stub.text();
@@ -53,9 +74,14 @@ try {
   const sitemap = await fetch(`${origin}/sitemap.xml`);
   assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
   const sitemapBody = await sitemap.text();
-  assert.match(sitemapBody, /\/docs\/04-business-logic\/24-data-files\/<\/loc>/);
-  assert.doesNotMatch(sitemapBody, /\/docs\/04-business-logic\/25-cron-server-automated-actions/);
-  assert.equal((sitemapBody.match(/<loc>/g) ?? []).length, 30, 'sitemap should list home plus 29 complete docs pages');
+  assert.match(sitemapBody, /\/docs\/06-business-logic\/34-data-files\/<\/loc>/);
+  assert.doesNotMatch(sitemapBody, /\/docs\/06-business-logic\/35-cron-server-automated-actions/);
+  const expectedLocs = 1 + completeDocsPageCount();
+  assert.equal(
+    (sitemapBody.match(/<loc>/g) ?? []).length,
+    expectedLocs,
+    `sitemap should list home plus every complete docs page (${expectedLocs - 1} of them)`,
+  );
 
   for (const route of [
     '/docs/00-orientation/01-what-odoo-is/',
