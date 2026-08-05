@@ -933,6 +933,45 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch22) — sales, and core's empty hook
+
+- **Ch22 written and executed** in the `functional` database, continuing from ch21's end
+  state (it sells the Brake Pad Set created there, which is what makes Parts 4-5 feel
+  like one run rather than nine disconnected tours).
+- **The chapter's real payoff turned out better than the plan predicted.** §5.3 said the
+  read-what-it-did moment would be `sale/models/sale_order.py::_action_confirm`. Reading
+  it revealed the method body is **empty**, just a docstring inviting extension, and that
+  seven `sale_order.py` files define it (the base plus six modules). `sale_stock`'s
+  override is two lines: `_action_launch_stock_rule()` then `super()`. So "confirming a
+  sale creates a delivery" is core using ch31's classic extension on its own model, which
+  teaches the golden rule far better than any invented example. Only `sale`,
+  `sale_purchase` and `sale_stock` are installed in our database, which is itself the
+  explanation for why *this* order grew a delivery and not a repair order.
+- **Verified facts, none recalled.** `sale.order.state` has exactly draft, sent, sale,
+  cancel: **there is no `done` state in 19**, locking is a separate `locked` boolean, so
+  18-era code testing `state == 'done'` is silently dead (same shape as ch21's
+  `type == 'product'`, and now a paired callout). `invoice_status` is independent of
+  `state`. `crm.lead.type` is lead/opportunity on one model, so conversion creates
+  nothing, confirmed by the diff showing `+1 crm.lead` for the whole sequence.
+- **The invoice-policy contrast, measured rather than asserted**: `Brake Pad Set` has
+  `invoice_policy='order'` and `Office Chair` has `'delivery'`, both `type='consu'`. So
+  the confirmed order reads `qty_delivered=0.0` with `qty_to_invoice=4.0` and
+  `invoice_status='to invoice'`, while the same order quoting a chair would refuse to
+  invoice. This also explains the error hit during the ch21-era tool validation, which is
+  now a taught lesson rather than a stumble.
+- **Three quoted `grep` commands were corrected after testing the exact text.** The
+  `grep -rl .../addons/*/models/sale_order.py` form fails for the reader, because the
+  glob expands in *their* shell where those paths do not exist; it needs
+  `bash -lc '...'` to expand inside the container. Two others had `-A` values that did
+  not match the lines shown. This is the audit's unrunnable-transcript class caught
+  pre-merge by re-running every command exactly as printed.
+- Checks are deliberately **name-agnostic** (order numbers differ per reader, since the
+  sequence keeps counting), matching on business state instead. Red proven by reverting
+  the order to draft via SQL, which renumbers nothing and so keeps the quoted transcripts
+  valid; green restored after.
+- Glossary +4 (*extension hook*, *invoice policy*, *invoice_status*, *lead / opportunity*).
+  Screenshots pending the author, per standing rule 5.
+
 ### 2026-08-05 (ch21) — the business spine, and two facts the plan had wrong
 
 - **Ch21 written and fully executed** against a purpose-built `functional` demo database

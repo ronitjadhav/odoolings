@@ -1219,6 +1219,67 @@ def brake_pad_tracks_inventory(env):
         "product type. Tick it so chapter 25 can move these parts through stock.")
 
 
+# --- ch22: sales, lead to confirmed order -------------------------------------
+# Order numbers differ per reader (the sequence keeps counting), so nothing here
+# matches on a name. Checks describe business state instead.
+
+def _brake_pad_variants(env):
+    return env.call("product.product", "search",
+                    [("product_tmpl_id.name", "=", "Brake Pad Set")])
+
+
+def crm_opportunity_exists(env):
+    n = env.call("crm.lead", "search_count", [("type", "=", "opportunity")])
+    assert n, ("no crm.lead has type 'opportunity'. Create a lead in the CRM app and "
+               "convert it: lead and opportunity are the same model, and conversion "
+               "just flips the 'type' field on the record you already had.")
+
+
+def confirmed_order_for_the_brake_pads(env):
+    variants = _brake_pad_variants(env)
+    assert variants, ("no 'Brake Pad Set' variants exist. Chapter 21 created that "
+                      "product; this chapter sells it.")
+    lines = env.call("sale.order.line", "search_read",
+                     [("product_id", "in", variants), ("product_uom_qty", "=", 4)],
+                     fields=["order_id", "price_unit"])
+    assert lines, ("no sales order line has 4 of a Brake Pad Set variant. The hands-on "
+                   "quotes 4 of the Front variant.")
+    states = env.call("sale.order", "search_read",
+                      [("id", "in", [l["order_id"][0] for l in lines])],
+                      fields=["name", "state", "invoice_status"])
+    confirmed = [o for o in states if o["state"] == "sale"]
+    assert confirmed, (
+        "the order exists but its state is %r, not 'sale'. Press Confirm: that is the "
+        "transition that turns a quotation into a sales order."
+        % states[0]["state"])
+    env._ch22_order = confirmed[0]
+
+
+def confirming_created_a_delivery(env):
+    order = getattr(env, "_ch22_order", None)
+    assert order, "run the previous check first"
+    oid = env.call("sale.order", "search", [("name", "=", order["name"])])
+    picks = env.call("stock.picking", "search_read", [("sale_id", "in", oid)],
+                     fields=["name", "state", "picking_type_code"])
+    assert picks, (
+        "the order is confirmed but has no delivery order. That picking is created by "
+        "sale_stock's override of _action_confirm, so if it is missing, check that the "
+        "line's product actually tracks inventory (chapter 21's is_storable).")
+    assert any(p["picking_type_code"] == "outgoing" for p in picks), (
+        "found pickings %s but none is outgoing; a customer delivery should be"
+        % [p["name"] for p in picks])
+
+
+def order_is_invoiceable_on_confirmation(env):
+    order = getattr(env, "_ch22_order", None)
+    assert order, "run the previous check first"
+    assert order["invoice_status"] == "to invoice", (
+        "invoice_status is %r. The Brake Pad Set keeps the default 'Ordered quantities' "
+        "invoice policy, so confirming alone makes it invoiceable. A product set to "
+        "'Delivered quantities' would read 'no' until the delivery is validated."
+        % order["invoice_status"])
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1468,6 +1529,18 @@ CHAPTERS = {
         ("it tracks inventory", brake_pad_tracks_inventory,
          "Tick 'Track Inventory' (is_storable). It is a boolean the Inventory app adds, "
          "separate from the product type."),
+    ],
+    "ch22": [
+        ("a lead was converted to an opportunity", crm_opportunity_exists,
+         "CRM > New, then use Convert to Opportunity. Same record, same model: only "
+         "the 'type' field changes."),
+        ("a quotation for 4 brake pads was confirmed", confirmed_order_for_the_brake_pads,
+         "Sales > Orders > Quotations > New, add 4 of Brake Pad Set (Front), then Confirm."),
+        ("confirming created an outgoing delivery", confirming_created_a_delivery,
+         "The delivery is a side effect of confirmation, added by sale_stock, not by "
+         "sale itself. Read its two-line _action_confirm override."),
+        ("the order became invoiceable", order_is_invoiceable_on_confirmation,
+         "invoice_status is driven by the product's invoice policy, not by the order."),
     ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,

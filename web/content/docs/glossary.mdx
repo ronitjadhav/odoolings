@@ -143,6 +143,11 @@ operations (sales, stock, accounting...), so every department sees the same fact
 of patches (xpath or field locators plus a position) applied to its parent's arch at
 request time. The parent record itself is never modified.
 
+**extension hook**: a method core defines with an empty (or minimal) body purely so
+other modules can override it and add behaviour. `sale.order._action_confirm` is the
+clearest example: it holds only a docstring, and each installed bridge module
+(`sale_stock`, `sale_purchase`, ...) overrides it to create its own document on
+confirmation (chapter 22).
 **filestore**: the on-disk directory where Odoo stores attachments and uploaded files
 (one subdirectory per database). Binary content lives here, not in PostgreSQL; in the
 tutorial's Docker setup it sits in the `odoo-data` volume.
@@ -171,12 +176,23 @@ implying group automatically hold everything the implied group has.
 **group-by**: a `<filter>` inside a search view's `<group>` block whose `context`
 sets `group_by`, delegating aggregation to a `read_group` call server-side.
 
+**invoice policy (`invoice_policy`)**: the per-*product* setting deciding when a sales
+order line becomes invoiceable: `order` (as soon as the order is confirmed) or
+`delivery` (only once goods ship). It lives on the product, not the order, so one order
+can mix both (chapter 22).
+
+**invoice_status**: the billing state of a `sale.order` (`no`, `to invoice`,
+`invoiced`, `upselling`), tracked independently of `state` because commercial and
+billing progress move at different speeds.
 **integrator / partner**: a company implementing Odoo for clients: configuration,
 custom modules, migrations, support. Most Odoo developers work at one.
 
 **is_storable ("Track Inventory")**: the boolean deciding whether Odoo counts a
 product in stock. Contributed by the Inventory app, not by `product`, and in Odoo 19 it
 replaces the old `type = 'product'` storable type (chapter 21).
+**lead / opportunity**: the two values of `crm.lead.type`, not two models. Converting a
+lead flips the field on the record that already existed, which is why the pipeline has
+no `crm.opportunity` model and no second table (chapter 22).
 **kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
 pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
 
