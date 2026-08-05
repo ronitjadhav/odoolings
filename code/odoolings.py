@@ -1280,6 +1280,72 @@ def order_is_invoiceable_on_confirmation(env):
         % order["invoice_status"])
 
 
+# --- ch27: accounting foundations ---------------------------------------------
+# The reader's work is one hand-written, balanced journal entry. Entry numbers
+# come from a sequence, so nothing here matches on a name.
+
+def _ch27_entry(env):
+    """The reader's manual entry: a posted 'entry' move worth 250 in a general journal."""
+    return env.call("account.move", "search",
+                    [("move_type", "=", "entry"), ("state", "=", "posted"),
+                     ("amount_total", "=", 250.0)])
+
+
+def manual_journal_entry_posted(env):
+    assert _ch27_entry(env), (
+        "no posted journal entry of 250.00 found. The hands-on writes one by hand in the "
+        "Miscellaneous journal: 250.00 debit to an equipment account, 250.00 credit to "
+        "the bank account, then Post. A draft entry does not count, which is what the "
+        "next checks are about.")
+
+
+def manual_entry_is_balanced(env):
+    # Check one move, not the set: a reader may well have written more than one
+    # entry, and summing across moves would compare apples to several apples.
+    ids = _ch27_entry(env)[:1]
+    lines = env.call("account.move.line", "search_read", [("move_id", "in", ids)],
+                     fields=["debit", "credit"])
+    debit = round(sum(l["debit"] for l in lines), 2)
+    credit = round(sum(l["credit"] for l in lines), 2)
+    assert debit == credit == 250.0, (
+        "the entry's debits total %.2f and its credits %.2f. Odoo refuses to post an "
+        "unbalanced entry at all ('The entry is not balanced.'), so if you are reading "
+        "this they balance but are not 250.00 each." % (debit, credit))
+
+
+def manual_entry_got_its_number_on_posting(env):
+    move = env.call("account.move", "read", _ch27_entry(env)[:1],
+                    fields=["name"])[0]
+    assert move["name"] and move["name"] != "/", (
+        "the entry has no name, so it was never really posted. The sequence assigns the "
+        "number at posting time, not at creation: a draft entry's name is False.")
+    assert "/" in move["name"], (
+        "the entry is named %r, which does not look like a journal sequence "
+        "(MISC/2026/08/0001). Was it posted from the Miscellaneous journal?"
+        % move["name"])
+
+
+def an_invoice_is_the_same_model(env):
+    """The chapter's whole point: invoices are account.move too."""
+    kinds = {mt: env.call("account.move", "search_count", [("move_type", "=", mt)])
+             for mt in ("entry", "out_invoice")}
+    assert kinds["entry"] and kinds["out_invoice"], (
+        "expected both plain journal entries and customer invoices here, found %r. Demo "
+        "data ships the invoices; your hands-on adds the entry." % kinds)
+    inv = env.call("account.move", "search_read",
+                   [("move_type", "=", "out_invoice"), ("state", "=", "posted")],
+                   fields=["name"], limit=1)
+    assert inv, "no posted customer invoice found in the demo data"
+    lines = env.call("account.move.line", "search_read",
+                     [("move_id", "=", inv[0]["id"])], fields=["debit", "credit"])
+    d = round(sum(l["debit"] for l in lines), 2)
+    c = round(sum(l["credit"] for l in lines), 2)
+    assert d == c and d > 0, (
+        "invoice %s has debits %.2f and credits %.2f. Every account.move balances, "
+        "invoices included: that is what makes them journal entries."
+        % (inv[0]["name"], d, c))
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1541,6 +1607,20 @@ CHAPTERS = {
          "sale itself. Read its two-line _action_confirm override."),
         ("the order became invoiceable", order_is_invoiceable_on_confirmation,
          "invoice_status is driven by the product's invoice policy, not by the order."),
+    ],
+    "ch27": [
+        ("a manual journal entry was posted", manual_journal_entry_posted,
+         "Accounting > Accounting > Journal Entries > New, journal Miscellaneous, two "
+         "lines of 250.00 (one debit, one credit), then Post."),
+        ("its debits equal its credits", manual_entry_is_balanced,
+         "Double-entry is not a convention here, it is enforced: Odoo refuses to post "
+         "an unbalanced move."),
+        ("the sequence numbered it at posting time", manual_entry_got_its_number_on_posting,
+         "A draft move's name is False. Posting is what asks the journal's sequence for "
+         "a number, which is why numbering has no gaps."),
+        ("an invoice is the same model as that entry", an_invoice_is_the_same_model,
+         "account.move holds both, told apart by move_type. Compare your entry with any "
+         "demo invoice: both balance, both are account.move."),
     ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
