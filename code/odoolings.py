@@ -1156,6 +1156,69 @@ def demo_service_order_links_vehicle_and_master_data(env):
         "the master-data record from earlier in this chapter")
 
 
+# --- ch21: the business spine -------------------------------------------------
+# Parts 4-5 run against a separate demo database, so every check here takes
+# --db. They verify business state the reader produced, not module structure.
+
+FUNCTIONAL_APPS = ("sale_management", "purchase", "stock", "mrp", "crm", "account")
+
+
+def functional_db_has_the_apps(env):
+    rows = env.call("ir.module.module", "search_read",
+                    [("name", "in", list(FUNCTIONAL_APPS)), ("state", "=", "installed")],
+                    fields=["name"])
+    have = {r["name"] for r in rows}
+    missing = set(FUNCTIONAL_APPS) - have
+    assert not missing, (
+        "these apps are not installed here: %s. This chapter runs in its own demo "
+        "database, not your tutorial one. Create it with: odoo -d functional -i "
+        "sale_management,purchase,stock,mrp,crm --with-demo --stop-after-init, then "
+        "pass --db functional to odoolings." % ", ".join(sorted(missing)))
+
+
+def functional_db_has_demo_data(env):
+    assert env.call("res.partner", "search_count", [("is_company", "=", True)]) > 3, (
+        "almost no companies here, so the database was built without demo data. "
+        "Parts 4-5 need it (a chart of accounts, products, partners). Drop the "
+        "database and recreate it with --with-demo.")
+
+
+def brake_pad_template_exists(env):
+    rows = env.call("product.template", "search_read",
+                    [("name", "=", "Brake Pad Set")],
+                    fields=["type", "list_price", "product_variant_count"])
+    assert rows, ("no product template named exactly 'Brake Pad Set'. The hands-on "
+                  "creates it in the Sales app under Products.")
+    t = rows[0]
+    assert t["type"] == "consu", (
+        "'Brake Pad Set' has type %r; in Odoo 19 a physical part is 'consu' "
+        "(labelled Goods). 'product' is not a type any more." % t["type"])
+
+
+def brake_pad_generated_variants(env):
+    tmpl = env.call("product.template", "search", [("name", "=", "Brake Pad Set")])
+    variants = env.call("product.product", "search_read",
+                        [("product_tmpl_id", "in", tmpl)],
+                        fields=["display_name", "product_tmpl_id"])
+    assert len(variants) >= 2, (
+        "'Brake Pad Set' has %d variant(s). Add an attribute (Axle) with at least two "
+        "values (Front, Rear) whose 'Variant Creation' mode is 'Instantly', and Odoo "
+        "generates one product.product per combination." % len(variants))
+    parents = {v["product_tmpl_id"][0] for v in variants}
+    assert len(parents) == 1, (
+        "those variants belong to %d different templates; they should all point back "
+        "to the one 'Brake Pad Set' template" % len(parents))
+
+
+def brake_pad_tracks_inventory(env):
+    rows = env.call("product.template", "search_read",
+                    [("name", "=", "Brake Pad Set")], fields=["is_storable"])
+    assert rows[0]["is_storable"], (
+        "'Brake Pad Set' does not track inventory. In Odoo 19 that is the separate "
+        "'Track Inventory' boolean (is_storable, added by the Inventory app), not a "
+        "product type. Tick it so chapter 25 can move these parts through stock.")
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1390,6 +1453,22 @@ CHAPTERS = {
          "raise UserError when order.margin < 0 and not "
          "self.override_negative_margin."),
     ],
+    "ch21": [
+        ("the functional database has the Part 4-5 apps", functional_db_has_the_apps,
+         "Build it once: odoo -d functional -i sale_management,purchase,stock,mrp,crm "
+         "--with-demo --stop-after-init. Then: odoolings.py check ch21 --db functional"),
+        ("it was built with demo data", functional_db_has_demo_data,
+         "Odoo 19 installs WITHOUT demo unless you pass --with-demo, and that flag only "
+         "works on a fresh database. Chapter 34 explains why an upgrade cannot add it."),
+        ("a 'Brake Pad Set' template exists, typed as Goods", brake_pad_template_exists,
+         "Sales > Products > New. Odoo 19's product types are Goods, Service and Combo."),
+        ("it generated at least two variants from one template", brake_pad_generated_variants,
+         "Add an Axle attribute with Front and Rear. One template, one product.product "
+         "per attribute combination: that is the whole template/variant split."),
+        ("it tracks inventory", brake_pad_tracks_inventory,
+         "Tick 'Track Inventory' (is_storable). It is a boolean the Inventory app adds, "
+         "separate from the product type."),
+    ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
          "Add is_loanable via a class with _inherit = \"librefleet.vehicle\" and "
@@ -1522,7 +1601,10 @@ WATCHED = {
     "account.move":      ["name", "move_type", "state", "amount_total", "payment_state"],
     "account.move.line": ["name", "account_id", "debit", "credit", "reconciled"],
     "account.payment":   ["state", "amount"],
-    "product.template":  ["name", "list_price"],
+    "product.template":  ["name", "list_price", "type"],
+    # product.product matters as much as the template: generating variants is the
+    # one thing a template does that you cannot see by watching templates alone.
+    "product.product":   ["display_name", "default_code", "lst_price"],
     "product.pricelist": ["name"],
     "res.partner":       ["name"],
 }
@@ -1546,6 +1628,9 @@ def _flatten(value):
 # move is about its product, not the picking reference it inherits).
 _LABEL_ORDER = ("name", "reference", "product_id", "account_id")
 _LABEL_OVERRIDE = {
+    # A generated variant has no internal reference yet, so its display_name
+    # ("Brake Pad Set (Rear)") is the only thing that identifies it usefully.
+    "product.product": "display_name",
     "stock.move": "product_id",
     "stock.quant": "product_id",
     "sale.order.line": "product_id",
