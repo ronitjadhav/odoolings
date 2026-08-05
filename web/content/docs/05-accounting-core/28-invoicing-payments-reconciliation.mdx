@@ -1,25 +1,336 @@
 ---
 title: "28. Invoicing, Payments & Reconciliation"
-description: Not written yet, tracked in the roadmap.
+description: Bill the order from chapter 22, pay it in two instalments, and watch reconciliation move the invoice from not paid to paid.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** take a confirmed order all the way to settled cash, and learn why "paid" is a
+summary of something else rather than a fact of its own. · **Time:** ~2.5 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+This is the chapter that closes the loop. Chapter 22 left you with a confirmed order and
+`invoice_status = 'to invoice'`; chapter 27 taught you that an invoice is a journal entry.
+Now you connect them and follow the money out the other side.
+
+The developer payoff is a specific correction. Everyone reads `payment_state == 'paid'`
+and assumes that is where the truth lives. It is not: `payment_state` is *computed*, and
+what it summarises is **reconciliation**, the act of matching a debit against a credit
+until nothing is left over. Code that writes or trusts `payment_state` without
+understanding reconciliation is the source of a whole genre of bug where the books look
+right and are not.
+
 ## Concepts
+
+### Invoicing is a wizard, not a button on the order
+
+The **Create Invoice** button does not create the invoice itself. It opens a
+`sale.advance.payment.inv` wizard, and the wizard decides what to bill: everything
+deliverable, a down payment, a percentage. That matters the first time you try to
+automate invoicing, because `sale.order._create_invoices` is a **private** method and
+cannot be called over RPC. The wizard is the supported path in and out.
+
+Whatever it creates arrives in **draft**. Chapter 27's rule holds: a draft invoice has no
+number and no accounting effect at all. Posting is the event.
+
+### The three-line invoice
+
+The invoice you are about to post has three `account.move.line` children, and reading
+them is the whole of accounts receivable:
+
+| Line | Account | Side |
+|---|---|---|
+| the product | Product Sales | credit (income earned) |
+| the tax | Tax Received | credit (tax you owe onward) |
+| the total | Account Receivable | debit (what the customer owes you) |
+
+The receivable equals the other two added together, because the entry balances.
+Chapter 29 takes the tax line apart properly.
+
+### A payment is also a journal entry
+
+Registering a payment creates an `account.payment` record **and** an `account.move` with
+`move_type = 'entry'`, in a bank journal. Chapter 27's duality again: there is no special
+payment table holding money, just another balanced entry. Its two lines are a debit to
+**Outstanding Receipts** (cash is on its way in) and a credit to **Account Receivable**
+(the customer owes less now).
+
+Notice what has *not* happened yet: the invoice's receivable line and the payment's
+receivable line are two separate lines that happen to be on the same account. Something
+has to declare that they cancel out.
+
+### Reconciliation is that declaration
+
+`account.partial.reconcile` is a record saying "this much of that debit is matched by
+this much of that credit". One payment against one invoice creates one of them. Two
+instalments create two, and their amounts sum to the invoice total.
+
+<Mermaid
+  chart={`flowchart LR
+    subgraph inv["invoice INV/2026/00010"]
+      R["Account Receivable<br/>debit 363.40"]
+    end
+    subgraph p1["payment PBNK1/.../00001"]
+      C1["Account Receivable<br/>credit 200.00"]
+    end
+    subgraph p2["payment PBNK1/.../00002"]
+      C2["Account Receivable<br/>credit 163.40"]
+    end
+    R -- "partial.reconcile 200.00" --- C1
+    R -- "partial.reconcile 163.40" --- C2
+    R -.-> S["residual 0.00<br/>reconciled = True<br/>payment_state = paid"]`}
+/>
+
+Two fields describe the result, and the difference between them is worth holding on to:
+
+- **`amount_residual`** on the move: how much is still unmatched, in currency.
+- **`reconciled`** on the line: a boolean, true once that line is fully matched.
+- **`payment_state`** on the move: the computed summary, one of `not_paid`,
+  `partial`, `in_payment`, `paid`, `reversed`, `blocked` (plus a legacy value).
+
+`payment_state` is derived from the first two. That is the direction of causation, and
+getting it backwards is the bug this chapter is trying to prevent.
+
+### Payment terms decide *when*, not *whether*
+
+An `account.payment.term` (the demo ships Immediate Payment, 15 Days, 30 Days, End of
+Following Month and others) sets the due date and can split one invoice into several
+instalments with their own dates. It changes nothing about the accounts used. Overdue is
+a question about dates; unpaid is a question about reconciliation.
 
 ## Hands-on
 
+Continuing in `functional`, with the confirmed order from chapter 22.
+
+### Movement 1: run the flow
+
+#### 1. Invoice the order
+
+Snapshot, then open your confirmed order and press **Create Invoice**. In the wizard,
+keep **Regular invoice** and confirm. You land on a **draft** invoice: no number in the
+title, and nothing has hit the books.
+
+Press **Confirm** to post it.
+
+#### 2. Pay part of it
+
+On the posted invoice, press **Register Payment**. Change the amount to **200.00** (the
+invoice is 363.40) and confirm. The invoice does not say Paid.
+
+#### 3. Pay the rest
+
+Press **Register Payment** again. Leave the amount alone: it already defaults to what is
+still owed. Confirm.
+
+### Movement 2: read what it did
+
+#### 4. What invoicing created
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   INV/2026/00010           move_type=out_invoice  state=posted  amount_total=363.4  payment_state=not_paid
+account.move.line   +3
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=316.0
+      new   15%                      account_id=Tax Received  credit=47.4
+      new   S00025 - INV/2026/00010  account_id=Account Receivable  debit=363.4
+sale.order          ~
+      chg   S00025                   invoice_status: to invoice -> invoiced
+```
+
+There are the three lines, and 316.00 plus 47.40 is exactly the 363.40 debited to the
+customer. The order's `invoice_status` moved to `invoiced`, closing the loop chapter 22
+opened. Your numbers will differ.
+
+Confirm the draft-versus-posted rule from chapter 27 still holds:
+
+```python
+>>> inv.name, inv.state, inv.move_type      # created by the wizard, still draft
+(False, 'draft', 'out_invoice')
+>>> inv.name, inv.state, inv.payment_state  # after Confirm
+('INV/2026/00010', 'posted', 'not_paid')
+>>> inv.amount_total, inv.amount_residual
+(363.4, 363.4)
+```
+
+Posted, numbered, and the entire amount still outstanding.
+
+#### 5. What a partial payment created
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   PBNK1/2026/00001         move_type=entry  state=posted  amount_total=200.0  payment_state=not_paid
+      chg   INV/2026/00010           payment_state: not_paid -> partial
+account.move.line   +2
+      new   Manual Payment: INV/2026/00010 account_id=Outstanding Receipts  debit=200.0
+      new   Manual Payment: INV/2026/00010 account_id=Account Receivable  credit=200.0  reconciled=True
+account.payment     +1
+      new   PBNK1/2026/00001         state=in_process  amount=200.0  payment_type=inbound
+```
+
+Read the first line again: `move_type=entry`. **The payment is a journal entry**, in the
+bank journal, numbered by that journal's sequence. And its receivable credit line comes
+out already `reconciled=True`, because all 200.00 of it was matched immediately.
+
+The invoice is now `partial`:
+
+```python
+>>> inv.payment_state, inv.amount_residual   # after paying 200.00 of 363.40
+('partial', 163.4)
+```
+
+#### 6. The moment it becomes paid
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   PBNK1/2026/00002         move_type=entry  state=posted  amount_total=163.4  payment_state=not_paid
+      chg   INV/2026/00010           payment_state: partial -> paid
+account.move.line   +2
+      new   Manual Payment: INV/2026/00010 account_id=Outstanding Receipts  debit=163.4
+      new   Manual Payment: INV/2026/00010 account_id=Account Receivable  credit=163.4  reconciled=True
+      chg   S00025 - INV/2026/00010  reconciled: None -> True
+account.payment     +1
+      new   PBNK1/2026/00002         state=paid  amount=163.4  payment_type=inbound
+      chg   PBNK1/2026/00001         state: in_process -> paid
+```
+
+The important line is the one that changed, not the ones that were created:
+
+```text
+chg   S00025 - INV/2026/00010  reconciled: None -> True
+```
+
+That is **the invoice's own receivable line** flipping to reconciled. It stayed unmatched
+through the first payment and only flipped once the second one covered the rest. The
+`payment_state: partial -> paid` on the line above it is the *consequence*.
+
+#### 7. Look at the links themselves
+
+```python
+>>> inv.payment_state, inv.amount_residual   # settled
+('paid', 0.0)
+>>> recs = env["account.partial.reconcile"].search([("debit_move_id.move_id", "=", inv.id)])
+>>> len(recs), recs.mapped("amount")
+(2, [200.0, 163.4])
+```
+
+Two reconciliation records, one per instalment, summing to 363.40. Those two rows are
+what "paid" actually means. Delete them and the invoice is unpaid again, whatever
+`payment_state` said a moment earlier.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch28 --db functional
+✔ a customer invoice for the brake pads was posted
+✔ it balances and carries a tax line
+✔ it is fully paid
+✔ the receivable line is reconciled
+```
+
+The last two are deliberately separate. An invoice can read `paid` while something is
+wrong underneath, so the check looks at the mechanism as well as the summary.
 
 ## Gotchas
 
+- **`payment_state` is computed, so writing it fixes nothing.** It summarises
+  `amount_residual` and the `reconciled` flags. If an invoice looks wrong, the repair is
+  at the reconciliation level, and a script that writes `payment_state` directly produces
+  books that lie.
+- **`sale.order._create_invoices` is private and cannot be called over RPC.** Automating
+  invoicing means driving the `sale.advance.payment.inv` wizard, which is also what the
+  button does. The leading underscore is the contract.
+- **Creating an invoice is not posting one.** The wizard leaves a draft, with `name` of
+  `False` and zero accounting effect. "The invoice exists but the reports don't show it"
+  is nearly always this.
+- **A payment's own journal entry is separate from the invoice's.** They meet only
+  through `account.partial.reconcile`. Two lines on the same receivable account are not
+  connected until something reconciles them, which is why "the amounts look right but the
+  invoice is unpaid" is possible.
+- **Outstanding Receipts is not your bank balance.** A registered payment debits an
+  outstanding/transit account first; matching it to the real bank statement is a second
+  step. An `account.payment` sitting in `in_process` has not touched the bank account
+  yet, so treating it as cash received overstates the balance.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'An invoice shows payment_state "paid" but a colleague insists the customer still owes money. Where do you look first?',
+      options: [
+        'At the account.partial.reconcile records and the receivable line’s reconciled flag',
+        'At payment_state on the invoice, since that field is the authoritative record',
+        'At the linked sales order’s invoice_status, which drives the invoice payment state',
+      ],
+      answer: 0,
+      why: 'payment_state is computed from amount_residual and the reconciled flags, so it can only ever report what reconciliation already decided. The chapter shows the two account.partial.reconcile rows of 200.00 and 163.40 that make the invoice paid: delete those and it is unpaid again regardless of what the summary field said. invoice_status is about the order, not the money.',
+    },
+    {
+      q: 'You pay 200.00 against a 363.40 invoice. What happens to the invoice’s own receivable line?',
+      options: [
+        'It splits into a matched line of 200.00 and an unmatched line of 163.40',
+        'It stays unreconciled until later payments cover the rest',
+        'It is marked reconciled, and a balancing line carries the 163.40 forward',
+      ],
+      answer: 1,
+      why: 'Verified in the diff: after the first payment the invoice line is untouched, and only the second payment flips it with "reconciled: None -> True". The line is not split. A partial reconciliation record records the 200.00 match while the line itself remains unreconciled, which is exactly why amount_residual and reconciled are two different pieces of information.',
+    },
+    {
+      q: 'What does registering a payment create, in accounting terms?',
+      options: [
+        'An account.payment record only, since payments are tracked outside the ledger',
+        'An account.payment plus an account.move with move_type "entry" in a bank journal',
+        'An account.payment plus a direct write reducing the invoice’s stored total',
+      ],
+      answer: 1,
+      why: 'The diff shows +1 account.payment and +1 account.move named PBNK1/2026/00001 whose move_type is entry, with two lines: a debit to Outstanding Receipts and a credit to Account Receivable. Nothing on the invoice is rewritten. This is chapter 27 duality again: even a payment is an ordinary balanced journal entry.',
+    },
+    {
+      q: 'You need to invoice sales orders from a script over RPC. What is the supported route?',
+      options: [
+        'Call sale.order._create_invoices, which is what the Create Invoice button calls',
+        'Create and run a sale.advance.payment.inv wizard record',
+        'Create the account.move directly and link it back through invoice_ids',
+      ],
+      answer: 1,
+      why: 'The Create Invoice button opens the sale.advance.payment.inv wizard, and _create_invoices is private, so RPC refuses it outright: "Private methods cannot be called remotely." Building account.move by hand would skip the link back to the order lines and the quantity bookkeeping the wizard performs, so it is not a shortcut but a different, wrong operation.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Issue a credit note for the invoice you just settled (**Reverse Entry** on the
+   posted invoice) and read what appears with `odoolings diff --db functional`. Which
+   `move_type` is it, and which way round are the debit and credit compared to the
+   original?
+2. ⭐⭐ Set the customer's payment term to **30 Days** and invoice something else, then
+   find the invoice's due date and explain, from the fields alone, why the term changed
+   the date but no account. Then say what would have to change for a term to split one
+   invoice into two due amounts.
+3. ⭐⭐ Ticket-shaped: "the aged receivable report shows an invoice we were paid for weeks
+   ago". Given this chapter, list the checks you would run in order, cheapest first, and
+   name the exact field or model you would inspect at each step. At least one step should
+   distinguish a reconciliation problem from a date problem.
+4. ⭐⭐⭐ Break-it lab: find the two `account.partial.reconcile` records for your invoice
+   and unlink one of them from the shell. Read `payment_state`, `amount_residual` and the
+   receivable line's `reconciled` flag before and after, and explain the order in which
+   Odoo recomputed things. Then put it back by re-reconciling the two lines, and say why a
+   support script that wrote `payment_state` instead would have left the database worse.
+
 ## Further reading
+
+- [Customer invoices (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/customer_invoices.html):
+  the functional walkthrough of the flow this chapter ran.
+- [Bank reconciliation (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/bank/reconciliation.html):
+  the step after this one, matching payments to real bank statement lines. The
+  reconciliation *engine* is in Community; the assisted widget is an Enterprise feature.
+- [`account_payment.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_payment.py):
+  see how thin `account.payment` is, and how much of the work is the `account.move` it
+  carries.
+- [`account_move_line.py` reconciliation code](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_move_line.py):
+  where `reconcile()` and the partial records are implemented, worth reading once you
+  have watched the flags flip.

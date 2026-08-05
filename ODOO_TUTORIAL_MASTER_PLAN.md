@@ -933,6 +933,38 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch28) — invoicing, payments, reconciliation; M4's key set done
+
+- **Ch28 written and executed**, closing the loop ch22 opened: the confirmed order is
+  invoiced, posted, then paid in **two instalments on purpose** so the reader watches
+  `payment_state` go `not_paid` → `partial` → `paid` rather than jumping straight to paid.
+- **The chapter's correction, and the reason it is worth its length**: `payment_state` is
+  *computed*, and what it summarises is reconciliation. The diff makes the causation
+  visible: the invoice's own receivable line stays untouched through the first payment and
+  only flips with `reconciled: None -> True` when the second covers the rest, with
+  `payment_state: partial -> paid` following as the consequence. Two
+  `account.partial.reconcile` records of 200.00 and 163.40 are what "paid" actually means.
+- **Verified**: a registered payment creates an `account.payment` *and* an `account.move`
+  with `move_type='entry'` in the bank journal (`PBNK1/2026/00001`), so ch27's duality
+  extends to payments; the posted invoice has three lines (Product Sales 316.00 credit,
+  a 15% Tax Received 47.40 credit, Account Receivable 363.40 debit) which is a clean
+  hand-off to ch29; `account.payment.register` defaults its amount to the residual;
+  payment states include `in_process` before `paid`, so Outstanding Receipts is not the
+  bank balance. Community ships the whole reconciliation engine, only the assisted bank
+  widget is Enterprise.
+- The earlier tool-validation stumble is now taught properly: `_create_invoices` is
+  private and RPC-refused, so the wizard (`sale.advance.payment.inv`) is the supported
+  path, and that is stated as a Gotcha rather than rediscovered by the reader.
+- Tool: `account.payment` gained `display_name` to its watched fields and a label
+  override, since it was rendering as `id=1`. Same class of fix as ch21's
+  `product.product`, which supports the note there that the allowlist is only right for
+  the chapters already written against it.
+- Glossary +3 (*reconciliation*, *payment_state*, *payment term*).
+- **M4's highest-value set (ch21, ch22, ch27, ch28) is complete.** Remaining in M4:
+  ch23-26 (pricing, purchase, inventory, manufacturing), ch29-30 (taxes, valuation),
+  `boss4`, and the functional vocabulary sweep. Screenshots for all four written chapters
+  are pending the author, per standing rule 5.
+
 ### 2026-08-05 (ch27) — accounting foundations, and a company-dependent field
 
 - **Ch27 written and executed**, the chapter §5.3 called the highest-value one in Parts
