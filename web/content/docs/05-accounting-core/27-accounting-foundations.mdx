@@ -118,11 +118,13 @@ Two movements again, continuing in the `functional` database.
 
 #### 1. Look at the chart of accounts and the journals
 
-In **Accounting → Configuration → Chart of Accounts**, sort by code and scroll. Note the
+In **Invoicing → Configuration → Accounting → Chart of Accounts**, sort by code and
+scroll. (Community's accounting app is called **Invoicing**; the one called Accounting is
+the Enterprise one, and it puts these menus one level higher.) Note the
 **Type** column: that is `account_type`, and it is what makes a report able to say
 "assets" without hard-coding account numbers.
 
-Then **Accounting → Configuration → Journals**. Seven for this company:
+Then **Invoicing → Configuration → Accounting → Journals**. Seven for this company:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -148,8 +150,8 @@ a journal than fudge a number.
 
 #### 2. Try to post an entry that does not balance
 
-Go to **Accounting → Accounting → Journal Entries → New**, pick the **Miscellaneous
-Operations** journal, and add two lines:
+Go to **Invoicing → Accounting → Transactions → Journal Entries → New**, pick the
+**Miscellaneous Operations** journal, and add two lines:
 
 - Debit 250.00 to `611000 Purchase of Equipments`, labelled `Workshop tool cabinet`
 - Credit **200.00** to `101401 Bank`, labelled `Paid from bank`
