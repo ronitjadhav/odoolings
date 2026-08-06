@@ -864,6 +864,18 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   migration exercise completed against a real 18.0 module (18→19).
 
 ### M8 — Polish & launch (week 16)
+- [ ] **The screenshot pass** (author's request, 2026-08-05). Deliberately deferred to
+      here rather than done per chapter: the author does the manual walk-through of each
+      chapter's Hands-on himself, and the agent captures the screenshots in the same
+      session. Nothing shipped so far contains a single image, so this is one accumulated
+      pass over every UI-bearing chapter (ch4, then ch21-30 and whatever Parts 6-9 add).
+      Decide once, before capturing: where images live (`web/public/…`), viewport size,
+      light or dark, and how to caption screens whose sequence numbers and dates a reader
+      cannot reproduce. **The real payload is not the pictures, it is catching wrong UI
+      claims:** ch27 shipped `Accounting → Configuration → Chart of Accounts` for two
+      chapters before ch29 found that Community's app is called *Invoicing* and puts those
+      menus a level deeper. Everything verified through the database was right; the thing
+      inferred about the interface was not. Assume more of those exist.
 - [ ] Full read-through edit; consistency pass on admonitions and footers.
 - [ ] Landing page with learning-path graphic; "how to use this tutorial" guide.
 - [ ] README, CONTRIBUTING, licenses; announce (LinkedIn, r/Odoo, OCA Discord —
@@ -883,6 +895,11 @@ now Part 6 and moved to M5, so M3 is just Part 3.
     dashes in numeric ranges (`1–7`) are fine.
 4. Small PRs per chapter; the author reviews and *manually re-executes* each Hands-on
    before merge — this is the learning loop, do not optimize it away.
+4b. **Screenshots are not a per-chapter task.** Keep leaving them pending (§4 rule 5) and
+    keep saying so in the PR; they are captured in one pass with the author at M8. The
+    agent can drive Chrome for that, but cannot log in (entering a password to
+    authenticate is off-limits), so the author signs in once and the agent takes it from
+    there in the same browser session.
 5. Maintain `docs/glossary.md` and the §5.4 checklist continuously.
 6. If the author's team reveals internal conventions (their Docker platform, CI,
    project template), prefer those in "In the field" boxes — ask, don't guess.
