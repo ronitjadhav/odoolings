@@ -973,6 +973,40 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (audit) — every menu path in every written chapter, checked
+
+The author asked to verify the already-written chapters before continuing to ch30, which
+was the right call. Full sweep of the 25 menu paths across both databases, resolving each
+hop by name and comparing its `group_ids` against `admin.all_group_ids`. Script kept at
+`scratchpad/checkmenus.py`; worth rebuilding if this needs doing again.
+
+**The rule that explains most of the mistakes:** inside an app, level 1 is the menu-bar
+dropdown (Operations, Products, Configuration), a level-2 item **that has children is a
+section heading and is not clickable**, and level 3 is the item you click. So a
+reader-facing path names the dropdown and the item and **skips the heading**:
+`Inventory → Configuration → Warehouses` is right even though the record sits under
+*Warehouse Management*. Getting this backwards produces errors in both directions, and both
+kinds were present.
+
+- **Three real errors, all fixed here.** `Inventory → Configuration → Reordering Rules`
+  does not exist at all: no menu points at either action on
+  `stock.warehouse.orderpoint`, and the rules live on the replenishment screen
+  (`Inventory → Operations → Replenishment`, whose menu is an `ir.actions.server`). Ch26
+  omitted a whole dropdown twice: `Inventory → Operations → Physical Inventory` and
+  `Manufacturing → Operations → Manufacturing Orders`.
+- Ch25 also now warns that Replenishment opens with **To Reorder** and **Not Snoozed**
+  pre-filtered, so a new rule for a well-stocked product is not in the list you land on.
+- **Two false alarms, resolved by looking rather than trusting the script.** Ch4's
+  `CRM → …` and `Sales → …` paths are fine: the reader installs those apps in ch4 itself,
+  and they are simply absent from our `tutorial` database. (Consequence for the screenshot
+  pass: **ch4 must be shot against `functional`**, which has CRM, Sales and demo data.)
+  Ch10's `Settings → Technical → Access Rights` is correct, *Security* being a heading.
+- **Everything else verified reachable**: ch21 Products, ch22 CRM and Quotations, ch24
+  RFQ, ch25 Warehouses, ch26 Bills of Materials, ch27 Journals, ch29's six, ch8 Update
+  Apps List, ch11's two LibreFleet menus, ch31 Loaner Cars.
+- Two chapters (ch18, ch31) still say "author tour, screenshots pending" in their own
+  prose. Those sentences come out when the screenshots go in.
+
 ### 2026-08-05 (policy) — screenshots are chapter work, not an M8 pass
 
 Corrected the same day it was written, on the author's challenge ("when did we agree about

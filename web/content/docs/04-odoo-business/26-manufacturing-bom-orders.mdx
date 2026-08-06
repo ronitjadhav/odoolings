@@ -90,8 +90,9 @@ now with a real recipe.
 #### 1. Stock two components
 
 Create two simple products, both tracking inventory: `Friction Material` (cost 8.00) and
-`Backing Plate` (cost 5.00). Give yourself 20 of each via **Inventory → Physical Inventory
-→ New**, setting the counted quantity for each and applying it.
+`Backing Plate` (cost 5.00). Give yourself 20 of each via **Inventory → Operations →
+Physical Inventory → New** (under the *Adjustments* heading), setting the counted quantity
+for each and applying it.
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -120,8 +121,8 @@ one more time.
 
 #### 3. Manufacture 4 of them
 
-**Manufacturing → Manufacturing Orders → New**, product `Brake Pad Set (Front)`,
-quantity **4**. Look at the order before you do anything else to it:
+**Manufacturing → Operations → Manufacturing Orders → New**, product
+`Brake Pad Set (Front)`, quantity **4**. Look at the order before you do anything else to it:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
