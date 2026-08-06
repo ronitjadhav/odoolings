@@ -944,6 +944,49 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   (explain one concept per week to a colleague or in a blog-style chapter intro),
   spaced review of the glossary.
 
+### 7.1 The side-by-side walkthrough (author's decision, 2026-08-05)
+
+From ch1 onward the author and the agent go through every written chapter **together**, in
+one session per batch: the author learns the material and does the hands-on himself, the
+agent drives Chrome alongside him, verifies every claim on screen, captures the
+screenshots, and fixes the chapter as they go. This replaces the separate "author
+re-executes later" pass (§6 rule 4) rather than adding to it, and it is the same principle
+§7 already states about bringing real-ticket questions into Gotchas: **the author's
+confusion is the single most valuable input this tutorial can get, and it is the one thing
+the agent cannot generate for itself.**
+
+The loop per chapter:
+
+1. Author reads the chapter and says where it stops making sense. That is a defect, logged
+   even when the instructions are technically correct.
+2. Author runs the hands-on himself. The agent watches the database over `odoo shell` /
+   `odoolings diff` and confirms the state matches what the chapter claims.
+3. Agent verifies every UI claim **on screen**, not against `ir.ui.menu`, and captures the
+   screenshots that earn their place.
+4. Both note improvements: wrong claims, thin explanations, weak quiz questions, missing
+   diagrams, places an interactive component would beat prose.
+5. One PR per chapter. Findings go in the §10 changelog the same session, because a long
+   walkthrough will outlive the agent's context window and anything not written down is
+   lost.
+
+Rules that keep it working:
+
+- **One driver at a time.** The agent and the author sharing a browser will diverge; say
+  who has the wheel. If the author wants to click, the agent pauses.
+- **No modal dialogs.** A JavaScript `alert`/`confirm` blocks the Chrome extension
+  completely and the agent goes deaf until it is dismissed by hand.
+- **Do not resize the window mid-chapter**, or the screenshots will not match each other.
+- The agent still **cannot log in**. Author signs in once per session.
+- **Model:** Sonnet is enough for the walk-and-capture; escalate to Opus for a chapter
+  where being confidently wrong is expensive (taxes, valuation, security, performance).
+
+On "more interactive": the site already has `Quiz`, `Mermaid`, `Term` (glossary tooltips),
+`Mastery`, `Card`/`CardGrid`, the progress pill and mark-complete. Prefer using those
+harder before building anything new. If the walkthrough shows a real gap, the two ideas
+already parked in §10 are the predict-the-output quiz variant and quiz persistence; treat
+any *new* component as its own scoped piece of work, not something to slip into a chapter
+PR.
+
 ## 8. Canonical Link Index (seed list for chapter "Further reading" sections)
 
 - Official docs (19.0): developer home, Server framework 101, ORM reference, view
