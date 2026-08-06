@@ -116,15 +116,30 @@ Two movements again, continuing in the `functional` database.
 
 ### Movement 1: run the flow
 
+<Callout type="warn" title="Half the accounting menus are missing, on purpose">
+  Community's accounting app is called **Invoicing** (the one called Accounting is the
+  Enterprise one). More surprising: several menus you will look for are not in it. Chart of
+  Accounts, Journal Entries and the accounting reports are gated behind a group called
+  **Show Accounting Features - Readonly** (`account.group_account_readonly`), and Community
+  grants it to nobody. The Accounting privilege on the user form offers only *Invoicing*
+  and *Administrator*, neither of which implies it, and Odoo 19's privilege-based user form
+  has no checkbox for it at all. In Enterprise, installing `account_accountant` grants it,
+  which is why every screenshot online has these menus and you do not.
+
+  The **actions are not gated, only the menus are**, so this chapter reaches those two
+  screens by URL. Worth remembering as a technique: when a menu is missing but you know the
+  action exists, `/odoo/action-<module>.<xmlid>` gets you there.
+</Callout>
+
 #### 1. Look at the chart of accounts and the journals
 
-In **Invoicing → Configuration → Accounting → Chart of Accounts**, sort by code and
-scroll. (Community's accounting app is called **Invoicing**; the one called Accounting is
-the Enterprise one, and it puts these menus one level higher.) Note the
-**Type** column: that is `account_type`, and it is what makes a report able to say
-"assets" without hard-coding account numbers.
+Open the chart of accounts at
+`http://localhost:8069/odoo/action-account.action_account_form`, sort by code and scroll.
+Note the **Type** column: that is `account_type`, and it is what makes a report able to
+say "assets" without hard-coding account numbers.
 
-Then **Invoicing → Configuration → Accounting → Journals**. Seven for this company:
+Then **Invoicing → Configuration → Journals** (it sits under the *Accounting* heading in
+that dropdown). Seven for this company:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -150,8 +165,10 @@ a journal than fudge a number.
 
 #### 2. Try to post an entry that does not balance
 
-Go to **Invoicing → Accounting → Transactions → Journal Entries → New**, pick the
-**Miscellaneous Operations** journal, and add two lines:
+Journal entries are the other gated screen, so open them the same way:
+`http://localhost:8069/odoo/action-account.action_move_journal_line`
+
+Press **New**, pick the **Miscellaneous Operations** journal, and add two lines:
 
 - Debit 250.00 to `611000 Purchase of Equipments`, labelled `Workshop tool cabinet`
 - Credit **200.00** to `101401 Bank`, labelled `Paid from bank`

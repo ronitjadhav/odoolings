@@ -23,6 +23,12 @@ function completeDocsPageCount(dir = 'content/docs') {
   return total;
 }
 
+/** Every exported docs route, read off the sitemap the build just produced. */
+function docsRoutes(sitemapBody) {
+  return [...sitemapBody.matchAll(/<loc>https:\/\/odoolings\.ronit\.io([^<]*)<\/loc>/g)]
+    .map((m) => m[1] || '/');
+}
+
 const port = 49173;
 const origin = `http://127.0.0.1:${port}`;
 const server = spawn(process.execPath, ['scripts/serve-export.mjs'], {
@@ -92,6 +98,30 @@ try {
   ]) {
     const response = await fetch(`${origin}${route}`);
     assert.equal(response.status, 200, `${route} should resolve from the domain root`);
+  }
+
+  /**
+   * Every image on every page must be a plain file, and must actually be there.
+   *
+   * Fumadocs maps markdown `![]()` to next/image, so without
+   * `images: { unoptimized: true }` the export still BUILDS but points every image
+   * at `/_next/image/?url=...`, an optimizer that does not exist on static hosting.
+   * The result is 404s in production and correct images in `npm run dev`, which is
+   * the worst way for this to fail. Verified before the guard existed: that URL
+   * returned 404 while the build reported success.
+   */
+  for (const route of docsRoutes(sitemapBody)) {
+    const body = await (await fetch(`${origin}${route}`)).text();
+    assert.doesNotMatch(
+      body,
+      /\/_next\/image/,
+      `${route} references the image optimizer, which 404s on static hosting. ` +
+        'Set images: { unoptimized: true } in next.config.mjs.',
+    );
+    for (const src of body.matchAll(/<img[^>]+src="(\/[^"]+)"/g)) {
+      const asset = await fetch(`${origin}${src[1]}`);
+      assert.equal(asset.status, 200, `${route} references a missing image: ${src[1]}`);
+    }
   }
 
   console.log('export-preview.test.mjs: root-domain routes passed');

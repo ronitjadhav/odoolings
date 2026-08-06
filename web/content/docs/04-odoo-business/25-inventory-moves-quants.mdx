@@ -181,8 +181,13 @@ now reads 15 (the 10 from chapter 24 plus these 5).
 
 #### 6. Set a reordering rule
 
-**Inventory → Configuration → Reordering Rules → New**: product `Brake Pad Set (Front)`,
-minimum **5**, maximum **15**.
+Reordering rules do not have a menu of their own. They live on the replenishment screen:
+**Inventory → Operations → Replenishment** (under the *Procurement* heading), then **New**.
+Product `Brake Pad Set (Front)`, minimum **5**, maximum **15**.
+
+That screen opens with **To Reorder** and **Not Snoozed** already filtered, so a rule for a
+product you have plenty of will not be in the list you are looking at. Clear the filters, or
+pick **All** in the Trigger panel on the left, if you want to see the rule you just made.
 
 ```console
 $ python3 odoolings.py diff --db functional

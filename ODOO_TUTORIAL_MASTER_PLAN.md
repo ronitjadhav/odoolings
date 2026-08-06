@@ -864,6 +864,27 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   migration exercise completed against a real 18.0 module (18→19).
 
 ### M8 — Polish & launch (week 16)
+- [ ] **Backfill screenshots for the chapters written before the policy changed**: ch4 and
+      ch21-29, which shipped with no images because the pipeline was broken until
+      2026-08-05 (see the changelog). Chapters from ch30 on carry their own, per §6 rule
+      4b, so this is a one-off catch-up rather than a standing task. Treat it as a
+      correction exercise whose by-product is images: the browser found five wrong UI
+      claims the first time it was pointed at a written chapter.
+      Decide once, before capturing: viewport size, light or dark, and how to caption
+      screens whose sequence numbers and dates a reader cannot reproduce. **The real
+      payload is not the pictures, it is catching wrong UI claims:** ch27 shipped
+      `Accounting → Configuration → Chart of Accounts` for two chapters before ch29 found
+      that Community's app is called *Invoicing* and puts those menus a level deeper.
+      Everything verified through the database was right; the thing inferred about the
+      interface was not. Assume more of those exist.
+      **The image pipeline is already proven end to end (2026-08-05), so do not
+      rediscover it:** images live in `web/public/screens/…` and are referenced from MDX as
+      `/screens/…`; markdown `![]()` works and Fumadocs styles it (`rounded-lg`,
+      responsive `sizes`). The trap that had to be fixed first is in the changelog: the
+      export needed `images: { unoptimized: true }`, and `tests/export-preview` now guards
+      it. Screenshots arrive as **jpeg at 1568px wide** from the browser tool, so check
+      whether small UI text survives the compression before committing to a whole pass;
+      re-crop with the `zoom` action for anything fiddly like a distribution table.
 - [ ] Full read-through edit; consistency pass on admonitions and footers.
 - [ ] Landing page with learning-path graphic; "how to use this tutorial" guide.
 - [ ] README, CONTRIBUTING, licenses; announce (LinkedIn, r/Odoo, OCA Discord —
@@ -883,6 +904,25 @@ now Part 6 and moved to M5, so M3 is just Part 3.
     dashes in numeric ranges (`1–7`) are fine.
 4. Small PRs per chapter; the author reviews and *manually re-executes* each Hands-on
    before merge — this is the learning loop, do not optimize it away.
+4b. **Screenshots are part of chapter work** (author's decision, 2026-08-05; an earlier
+    version of this rule deferred them all to M8, which was the agent over-reading
+    "add them at the end" and is now corrected). Capture them from the real instance
+    with the Chrome tools while writing the chapter. Five things must be right, all
+    learned the hard way on 2026-08-05, see the changelog:
+    - The agent **cannot log in**; the author signs in to `localhost:8069` once and the
+      Chrome profile keeps the session.
+    - **Pin the viewport** (`resize_window`) before capturing. The tool returned
+      1568x739 and 1447x850 in the same session, and unpinned screenshots will not
+      match each other.
+    - `images: { unoptimized: true }` must stay in `next.config.mjs`, or every image
+      404s in production while the build stays green. `tests/export-preview` guards it.
+    - Files go in `web/public/screens/…`, referenced from MDX as `/screens/…`. Plain
+      markdown `![]()` works and Fumadocs styles it. **MDX has no `<http://…>`
+      autolinks**, it parses them as JSX; use `[text](url)` or a code span.
+    - **Check every UI claim against the screen, not against `ir.ui.menu`.** Walking the
+      menu tree shows what exists, not what a user sees; the client filters by
+      `group_ids`, and `with_user()` does not. Expect a handful of wrong claims per
+      chapter: one screen produced four on 2026-08-05.
 5. Maintain `docs/glossary.md` and the §5.4 checklist continuously.
 6. If the author's team reveals internal conventions (their Docker platform, CI,
    project template), prefer those in "In the field" boxes — ask, don't guess.
@@ -932,6 +972,133 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-05 (audit) — every menu path in every written chapter, checked
+
+The author asked to verify the already-written chapters before continuing to ch30, which
+was the right call. Full sweep of the 25 menu paths across both databases, resolving each
+hop by name and comparing its `group_ids` against `admin.all_group_ids`. Script kept at
+`scratchpad/checkmenus.py`; worth rebuilding if this needs doing again.
+
+**The rule that explains most of the mistakes:** inside an app, level 1 is the menu-bar
+dropdown (Operations, Products, Configuration), a level-2 item **that has children is a
+section heading and is not clickable**, and level 3 is the item you click. So a
+reader-facing path names the dropdown and the item and **skips the heading**:
+`Inventory → Configuration → Warehouses` is right even though the record sits under
+*Warehouse Management*. Getting this backwards produces errors in both directions, and both
+kinds were present.
+
+- **Three real errors, all fixed here.** `Inventory → Configuration → Reordering Rules`
+  does not exist at all: no menu points at either action on
+  `stock.warehouse.orderpoint`, and the rules live on the replenishment screen
+  (`Inventory → Operations → Replenishment`, whose menu is an `ir.actions.server`). Ch26
+  omitted a whole dropdown twice: `Inventory → Operations → Physical Inventory` and
+  `Manufacturing → Operations → Manufacturing Orders`.
+- Ch25 also now warns that Replenishment opens with **To Reorder** and **Not Snoozed**
+  pre-filtered, so a new rule for a well-stocked product is not in the list you land on.
+- **Two false alarms, resolved by looking rather than trusting the script.** Ch4's
+  `CRM → …` and `Sales → …` paths are fine: the reader installs those apps in ch4 itself,
+  and they are simply absent from our `tutorial` database. **Correction to my first answer
+  here:** ch4 must be shot against the **`tour`** database, not `functional`. `tour` already
+  exists from when ch4 was written and holds exactly ch4's end state (`crm` +
+  `sale_management` + demo, 67 modules, 39 partners). `functional` would have been wrong:
+  it also has purchase, stock, mrp and loyalty installed, so its menu bar shows apps a ch4
+  reader has not installed yet, and ch4's entire point is watching the menu change as you
+  install two apps. **Screenshot each chapter against the database that chapter's reader
+  actually has**, which for the dev track is `tutorial`, for Parts 4-5 is `functional`, and
+  for ch4 alone is `tour`.
+  Ch10's `Settings → Technical → Access Rights` is correct, *Security* being a heading.
+- **Everything else verified reachable**: ch21 Products, ch22 CRM and Quotations, ch24
+  RFQ, ch25 Warehouses, ch26 Bills of Materials, ch27 Journals, ch29's six, ch8 Update
+  Apps List, ch11's two LibreFleet menus, ch31 Loaner Cars.
+- Two chapters (ch18, ch31) still say "author tour, screenshots pending" in their own
+  prose. Those sentences come out when the screenshots go in.
+
+### 2026-08-05 (policy) — screenshots are chapter work, not an M8 pass
+
+Corrected the same day it was written, on the author's challenge ("when did we agree about
+no screenshots?"). He is right that no such agreement existed. `CLAUDE.md` rule 5 says only
+that screenshots must not be faked and that the author re-executes the tour; his own words
+this session were "remember to add screenshots **for me** at the end". The agent read that
+as "capture nothing per chapter, do one pass at M8 with the author in the room" and wrote
+that into §6 rule 4b. That was an inference presented as a shared decision, which is the
+failure worth remembering: **do not turn the author's preference into a stronger standing
+rule than he stated, and do not attribute the result to "we".**
+
+Now: the agent captures screenshots while writing each chapter (§6 rule 4b lists the five
+mechanics), the author's manual re-execution stays the acceptance gate, and ch4 plus ch21-29
+are a one-off backfill under M8. The only genuine reason the delay looked reasonable is that
+the image pipeline was broken until today, so anything shipped earlier would have 404'd.
+
+### 2026-08-05 (ch27/ch29 UI paths) — five wrong interface claims in one browser session
+
+The M8 dry run put a real browser on `functional` for the first time. **One screen produced
+four wrong claims, and a fifth came from trying to fix them.** This is the whole argument
+for the M8 pass, and the ratio should be assumed to hold for the other chapters.
+
+- **`ir.ui.menu` lies about what a user sees.** Walking `root.child_id` shows the tree that
+  *exists*; the web client filters it by `group_ids`. `root.with_user(admin).child_id` does
+  **not** filter either. The only honest checks are a real browser, or reading `group_ids`
+  per item and comparing against `user.all_group_ids`. My first ch27 path "fix" earlier the
+  same day was derived from an unfiltered walk and was still wrong.
+- **Community hides more than the app name.** `Chart of Accounts`, `Journal Entries`,
+  accounting `Reporting` and `Multi-Ledger` are gated behind **`account.group_account_readonly`**
+  ("Show Accounting Features - Readonly"), which Community grants to **nobody**. The
+  Accounting privilege (id 6) offers only *Invoicing* and *Administrator* and neither
+  implies it, and Odoo 19's privilege-based user form exposes **no checkbox** for it. So
+  "tick the group on the user" is also wrong, which is the fifth bad instruction, caught
+  before it shipped only because the user form was opened to confirm it.
+- **Actions are not gated, only menus are.** Both screens load fine at
+  `/odoo/action-account.action_account_form` and
+  `/odoo/action-account.action_move_journal_line`, verified in the browser. Ch27 now
+  explains the gate once in a callout and uses those URLs; ch29 points back to it for the
+  one account it has to create. Reaching a gated menu's action by URL is now taught as a
+  technique, which is better content than the wrong menu path was.
+- **"Accounting" under Configuration is a section heading, not a submenu.** The path is
+  `Invoicing → Configuration → Taxes`, not `… → Configuration → Accounting → Taxes`. Both
+  chapters corrected. Ungated and genuinely where expected: **Taxes**, **Fiscal Positions**,
+  Currencies, Payment Terms. Gated but admin-reachable: Journals, Settings, Configuration.
+- **Three ch29 field labels were wrong**, all from the same screen: it is **Tax Name** not
+  "Name", **Fiscal Position** singular not "Fiscal Positions" (the field is
+  `fiscal_position_ids` with no explicit `string`, so Odoo derives a singular label from the
+  name), and `document_type`'s "Related to" label is **never rendered** on the tax form,
+  since the table you are in implies it.
+- **Verified correct on the same screen**, for what it is worth: `Tax Computation` =
+  Percentage, `Tax Type` = Sales, the two `DISTRIBUTION FOR INVOICES` / `FOR REFUNDS`
+  tables with `%` / `Based On` / `Account` / `Tax Grids` columns, `Base` and `of tax` as the
+  Based On values, and 60.00 / 40.00 against Tax Received / City Tax Received.
+- **Practical note for the pass:** the browser tool returned **1568x739** on some calls and
+  **1447x850** on others in the same session, so viewport is not stable by default. Pin it
+  with `resize_window` before capturing anything, or the screenshots will not match.
+
+### 2026-08-05 (build) — the site could not have shipped a single screenshot
+
+Found while dry-running the M8 screenshot pipeline on one throwaway image, before
+capturing anything real. Worth reading as a cautionary tale about which of our gates
+actually gate things.
+
+- **`next.config.mjs` was missing `images: { unoptimized: true }`.** Fumadocs maps
+  markdown `![]()` to `next/image` (`defaultMdxComponents` → `fumadocs-core/framework`),
+  and with `output: 'export'` and no `unoptimized`, the build **succeeds** and then emits
+  `src="/_next/image/?url=…&w=…&q=75"` for every image. There is no optimizer on GitHub
+  Pages. Proven by serving `out/` and fetching the URL the browser would ask for:
+  **404**, while `npm run build` reported success and `npm run test:ci` was green.
+- Fixed with that one line. Same URL after the fix: `200`, and zero `_next/image`
+  references in the exported HTML.
+- **Why every existing gate missed it:** the build does not error, `test:export` only
+  asserted on route status codes, and *nothing in the repo contains an image*, so there
+  was nothing to break. It would have surfaced at M8, after a whole capture session, or
+  worse, in production where `npm run dev` (which has a live optimizer) would have looked
+  perfect. This is the same shape as the D13 lesson: a gate that passes because it never
+  looks at the thing.
+- **`tests/export-preview.test.mjs` now walks every route in the sitemap** and asserts no
+  page references `/_next/image`, and that every `<img src>` returns 200. Proven red by
+  commenting the config line out: it fails with the fix instruction in the message. The
+  guard currently has no images to check, which is the point: it is armed for M8.
+- Pipeline otherwise confirmed working: `web/public/screens/…` referenced as `/screens/…`,
+  markdown image syntax renders with Fumadocs styling, and the file is copied into `out/`.
+  Screenshots come out of the browser tool as **jpeg at 1568px**, so verify small UI text
+  survives before committing to a full pass.
 
 ### 2026-08-05 (ch29) — taxes and fiscal positions, and two Odoo 19 model changes
 
