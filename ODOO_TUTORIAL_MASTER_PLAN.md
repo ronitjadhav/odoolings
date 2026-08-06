@@ -933,6 +933,85 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch29) — taxes and fiscal positions, and two Odoo 19 model changes
+
+- **Ch29 written and executed in `functional`**, continuing from ch28's end state. Six
+  flows, one per §5.3 topic: split a tax's distribution across two accounts, create a
+  price-included tax, discover where an unaccounted tax lands, fix it, ship to a German
+  customer and watch the tax get replaced, then make a rounding cent appear and revert.
+  Seven odoolings checks, each proven red before green.
+- **Two Odoo 19 changes verified in the container, both of which invalidate what every
+  older tutorial and blog post says.** These were found by reading
+  `addons/account/models/account_tax.py` and `partner.py` on disk, not from memory, and
+  the second one changes arithmetic:
+  1. **`account.fiscal.position.tax` no longer exists** (`"account.fiscal.position.tax"
+     in env` → `False`). The src→dest mapping moved onto the tax: a fiscal position holds
+     a *many2many* `tax_ids`, and each replacement tax names what it stands in for in
+     `original_tax_ids` ("Replaces"), with `replacing_tax_ids` as the readonly mirror and
+     `is_domestic` computed/stored. `fp.tax_map` is computed by walking that backwards and
+     its values are **lists** (one tax can be replaced by several). Verified:
+     `ft.tax_map == {1: [3], 2: [4]}`.
+  2. **`tax_calculation_rounding_method` defaults to `round_globally` in 19**, and its
+     label is **"Round per Tax"** (so grepping the interface for "globally" finds
+     nothing). Odoo 18's default was `round_per_line`, labelled "Round Globally". An
+     upgraded 18 database keeps its stored value, so 18 and 19 disagree by a cent on the
+     same order: three lines of 10.10 at 15% total 34.86 per line, 34.85 per tax. Both
+     verified by building the orders.
+- **`price_include` is a computed field in 19**, derived from the tax's
+  `price_include_override` (`tax_included`/`tax_excluded`) falling back to
+  `company.account_price_include`. Writing `price_include` does nothing. The company-wide
+  setting is **read-only once the database has any journal entry**
+  (`has_accounting_entries` is `True` in `functional`), so on any live database the
+  per-tax override is the only lever. Chapter teaches the override, not the setting.
+- **The best accidental discovery, kept as a hands-on beat rather than a footnote:** a
+  brand new tax's four repartition lines have **no account**, and Odoo's fallback for a
+  tax line without one is *the account the base line used*. So a freshly created tax posts
+  its tax straight into income, on an invoice that balances and looks perfect. Verified:
+  28.04 credited to Product Sales. Step 2 of the hands-on does it on purpose and step 3
+  fixes it, because this is a large share of real "why is the P&L wrong" tickets and it is
+  one empty cell.
+- **Repartition factors are relative weights in practice, not absolute percentages.**
+  `@api.constrains('...repartition_line_ids')` on `account.tax` requires the positive "of
+  tax" factors to total 100% (and negative ones -100%), and requires the invoice and refund
+  tables to match line for line, so the form refuses anything else. Writing straight onto
+  `account.tax.repartition.line` skips that check, and then the tax total still comes out
+  right: 50/40 on a 30.00 tax gives **16.67 / 13.33**, not 15.00 / 12.00, because the
+  shortfall is redistributed by weight. This corrected a wrong assertion message I had
+  written into the ch29 check ("would silently lose the rest"); it is now the ⭐⭐⭐
+  break-it lab, with the real mechanism as the answer.
+- **`compute_all` is public but cannot be called over XML-RPC**: its return dict carries
+  an `account.tax.group` recordset under `group`, so the marshaller raises
+  `KeyError: <class 'odoo.orm.models.account.tax'>`. Recorded as a gotcha, and it is why
+  the ch29 checks verify tax-included arithmetic by reading a posted invoice's lines
+  rather than by asking the tax to compute.
+- **Reverse charge verified as a real shape** (⭐⭐ exercise): a tax with +100% and -100%
+  "of tax" lines posts two tax lines of 30.00 on a 200.00 bill while `amount_tax` reads
+  0.00. Aiming the negative side at a `liability_payable` account fails with "Any journal
+  item on a payable account must have a due date", which is why the exercise says to
+  create a second current-liability account.
+- **A check that was green before the reader did anything, caught and retightened.** The
+  first version of the export check looked for any sale order for a non-US customer with a
+  fiscal position and no tax. The demo data ships **17** such orders (Gemini Furniture), so
+  it passed on a fresh database. It is now anchored on the Brake Pad Set *and* requires the
+  line's tax to carry a non-empty `original_tax_ids`, since zero tax alone would also be
+  true of a line with no tax at all. Worth generalising: **any check whose subject exists
+  in demo data must be anchored on something the reader made.**
+- **WATCHED gained `account.account` and `account.tax`** (sixth and seventh instance of the
+  allowlist only being right for chapters already written against it). Deliberately *not*
+  added: `tax_line_id` on `account.move.line`, which would have made ch28's already-quoted
+  diff transcript wrong, and `account.tax.repartition.line`, whose base rows have no
+  labellable field and would print twelve `id=N` lines per tax.
+- **Ch27's three UI paths were wrong and are fixed.** Community's accounting app is called
+  **Invoicing**, and its configuration menus sit one level deeper than the Enterprise
+  app's: the real paths are `Invoicing → Configuration → Accounting → Chart of Accounts`
+  / `→ Journals` and `Invoicing → Accounting → Transactions → Journal Entries`. Verified by
+  walking `ir.ui.menu`. Ch29 says this once, in prose, where the reader first needs it.
+- **One pre-existing glued glossary entry fixed** (`**decoration-***`). The audit script
+  used since the 14-entry incident has a blind spot: its `^\*\*[^*]+\*\*:` pattern cannot
+  match an entry whose *name* contains an asterisk. Use `^\*\*.+?\*\*(?::| \()` instead.
+  132 entries now, none glued.
+- Screenshots and the author's own hands-on pass remain pending for ch21-29, per §4 rule 5.
+
 ### 2026-08-05 (ch25/ch26, one PR) — inventory and manufacturing, plus a cross-chapter check bug
 
 - **Ch25 and ch26 written and executed together**, continuing in `functional` from ch24's

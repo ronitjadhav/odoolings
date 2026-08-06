@@ -102,6 +102,7 @@ CSV has no equivalent of XML's `<data noupdate="...">` wrapper.
 or expense and decreases a liability, equity or income; a credit does the reverse. The
 totals of the two sides are equal by definition, which is what "double-entry" means
 (chapter 27).
+
 **decoration-***: list (and badge) attributes carrying an expression over the view's
 loaded fields; matching rows render in the semantic color (muted, info, success,
 warning, danger) or style (bf, it).
@@ -173,6 +174,11 @@ tutorial's Docker setup it sits in the `odoo-data` volume.
 
 **filter (search view)**: a named, static domain toggle in a search view's arch.
 Distinct from `ir.filters`, which stores a user's own saved searches.
+
+**fiscal position (`account.fiscal.position`)**: the record answering "this customer is
+not taxed like the others", resolved from the customer's country (or set by hand) as a
+document is created. In Odoo 19 it no longer holds source/destination tax pairs: it lists
+taxes, and each replacement tax names what it replaces in `original_tax_ids` (chapter 29).
 
 **form view**: the one-record view type (`<form>` arch): a `<sheet>` canvas with
 `<group>`s laying out fields. Opened from a list row when the action's `view_mode`
@@ -353,6 +359,12 @@ at once.
 **pivot view**: a view type describing a table of aggregated data: `row`/`col`
 fields group records, `measure` fields are summed per group, via `read_group`.
 
+**price-included tax (`price_include`)**: a tax treated as already inside the price you
+type, so 100.00 at 15% is 86.96 of revenue plus 13.04 of tax rather than 115.00. In Odoo
+19 `price_include` is *computed* from the tax's `price_include_override` falling back to
+the company's `account_price_include`, which locks once the database has journal entries
+(chapter 29).
+
 **pricelist (`product.pricelist`)**: an optional, feature-flagged bag of
 `product.pricelist.item` rules that override a product's own price on an order. Each rule
 declares an `applied_on` scope whose numeric prefix (`0_product_variant` through
@@ -404,6 +416,15 @@ create two partial reconciliations whose amounts sum to the total. This, not
 **record rule**: an `ir.rule` filtering *which records* of a model a group may
 touch, via a domain ("only orders assigned to you"). The per-record layer on top of
 access rights, which are model-wide. LibreFleet's first one lands in chapter 12.
+
+**repartition line (`account.tax.repartition.line`)**: the child record deciding where a
+piece of a tax goes, shown as the **Distribution** tables on a tax. Four per plain tax
+(base and tax, for invoices and refunds), and more than one "of tax" line is how a single
+tax produces several journal lines on different accounts (chapter 29).
+
+**reverse charge**: a tax whose distribution carries a +100% and a -100% "of tax" line, so
+both sides are recorded and `amount_tax` nets to zero. The reason `amount_tax == 0` does
+not mean no tax happened (chapter 29).
 
 **reward (loyalty)**: what a claimed coupon, code or promotion adds to an order, and it
 arrives as **its own order line with a negative `price_unit`**, not as an edit to the
@@ -476,6 +497,20 @@ groups.
 
 **target="new"**: an action attribute that opens the action as a popup instead of
 navigating away from the current record. What makes a wizard a wizard, visually.
+
+**tax (`account.tax`)**: a rate (`amount`, `amount_type`) plus a routing table (its
+*repartition line* children), scoped to sales or purchases by `type_tax_use`. Odoo has no
+separate "tax amount" table: what a tax does is produce lines on an `account.move`
+(chapter 29).
+
+**tax group (`account.tax.group`)**: groups taxes for display in a document's totals block
+and carries the receivable/payable accounts the period-end tax closing uses. It takes no
+part in computing an amount (chapter 29).
+
+**tax rounding (`tax_calculation_rounding_method`)**: whether Odoo rounds the tax once per
+line (`round_per_line`) or once per tax over the whole document (`round_globally`, labelled
+**Round per Tax**). Odoo 19 defaults to the latter, Odoo 18 to the former, which is why the
+same three lines can total 34.85 or 34.86 (chapter 29).
 
 **technical name**: a module's directory name (`librefleet`), as opposed to its
 display `name` ("LibreFleet"). Used by `-i`/`-u`, `depends`, XML ids and table

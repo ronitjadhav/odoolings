@@ -1651,6 +1651,211 @@ def components_were_consumed_by_bom_ratio(env):
             % (name, got, expected, expected_each, produced))
 
 
+# --- ch29: taxes & fiscal positions --------------------------------------------
+
+def _ch29_split_tax(env):
+    """The sales tax whose invoice distribution was split across two accounts."""
+    taxes = env.call("account.tax", "search_read",
+                     [("type_tax_use", "=", "sale"), ("amount", "=", 15.0)],
+                     fields=["name", "amount", "price_include"])
+    for tax in taxes:
+        reps = env.call("account.tax.repartition.line", "search_read",
+                        [("tax_id", "=", tax["id"]), ("document_type", "=", "invoice"),
+                         ("repartition_type", "=", "tax")],
+                        fields=["factor_percent", "account_id"])
+        if len(reps) >= 2:
+            tax["reps"] = reps
+            return tax
+    return None
+
+
+def sales_tax_was_split_across_two_accounts(env):
+    tax = _ch29_split_tax(env)
+    assert tax, (
+        "no 15% sales tax has more than one line in its invoice distribution. Duplicate "
+        "the 15% sales tax and, on the Definition tab, replace the single 'of tax' line "
+        "in Distribution for Invoices with two: 60% and 40%, each pointing at its own "
+        "account.")
+    total = round(sum(r["factor_percent"] for r in tax["reps"] if r["factor_percent"] > 0), 6)
+    assert total == 100.0, (
+        "the invoice distribution's positive 'of tax' lines add up to %g%%, not 100%%. "
+        "account.tax constrains that itself, so the tax form would have refused this: "
+        "reaching %g%% means the lines were written straight onto "
+        "account.tax.repartition.line, which skips the check on the tax." % (total, total))
+    accounts = {r["account_id"] and r["account_id"][0] for r in tax["reps"]}
+    assert len(accounts) >= 2 and None not in accounts, (
+        "the two distribution lines point at the same account (or one has none), so the "
+        "split cannot be seen in the ledger. Give each line a different account; the "
+        "hands-on adds 251100 City Tax Received next to 251000 Tax Received.")
+    env._ch29_split = tax
+
+
+def one_tax_posted_two_tax_lines(env):
+    """The whole point of repartition lines: one tax, several journal lines."""
+    tax = getattr(env, "_ch29_split", None)
+    assert tax, "run the previous check first"
+    lines = env.call("account.move.line", "search_read",
+                     [("tax_line_id", "=", tax["id"]), ("parent_state", "=", "posted")],
+                     fields=["move_id", "account_id", "credit", "tax_repartition_line_id"])
+    assert lines, (
+        "no posted invoice has a tax line from %r. Create a customer invoice, put that "
+        "tax on the line, and Confirm it. A draft invoice has tax lines too, but the "
+        "check looks for a posted one because only posting makes them real."
+        % tax["name"])
+    by_move = {}
+    for line in lines:
+        by_move.setdefault(line["move_id"][0], []).append(line)
+    best = max(by_move.values(), key=len)
+    assert len(best) >= 2, (
+        "the posted invoice carries only one tax line from %r, so the split did not "
+        "take effect. Check that both 'of tax' lines survived the save: the Definition "
+        "tab is easy to leave with one line still at 100%%." % tax["name"])
+    accounts = {l["account_id"][1] for l in best}
+    assert len(accounts) >= 2, (
+        "the %d tax lines all landed on the same account (%s). Each distribution line "
+        "needs its own account for the split to mean anything."
+        % (len(best), ", ".join(accounts)))
+    total = round(sum(l["credit"] for l in best), 2)
+    assert total > 0, "the tax lines credit %.2f in total, which cannot be right" % total
+    # Each line's share of the tax should be its own distribution factor. This is the
+    # sentence "one tax, several lines, split by factor" turned into arithmetic.
+    factors = {r["id"]: r["factor_percent"] for r in tax["reps"]}
+    for line in best:
+        rep = line["tax_repartition_line_id"]
+        share = round(100.0 * line["credit"] / total, 2)
+        expected = factors.get(rep and rep[0])
+        assert expected is not None, (
+            "a tax line points at a distribution line that is not one of the two you "
+            "configured, which usually means the invoice was posted before the split")
+        assert abs(share - expected) < 0.05, (
+            "the line on %s took %.2f of %.2f (%.2f%%), but its distribution line says "
+            "%g%%. The amounts should follow the factors exactly."
+            % (line["account_id"][1], line["credit"], total, share, expected))
+
+
+def a_tax_included_tax_exists(env):
+    taxes = env.call("account.tax", "search_read",
+                     [("type_tax_use", "=", "sale"), ("price_include", "=", True)],
+                     fields=["name", "amount", "price_include_override"])
+    assert taxes, (
+        "no sales tax reads price_include = True. Create one and set Included in Price "
+        "to 'Tax Included' on its Advanced Options tab. The company-wide default is "
+        "locked once a database has journal entries, so the per-tax override is the "
+        "only way in from here.")
+    env._ch29_incl = taxes[0]
+
+
+def tax_included_tax_books_to_a_tax_account(env):
+    """A brand new tax has no account on its distribution, and posts into income."""
+    tax = getattr(env, "_ch29_incl", None)
+    assert tax, "run the previous check first"
+    reps = env.call("account.tax.repartition.line", "search_read",
+                    [("tax_id", "=", tax["id"]), ("document_type", "=", "invoice"),
+                     ("repartition_type", "=", "tax")],
+                    fields=["factor_percent", "account_id"])
+    assert reps, "tax %r has no 'of tax' line in its invoice distribution" % tax["name"]
+    missing = [r for r in reps if not r["account_id"]]
+    assert not missing, (
+        "tax %r still has a distribution line with no account. Odoo does not complain: "
+        "it books the tax to whatever account the base line used, so the tax quietly "
+        "lands in income. Set the account on both the invoice and refund 'of tax' "
+        "lines." % tax["name"])
+    groups = env.call("account.account", "read", [r["account_id"][0] for r in reps],
+                      fields=["code", "name", "internal_group"])
+    wrong = [g for g in groups if g["internal_group"] in ("income", "expense")]
+    assert not wrong, (
+        "tax %r books to %s, which is an %s account. Tax you owe onward is a liability, "
+        "not revenue: point the distribution at a tax account such as 251000."
+        % (tax["name"], wrong[0]["name"], wrong[0]["internal_group"]))
+
+
+def a_tax_included_line_was_invoiced(env):
+    """100.00 tax-included must post 86.96 of revenue and 13.04 of tax."""
+    tax = getattr(env, "_ch29_incl", None)
+    assert tax, "run the previous check first"
+    lines = env.call("account.move.line", "search_read",
+                     [("tax_ids", "in", [tax["id"]]), ("parent_state", "=", "posted")],
+                     fields=["move_id", "price_unit", "price_subtotal", "price_total"])
+    assert lines, (
+        "no posted invoice line carries tax %r. Create a customer invoice with that tax "
+        "on the line and Confirm it." % tax["name"])
+    hundred = [l for l in lines if abs(l["price_unit"] - 100.0) < 0.005]
+    assert hundred, (
+        "none of the %d posted lines with that tax has a price of 100.00. The hands-on "
+        "uses 100.00 on purpose: it is the price that does not divide cleanly by 1.15, "
+        "so it shows where the rounding goes." % len(lines))
+    line = hundred[0]
+    assert abs(line["price_subtotal"] - 86.96) < 0.005, (
+        "the 100.00 line posted a subtotal of %.2f, expected 86.96. With the tax "
+        "included, the price you type is the total: the base is 100 / 1.15."
+        % line["price_subtotal"])
+    assert abs(line["price_total"] - 100.0) < 0.005, (
+        "the 100.00 line's total is %.2f, expected 100.00. A tax-included line's total "
+        "is the price you typed; if it is 115.00 the tax is being added on top, so the "
+        "override did not apply." % line["price_total"])
+
+
+def an_export_order_dropped_the_domestic_tax(env):
+    """Anchored on the Brake Pad Set: the demo already ships foreign orders, and a
+    check that any of those exist would be green before the reader did anything."""
+    company = env.call("res.users", "read", [env.uid], fields=["company_id"])[0]["company_id"][0]
+    home = env.call("res.company", "read", [company], fields=["account_fiscal_country_id"])[0]
+    home_country = home["account_fiscal_country_id"] and home["account_fiscal_country_id"][0]
+    home_name = home["account_fiscal_country_id"][1] if home_country else "the company country"
+    variants = env.call("product.product", "search",
+                        [("product_tmpl_id.name", "=", "Brake Pad Set")])
+    orders = env.call("sale.order", "search_read",
+                      [("order_line.product_id", "in", variants),
+                       ("partner_id.country_id", "!=", home_country),
+                       ("partner_id.country_id", "!=", False)],
+                      fields=["name", "partner_id", "fiscal_position_id", "amount_tax"])
+    assert orders, (
+        "no order for the Brake Pad Set exists for a customer outside %s. Create a "
+        "contact with a foreign country set, then quote them the brake pads: the demo's "
+        "Foreign Trade fiscal position auto-applies on country alone." % home_name)
+    mapped = [o for o in orders if o["fiscal_position_id"]]
+    assert mapped, (
+        "order %s is for a customer outside %s but has no fiscal position. Odoo resolves "
+        "it from the customer's country as the order is created, and a contact with no "
+        "country gets no fiscal position at all, so setting the country afterwards does "
+        "not fix an existing quotation: make a fresh one."
+        % (orders[0]["name"], home_name))
+    order = mapped[0]
+    assert round(order["amount_tax"], 2) == 0.0, (
+        "order %s has a fiscal position (%s) but still carries %.2f of tax. Foreign "
+        "Trade swaps the 15%% for 0%% Exports; if tax remains, the line's tax was set by "
+        "hand after the mapping ran, and a manual tax wins."
+        % (order["name"], order["fiscal_position_id"][1], order["amount_tax"]))
+    # Zero tax alone would also be true of a line with no tax at all. What proves the
+    # mapping ran is that the line's tax declares which domestic tax it replaces.
+    lines = env.call("sale.order.line", "search_read", [("order_id", "=", order["id"])],
+                     fields=["tax_ids"])
+    tax_ids = [t for line in lines for t in line["tax_ids"]]
+    assert tax_ids, (
+        "order %s has no tax on its lines at all. That is not the same thing as a mapped "
+        "0%% tax: an export still gets taxed, at zero, so the sale is reported rather "
+        "than invisible." % order["name"])
+    taxes = env.call("account.tax", "read", tax_ids, fields=["name", "amount", "original_tax_ids"])
+    replacements = [t for t in taxes if t["original_tax_ids"]]
+    assert replacements, (
+        "the tax on order %s is %s, which does not replace anything. In Odoo 19 the "
+        "mapping lives on the tax: the replacement carries the domestic tax in its "
+        "'Replaces' field (original_tax_ids), and the fiscal position just lists it."
+        % (order["name"], ", ".join(t["name"] for t in taxes)))
+    env._ch29_order = order
+
+
+def rounding_method_is_back_to_round_per_tax(env):
+    company = env.call("res.users", "read", [env.uid], fields=["company_id"])[0]["company_id"][0]
+    method = env.call("res.company", "read", [company],
+                      fields=["tax_calculation_rounding_method"])[0]["tax_calculation_rounding_method"]
+    assert method == "round_globally", (
+        "the company's tax rounding method is %r. The hands-on flips it to Round per "
+        "Line to make the cent appear, then puts it back to Round per Tax, which is "
+        "Odoo 19's default. Leaving it flipped changes every total computed after this "
+        "chapter." % method)
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -1961,8 +2166,9 @@ CHAPTERS = {
     ],
     "ch27": [
         ("a manual journal entry was posted", manual_journal_entry_posted,
-         "Accounting > Accounting > Journal Entries > New, journal Miscellaneous, two "
-         "lines of 250.00 (one debit, one credit), then Post."),
+         "Invoicing > Accounting > Transactions > Journal Entries > New, journal "
+         "Miscellaneous Operations, two lines of 250.00 (one debit, one credit), "
+         "then Post."),
         ("its debits equal its credits", manual_entry_is_balanced,
          "Double-entry is not a convention here, it is enforced: Odoo refuses to post "
          "an unbalanced move."),
@@ -1985,6 +2191,29 @@ CHAPTERS = {
         ("the receivable line is reconciled", receivable_line_is_reconciled,
          "payment_state is a summary. Reconciliation on the line is the mechanism, and "
          "account.partial.reconcile is where the link actually lives."),
+    ],
+    "ch29": [
+        ("the sales tax was split across two distribution lines", sales_tax_was_split_across_two_accounts,
+         "On a copy of the 15% sales tax, Definition tab: two 'of tax' lines in "
+         "Distribution for Invoices, 60% and 40%, each with its own account."),
+        ("one tax posted two tax lines, split by factor", one_tax_posted_two_tax_lines,
+         "Invoice something with that tax and Confirm. Repartition lines are what "
+         "turn one tax into several journal lines, so you should see two."),
+        ("a tax-included tax exists", a_tax_included_tax_exists,
+         "Advanced Options > Included in Price = Tax Included. price_include itself "
+         "is computed in Odoo 19; the override is the field you set."),
+        ("its tax lands in a tax account, not in income", tax_included_tax_books_to_a_tax_account,
+         "A brand new tax's distribution lines have no account, and Odoo then books "
+         "the tax wherever the base line went. Set the account on both of them."),
+        ("a 100.00 tax-included line invoiced as 86.96 plus 13.04", a_tax_included_line_was_invoiced,
+         "With the tax included, the price you type is the total: 100 / 1.15 = 86.96 "
+         "of revenue and 13.04 of tax. If you see 115.00, the override is not applying."),
+        ("an export order dropped the domestic tax", an_export_order_dropped_the_domestic_tax,
+         "Quote a customer whose country is not the company's. Foreign Trade "
+         "auto-applies on country and maps the 15% to 0% Exports."),
+        ("the rounding method is back to Round per Tax", rounding_method_is_back_to_round_per_tax,
+         "Settings > Accounting > Taxes > Rounding Method. The hands-on borrows Round "
+         "per Line for one comparison; put it back so later chapters agree with ours."),
     ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
@@ -2116,6 +2345,10 @@ WATCHED = {
     "stock.move":        ["reference", "product_id", "product_uom_qty", "state"],
     "stock.quant":       ["product_id", "location_id", "quantity"],
     "mrp.production":    ["name", "state", "product_qty"],
+    "account.account":   ["code", "name", "account_type"],
+    # price_include is computed, not stored, in Odoo 19: watching it is how the
+    # diff shows a tax-included tax without anyone having to read the override.
+    "account.tax":       ["name", "amount", "type_tax_use", "price_include"],
     "account.move":      ["name", "move_type", "state", "amount_total", "payment_state"],
     "account.move.line": ["name", "account_id", "debit", "credit", "reconciled"],
     "account.payment":   ["display_name", "state", "amount", "payment_type"],

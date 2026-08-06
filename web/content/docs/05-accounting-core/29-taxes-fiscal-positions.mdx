@@ -1,25 +1,639 @@
 ---
 title: "29. Taxes & Fiscal Positions"
-description: Not written yet, tracked in the roadmap.
+description: Take one 15% tax apart until you can predict which accounts it will hit, how many cents land in each, and what happens when the customer is abroad.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** stop treating a tax as a percentage and start treating it as a percentage plus a
+routing table, which is what Odoo actually stores. · **Time:** ~3 h ·
+**Checkpoint:** none, this part continues in the `functional` demo database
 
 ## Why this matters
 
+Chapter 28 posted a three-line invoice and pointed at the middle line: product revenue,
+**tax**, receivable. Then it moved on. That single line is where a surprising share of
+real accounting bugs live, because four different things can be wrong with it and each
+one has a different field behind it:
+
+- the tax landed on the wrong account, so revenue is overstated and nobody notices until
+  the tax return does not tie out
+- the tax was added on top of a price that already contained it, so every retail total is
+  15% too high
+- the tax was computed at the wrong scope, so a cent goes missing between the lines and
+  the total
+- the tax was not swapped for a foreign customer, so an export was charged domestic tax
+
+None of those are exotic. All four are things you can cause with one wrong click, and all
+four are invisible on the invoice PDF. This chapter is about being able to look at an
+`account.tax` record and say what the journal entry will contain before you press
+**Confirm**.
+
 ## Concepts
+
+### A tax is a rate plus a routing table
+
+The rate is the easy half. `account.tax` holds `amount` (15.0), `amount_type`
+(`percent`, `fixed`, `division`, or `group`) and `type_tax_use` (`sale`, `purchase` or
+`none`, which is what keeps purchase taxes out of the customer-invoice dropdown).
+
+The half people skip is the children: `account.tax.repartition.line`, labelled
+**Distribution** in the interface. Each one answers "where does a piece of this go", and
+each carries four things that matter:
+
+| Field | Interface label | What it decides |
+|---|---|---|
+| `document_type` | **Related to** | `invoice` or `refund`, which is also which of the two tables you are looking at |
+| `repartition_type` | **Based On** | `base` (the untaxed amount) or `tax` (shown as **of tax**) |
+| `factor_percent` | **%** | how much of it this line takes |
+| `account_id` | **Account** | where it lands |
+
+A plain tax has four of them: base and tax, for invoices and for refunds. That is why
+the shell prints four lines for a tax that looks like a single number in the interface.
+
+The consequence worth holding on to: **one tax can produce several journal lines.** Not
+one. Several. A US sales tax that splits between a state and a city, a tax with a
+deductible and a non-deductible portion, a reverse charge that records both sides and
+nets to nothing: all of them are one `account.tax` with more than one **of tax**
+distribution line.
+
+<Mermaid
+  chart={`flowchart LR
+    T["account.tax<br/>15% Split, percent"]
+    T --> B["invoice / base / 100%<br/>(no account)"]
+    T --> R1["invoice / of tax / 60%<br/>251000 Tax Received"]
+    T --> R2["invoice / of tax / 40%<br/>251100 City Tax Received"]
+    B --> L0["Product Sales<br/>credit 200.00"]
+    R1 --> L1["Tax Received<br/>credit 18.00"]
+    R2 --> L2["City Tax Received<br/>credit 12.00"]`}
+/>
+
+Odoo checks some of this for you, in an `@api.constrains` on `account.tax`: each table
+needs exactly one base line, the two tables must have the same number of lines with the
+same percentages in the same order, and the positive **of tax** factors must total 100%
+(negative ones, if present, must total -100%). The tax form will refuse to save
+otherwise. Write straight onto the child model from a script and you skip all of that,
+which is the subject of this chapter's break-it lab.
+
+### Included or excluded, and where that decision now lives
+
+Two ways to charge 15%:
+
+| | price you type | untaxed | tax | total |
+|---|---|---|---|---|
+| tax **excluded** | 100.00 | 100.00 | 15.00 | 115.00 |
+| tax **included** | 100.00 | 86.96 | 13.04 | 100.00 |
+
+Same rate, same typed number, different money. Excluded adds on top. Included treats what
+you typed as the total and works backwards: `100 / 1.15`, which is 86.9565…, and the
+first thing you learn about tax-included pricing is that it almost never divides cleanly.
+
+In Odoo 19 the field you probably remember is no longer the field you set.
+`price_include` is **computed**, so writing it does nothing. What you set is
+`price_include_override`, a selection of `tax_included` / `tax_excluded` shown as
+**Included in Price** on the tax's Advanced Options tab, and if you leave it empty the
+tax falls back to the company's `account_price_include`. Three fields, one answer:
+
+```python
+price_include = (override == 'tax_included'
+                 or (company_price_include == 'tax_included' and not override))
+```
+
+The company-wide setting has a catch that matters the moment you touch a live database:
+**it locks once any journal entry exists.** The interface marks it read-only, which is
+the correct call (flipping it would silently reinterpret every price in the system) and
+which means that on any database with history, the per-tax override is your only way in.
+
+### Tax groups group, and nothing else
+
+`account.tax.group` does not take part in the computation at all. It does two jobs: it
+decides how taxes are aggregated in the totals block on an invoice (so that two 15% taxes
+show as one "Tax 15%" subtotal rather than two lines), and it carries the
+`tax_receivable_account_id` / `tax_payable_account_id` pair that the period-end tax
+closing entry uses. If a total looks oddly grouped, look here. If a number is wrong, do
+not.
+
+### Fiscal positions, and the direction Odoo 19 reversed
+
+A fiscal position is the answer to "this customer is not taxed like the others". It maps
+taxes (and optionally accounts) for a given customer or country, and Odoo resolves it
+when a document is created.
+
+If you have worked with fiscal positions before, the model changed under you. Through
+Odoo 18 a fiscal position owned a one2many of `account.fiscal.position.tax` rows, each a
+`tax_src_id` → `tax_dest_id` pair. In Odoo 19 that model is **gone**. The mapping now
+lives on the tax, in the opposite direction: a replacement tax lists the domestic taxes
+it stands in for.
+
+<Mermaid
+  chart={`flowchart TB
+    subgraph old["Odoo 18 and earlier"]
+      FP1["fiscal position<br/>Foreign Trade"] -- "tax_ids: one2many" --> M["account.fiscal.position.tax<br/>src 15% / dest 0% Exports"]
+    end
+    subgraph new["Odoo 19"]
+      FP2["fiscal position<br/>Foreign Trade"] -- "tax_ids: many2many" --> TX["account.tax<br/>0% Exports"]
+      TX -- "original_tax_ids<br/>(Replaces)" --> DOM["account.tax<br/>15%"]
+    end`}
+/>
+
+So there are three fields to read instead of one table:
+
+- **`account.tax.fiscal_position_ids`**, on the tax, labelled **Fiscal Positions** with
+  the placeholder *all*: which positions this tax belongs to. Empty means it applies
+  everywhere.
+- **`account.tax.original_tax_ids`**, labelled **Replaces**: which domestic taxes this
+  one stands in for.
+- **`account.tax.is_domestic`**, stored and computed: true when the tax has no fiscal
+  positions, or belongs to the company's own `domestic_fiscal_position_id`.
+
+`account.fiscal.position.tax_map` is then computed by walking that backwards, and
+`map_tax()` applies it. Note the map's values are **lists**: one domestic tax can be
+replaced by more than one tax at once.
+
+Resolution order, when a document is created, is worth knowing precisely because "why did
+it pick that one" is a recurring question. A fiscal position set by hand on the contact
+wins outright. Otherwise Odoo takes every position with **Detect Automatically** on,
+sorts company-specific ones first and then by `sequence`, and returns the first one whose
+criteria all pass: VAT-required, zip range, federal state, country, country group. And
+before any of that, there is a short circuit worth remembering: **a contact with no
+country gets no fiscal position at all.**
+
+### Rounding: per line, or per tax
+
+Fifteen percent of 10.10 is 1.515. There is no such coin. Somebody has to round, and the
+only question is whether they round once per line or once for the whole tax:
+
+| three lines of 10.10, 15% | tax | total |
+|---|---|---|
+| **Round per Line**: 1.515 → 1.52, three times | 4.56 | 34.86 |
+| **Round per Tax**: 30.30 × 15% = 4.545, once | 4.55 | 34.85 |
+
+One cent, and neither answer is wrong. They serve different masters: rounding per line
+keeps the line totals adding up to the document total, which is what you want when prices
+are tax-included and a customer can check your arithmetic on the shelf label. Rounding
+per tax keeps the tax exactly proportional to the base, which is what a tax authority
+wants.
+
+`res.company.tax_calculation_rounding_method` holds it, and two details about that field
+catch people out. Its stored values are `round_per_line` and `round_globally`, but the
+Odoo 19 interface labels the second one **Round per Tax**, so grepping the interface for
+"globally" finds nothing. And the Odoo 19 default is `round_globally`, where Odoo 18's
+was `round_per_line`.
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  Two of this chapter's mechanisms are Odoo 19 changes. Fiscal positions in 18 and
+  earlier map taxes through `account.fiscal.position.tax` rows on the position, not
+  through `original_tax_ids` on the tax. And the default rounding method in 18 is
+  `round_per_line`, labelled "Round Globally" for the other option. Existing databases
+  keep whatever value they were on, so an upgraded 18 database and a fresh 19 one can
+  disagree by a cent on the same order.
+</Callout>
 
 ## Hands-on
 
+Two movements again, continuing in the `functional` database. Everything in the
+configuration menus below lives under **Invoicing** in Community: the app called
+Accounting is the Enterprise one.
+
+### Movement 1: run the flow
+
+Take a snapshot first, and take another one before each numbered step so the diffs stay
+readable:
+
+```console
+$ python3 odoolings.py snapshot --db functional
+snapshot: 19 models, 1019 records (database 'functional')
+```
+
+#### 1. Split one tax across two accounts
+
+First an account for the second half to land in. **Invoicing → Configuration →
+Accounting → Chart of Accounts → New**, code `251100`, name `City Tax Received`, type
+**Current Liabilities**.
+
+Now the tax. **Invoicing → Configuration → Accounting → Taxes → New**:
+
+- Name `15% Split (State 9 / City 6)`, Tax Computation **Percentage**, Amount `15`,
+  Tax Type **Sales**
+- Advanced Options tab: Tax Group **Tax 15%**, Country **United States**
+- Definition tab: this is the part that matters. **Distribution for Invoices** arrives
+  with two lines, `Base 100%` and `of tax 100%`. Set the **of tax** line to `60` and give
+  it the account **251000 Tax Received**, then add a second **of tax** line at `40` with
+  **251100 City Tax Received**.
+- Make **Distribution for Refunds** identical. Odoo insists: the two tables must have the
+  same lines with the same percentages in the same order, and it will refuse to save if
+  they do not.
+
+Then spend it. **Invoicing → Customers → Invoices → New**, customer **Acme Corporation**,
+one line for the **Brake Pad Set**, price `200.00`, and replace the line's tax with your
+new split tax. **Confirm**.
+
+#### 2. Watch a brand new tax put the money in the wrong place
+
+Another tax, and this time leave the Definition tab completely alone. **Taxes → New**:
+
+- Name `15% (Tax Included)`, Amount `15`, Tax Type **Sales**
+- Advanced Options: Tax Group **Tax 15%**, Country **United States**, and **Included in
+  Price** = **Tax Included**
+
+Invoice it: **Customers → Invoices → New**, Acme again, two Brake Pad Set lines, one at
+`115.00` and one at `100.00`, both carrying the new tax. **Confirm**, then read the diff
+before you read the next step. The totals will look right. The accounts will not.
+
+#### 3. Fix the distribution and do it again
+
+Back on `15% (Tax Included)`, Definition tab: set **Account** to **251000 Tax Received**
+on the **of tax** line in *both* tables. Save.
+
+Then make the same invoice again: Acme, two lines at `115.00` and `100.00`, same tax.
+**Confirm**. Nothing you can see on the invoice has changed.
+
+#### 4. Ship abroad and watch the tax get replaced
+
+A foreign customer: **Contacts → New**, name `Nordwerk Fahrzeugtechnik GmbH`, country
+**Germany**, city `Bremen`, zip `28195`. Save.
+
+Then **Sales → Orders → Quotations → New**, that customer, one line of **4** Brake Pad
+Sets. Do not touch the tax column. Look at three things before saving:
+
+- the line's **Taxes** cell now reads **0% Exports**, not 15%
+- the **Other Info** tab's **Fiscal Position** reads **Foreign Trade**
+- the totals show no tax at all
+
+Nobody configured that. The demo's Foreign Trade position auto-applies on country alone,
+and the swap happened as the line was created.
+
+#### 5. Make a cent appear, then put it back
+
+A quotation for Acme with **three** lines, each one Brake Pad Set, quantity 1, price
+`10.10`, tax `15%`. Note the total.
+
+Now **Invoicing → Configuration → Settings**, the **Taxes** block, **Rounding Method** =
+**Round per Line**. Save.
+
+Make the same quotation again: Acme, three lines, 10.10, 15%. Note the total.
+
+Then put **Rounding Method** back to **Round per Tax** before you go any further. The
+chapter's checks look for that, and so does every total computed after this point.
+
+### Movement 2: read what it did
+
+#### 6. One tax, two journal lines
+
+```console
+$ python3 odoolings.py diff --db functional
+account.account     +1
+      new   City Tax Received        code=251100  account_type=liability_current
+account.move        +1
+      new   INV/2026/00011           move_type=out_invoice  state=posted  amount_total=230.0  payment_state=not_paid
+account.move.line   +4
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=200.0
+      new   15% Split (State 9 / City 6) account_id=Tax Received  credit=18.0
+      new   15% Split (State 9 / City 6) account_id=City Tax Received  credit=12.0
+      new   INV/2026/00011           account_id=Account Receivable  debit=230.0
+account.tax         +1
+      new   15% Split (State 9 / City 6) amount=15.0  type_tax_use=sale
+```
+
+Chapter 28's invoice had three lines. This one has four, and the two in the middle carry
+**the same tax name and different accounts**: 18.00 and 12.00, which are 60% and 40% of
+30.00. That is the whole idea of repartition lines, visible in one diff. Your invoice
+number will differ.
+
+#### 7. Where an unaccounted tax actually goes
+
+The tax-included invoice from step 2:
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   INV/2026/00012           move_type=out_invoice  state=posted  amount_total=215.0  payment_state=not_paid
+account.move.line   +4
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=100.0
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=86.96
+      new   15% (Tax Included)       account_id=Product Sales  credit=28.04
+      new   INV/2026/00012           account_id=Account Receivable  debit=215.0
+```
+
+Read the third line. **The tax posted to Product Sales.** Not to a tax account: straight
+into revenue, 28.04 of it, on a posted invoice that balances perfectly and looks
+completely normal.
+
+Nothing was misconfigured on purpose. A brand new tax's distribution lines have no
+account, and Odoo's fallback for a tax line with no account is the account the base line
+used. So the tax quietly becomes revenue, the receivable is still right, the customer
+still owes 215.00, and the only symptom is that revenue is overstated by exactly the tax
+you owe onward. This is a large fraction of the "why is the P&L wrong" tickets in the
+world, and it is one empty cell.
+
+The base lines are worth a second look too: `115.00` typed produced `100.00` of revenue,
+and `100.00` typed produced `86.96`. Tax-included prices are the only case where two
+lines of different revenue can add up to a round total.
+
+Now step 3, after setting the account:
+
+```console
+$ python3 odoolings.py diff --db functional
+account.move        +1
+      new   INV/2026/00013           move_type=out_invoice  state=posted  amount_total=215.0  payment_state=not_paid
+account.move.line   +4
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=100.0
+      new   Brake Pad Set (Front)    account_id=Product Sales  credit=86.96
+      new   15% (Tax Included)       account_id=Tax Received  credit=28.04
+      new   INV/2026/00013           account_id=Account Receivable  debit=215.0
+```
+
+Same totals, same customer, same 28.04. One different account, and now the books are
+right. Note what did **not** change: the invoice, the amounts, the receivable, the
+customer's experience. There is no report on the invoice itself that would have caught
+this, which is why it is worth being able to read a distribution table.
+
+#### 8. What the export did
+
+```console
+$ python3 odoolings.py diff --db functional
+res.partner         +1
+      new   Nordwerk Fahrzeugtechnik GmbH
+sale.order          +1
+      new   S00027                   state=draft  amount_untaxed=240.0  amount_total=240.0  invoice_status=no
+sale.order.line     +1
+      new   Brake Pad Set (Front)    product_uom_qty=4.0  price_unit=60.0
+```
+
+`amount_untaxed` and `amount_total` are the same number, which is the diff's way of
+saying no tax. But zero tax and no tax are different situations and the difference
+matters: the line still carries a tax, `0% Exports`, so the sale still appears in the tax
+report at zero rather than vanishing from it. An export is taxed, at nothing.
+
+#### 9. The cent
+
+```console
+$ python3 odoolings.py diff --db functional
+sale.order          +2
+      new   S00028                   state=draft  amount_untaxed=30.3  amount_total=34.85  invoice_status=no
+      new   S00029                   state=draft  amount_untaxed=30.3  amount_total=34.86  invoice_status=no
+sale.order.line     +6
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+      new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
+```
+
+Six identical lines, and the totals one cent apart. The only difference is
+which setting was active at the moment the totals were computed. Which brings up the
+thing to remember about this: `amount_tax` is a **stored** compute. Putting the setting
+back does not retro-fix S00029, and it never will. Rounding changes apply to arithmetic
+that has not happened yet.
+
+#### 10. Read the records
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> tax = env["account.tax"].search([("name", "=", "15%"), ("type_tax_use", "=", "sale"), ("company_id", "=", env.company.id)])
+>>> for rep in tax.repartition_line_ids:
+...     print(rep.document_type, rep.repartition_type, rep.factor_percent, rep.account_id.code or "-")
+...
+invoice base 100.0 -
+invoice tax 100.0 251000
+refund base 100.0 -
+refund tax 100.0 251000
+```
+
+Four lines behind a tax that looks like one number, and the base lines have no account by
+design (the base does not need routing, it stays where the product put it).
+
+`compute_all` is the tax calculator, and it is the fastest way to answer "what would this
+do":
+
+```python
+>>> excl = tax.compute_all(100.0)
+>>> excl["total_excluded"], excl["total_included"]
+(100.0, 115.0)
+>>> incl = env["account.tax"].search([("name", "=", "15% (Tax Included)")])
+>>> incl.price_include_override, incl.company_price_include, incl.price_include
+('tax_included', 'tax_excluded', True)
+>>> ri = incl.compute_all(100.0)
+>>> ri["total_excluded"], ri["total_included"]
+(86.96, 100.0)
+>>> ri["taxes"][0]["base"], ri["taxes"][0]["amount"]
+(86.95652173913044, 13.04)
+```
+
+The middle line is the whole of the Odoo 19 price-include story in one tuple: the
+override says included, the company says excluded, and the computed field says the
+override won. And the last line is where the rounding actually lives. The base Odoo works
+with is `86.95652173913044`, unrounded; the tax is rounded to `13.04`; and the reported
+base is rounded to `86.96` so that the two add up to the 100.00 the customer sees. Round
+the base first and you would get 86.96 + 13.04 = 100.00 by luck, not by construction.
+
+Now the split, and the invoice it produced:
+
+```python
+>>> split = env["account.tax"].search([("name", "like", "15% Split")])
+>>> for rep in split.invoice_repartition_line_ids:
+...     print(rep.repartition_type, rep.factor_percent, rep.account_id.code or "-")
+...
+base 100.0 -
+tax 60.0 251000
+tax 40.0 251100
+>>> inv = env["account.move"].search([("line_ids.tax_line_id", "=", split.id)], limit=1)
+>>> inv.name, inv.amount_untaxed, inv.amount_tax
+('INV/2026/00011', 200.0, 30.0)
+>>> for line in inv.line_ids.filtered("tax_line_id"):
+...     print(line.account_id.code, line.credit, line.tax_repartition_line_id.factor_percent)
+...
+251000 18.0 60.0
+251100 12.0 40.0
+```
+
+Every tax line points back at the distribution line that made it, through
+`tax_repartition_line_id`. That is the link to follow when a tax amount is on an account
+you did not expect: not the tax, the distribution line.
+
+And the fiscal position, in the Odoo 19 shape:
+
+```python
+>>> FP = env["account.fiscal.position"]
+>>> ft = FP.search([("name", "=", "Foreign Trade"), ("company_id", "=", env.company.id)])
+>>> ft.tax_map
+{1: [3], 2: [4]}
+>>> ft.map_tax(tax).mapped("name")
+['0% Exports']
+>>> exports = env["account.tax"].browse(ft.tax_map[tax.id])
+>>> exports.original_tax_ids.mapped("name"), exports.fiscal_position_ids.mapped("name"), exports.is_domestic
+(['15%'], ['Foreign Trade'], False)
+>>> de = env["res.partner"].search([("name", "like", "Nordwerk")])
+>>> us = env["res.partner"].search([("name", "=", "Acme Corporation")])
+>>> FP._get_fiscal_position(de).name, FP._get_fiscal_position(us).name
+('Foreign Trade', 'Domestic')
+>>> "account.fiscal.position.tax" in env
+False
+```
+
+`tax_map` is `{1: [3], 2: [4]}`: sales 15% becomes 0% Exports, purchase 15% becomes 0%
+Imports, and the values are lists because one tax can be replaced by several. Read it
+alongside the line below it and the direction is clear: the position does not know it
+maps 15%, the `0% Exports` tax knows it replaces 15%. The last line is the proof that the
+old model is gone, and worth running yourself if you have ever written code against
+`tax_src_id`.
+
+Finally, the rounding, verified rather than assumed:
+
+```python
+>>> env.company.tax_calculation_rounding_method
+'round_globally'
+>>> [(so.name, so.amount_tax, so.amount_total) for so in env["sale.order"].search([("amount_untaxed", "=", 30.30)], order="name")]
+[('S00028', 4.55, 34.85), ('S00029', 4.56, 34.86)]
+```
+
+The setting is back where it belongs, and the two orders still disagree.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch29 --db functional
+✔ the sales tax was split across two distribution lines
+✔ one tax posted two tax lines, split by factor
+✔ a tax-included tax exists
+✔ its tax lands in a tax account, not in income
+✔ a 100.00 tax-included line invoiced as 86.96 plus 13.04
+✔ an export order dropped the domestic tax
+✔ the rounding method is back to Round per Tax
+```
+
+Two of those are doing more than they look. The second one checks that each tax line's
+share of the total matches **its own** distribution factor, not just that two lines
+exist, because two lines splitting 50/50 when the table says 60/40 would be a real bug
+and an easy one to miss. And the export check requires the line's tax to declare an
+`original_tax_ids`, because zero tax on its own would also be true of a line with no tax
+at all, which is a different and worse situation.
 
 ## Gotchas
 
+- **A new tax has no account on its distribution lines, and Odoo will not warn you.**
+  The fallback is the account the base line used, so the tax lands in income and the
+  invoice still balances. Step 2 of the hands-on does this on purpose so you can see how
+  invisible it is. Always check both the invoice and the refund table.
+- **`price_include` is computed in Odoo 19, so writing it does nothing.** Set
+  `price_include_override`. The company-wide default that the override falls back to is
+  read-only once the database has a single journal entry, so on any real database the
+  per-tax override is the only lever you have.
+- **`compute_all` is public but unusable over RPC.** It is the right tool from
+  `odoo shell` and it is unreachable from an XML-RPC client, because its return dict
+  carries a recordset under `group` and the marshaller gives up:
+  `KeyError: <class 'odoo.orm.models.account.tax'>`. If you need tax amounts from
+  outside, build a draft `account.move` and read its lines.
+- **A fiscal position with no taxes listed is not a no-op in Odoo 19.** `map_tax()` falls
+  back to dropping every tax that belongs to *any* fiscal position, so an empty position
+  applied to a customer produces untaxed invoices rather than normally taxed ones. In
+  Odoo 18 an empty mapping left the taxes alone. Related: a contact with no country gets
+  no fiscal position at all, and setting the country afterwards does not fix quotations
+  that already exist.
+- **Totals are stored, and a manual tax beats the mapping.** Changing the rounding method
+  or a fiscal position does not recompute documents that were already computed, so an
+  order confirmed last week keeps last week's cent. And a tax typed into the line by hand
+  survives the fiscal position, which is exactly what you want when a consultant
+  overrides one order and exactly what confuses you when they did it three months ago.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A posted invoice balances, the customer owes the right amount, and yet revenue is too high by exactly the tax. What do you look at?',
+      options: [
+        'The Account column on the tax’s distribution lines',
+        'The tax group, since grouping decides which account each subtotal is aggregated into',
+        'The company’s rounding method, which controls where the tax amount is posted',
+      ],
+      answer: 0,
+      why: 'A distribution line with no account makes Odoo fall back to the base line’s account, so the tax posts into income. The hands-on shows it: 28.04 credited to Product Sales on an invoice that looks perfect. Tax groups only affect how totals are displayed and which accounts the period-end closing entry uses, and the rounding method changes amounts, never accounts.',
+    },
+    {
+      q: 'You set price_include = True on a tax from a script and nothing changes. Why?',
+      options: [
+        'The company setting overrides any value set on an individual tax record',
+        'price_include is computed from price_include_override',
+        'Taxes already used on a posted entry ignore later writes to price fields',
+      ],
+      answer: 1,
+      why: 'In Odoo 19 price_include is a compute with no inverse, so a write is discarded. The field to set is price_include_override (tax_included or tax_excluded), and the company default only applies while that override is empty. The shell shows all three at once: ("tax_included", "tax_excluded", True), the override winning over the company.',
+    },
+    {
+      q: 'In Odoo 19, where is it recorded that Foreign Trade should charge 0% Exports instead of 15%?',
+      options: [
+        'On a row of account.fiscal.position.tax linking the source tax to the destination tax',
+        'On the 0% Exports tax, in original_tax_ids',
+        'On the 15% tax, in a replaced_by field pointing at the export tax',
+      ],
+      answer: 1,
+      why: 'account.fiscal.position.tax no longer exists in 19 ("account.fiscal.position.tax" in env returns False). The replacement tax names what it replaces, the position simply lists the tax, and tax_map is computed from those two facts. replacing_tax_ids does exist on the 15% but it is readonly, the mirror image of the field you actually set.',
+    },
+    {
+      q: 'Three lines of 10.10 with 15% tax total 34.85 on one database and 34.86 on another, both Odoo 19. What is the most likely reason?',
+      options: [
+        'One of them stores prices tax-included, so its base differs',
+        'One database was upgraded from 18 and kept round_per_line',
+        'One of them rounds the base amount before applying the rate to it',
+      ],
+      answer: 1,
+      why: 'The Odoo 19 default is round_globally (labelled Round per Tax) and 18’s was round_per_line, and an upgrade keeps the stored value rather than adopting the new default. Per line: 1.515 rounds to 1.52, three times, 4.56. Per tax: 30.30 × 15% = 4.545, once, 4.55. Tax-included pricing would change the untaxed 30.30 as well, and it is the same here.',
+    },
+    {
+      q: 'A tax has two "of tax" distribution lines at +100% and -100%. What does its invoice look like?',
+      options: [
+        'It fails validation, because the factors do not add up to 100%',
+        'Two tax lines that cancel out, with amount_tax at zero',
+        'One tax line, since Odoo collapses opposing factors before posting',
+      ],
+      answer: 1,
+      why: 'This is the reverse-charge shape and Odoo supports it explicitly: the constraint asks that positive factors total 100% and negative ones total -100%, which these do. Verified on a vendor bill of 200.00: amount_tax is 0.00, the vendor is owed 200.00, and two tax lines of 30.00 record both sides on two accounts. It is the clearest proof that amount_tax = 0 does not mean no tax happened.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Reverse the split invoice from step 1 (**Reverse Entry** on the posted invoice) and
+   read the credit note's lines. Which of the tax's six distribution lines fired, and how
+   would you know from the record rather than from the amounts? Then say what would have
+   gone wrong if you had filled in **Distribution for Invoices** and left the refund table
+   at a single 100% line, and check your answer by trying to save that.
+2. ⭐⭐ Build a reverse-charge-shaped purchase tax: 15%, with two **of tax** lines at
+   `100` and `-100` pointing at two different current-liability accounts (you will need to
+   create the second one; do not aim the negative side at a payable account, and work out
+   from the error why). Put it on a vendor bill for 200.00, post it, and explain in two
+   sentences what the entry claims and why `amount_tax` is not a safe way to ask "was
+   there tax on this bill".
+3. ⭐⭐ Ticket-shaped: "our German customer's invoice came out with 15% US sales tax on
+   it." List the checks you would run, cheapest first, naming the exact field at each
+   step. At least one step must distinguish "the fiscal position never applied" from
+   "someone set the tax on the line by hand", and at least one must account for the
+   possibility that the contact's country was filled in after the quotation was made.
+4. ⭐⭐⭐ Break-it lab: the tax form will not let the **of tax** factors add up to
+   anything but 100%, so go around it. From the shell, write `factor_percent` directly on
+   one `account.tax.repartition.line` of your split tax so the two total 90%, then invoice
+   200.00 with it and look at the two tax lines. Predict the numbers before you look. Then
+   explain why the invoice still balances and the tax total is still 30.00, work out what
+   Odoo did with the missing 10%, and predict what a total of 110% produces before you try
+   it. Finally, put the factor back and say which constraint on `account.tax` you skipped
+   and why writing on the child model skipped it.
+
 ## Further reading
+
+- [Taxes (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/taxes.html):
+  the configuration reference for every field on the tax form, including the amount types
+  this chapter did not use.
+- [Fiscal positions (19.0)](https://www.odoo.com/documentation/19.0/applications/finance/accounting/taxes/fiscal_positions.html):
+  the functional view of tax and account mapping, and the automatic-detection criteria in
+  the order Odoo applies them.
+- [`account_tax.py` in core](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_tax.py):
+  worth opening once for `_validate_repartition_lines`, which is the constraint the
+  break-it lab goes around, and for `compute_all` at the bottom, which is the old API kept
+  alive on top of the new one.
+- [`partner.py`, the fiscal position model](https://github.com/odoo/odoo/blob/19.0/addons/account/models/partner.py):
+  `_get_fpos_validation_functions` is the auto-apply criteria as executable code, and
+  `map_tax` is nine lines that explain the empty-position gotcha better than any prose.
