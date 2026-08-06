@@ -41,7 +41,7 @@ each carries four things that matter:
 
 | Field | Interface label | What it decides |
 |---|---|---|
-| `document_type` | **Related to** | `invoice` or `refund`, which is also which of the two tables you are looking at |
+| `document_type` | (no column) | `invoice` or `refund`. The tax form never shows it, because it is implied by which of the two tables the line is in |
 | `repartition_type` | **Based On** | `base` (the untaxed amount) or `tax` (shown as **of tax**) |
 | `factor_percent` | **%** | how much of it this line takes |
 | `account_id` | **Account** | where it lands |
@@ -136,9 +136,9 @@ it stands in for.
 
 So there are three fields to read instead of one table:
 
-- **`account.tax.fiscal_position_ids`**, on the tax, labelled **Fiscal Positions** with
-  the placeholder *all*: which positions this tax belongs to. Empty means it applies
-  everywhere.
+- **`account.tax.fiscal_position_ids`**, on the tax, labelled **Fiscal Position**
+  (singular, though it accepts several) with the placeholder *all*: which positions this
+  tax belongs to. Empty means it applies everywhere.
 - **`account.tax.original_tax_ids`**, labelled **Replaces**: which domestic taxes this
   one stands in for.
 - **`account.tax.is_domestic`**, stored and computed: true when the tax has no fiscal
@@ -190,8 +190,10 @@ was `round_per_line`.
 ## Hands-on
 
 Two movements again, continuing in the `functional` database. Everything in the
-configuration menus below lives under **Invoicing** in Community: the app called
-Accounting is the Enterprise one.
+configuration menus below lives under **Invoicing** in Community, the app called Accounting
+being the Enterprise one, and the **Taxes** and **Fiscal Positions** entries are both
+ungated, so they are where you expect. **Chart of Accounts** is the exception, hidden behind
+the group chapter 27 ran into, so this chapter opens it by URL for the same reason.
 
 ### Movement 1: run the flow
 
@@ -205,13 +207,14 @@ snapshot: 19 models, 1019 records (database 'functional')
 
 #### 1. Split one tax across two accounts
 
-First an account for the second half to land in. **Invoicing → Configuration →
-Accounting → Chart of Accounts → New**, code `251100`, name `City Tax Received`, type
-**Current Liabilities**.
+First an account for the second half to land in. Open
+`http://localhost:8069/odoo/action-account.action_account_form` and press **New**: code
+`251100`, Account Name `City Tax Received`, Type **Current Liabilities**.
 
-Now the tax. **Invoicing → Configuration → Accounting → Taxes → New**:
+Now the tax, and this menu is a normal one: **Invoicing → Configuration → Taxes → New**
+(under the *Accounting* heading in that dropdown):
 
-- Name `15% Split (State 9 / City 6)`, Tax Computation **Percentage**, Amount `15`,
+- Tax Name `15% Split (State 9 / City 6)`, Tax Computation **Percentage**, Amount `15`,
   Tax Type **Sales**
 - Advanced Options tab: Tax Group **Tax 15%**, Country **United States**
 - Definition tab: this is the part that matters. **Distribution for Invoices** arrives

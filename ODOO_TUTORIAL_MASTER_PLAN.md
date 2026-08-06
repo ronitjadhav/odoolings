@@ -958,6 +958,47 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-05 (ch27/ch29 UI paths) — five wrong interface claims in one browser session
+
+The M8 dry run put a real browser on `functional` for the first time. **One screen produced
+four wrong claims, and a fifth came from trying to fix them.** This is the whole argument
+for the M8 pass, and the ratio should be assumed to hold for the other chapters.
+
+- **`ir.ui.menu` lies about what a user sees.** Walking `root.child_id` shows the tree that
+  *exists*; the web client filters it by `group_ids`. `root.with_user(admin).child_id` does
+  **not** filter either. The only honest checks are a real browser, or reading `group_ids`
+  per item and comparing against `user.all_group_ids`. My first ch27 path "fix" earlier the
+  same day was derived from an unfiltered walk and was still wrong.
+- **Community hides more than the app name.** `Chart of Accounts`, `Journal Entries`,
+  accounting `Reporting` and `Multi-Ledger` are gated behind **`account.group_account_readonly`**
+  ("Show Accounting Features - Readonly"), which Community grants to **nobody**. The
+  Accounting privilege (id 6) offers only *Invoicing* and *Administrator* and neither
+  implies it, and Odoo 19's privilege-based user form exposes **no checkbox** for it. So
+  "tick the group on the user" is also wrong, which is the fifth bad instruction, caught
+  before it shipped only because the user form was opened to confirm it.
+- **Actions are not gated, only menus are.** Both screens load fine at
+  `/odoo/action-account.action_account_form` and
+  `/odoo/action-account.action_move_journal_line`, verified in the browser. Ch27 now
+  explains the gate once in a callout and uses those URLs; ch29 points back to it for the
+  one account it has to create. Reaching a gated menu's action by URL is now taught as a
+  technique, which is better content than the wrong menu path was.
+- **"Accounting" under Configuration is a section heading, not a submenu.** The path is
+  `Invoicing → Configuration → Taxes`, not `… → Configuration → Accounting → Taxes`. Both
+  chapters corrected. Ungated and genuinely where expected: **Taxes**, **Fiscal Positions**,
+  Currencies, Payment Terms. Gated but admin-reachable: Journals, Settings, Configuration.
+- **Three ch29 field labels were wrong**, all from the same screen: it is **Tax Name** not
+  "Name", **Fiscal Position** singular not "Fiscal Positions" (the field is
+  `fiscal_position_ids` with no explicit `string`, so Odoo derives a singular label from the
+  name), and `document_type`'s "Related to" label is **never rendered** on the tax form,
+  since the table you are in implies it.
+- **Verified correct on the same screen**, for what it is worth: `Tax Computation` =
+  Percentage, `Tax Type` = Sales, the two `DISTRIBUTION FOR INVOICES` / `FOR REFUNDS`
+  tables with `%` / `Based On` / `Account` / `Tax Grids` columns, `Base` and `of tax` as the
+  Based On values, and 60.00 / 40.00 against Tax Received / City Tax Received.
+- **Practical note for the pass:** the browser tool returned **1568x739** on some calls and
+  **1447x850** on others in the same session, so viewport is not stable by default. Pin it
+  with `resize_window` before capturing anything, or the screenshots will not match.
+
 ### 2026-08-05 (build) — the site could not have shipped a single screenshot
 
 Found while dry-running the M8 screenshot pipeline on one throwaway image, before
