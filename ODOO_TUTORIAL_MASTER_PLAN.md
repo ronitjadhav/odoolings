@@ -869,13 +869,21 @@ now Part 6 and moved to M5, so M3 is just Part 3.
       chapter's Hands-on himself, and the agent captures the screenshots in the same
       session. Nothing shipped so far contains a single image, so this is one accumulated
       pass over every UI-bearing chapter (ch4, then ch21-30 and whatever Parts 6-9 add).
-      Decide once, before capturing: where images live (`web/public/…`), viewport size,
-      light or dark, and how to caption screens whose sequence numbers and dates a reader
-      cannot reproduce. **The real payload is not the pictures, it is catching wrong UI
-      claims:** ch27 shipped `Accounting → Configuration → Chart of Accounts` for two
-      chapters before ch29 found that Community's app is called *Invoicing* and puts those
-      menus a level deeper. Everything verified through the database was right; the thing
-      inferred about the interface was not. Assume more of those exist.
+      Decide once, before capturing: viewport size, light or dark, and how to caption
+      screens whose sequence numbers and dates a reader cannot reproduce. **The real
+      payload is not the pictures, it is catching wrong UI claims:** ch27 shipped
+      `Accounting → Configuration → Chart of Accounts` for two chapters before ch29 found
+      that Community's app is called *Invoicing* and puts those menus a level deeper.
+      Everything verified through the database was right; the thing inferred about the
+      interface was not. Assume more of those exist.
+      **The image pipeline is already proven end to end (2026-08-05), so do not
+      rediscover it:** images live in `web/public/screens/…` and are referenced from MDX as
+      `/screens/…`; markdown `![]()` works and Fumadocs styles it (`rounded-lg`,
+      responsive `sizes`). The trap that had to be fixed first is in the changelog: the
+      export needed `images: { unoptimized: true }`, and `tests/export-preview` now guards
+      it. Screenshots arrive as **jpeg at 1568px wide** from the browser tool, so check
+      whether small UI text survives the compression before committing to a whole pass;
+      re-crop with the `zoom` action for anything fiddly like a distribution table.
 - [ ] Full read-through edit; consistency pass on admonitions and footers.
 - [ ] Landing page with learning-path graphic; "how to use this tutorial" guide.
 - [ ] README, CONTRIBUTING, licenses; announce (LinkedIn, r/Odoo, OCA Discord —
@@ -949,6 +957,35 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-05 (build) — the site could not have shipped a single screenshot
+
+Found while dry-running the M8 screenshot pipeline on one throwaway image, before
+capturing anything real. Worth reading as a cautionary tale about which of our gates
+actually gate things.
+
+- **`next.config.mjs` was missing `images: { unoptimized: true }`.** Fumadocs maps
+  markdown `![]()` to `next/image` (`defaultMdxComponents` → `fumadocs-core/framework`),
+  and with `output: 'export'` and no `unoptimized`, the build **succeeds** and then emits
+  `src="/_next/image/?url=…&w=…&q=75"` for every image. There is no optimizer on GitHub
+  Pages. Proven by serving `out/` and fetching the URL the browser would ask for:
+  **404**, while `npm run build` reported success and `npm run test:ci` was green.
+- Fixed with that one line. Same URL after the fix: `200`, and zero `_next/image`
+  references in the exported HTML.
+- **Why every existing gate missed it:** the build does not error, `test:export` only
+  asserted on route status codes, and *nothing in the repo contains an image*, so there
+  was nothing to break. It would have surfaced at M8, after a whole capture session, or
+  worse, in production where `npm run dev` (which has a live optimizer) would have looked
+  perfect. This is the same shape as the D13 lesson: a gate that passes because it never
+  looks at the thing.
+- **`tests/export-preview.test.mjs` now walks every route in the sitemap** and asserts no
+  page references `/_next/image`, and that every `<img src>` returns 200. Proven red by
+  commenting the config line out: it fails with the fix instruction in the message. The
+  guard currently has no images to check, which is the point: it is armed for M8.
+- Pipeline otherwise confirmed working: `web/public/screens/…` referenced as `/screens/…`,
+  markdown image syntax renders with Fumadocs styling, and the file is copied into `out/`.
+  Screenshots come out of the browser tool as **jpeg at 1568px**, so verify small UI text
+  survives before committing to a full pass.
 
 ### 2026-08-05 (ch29) — taxes and fiscal positions, and two Odoo 19 model changes
 
