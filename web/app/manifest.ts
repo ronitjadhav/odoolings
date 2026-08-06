@@ -11,8 +11,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: `${basePath}/`,
     scope: `${basePath}/`,
     display: 'standalone',
-    background_color: '#f7f6f1',
-    theme_color: '#7654d6',
+    background_color: '#f7fbfc',
+    theme_color: '#c26157',
     icons: [
       {
         src: `${basePath}/brand/odoolings-avatar-paper.png`,

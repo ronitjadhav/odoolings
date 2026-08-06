@@ -18,8 +18,16 @@ import {
   siteOrigin,
   socialCard,
 } from '@/lib/shared';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './global.css';
+
+export const viewport: Viewport = {
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f7fbfc' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f1f22' },
+  ],
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin),
