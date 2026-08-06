@@ -969,6 +969,28 @@ The loop per chapter:
    walkthrough will outlive the agent's context window and anything not written down is
    lost.
 
+**Environment: fresh as we go** (author's decision, 2026-08-05). Each chapter is walked
+against the state *its own reader* would have, not our accumulated authoring state, because
+a screenshot of the wrong state teaches the wrong thing. Staged so the regression net
+survives:
+
+| When | Do | Recoverable because |
+|---|---|---|
+| ch1-3 | nothing, no database is needed | |
+| ch4 | `dropdb tour`, author creates it from the database manager as the chapter instructs | it is only `crm` + `sale_management` + demo |
+| ch8 | move `code/addons/librefleet` aside, `dropdb tutorial`, rebuild the module chapter by chapter | `code/checkpoints/ch34/librefleet` is **byte-identical** to the workspace (verified) |
+| ch21 | `dropdb functional`, rebuild by walking ch21-29 | the chapters themselves rebuild it |
+
+Deliberately **not** a `docker compose down -v` up front: that would take `functional` with
+it, and the ch21-29 checks are the only regression net we have while editing the front of
+the book. Drop individual databases instead, and keep the volumes. Take `pg_dump -Fc`
+backups of all three before the first drop; they are insurance, not the plan, since
+everything above is reproducible from the repo.
+
+One consequence worth accepting rather than fixing: with other databases still present, the
+database-manager screen a ch4 reader sees will list them. Cosmetic, and not worth
+engineering around.
+
 Rules that keep it working:
 
 - **One driver at a time.** The agent and the author sharing a browser will diverge; say
