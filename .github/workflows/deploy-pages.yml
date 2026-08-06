@@ -47,7 +47,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run test:export
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: web/out
 
@@ -58,5 +58,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # v5, not v4: v4 declares `using: node20`, and the runners now force node20
+      # actions onto Node 24 ("Node.js 20 is deprecated ... being forced to run on
+      # Node.js 24"). That is when this job started failing, on 2026-08-06: the same
+      # artifact deployed at 11:38 and then would not at 11:59, every attempt reaching
+      # deployment_in_progress and timing out, with Pages reporting operational and no
+      # incidents. v5 declares node24. See the §10 changelog.
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
