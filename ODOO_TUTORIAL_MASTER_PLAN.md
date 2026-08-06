@@ -1038,6 +1038,36 @@ PR.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-06 (CI) — main went red on an action deprecation, not on our code
+
+Five consecutive deploys failed. Diagnosis worth keeping, because the obvious readings were
+both wrong:
+
+- **`build` succeeded every time**; only `deploy` failed, each attempt reaching
+  `deployment_in_progress` and then "Timeout reached, aborting!".
+- **Not our content.** PR #17 changed *only this markdown file*, which cannot alter
+  `web/out`, yet `78e8c7e` deployed at 11:38 and the near-identical artifact would not at
+  11:59.
+- **Not a stuck deployment.** First theory was that #18 being cancelled mid-deploy had left
+  the environment blocked. Checking the deployment statuses killed it: every deployment
+  progressed `queued → in_progress → failure` on its own, so nothing was holding the lock.
+- **Not a Pages outage.** githubstatus reported Pages operational with no open incidents.
+- **The cause** was in a warning we had been ignoring: *"Node.js 20 is deprecated. The
+  following actions target Node.js 20 but are being forced to run on Node.js 24:
+  actions/deploy-pages@v4."* `deploy-pages@v4` declares `using: node20`; `@v5` declares
+  `using: node24`. The runners began force-migrating today, which is exactly when the job
+  started failing. Bumped to `@v5`, and `upload-pages-artifact@v3` → `@v5` since the pair
+  is versioned in lockstep.
+
+`actions/checkout@v4` and `actions/setup-node@v4` are still node20 and will get the same
+treatment eventually. Left alone deliberately: the build job is green, and the lesson here is
+that changing things that work while chasing a failure makes the failure harder to attribute.
+Bump them when they break, or when there is a quiet moment.
+
+**Transferable bit:** when CI goes red, read which *job* failed before assuming it was the
+last content change. A green `build` with a red `deploy` is almost never the chapter you
+just wrote.
+
 ### 2026-08-05 (audit) — every menu path in every written chapter, checked
 
 The author asked to verify the already-written chapters before continuing to ch30, which
