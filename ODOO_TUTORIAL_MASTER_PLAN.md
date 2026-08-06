@@ -864,11 +864,12 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   migration exercise completed against a real 18.0 module (18→19).
 
 ### M8 — Polish & launch (week 16)
-- [ ] **The screenshot pass** (author's request, 2026-08-05). Deliberately deferred to
-      here rather than done per chapter: the author does the manual walk-through of each
-      chapter's Hands-on himself, and the agent captures the screenshots in the same
-      session. Nothing shipped so far contains a single image, so this is one accumulated
-      pass over every UI-bearing chapter (ch4, then ch21-30 and whatever Parts 6-9 add).
+- [ ] **Backfill screenshots for the chapters written before the policy changed**: ch4 and
+      ch21-29, which shipped with no images because the pipeline was broken until
+      2026-08-05 (see the changelog). Chapters from ch30 on carry their own, per §6 rule
+      4b, so this is a one-off catch-up rather than a standing task. Treat it as a
+      correction exercise whose by-product is images: the browser found five wrong UI
+      claims the first time it was pointed at a written chapter.
       Decide once, before capturing: viewport size, light or dark, and how to caption
       screens whose sequence numbers and dates a reader cannot reproduce. **The real
       payload is not the pictures, it is catching wrong UI claims:** ch27 shipped
@@ -903,11 +904,25 @@ now Part 6 and moved to M5, so M3 is just Part 3.
     dashes in numeric ranges (`1–7`) are fine.
 4. Small PRs per chapter; the author reviews and *manually re-executes* each Hands-on
    before merge — this is the learning loop, do not optimize it away.
-4b. **Screenshots are not a per-chapter task.** Keep leaving them pending (§4 rule 5) and
-    keep saying so in the PR; they are captured in one pass with the author at M8. The
-    agent can drive Chrome for that, but cannot log in (entering a password to
-    authenticate is off-limits), so the author signs in once and the agent takes it from
-    there in the same browser session.
+4b. **Screenshots are part of chapter work** (author's decision, 2026-08-05; an earlier
+    version of this rule deferred them all to M8, which was the agent over-reading
+    "add them at the end" and is now corrected). Capture them from the real instance
+    with the Chrome tools while writing the chapter. Five things must be right, all
+    learned the hard way on 2026-08-05, see the changelog:
+    - The agent **cannot log in**; the author signs in to `localhost:8069` once and the
+      Chrome profile keeps the session.
+    - **Pin the viewport** (`resize_window`) before capturing. The tool returned
+      1568x739 and 1447x850 in the same session, and unpinned screenshots will not
+      match each other.
+    - `images: { unoptimized: true }` must stay in `next.config.mjs`, or every image
+      404s in production while the build stays green. `tests/export-preview` guards it.
+    - Files go in `web/public/screens/…`, referenced from MDX as `/screens/…`. Plain
+      markdown `![]()` works and Fumadocs styles it. **MDX has no `<http://…>`
+      autolinks**, it parses them as JSX; use `[text](url)` or a code span.
+    - **Check every UI claim against the screen, not against `ir.ui.menu`.** Walking the
+      menu tree shows what exists, not what a user sees; the client filters by
+      `group_ids`, and `with_user()` does not. Expect a handful of wrong claims per
+      chapter: one screen produced four on 2026-08-05.
 5. Maintain `docs/glossary.md` and the §5.4 checklist continuously.
 6. If the author's team reveals internal conventions (their Docker platform, CI,
    project template), prefer those in "In the field" boxes — ask, don't guess.
@@ -957,6 +972,22 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-05 (policy) — screenshots are chapter work, not an M8 pass
+
+Corrected the same day it was written, on the author's challenge ("when did we agree about
+no screenshots?"). He is right that no such agreement existed. `CLAUDE.md` rule 5 says only
+that screenshots must not be faked and that the author re-executes the tour; his own words
+this session were "remember to add screenshots **for me** at the end". The agent read that
+as "capture nothing per chapter, do one pass at M8 with the author in the room" and wrote
+that into §6 rule 4b. That was an inference presented as a shared decision, which is the
+failure worth remembering: **do not turn the author's preference into a stronger standing
+rule than he stated, and do not attribute the result to "we".**
+
+Now: the agent captures screenshots while writing each chapter (§6 rule 4b lists the five
+mechanics), the author's manual re-execution stays the acceptance gate, and ch4 plus ch21-29
+are a one-off backfill under M8. The only genuine reason the delay looked reasonable is that
+the image pipeline was broken until today, so anything shipped earlier would have 404'd.
 
 ### 2026-08-05 (ch27/ch29 UI paths) — five wrong interface claims in one browser session
 

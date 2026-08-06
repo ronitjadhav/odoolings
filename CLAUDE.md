@@ -77,8 +77,14 @@ python3 code/odoolings.py check chNN     # verify a chapter's hands-on state
 4. Chapters follow the §4.3 template exactly (incl. Quick check quiz and ⭐-graded
    exercises); hands-on chapters register odoolings checks; new jargon gets a
    glossary entry the same day.
-5. Screenshots and "author does the tour" steps stay pending until the author
-   personally re-executes them; do not fake or skip that loop.
+5. **Capture screenshots as part of writing the chapter**, from the real running
+   instance, via the Chrome tools (author's decision, 2026-08-05). Never invent or
+   describe one you did not take. The author's own manual re-execution is still the
+   acceptance gate, but it is a *review* step, not a precondition for the images.
+   The agent cannot log in (entering a password is off-limits), so the author signs
+   in to `localhost:8069` once; the Chrome profile keeps the session for later runs.
+   See the plan's §6 rule 4b for the mechanics that must be got right (viewport,
+   `images: { unoptimized: true }`, checking claims against `group_ids`).
 6. To write a new chapter, use the `write-chapter` skill in `.claude/skills/`.
 
 Content license CC BY-SA 4.0, code AGPL-3. Commit style: `M<N>: ...` for milestone
