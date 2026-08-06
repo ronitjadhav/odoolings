@@ -998,8 +998,15 @@ kinds were present.
   pre-filtered, so a new rule for a well-stocked product is not in the list you land on.
 - **Two false alarms, resolved by looking rather than trusting the script.** Ch4's
   `CRM → …` and `Sales → …` paths are fine: the reader installs those apps in ch4 itself,
-  and they are simply absent from our `tutorial` database. (Consequence for the screenshot
-  pass: **ch4 must be shot against `functional`**, which has CRM, Sales and demo data.)
+  and they are simply absent from our `tutorial` database. **Correction to my first answer
+  here:** ch4 must be shot against the **`tour`** database, not `functional`. `tour` already
+  exists from when ch4 was written and holds exactly ch4's end state (`crm` +
+  `sale_management` + demo, 67 modules, 39 partners). `functional` would have been wrong:
+  it also has purchase, stock, mrp and loyalty installed, so its menu bar shows apps a ch4
+  reader has not installed yet, and ch4's entire point is watching the menu change as you
+  install two apps. **Screenshot each chapter against the database that chapter's reader
+  actually has**, which for the dev track is `tutorial`, for Parts 4-5 is `functional`, and
+  for ch4 alone is `tour`.
   Ch10's `Settings → Technical → Access Rights` is correct, *Security* being a heading.
 - **Everything else verified reachable**: ch21 Products, ch22 CRM and Quotations, ch24
   RFQ, ch25 Warehouses, ch26 Bills of Materials, ch27 Journals, ch29's six, ch8 Update

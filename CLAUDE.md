@@ -61,7 +61,18 @@ cd web && npm run test:ci   # what CI runs, IN ORDER: test, build, test:export.
 cd web && npm run build     # build alone: validates all MDX
 cd code && docker compose up -d          # the tutorial's Odoo environment
 python3 code/odoolings.py check chNN     # verify a chapter's hands-on state
+python3 code/odoolings.py check chNN --db functional     # Parts 4-5 chapters
 ```
+
+**Three local databases, one per reader path.** Verify and screenshot each chapter
+against the one *that chapter's reader* actually has, or the screens will show apps
+they have not installed:
+
+| db | Holds | Used by |
+|---|---|---|
+| `tour` | `crm` + `sale_management` + demo | ch4 only (its whole point is the menu changing as you install two apps) |
+| `tutorial` | LibreFleet, no business apps | the dev track: ch5-20, ch31-34 |
+| `functional` | sale/purchase/stock/mrp/crm/loyalty + demo | Parts 4-5: ch21-30 |
 
 ## Non-negotiable authoring rules
 
