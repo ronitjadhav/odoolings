@@ -144,9 +144,13 @@ freely. Destroying volumes is destroying your databases.
 
 ### 1. Get it running
 
+<Callout type="info" title="Already did this in chapter 4?">
+  Same repository, same commands, nothing new to set up. `cd` into it and skip straight
+  to `docker compose up` at the bottom of this step.
+</Callout>
+
 You need [Docker with the Compose plugin](https://docs.docker.com/get-docker/)
 (Docker Desktop on macOS/Windows, `docker-ce` + `docker-compose-plugin` on Linux).
-If you did chapter 4 you already have this repository; skip to the `docker compose` line.
 
 Both files above ship in
 **[odoolings-starter](https://github.com/ronitjadhav/odoolings-starter)**. Press
@@ -200,9 +204,14 @@ $ docker compose logs -f odoo    # Ctrl-C stops following, not the server
 
 ### 2. Create your working database
 
-Open [http://localhost:8069](http://localhost:8069). In the database manager, create
-the database you'll build LibreFleet in. These exact values are what `odoolings`
-expects by default, so use them unless you enjoy typing flags:
+Open [http://localhost:8069](http://localhost:8069). If `tour` from chapter 4 is the
+only database you have, you'll see it listed with a **Manage databases** link
+underneath rather than a creation form directly: that list only skips itself when
+there are zero databases at all, which was only ever true the very first time. Click
+**Manage databases** to reach the real form.
+
+Create the database you'll build LibreFleet in. These exact values are what
+`odoolings` expects by default, so use them unless you enjoy typing flags:
 
 | Field | Value |
 |---|---|
@@ -353,9 +362,9 @@ is why it does not care where it sits or where your code lives.
 
 ## Further reading
 
-- [Odoo Docker image](https://hub.docker.com/_/odoo): entrypoint, env vars, mount
-  points our compose file uses.
-- [CLI and configuration reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html)
-- [Native install from source (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/source.html):
+- <Icon name="docs" /> [Odoo Docker image](https://hub.docker.com/_/odoo): entrypoint,
+  env vars, mount points our compose file uses.
+- <Icon name="docs" /> [CLI and configuration reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html)
+- <Icon name="docs" /> [Native install from source (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/source.html):
   the appendix path. Worth doing once someday to demystify the image, not needed for
   this tutorial.
