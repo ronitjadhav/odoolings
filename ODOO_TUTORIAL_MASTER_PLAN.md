@@ -1048,6 +1048,69 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-09 (walkthrough, ch4) — the first hands-on chapter, walked against a genuinely
+fresh instance, eight screenshots, and a real Odoo mechanism nobody had verified
+
+Ch4 is the reader's first contact with a running Odoo, so it got the most scrutiny of any
+chapter so far: a truly empty instance (own Docker project, own volumes, copied from this
+repo's own `docker-compose.yml`/`odoo.conf`, confirmed byte-identical to the starter, so no
+new GitHub repo was needed to get reader-faithful state), the author creating the real
+database live, and every UI claim checked against the actual screen rather than inferred.
+
+- **The master password field's auto-suggestion is not decorative, and this was not
+  previously known.** Read `odoo/addons/web/controllers/database.py`'s `create()`:
+  when the current master password is the well-known insecure `admin` (which
+  `code/odoo.conf` ships on purpose), whatever gets submitted in that field **becomes the
+  real master password**, unconditionally, no check against the old one. Proved by
+  posting a deliberately wrong value to `/web/database/create`: it succeeded, and a
+  follow-up post of `admin` then failed with `Access Denied`, exactly as the mechanism
+  predicts. Also proved it is **self-healing by container restart** in our setup: the
+  change lives only in memory (`set_admin_password` mutates `self.options` before
+  `save()` even attempts the doomed write to the read-only-mounted conf file), so a
+  restart reloads `admin_passwd=admin` from disk. Added as a Callout; this is genuinely
+  useful knowledge nobody had written down before.
+- **The chatter's position is a real, source-verified breakpoint, not a guess.** Traced
+  `mail/static/src/chatter/web/form_renderer.js`'s `mailLayout()`: side vs. bottom is
+  decided by `uiService.size >= SIZES.XXL`, and `ui_service.js`'s `MEDIAS_BREAKPOINTS`
+  puts XXL at **exactly 1400px**. The chapter said "at the bottom" as if universal; our
+  own automation session runs at 1920px (confirmed via `window.innerWidth`, since
+  `resize_window` is not actually honored in this environment, worth remembering for
+  future screenshot sessions) so every screenshot here shows the side layout. Rewrote to
+  state the mechanism instead of one fixed position, so neither the text nor the
+  screenshot goes stale depending on a reader's own window width.
+- **The debug field tooltip does not show "which module defined it," and the chapter
+  said it did.** Triggered the tooltip for real (`Tax ID` on `res.partner`) and read
+  every line: Label, Field, **Model**, Type, Widget, Context. No module line. Model and
+  module are different things; conflating them was a real inaccuracy, not a nitpick.
+  Fixed the claim, and confirmed separately that "which module" *is* answerable through
+  the UI, just via a different screen (`ir.model.fields`' own form has an "In Apps"
+  field) — which is exactly what exercise 2 already asks the reader to go find, so the
+  exercise stays as written.
+- **Sales pulling in Invoicing and Dashboards, verified to an actual dependency chain**,
+  not assumed from watching the menu grow: `sale_management → sale → account_payment →
+  account` (Invoicing) confirmed via each module's real `__manifest__.py`; Dashboards
+  traced to `spreadsheet_dashboard_sale` in the installed-modules list rather than the
+  `board` module I'd have guessed. Cross-referenced to chapter 8 (which teaches `depends`
+  explicitly) after checking chapter 3 does not, despite an early draft of this callout
+  claiming it did, caught before it shipped.
+- **A stale module count, fixed with a live count:** `crm_lead` on a fresh install is
+  **44** (verified against the real fresh instance), matching the chapter's own claim,
+  which the "Verify" section's quoted 45 already explained as "44 plus the one you made."
+- **Eight screenshots**, each earning its place by proving a specific claim: the
+  database-manager form with the auto-generated password banner, the app switcher before
+  and after CRM+Sales, the Pipeline kanban, an opportunity's chatter, a quotation's
+  workflow buttons and status bar, a user's Access Rights tab (existence of the *tab*
+  needed calling out explicitly, since the Users list view alone never shows it), the
+  debug tooltip, and the `crm.lead` Fields list. All plain demo/placeholder data (Odoo's
+  own stock "Mitchell Admin" persona, not anything from this session), nothing to redact.
+- Icons added to ch4's Further Reading, matching the ch1-3 convention.
+
+Environment notes for next time: `resize_window` does not reliably control the real
+render viewport in this automation setup; verify with `window.innerWidth` before trusting
+a requested size. The throwaway fresh-instance Docker project (`ch4fresh`) was torn down
+with `-v` after use; the main `code` stack (`tutorial` + `functional`) was stopped to free
+port 8069 during the fresh-instance test and restarted afterward, both databases intact.
+
 ### 2026-08-09 (walkthrough, ch1-3) — an `Icon` component, and its own decisions
 
 Author asked mid-walkthrough for icons "almost everywhere," naming

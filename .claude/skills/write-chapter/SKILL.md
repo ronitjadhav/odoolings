@@ -103,11 +103,29 @@ Components (already registered in MDX scope, no imports):
   `python3 -c` over the block, or just eyeball that the key is not the longest string.
 - `<Callout type="info|warn" title="...">` — titles used: "Official docs", "Gotcha",
   "In the field" (integrator/OCA/Camptocamp practice), "On Odoo 18 this differs".
-- `<Mermaid chart={\`...\`} />` for diagrams.
+- `<Mermaid chart={\`...\`} />` for diagrams. Add `wide` only if the diagram's natural
+  width genuinely exceeds the prose column (a multi-year timeline, not a 4-box
+  flowchart); check in the browser first, `wide` is a no-op if it wasn't needed.
+- `<Icon name="..." />` for the small glyphs on "Further reading" bullets and any
+  source-type table, picking the *kind* of link (`docs`, `source`, `video`, `talk`,
+  `forum`, `reddit`, `store`...). Names must exist in `web/components/icon.tsx`'s
+  `ICONS` map; `npm test` fails the build on an unknown name. Don't invent a use beyond
+  that pattern without checking with the author first.
 
 Style: natural, conversational, second person. **No em dashes anywhere** (prose,
 quiz strings, diagram labels); commas/colons/parentheses instead. En dashes only in
 numeric ranges. Never copy sentences from docs or other tutorials.
+
+**A Hands-on step that fills in several distinct fields on one screen gets a bulleted
+field list, one bullet per field (`**Field Name:** value`), never a single sentence
+listing them with commas and "and."** Caught live during the ch4 walkthrough
+(2026-08-09): "Fill the rest: database name `tour`, pick your email/password for the
+admin user, and (important) check Demo data. Demo data fills..." crammed five actions
+and an explanation into one paragraph. Keep the *why* out of the list itself, either a
+short sentence after it or folded into a nearby `<Callout>` rather than said twice. This
+is about genuine multi-field forms, not any sentence with more than one clause: a short
+run of 2-3 actions (click a button, name a repo, run a command) reads fine as prose,
+especially right before a code block that carries the concrete steps.
 
 ## Phase 5 — Housekeeping (all of it, every chapter)
 
@@ -117,4 +135,15 @@ numeric ranges. Never copy sentences from docs or other tutorials.
    milestone's status changed; §10 changelog entry for anything decided.
 3. `cd web && npm run build` must pass (catches MDX errors).
 4. `grep -rn '—' web/content/docs/` must come back empty.
-5. Leave screenshots/author-tour steps pending for the author; say so in the summary.
+5. **Capture screenshots as part of writing the chapter** (author's decision,
+   2026-08-05, superseding any older instinct to defer them), from the real running
+   instance, via the Chrome tools. Files go in `web/public/screens/…`, referenced from
+   MDX as `/screens/…` with plain markdown `![]()`; never `<http://…>` autolinks, MDX
+   parses those as JSX and the build fails. Verify every UI claim against the actual
+   screen, not against `ir.ui.menu`: the web client filters menus by `group_ids` and a
+   raw tree walk does not, so a menu path that "exists" in the model may not be what a
+   real user sees. Pin the browser viewport before capturing a chapter's screenshots so
+   they match each other. The agent still cannot log in (entering a password is
+   off-limits); the author signs in once and the session carries the rest of the
+   chapter. The author's own manual re-execution stays the acceptance gate, a *review*
+   step, not a precondition for the images.
