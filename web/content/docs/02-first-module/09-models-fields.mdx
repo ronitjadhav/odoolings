@@ -58,6 +58,7 @@ chapter 6 rule of thumb: a pure Python change needs a restart, but anything touc
 fields needs `-u` so the DDL runs.
 
 <Mermaid
+  label="Every server start imports vehicle.py and registers the class in the registry, but only an install or upgrade runs the CREATE TABLE and ADD COLUMN that build the Postgres table"
   chart={`flowchart LR
     A["models/vehicle.py<br/>class Vehicle(models.Model)<br/>_name = 'librefleet.vehicle'"] -- "every server start:<br/>import + register" --> B["registry<br/>env['librefleet.vehicle']"]
     B -- "install / upgrade only:<br/>CREATE TABLE, ADD COLUMN" --> C[("PostgreSQL<br/>librefleet_vehicle")]`}
@@ -123,7 +124,10 @@ model you'll ever write wants this field, and `default=True` on it is essential
 
 ## Hands-on
 
-### 1. Create the models package
+<Steps>
+
+<Step>
+### Create the models package
 
 Models live in a `models/` subpackage by convention. Three files:
 
@@ -146,7 +150,25 @@ That chain matters: Odoo imports the *module* package, which imports `models`, w
 imports `vehicle`. Any missing link and the class simply never registers, with no
 error to tell you (the break-it lab makes this visceral).
 
-### 2. Upgrade and read the log
+Chapter 8's four files are now seven:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="vehicle.py" />
+    </Folder>
+    <Folder name="static/description">
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
+</Step>
+
+<Step>
+### Upgrade and read the log
 
 Adding a model is a feature, so bump the manifest version to `"19.0.1.1.0"` (minor
 bump, chapter 8's scheme). Then upgrade and actually read the output:
@@ -166,8 +188,10 @@ the diagram. And the WARNING says our model has **no access rules**: right now, 
 regular user (not even admin through the web client) is allowed to touch it. We're
 leaving that warning in place deliberately for one chapter; chapter 10 exists
 because of it.
+</Step>
 
-### 3. Inspect what the ORM built
+<Step>
+### Inspect what the ORM built
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c '\d librefleet_vehicle'
@@ -197,8 +221,10 @@ Read it against the class: every field became the predicted column type,
 `license_plate` is `not null`, the five free columns are there, and `create_uid` /
 `write_uid` are proper foreign keys to `res_users`. Notice what's *absent* too:
 no `display_name` column, exactly as promised.
+</Step>
 
-### 4. Create records from the shell
+<Step>
+### Create records from the shell
 
 The web client has no way in yet (no menus until chapter 11, no permissions until
 chapter 10), but `odoo shell` runs as the superuser and speaks ORM natively:
@@ -230,8 +256,10 @@ Before you go anywhere, keep the vehicle:
 Chapter 6 warned about this and it is not a drill: the shell never commits by itself, and
 it rolls back on exit. Skip that line, quit as the next step asks, and your first vehicle
 is silently gone, along with every output in the rest of this chapter that expects it.
+</Step>
 
-### 5. Fix `display_name` with `_rec_name`
+<Step>
+### Fix `display_name` with `_rec_name`
 
 Add one line to the class, right under `_description`:
 
@@ -260,8 +288,10 @@ Create a second vehicle and, remembering chapter 6's lesson, commit before leavi
 librefleet.vehicle(2,)
 >>> env.cr.commit()
 ```
+</Step>
 
-### 6. Watch archiving work
+<Step>
+### Watch archiving work
 
 In a shell, archive one vehicle and see `search()` change its story:
 
@@ -276,8 +306,10 @@ In a shell, archive one vehicle and see `search()` change its story:
 The record is right there in the table, but plain `search()` won't say so; only the
 `active_test=False` context reveals archived records. Quit *without* committing so
 both vehicles stay active.
+</Step>
 
-### 7. Break-it lab: the missing import
+<Step>
+### Break-it lab: the missing import
 
 This chapter's failure mode is the silent one. Comment out the import:
 
@@ -313,6 +345,9 @@ registration is gone. Restore the import, upgrade again, and confirm in a shell 
 both vehicles are back. The lesson: when a model or field "doesn't exist" right
 after you wrote it, check the import chain before anything else, and read upgrade
 logs even when nothing turns red.
+</Step>
+
+</Steps>
 
 ## Verify
 

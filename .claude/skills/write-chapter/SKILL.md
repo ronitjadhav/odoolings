@@ -82,7 +82,7 @@ description: One sentence, no em dashes.
 
 ## Why this matters        ← motivation, real-world integrator framing
 ## Concepts                ← original explanation; <Mermaid> for structures/flows
-## Hands-on                ← numbered steps, real commands, real output
+## Hands-on                ← <Steps>/<Step>, real commands, real output
 ## Verify                  ← `python3 odoolings.py check chNN` + one psql/shell/UI proof
 ## Gotchas                 ← 3–5, each a bold one-liner + why it bites
 ## Quick check             ← <Quiz> 3–5 questions
@@ -103,7 +103,22 @@ Components (already registered in MDX scope, no imports):
   `python3 -c` over the block, or just eyeball that the key is not the longest string.
 - `<Callout type="info|warn" title="...">` — titles used: "Official docs", "Gotcha",
   "In the field" (integrator/OCA/Camptocamp practice), "On Odoo 18 this differs".
-- `<Mermaid chart={\`...\`} />` for diagrams. Add `wide` only if the diagram's natural
+- `<Steps>` / `<Step>` wrap **every** Hands-on section that has more than one step.
+  This is the house style, not an option (established ch8, applied across ch4-10 on
+  2026-08-09). The component supplies the numbering, so the heading inside drops it:
+  `### Create the module`, never `### 1. Create the module`. Keep them as `###`
+  headings so they still reach the table of contents. A Hands-on that is genuinely one
+  continuous action needs no `<Steps>`; an ordered list of things to *read* (Part 0's
+  "open these sites") stays a plain markdown list.
+- `<Files>` / `<Folder>` / `<File>` for the module tree, on every chapter that adds a
+  file to `librefleet`. Show the whole module as it stands after the step, not just the
+  new files, so the reader watches it grow. Always
+  `<Files className="bg-(--tone-sky)">`, and `defaultOpen` on the folders the step
+  actually touched.
+- `<Mermaid label="..." chart={\`...\`} />` for diagrams. **`label` is required**: it is
+  the `aria-label` on the diagram, so leaving it off ships a chart screen readers
+  announce as "Diagram". Write it as the sentence the diagram is making. Use `<br/>`
+  for line breaks inside node text, never `\n`. Add `wide` only if the diagram's natural
   width genuinely exceeds the prose column (a multi-year timeline, not a 4-box
   flowchart); check in the browser first, `wide` is a no-op if it wasn't needed.
 - `<Icon name="..." />` for the small glyphs on "Further reading" bullets and any
@@ -111,6 +126,16 @@ Components (already registered in MDX scope, no imports):
   `forum`, `reddit`, `store`...). Names must exist in `web/components/icon.tsx`'s
   `ICONS` map; `npm test` fails the build on an unknown name. Don't invent a use beyond
   that pattern without checking with the author first.
+
+**Cross-references: name the chapter, not the part.** "chapter 31" survives a
+reorganization; "Part 4" does not, and the D13 renumber proved it: inserting Parts 4-5
+silently falsified twelve "Part N" references across ch1-10, which then sat wrong on the
+live site until the 2026-08-09 review pass. Chapter numbers moved in that same renumber
+and were fixed; part numbers were forgotten because nothing pointed at them. So prefer
+"chapter 43 onward" to "Part 8", and when a part reference is genuinely the right thing
+to write, verify it against the folder's `meta.json` title *at the time you write it*.
+Same rule for counting claims ("the next 37 chapters", "across six chapters"): they rot
+the same way, so write them only when the number is doing real work.
 
 Style: natural, conversational, second person. **No em dashes anywhere** (prose,
 quiz strings, diagram labels); commas/colons/parentheses instead. En dashes only in

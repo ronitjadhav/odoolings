@@ -110,8 +110,8 @@ $ touch addons/librefleet/__init__.py
 ```
 
 Create `__manifest__.py` with the content from the Concepts section. For the app
-icon, drop any 140×140 PNG at `static/description/icon.png`; the reference clone set up
-in Verify below has one you can borrow if you don't feel artistic today.
+icon, drop any 140×140 PNG at `static/description/icon.png`; the checkpoint you fetch
+in Verify below ships one you can borrow if you don't feel artistic today.
 
 That's the whole module, four files:
 
@@ -258,7 +258,7 @@ you were told to supply yourself. Anything else is worth reading.
   deletes can surprise you; on real databases, treat uninstall as a destructive
   operation and test it on a `db duplicate` first.
 - **The manifest is Python but should stay a literal.** Odoo evaluates it as a plain
-  dict; resist imports or computation in there. Linters (Part 6) will insist too.
+  dict; resist imports or computation in there. Linters (Part 8) will insist too.
 
 ## Quick check
 
@@ -329,4 +329,4 @@ you were told to supply yourself. Anything else is worth reading.
 - <Icon name="docs" /> [Server framework 101, chapter 2 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/02_newapp.html):
   the official take on a first module. Notice how much you already recognize.
 - <Icon name="docs" /> [OCA module template](https://github.com/OCA/oca-addons-repo-template): what a
-  production-grade module skeleton grows into; Part 6 gets us there.
+  production-grade module skeleton grows into; Part 8 gets us there.

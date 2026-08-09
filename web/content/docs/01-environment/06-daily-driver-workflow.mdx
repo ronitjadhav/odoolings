@@ -76,7 +76,10 @@ happened" is the most common beginner complaint, and `-u` is almost always the a
 
 ### What `--dev=all` gives you
 
-Our `odoo.conf` sets `dev_mode = all` (the config-file key is `dev_mode`, even though the CLI flag is `--dev`, and getting that wrong silently disables all of it). On Odoo 19, `all` expands to four features:
+Our `odoo.conf` sets `dev_mode = all`. Watch the spelling: the config-file key is
+`dev_mode`, the CLI flag is `--dev`, and writing the flag's name in the file silently
+disables the whole thing rather than complaining. On Odoo 19, `all` expands to four
+features:
 
 - **`reload`**: the server restarts itself when Python source changes.
 - **`xml`**: view architectures are read directly from your XML files instead of the
@@ -167,15 +170,20 @@ Two things to know before the hands-on:
 
 ## Hands-on
 
-### 1. Make the alias real
+<Steps>
+
+<Step>
+### Make the alias real
 
 Add both aliases to your `~/.bashrc` / `~/.zshrc`, reload your shell, and prove they work:
 
 ```console
 $ ocdb --help
 ```
+</Step>
 
-### 2. Play the database lifecycle
+<Step>
+### Play the database lifecycle
 
 Run the `init` / `duplicate` / `drop` sequence from the Concepts section, then confirm
 from Postgres that only the databases you expect exist:
@@ -183,8 +191,10 @@ from Postgres that only the databases you expect exist:
 ```console
 $ docker compose exec db psql -U odoo -d postgres -c "select datname from pg_database where datistemplate = false;"
 ```
+</Step>
 
-### 3. Create a contact from the shell
+<Step>
+### Create a contact from the shell
 
 Open the shell against `tutorial` and create a specific contact (odoolings will look
 for exactly this name):
@@ -207,12 +217,17 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, email fro
 
 One create, visible in ORM, UI and SQL. That triangle is your daily verification
 toolkit from now on.
+</Step>
 
-### 4. Watch a request happen
+<Step>
+### Watch a request happen
 
 Keep `docker compose logs -f odoo` running in a second terminal, click around the UI,
 and match what you do to the request lines scrolling by. Find the line your shell
 session's login produced. Boring today, priceless the first time something 500s.
+</Step>
+
+</Steps>
 
 ## Verify
 

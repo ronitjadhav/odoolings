@@ -54,7 +54,7 @@ does the `[MIG]`, and that developer will regularly be you.
 
 ### How commit messages look
 
-Odoo and OCA share a commit convention you'll adopt in Part 6, but should start
+Odoo and OCA share a commit convention you'll adopt in Part 8, but should start
 reading now. Real messages from `server-tools` 19.0:
 
 ```text
@@ -125,7 +125,7 @@ rather than taking on trust:
   colleague (or an interviewer) it is a clean Odoo module repo with your history on it,
   which is also exactly how a custom module arrives on a client engagement.
 - From chapter 8 on, **commit after every chapter** using the OCA message style
-  (`[ADD] librefleet: vehicle model`). By Part 6 the convention will be muscle
+  (`[ADD] librefleet: vehicle model`). By Part 8 the convention will be muscle
   memory, and your git history becomes your own set of checkpoints.
 
 You never clone this tutorial's repository at all. When you want to compare your work
@@ -141,7 +141,10 @@ snapshot, and nothing else.
 
 ## Hands-on
 
-### 1. Confirm the workspace is really yours
+<Steps>
+
+<Step>
+### Confirm the workspace is really yours
 
 ```console
 $ git remote -v
@@ -183,14 +186,18 @@ checker writes starting in chapter 21, also not yours to commit. And `addons/` c
 a single zero-byte `.gitkeep`, because git cannot track an empty directory but Docker
 needs the directory to exist before the first `docker compose up` (chapter 5's gotcha
 explains what happens otherwise).
+</Step>
 
-### 2. Measure the migration queue yourself
+<Step>
+### Measure the migration queue yourself
 
 Run the two shallow clones from the Concepts section and count modules per branch.
 Then pick one module that exists on `16.0` but not on `19.0`, and check its
 `__manifest__.py` on the old branch: would *you* need it on a project?
+</Step>
 
-### 3. Read a module's history like a changelog
+<Step>
+### Read a module's history like a changelog
 
 ```console
 $ cd st-19
@@ -199,12 +206,17 @@ $ git log --oneline -15 -- database_cleanup
 
 Identify each tag you see and notice how much you understand about the module without
 opening a single source file. That's what disciplined commit messages buy.
+</Step>
 
-### 4. Practice the message style on yourself
+<Step>
+### Practice the message style on yourself
 
 Commit something harmless in your own repo (add a `.gitignore` entry, drop a
 `notes.md`) with a properly shaped message, e.g.
 `[IMP] docs: add scratch notes directory to gitignore`. Shape, module, what, why.
+</Step>
+
+</Steps>
 
 ## Verify
 
@@ -278,7 +290,7 @@ outside the Odoo server.
 ## Further reading
 
 - <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
-  the commit convention in full. Part 6 turns it into practice.
+  the commit convention in full. Part 8 turns it into practice.
 - <Icon name="docs" /> [git-aggregator](https://github.com/acsone/git-aggregator) ·
   <Icon name="docs" /> [OCA on PyPI](https://pypi.org/search/?q=odoo-addon): the two pinning ecosystems.
 - <Icon name="docs" /> [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
