@@ -40,13 +40,15 @@ branches:
 $ git clone --depth 1 -b 19.0 https://github.com/OCA/server-tools.git st-19
 $ git clone --depth 1 -b 16.0 https://github.com/OCA/server-tools.git st-16
 $ ls st-19 | wc -l
-32
+34
 $ ls st-16 | wc -l
 73
 ```
 
-Same repository, 73 modules on the mature 16.0 branch, 32 on the young 19.0 branch.
-The difference is the migration queue: modules nobody has needed (or volunteered) on
+Same repository, 73 modules on the mature 16.0 branch, 34 on the young 19.0 branch (a
+handful of those entries are `README.md`, `setup`, and similar non-module files on both
+branches, so treat these as "roughly how many," not exact; either way the gap is the
+point). The difference is the migration queue: modules nobody has needed (or volunteered) on
 19 yet. When a client project needs one of the missing ones, an integrator developer
 does the `[MIG]`, and that developer will regularly be you.
 
@@ -170,13 +172,17 @@ __pycache__/
 
 # Reference snapshots fetched from the tutorial: our code, not yours.
 .checkpoints/
+
+# odoolings snapshot/diff scratch state (chapter 21 on), never worth committing.
+.odoolings-snapshot.json
 ```
 
 `.checkpoints/` is where chapter 8 drops reference snapshots. They are this tutorial's
-code, so they stay out of your history. And `addons/` contains a single zero-byte
-`.gitkeep`, because git cannot track an empty directory but Docker needs the directory to
-exist before the first `docker compose up` (chapter 5's gotcha explains what happens
-otherwise).
+code, so they stay out of your history. `.odoolings-snapshot.json` is scratch state the
+checker writes starting in chapter 21, also not yours to commit. And `addons/` contains
+a single zero-byte `.gitkeep`, because git cannot track an empty directory but Docker
+needs the directory to exist before the first `docker compose up` (chapter 5's gotcha
+explains what happens otherwise).
 
 ### 2. Measure the migration queue yourself
 
@@ -271,9 +277,9 @@ outside the Odoo server.
 
 ## Further reading
 
-- [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
+- <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
   the commit convention in full. Part 6 turns it into practice.
-- [git-aggregator](https://github.com/acsone/git-aggregator) ·
-  [OCA on PyPI](https://pypi.org/search/?q=odoo-addon): the two pinning ecosystems.
-- [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
+- <Icon name="docs" /> [git-aggregator](https://github.com/acsone/git-aggregator) ·
+  <Icon name="docs" /> [OCA on PyPI](https://pypi.org/search/?q=odoo-addon): the two pinning ecosystems.
+- <Icon name="docs" /> [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
   branch-per-version model at the source.
