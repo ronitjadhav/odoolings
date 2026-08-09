@@ -26,6 +26,35 @@ shows up in the accounting reports. The alternative is a zoo of disconnected too
 together with spreadsheets and re-typing. The single shared database is the entire value
 proposition.
 
+<Mermaid
+  label="Disconnected tools re-typing data into each other, versus apps sharing one database"
+  chart={`flowchart LR
+    subgraph before["Without an ERP"]
+      direction TB
+      B1["Sales<br/>spreadsheet"]
+      B2["Stock<br/>spreadsheet"]
+      B3["Accounting<br/>package"]
+      B1 -. "re-typed by hand" .-> B2
+      B2 -. "re-typed by hand" .-> B3
+    end
+    subgraph after["With an ERP"]
+      direction TB
+      A1["Sales"]
+      A2["Inventory"]
+      A3["Accounting"]
+      DB[("one shared<br/>PostgreSQL database")]
+      A1 --> DB
+      A2 --> DB
+      A3 --> DB
+      DB --> R["reports<br/>every app reads the same numbers"]
+    end
+    before ~~~ after`}
+/>
+
+Read the left side as the reason the right side exists. Every arrow on the left is a
+person re-typing something, and every one of them is a chance to be wrong. On the right
+there is nothing to re-type, because there is only one copy of the data.
+
 ### Odoo's take on it
 
 Odoo is a suite of open-source business apps (CRM, Sales, Inventory, Accounting,
@@ -47,6 +76,18 @@ with an icon. Modules that extend other modules (most of what you'll write) don'
 that flag. When Odoo people say *addon*, they also mean module. You'll see
 `--addons-path` as the flag that tells the server where to find them.
 
+<Mermaid
+  label="One flag in the manifest is the only thing separating an app from a module"
+  chart={`flowchart LR
+    M["a module<br/>a directory with __manifest__.py"] --> Q{"'application': True<br/>in the manifest?"}
+    Q -- "yes" --> A["an app<br/>gets an icon on the Apps screen"]
+    Q -- "no" --> B["still a module<br/>installs and runs identically"]`}
+/>
+
+That single flag is the whole distinction. Both branches install the same way, load the
+same way and can extend anything; one of them just gets an icon. Keep this in mind the
+first time someone tells you a customization needs to be "a proper app".
+
 ### Community vs Enterprise
 
 Odoo comes in two editions:
@@ -59,10 +100,25 @@ Odoo comes in two editions:
   apps...). Its source is visible to partners and customers but is **not** freely
   redistributable.
 
+<Mermaid
+  label="Enterprise contains Community: the same framework with more modules on top"
+  chart={`flowchart TB
+    subgraph ent["Enterprise, a paid subscription"]
+      direction TB
+      subgraph com["Community, LGPL-3, github.com/odoo/odoo"]
+        direction TB
+        C1["the framework<br/>ORM, views, reports, access control, web client"]
+        C2["the core apps<br/>CRM, Sales, Inventory, Accounting, Manufacturing..."]
+      end
+      E1["Studio, accounting localizations, Field Service,<br/>upgrade service, mobile apps"]
+    end`}
+/>
+
 <Callout title="Enterprise is a superset">
-  Enterprise *contains* Community. It's the same framework with more modules on top,
-  so everything you learn here transfers directly to Enterprise projects. We'll flag
-  Enterprise-only features in boxes like this when they matter.
+  Enterprise *contains* Community, which is why the boxes nest rather than sit side by
+  side. It's the same framework with more modules on top, so everything you learn here
+  transfers directly to Enterprise projects. We'll flag Enterprise-only features in
+  boxes like this when they matter.
 </Callout>
 
 ### The version rhythm: there is no LTS
@@ -71,6 +127,28 @@ Odoo ships **one major version every year, around October**, announced at the Od
 Experience conference in Brussels. Only the **three most recent** majors receive
 support and security fixes. As this is written (mid-2026), that window is **17, 18
 and 19**, with Odoo 20 expected in October 2026, at which point 17 falls out.
+
+<Mermaid
+  wide
+  label="Support windows for Odoo 17 to 20, showing the three-version sliding window"
+  chart={`%%{init: {'gantt': {'useMaxWidth': false, 'barHeight': 30, 'barGap': 10, 'fontSize': 16, 'sectionFontSize': 16, 'leftPadding': 80, 'topPadding': 50}}}%%
+gantt
+    title One major each October, only the newest three supported
+    dateFormat YYYY-MM
+    axisFormat %Y
+    tickInterval 1year
+    section 17.0
+      supported          :done, 2023-10, 2026-10
+    section 18.0
+      supported          :active, 2024-10, 2027-10
+    section 19.0
+      supported, this tutorial :active, 2025-10, 2028-10
+    section 20.0
+      expected Oct 2026  :2026-10, 2029-10`}
+/>
+
+Read it as a window three bars tall sliding to the right one notch a year. The moment
+20.0 appears at the bottom, 17.0 drops off the top: that is the same event, not two.
 
 This has two consequences you'll feel throughout your career:
 
@@ -87,7 +165,7 @@ see an "On Odoo 18" callout, useful when your client project runs a version behi
 
 Three hosting models, and the choice constrains what you can customize:
 
-| | What it is | Custom modules? |
+| Hosting model | What it is | Custom modules? |
 |---|---|---|
 | **Odoo Online** | SaaS at odoo.com, Enterprise only | No. Configuration and Studio only |
 | **odoo.sh** | Odoo's PaaS: git-driven, per-branch staging builds | Yes |
