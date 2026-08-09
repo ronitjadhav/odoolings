@@ -100,11 +100,14 @@ The log is your primary debugging instrument, so learn its grammar. A real line 
 this environment:
 
 ```text
-2026-07-13 13:23:54,147 1 INFO tutorial werkzeug: 172.21.0.1 - - "POST /xmlrpc/2/object#res.partner.search HTTP/1.1" 200 - 4 0.002 0.008
+2026-08-09 12:43:29,362 1 INFO tutorial werkzeug: 172.23.0.1 - - [09/Aug/2026 12:43:29] "POST /xmlrpc/2/object#res.partner.search HTTP/1.1" 200 - 20 0.016 0.266
 ```
 
 Left to right: timestamp, process id, **level**, **database name** (`?` when no
-database is bound yet), **logger name**, message. Habits that pay off:
+database is bound yet, `None` for calls like `xmlrpc/2/common` that authenticate before
+picking one), **logger name**, message. The bracketed `[09/Aug/2026 12:43:29]` inside
+the message is werkzeug's own request timestamp, not Odoo's; it duplicates the leading
+one and you can ignore it. Habits that pay off:
 
 - Follow it live while you click around: `docker compose logs -f odoo`.
 - Python tracebacks read **bottom-up**: the last line is the actual error, the lines
@@ -296,9 +299,9 @@ that's the lesson.
 
 ## Further reading
 
-- [CLI reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html):
+- <Icon name="docs" /> [CLI reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html):
   every flag and subcommand, including `odoo db` and `odoo shell`.
-- [Logging configuration (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/deploy.html#logging):
+- <Icon name="docs" /> [Logging configuration (19.0)](https://www.odoo.com/documentation/19.0/administration/on_premise/deploy.html#logging):
   handlers and levels, useful long before deployment.
-- `psql` basics: the [official PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial-sql.html)
+- <Icon name="docs" /> `psql` basics: the [official PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial-sql.html)
   if raw SQL feels rusty. Chapter 9 assumes you can read a `select`.
