@@ -7,14 +7,16 @@
     "build": "next build",
     "dev": "next dev",
     "start": "node scripts/serve-export.mjs",
-    "test": "npm run test:progress && npm run test:quiz",
+    "test": "npm run test:progress && npm run test:quiz && npm run test:icons",
     "test:export": "node tests/export-preview.test.mjs",
     "test:progress": "node tests/run-progress.mjs",
     "test:quiz": "node tests/quiz-balance.mjs",
+    "test:icons": "node tests/icon-names.mjs",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
     "test:ci": "npm run test && npm run build && npm run test:export"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "cnfast": "^0.1.0",
     "fumadocs-core": "^16.14.0",
     "fumadocs-mdx": "^15.2.2",

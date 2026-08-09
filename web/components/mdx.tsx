@@ -5,6 +5,7 @@ import { Mermaid } from '@/components/mermaid';
 import { Term } from '@/components/term';
 import { Mastery } from '@/components/mastery';
 import { Card, CardGrid } from '@/components/card';
+import { Icon } from '@/components/icon';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -15,6 +16,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Mastery,
     Card,
     CardGrid,
+    Icon,
     ...components,
   } satisfies MDXComponents;
 }

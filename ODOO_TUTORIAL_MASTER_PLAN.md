@@ -1003,11 +1003,21 @@ Rules that keep it working:
   where being confidently wrong is expensive (taxes, valuation, security, performance).
 
 On "more interactive": the site already has `Quiz`, `Mermaid`, `Term` (glossary tooltips),
-`Mastery`, `Card`/`CardGrid`, the progress pill and mark-complete. Prefer using those
-harder before building anything new. If the walkthrough shows a real gap, the two ideas
-already parked in §10 are the predict-the-output quiz variant and quiz persistence; treat
-any *new* component as its own scoped piece of work, not something to slip into a chapter
-PR.
+`Mastery`, `Card`/`CardGrid`, `Icon` (added 2026-08-09, see §10), the progress pill and
+mark-complete. Prefer using those harder before building anything new. If the walkthrough
+shows a real gap, the two ideas already parked in §10 are the predict-the-output quiz
+variant and quiz persistence; treat any *new* component as its own scoped piece of work,
+not something to slip into a chapter PR. `Icon` is itself the example of that rule
+working: flagged mid-walkthrough rather than added unilaterally, scoped and built as its
+own piece before chapter work resumed.
+
+**Where `Icon` earns its place, going forward:** "Further reading" bullets and any
+source-type table ("Where the knowledge lives" in ch2 is the model) get a leading icon
+picking the *kind* of thing being linked (docs, source, video, forum, store...), applied
+chapter by chapter as each is walked rather than retrofitted en masse across the 26
+chapters not yet touched. Beyond that, use it sparingly: a `Card` eyebrow, a status marker
+next to Gotchas. It is not a replacement for the ⭐-grading convention on Exercises, and it
+is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 8. Canonical Link Index (seed list for chapter "Further reading" sections)
 
@@ -1037,6 +1047,54 @@ PR.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-09 (walkthrough, ch1-3) — an `Icon` component, and its own decisions
+
+Author asked mid-walkthrough for icons "almost everywhere," naming
+[Phosphor](https://phosphoricons.com) specifically, plus real brand logos downloaded from
+source where a generic glyph would not do. Scoped as its own piece of work before chapter
+work resumed, per the §7.1 rule this very case is now the example of.
+
+- **`@phosphor-icons/react` added as a direct dependency** (MIT, peer dep `react >= 16.8`,
+  we run 19.2.8). Confirmed the library ships a **per-icon SSR entry point**
+  (`@phosphor-icons/react/dist/ssr/<Name>`, verified by unpacking the tarball) with no
+  `'use client'` directive anywhere in that build: each icon is a plain `forwardRef`
+  returning an inline `<svg>`, `fill="currentColor"` and `size="1em"` by default. Built and
+  exported the site: the icons appear in the static HTML with **zero client JS chunk**
+  (checked `out/_next/static/chunks` for a phosphor entry: none), so "almost everywhere"
+  costs nothing at runtime.
+- **`components/icon.tsx`: a curated `ICONS` allow-list, not a `name: string` dynamic
+  import.** Every entry is a real static import, so the bundle only grows by icons
+  genuinely referenced, and a typo is a build/test failure rather than a silent blank space
+  in production. 26 names to start (link-source kinds: `docs`, `source`, `video`, `talk`,
+  `forum`, `reddit`, `store`, `news`, `external`; a handful of recurring concepts; three
+  status glyphs), registered once in `getMDXComponents` as `<Icon name="..." />`.
+- **One real bug, not obvious until rendered:** Tailwind's own `preflight.css` sets every
+  bare `svg` to `display: block`, which is correct for a 400px Mermaid diagram and wrong
+  for a glyph sitting mid-sentence — first attempt put each icon on its own line above the
+  link it was meant to sit beside. Fixed in the component (`inline-block`, plus a
+  hand-picked `align-[-0.15em]` nudge against Geist's baseline), not per usage, so every
+  future `<Icon>` in every future chapter gets it for free.
+- **`tests/icon-names.mjs`, wired into `npm test`**, matching the project's existing
+  discipline of gating every author-facing convention (quiz balance, glossary blank lines,
+  the image-optimizer guard). Parses the real `ICONS` object out of `icon.tsx` rather than
+  hand-maintaining a second list, so the check can't drift from the registry it's checking
+  against. Proven to catch a deliberately wrong name before wiring it in.
+- **Applied to ch1-3's "Further reading" bullets and ch2's "Where the knowledge lives"
+  table** as the worked example: a leading icon for the *kind* of source (docs/source
+  repo/video/forum/store), which is a genuinely repeated pattern across nearly every
+  chapter to come, not decoration for its own sake. **Not** retrofitted across the 26
+  chapters not yet walked; applied chapter by chapter as each is walked, same as
+  screenshots.
+- **Real downloaded brand logos, deliberately not used yet.** Phosphor already bundles
+  monochrome `*Logo` glyphs for GitHub, YouTube, Reddit etc., which is what "source",
+  "video" and "reddit" resolve to above; those match the site's existing pure-line,
+  `currentColor`, theme-aware Mermaid aesthetic. A full-color downloaded logo (Odoo's own
+  mark, OCA's sunburst) would be the right call for a brand that genuinely needs
+  recognizing on sight and that Phosphor has no glyph for, but none of ch1-3's content
+  needed one, and introducing one is a bigger decision (each brand has its own usage
+  guidelines: minimum size, clear space, color) worth making deliberately when a real case
+  shows up rather than pre-emptively for a chapter that doesn't need it.
 
 ### 2026-08-06 (CI) — main went red on an action deprecation, not on our code
 
