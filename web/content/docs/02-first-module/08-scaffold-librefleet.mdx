@@ -97,7 +97,10 @@ you can watch from psql.
 
 ## Hands-on
 
-### 1. Create the module
+<Steps>
+
+<Step>
+### Create the module
 
 In your workspace repository, everything goes under `addons/`:
 
@@ -110,7 +113,21 @@ Create `__manifest__.py` with the content from the Concepts section. For the app
 icon, drop any 140×140 PNG at `static/description/icon.png`; the reference clone set up
 in Verify below has one you can borrow if you don't feel artistic today.
 
-### 2. Install it from the CLI
+That's the whole module, four files:
+
+<Files>
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="static/description" defaultOpen>
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
+</Step>
+
+<Step>
+### Install it from the CLI
 
 The directory is already visible inside the container thanks to the ch5 bind mount.
 Install (with the ch6 alias, this is `oc -d tutorial -i librefleet --stop-after-init`):
@@ -137,8 +154,10 @@ its icon, already installed.
   List**. Only then does the tile appear for UI installation. The CLI path skips
   both because it starts a fresh process.
 </Callout>
+</Step>
 
-### 3. Look at the record you just created
+<Step>
+### Look at the record you just created
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select name, state, latest_version from ir_module_module where name='librefleet';"
@@ -148,8 +167,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, state, latest
 ```
 
 The Apps screen and this row are the same data.
+</Step>
 
-### 4. Run the upgrade cycle
+<Step>
+### Run the upgrade cycle
 
 Bump `"version"` to `"19.0.1.0.1"` in the manifest, then:
 
@@ -163,8 +184,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select latest_version from
 
 Edit file, `-u`, observe. That loop is the rest of this tutorial. Set the version
 back to `19.0.1.0.0` and upgrade again to match the checkpoint.
+</Step>
 
-### 5. Break-it lab: the unparseable manifest
+<Step>
+### Break-it lab: the unparseable manifest
 
 Delete the closing `}` of your manifest and upgrade again. You get no friendly
 syntax error:
@@ -178,6 +201,9 @@ module *doesn't exist*, and a database that says "librefleet is installed" now
 disagrees with an addons path that has never heard of it. "Inconsistent state" and
 "missing dependency" errors are very often just this: a manifest that stopped
 parsing. Restore the brace, upgrade, confirm calm returns.
+</Step>
+
+</Steps>
 
 ## Verify
 

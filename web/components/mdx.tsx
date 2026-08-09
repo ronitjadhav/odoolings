@@ -1,5 +1,7 @@
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Files, File, Folder } from 'fumadocs-ui/components/files';
 import { Quiz } from '@/components/quiz';
 import { Mermaid } from '@/components/mermaid';
 import { Term } from '@/components/term';
@@ -17,6 +19,11 @@ export function getMDXComponents(components?: MDXComponents) {
     Card,
     CardGrid,
     Icon,
+    Steps,
+    Step,
+    Files,
+    File,
+    Folder,
     ...components,
   } satisfies MDXComponents;
 }
