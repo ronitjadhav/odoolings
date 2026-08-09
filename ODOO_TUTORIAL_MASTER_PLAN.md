@@ -188,7 +188,14 @@ odoolings/                          # public GitHub repo
   - `type="warn"  title="Gotcha"` → real-world pitfalls
   - `type="info"  title="In the field"` → integrator/OCA/Camptocamp practice notes
   - `type="info"  title="On Odoo 18 this differs"` → version deltas for older projects
+- Hands-on sections use `<Steps>`/`<Step>` (house style since the ch1-10 review,
+  2026-08-09; ch8 was the trial). The component numbers the steps, so the `###` heading
+  inside carries no number of its own and still reaches the table of contents.
+- Any chapter that adds a file to LibreFleet shows the whole module tree after the step
+  with `<Files className="bg-(--tone-sky)">`, so the reader watches it grow.
 - Diagrams: the `<Mermaid>` client component (architecture, request lifecycle, ERDs).
+  **`label` is mandatory** (it is the `aria-label`; the default is a useless "Diagram"),
+  and `tests/cross-refs.mjs` enforces it. `<br/>` for line breaks in node text, not `\n`.
 - Per-chapter footer: *Prerequisites · What you built · Official reading ·
   OCA modules worth studying · Exercise checklist.*
 
@@ -1047,6 +1054,60 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-09 (review pass, ch1-10) — the renumber's unpaid debt, and the house style
+for Hands-on
+
+A sweep back over the ten chapters already walked, asked for as "check everything is
+correct, check the visuals, make the UI/UX richer, and write the conventions down so the
+other chapters follow." Three separate findings, one of which had been live on the site
+for days.
+
+- **The D13 renumber falsified twelve cross-references and nobody noticed.** Inserting
+  Parts 4-5 moved every part number after 3, and the migration fixed *chapter* numbers
+  while leaving *part* numbers alone. So ch2 sent readers to "Part 6" for the OCA
+  (it is Part 8), ch3 and ch4 sent them to "Part 5" for OWL (Part 7), ch3 called
+  inheritance "Part 4" (Part 6), and ch7/ch8 pointed at Part 6 for OCA tooling four more
+  times. Two counting claims rotted the same way ("the next 37 chapters" in ch3, now 47;
+  "the next 35 chapters" in ch5, now 45), plus ch12's own index contradicting itself
+  ("across six chapters" in a file that says "Eight chapters ago" two paragraphs up).
+  All fixed. **The lesson is in §4.3's authoring rules now: prefer a chapter number to a
+  part number in prose**, because "chapter 43" survives a reorganization and "Part 8"
+  does not. Part references cannot be linted (every number 0-9 is a real part, so a wrong
+  one still resolves), which is exactly why the convention has to carry the weight.
+- **`tests/cross-refs.mjs`** is the regression net for what *can* be checked: every
+  "chapter NN" in prose must name a chapter that exists (411 of them, all currently
+  resolving), and every `<Mermaid>` must carry a `label`. Wired into `npm test`.
+- **Twenty-six diagrams shipped with no `label`**, i.e. `aria-label="Diagram"` to a
+  screen reader, because the component defaults it and a missing prop is invisible in
+  review. Ch1-10's are written; the other 23 chapters sit in an explicit
+  `UNLABELLED_BASELINE` in the test, to be deleted line by line as each chapter is
+  walked. New unlabelled diagrams fail immediately.
+- **`<Steps>`/`<Step>` is now the house style for Hands-on, not a ch8 experiment.**
+  Applied to ch4, 5, 6, 7, 9 and 10 (31 steps). The component numbers the steps, so the
+  headings drop their own numbers and stay `###` so the table of contents still lists
+  them. `<Files>` likewise: ch9 and ch10 now show the module tree growing (four files,
+  then seven, then nine) on the `--tone-sky` surface ch8 established. Both written into
+  the `write-chapter` skill.
+- **One stale instruction fixed:** ch8 still told readers to borrow the app icon from
+  "the reference clone set up in Verify", a clone that was deleted on 2026-08-03. It is
+  the checkpoint tarball now.
+- **Two dense passages simplified** rather than rewritten: ch4's master-password callout
+  (one 100-word sentence chain, now three short paragraphs) and ch6's `dev_mode`
+  parenthetical.
+
+Two things deliberately **not** done, both needing the author:
+
+- **Ch5 and ch10 still have no screenshots**, and ch4 has eight. Ch10's payoff image is
+  the Workshop privilege on a user's Access Rights tab, which needs a login the agent
+  cannot perform (§6 rule 4b). Ch5's is the database *selector* (the "Manage databases"
+  moment its step 2 describes), which needs a `tour`-only instance to be reader-faithful;
+  the local server currently lists `functional` and `tutorial`, so capturing it now would
+  show state no ch5 reader has.
+- **The ch5-ch10 walkthroughs were never logged here.** Commits `e72029e`, `a145afd`,
+  `c0b07a4`, `303779c`, `d5267ba` and `13b8cd6` carry the fixes, but §10 stops at ch4,
+  so those sessions' findings live only in commit messages. Not reconstructed from the
+  outside; flagged so the gap is visible rather than silently assumed filled.
 
 ### 2026-08-09 (walkthrough, ch4) — the first hands-on chapter, walked against a genuinely
 fresh instance, eight screenshots, and a real Odoo mechanism nobody had verified

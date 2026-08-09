@@ -16,7 +16,10 @@ know the product write modules that feel native.
 
 ## Hands-on
 
-### 1. Start Odoo (on trust, for now)
+<Steps>
+
+<Step>
+### Start Odoo (on trust, for now)
 
 The next chapter explains this setup line by line; today, just run it. You need
 [Docker](https://docs.docker.com/get-docker/) installed.
@@ -45,8 +48,10 @@ to work inside it.
 
 Wait for the log to settle, then open [http://localhost:8069](http://localhost:8069).
 You'll land on the **database manager**.
+</Step>
 
-### 2. Create a database, with demo data
+<Step>
+### Create a database, with demo data
 
 ![The database creation form, with a random master password already suggested in the field](/screens/ch04-database-manager-generated-password.jpg)
 
@@ -60,16 +65,18 @@ Fill the form like this:
 - **Demo Data:** check it
 
 <Callout type="warn" title="That suggested password is not decorative">
-  `odoo.conf` ships with `admin_passwd = admin`, a known-insecure value on purpose for a
-  local dev box. Odoo notices that and, as a nudge to do better, generates a random
-  replacement and pre-fills the field with it. But the field does double duty: whatever
-  you submit there **becomes the real master password** for the rest of this container's
-  life, not something checked against the old one. Leave the suggestion in place without
-  reading this and your master password silently becomes a string you never wrote down,
-  good until you restart the container (which reloads `admin_passwd` from the file and
-  resets it), but confusing until then if you ever need it, say to drop a database.
-  Typing `admin` yourself keeps it exactly what it already was: no drift, nothing to
-  forget.
+  Our `odoo.conf` ships with `admin_passwd = admin`, a known-insecure value chosen on
+  purpose for a local dev box. Odoo notices, and nudges you to do better by generating a
+  random replacement and pre-filling the field with it.
+
+  Here is the catch. The field does not check what you type against the old password:
+  whatever you submit **becomes** the master password for the rest of this container's
+  life. Accept the suggestion without reading it, and yours is now a random string you
+  never wrote down. Nothing is broken forever, since restarting the container reloads
+  `admin_passwd` from the file and resets it, but until then you are stuck the moment you
+  actually need it, say to drop a database.
+
+  Typing `admin` yourself keeps it exactly what it already was. Nothing to write down.
 </Callout>
 
 <Callout type="warn" title="Demo data is a birth decision">
@@ -80,8 +87,10 @@ Fill the form like this:
   (From the command line, Odoo 19 creates databases **without** demo unless you pass
   `--with-demo`. That default changed over the years, so old tutorials disagree.)
 </Callout>
+</Step>
 
-### 3. Install two apps
+<Step>
+### Install two apps
 
 You land in the **Apps** menu. Install **CRM**, then **Sales**. Watch what happens to
 the app switcher (the grid icon, top left) after each install: entire sections of the
@@ -95,8 +104,10 @@ Activate buttons. Sales depends on them (a quotation needs somewhere to post an 
 to, and a dashboard to summarize revenue on), so Odoo installed both automatically:
 installing one app can bring several along. Chapter 8 shows exactly why, from the other
 side, when LibreFleet's own manifest lists what it depends on.
+</Step>
 
-### 4. Be a salesperson for 20 minutes
+<Step>
+### Be a salesperson for 20 minutes
 
 No checklist pressure. The goal is exposure, not mastery:
 
@@ -130,8 +141,10 @@ No checklist pressure. The goal is exposure, not mastery:
   exact same panel, same buttons, same thread, moves below the form instead. If yours
   looks different from the screenshot, this is why, not a sign anything is wrong.
 </Callout>
+</Step>
 
-### 5. Switch on developer mode
+<Step>
+### Switch on developer mode
 
 Go to **Settings → General Settings**, scroll to the bottom, and under *Developer
 Tools* click **Activate the developer mode**. (The shortcut you'll actually use daily:
@@ -147,8 +160,10 @@ Three things just changed:
   on, its type, and its widget.
 
 ![Hovering the Tax ID field's help icon in debug mode: Label, Field (vat), Model (res.partner), Type (char), Widget](/screens/ch04-field-debug-tooltip.jpg)
+</Step>
 
-### 6. Peek behind one field
+<Step>
+### Peek behind one field
 
 With developer mode on, open **Settings → Technical → Database Structure → Models**
 and find `crm.lead`. Every field of the opportunity form you used ten minutes ago is a
@@ -156,6 +171,9 @@ row here, 116 of them. Now the circle closes: *the UI you clicked is described b
 you can browse*. In five chapters, rows in this list will be yours.
 
 ![The crm.lead model's Fields tab: 116 rows, Field Name, Field Label, Field Type, Required, Readonly, Indexed](/screens/ch04-model-crm-lead-fields.jpg)
+</Step>
+
+</Steps>
 
 ## Verify
 
@@ -178,7 +196,7 @@ checkbox was missed. Recreate the database.
 - **Developer mode is per session, not per server.** It follows your login session;
   activating it doesn't affect other users, and `?debug=0` turns it off.
 - **`debug=assets` exists too.** It serves unminified JS/CSS. You'll want it in
-  Part 5 when debugging OWL; it makes everything slower, so don't leave it on.
+  Part 7 when debugging OWL; it makes everything slower, so don't leave it on.
 - **Demo data is not sample data for production.** It exists for training, tests, and
   Runboat-style throwaway instances. Client projects always start without it.
 - **Don't study Enterprise-only apps yet.** If you see apps in the list that ask for a

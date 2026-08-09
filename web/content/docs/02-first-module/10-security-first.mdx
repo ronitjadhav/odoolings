@@ -52,6 +52,7 @@ two-level pattern almost every app uses:
   grant the *extra* rights to Manager.
 
 <Mermaid
+  label="The Workshop privilege holds two groups, User and Manager; Manager implies User, tina is a User and admin a Manager, and each group's access rules grant it operations on librefleet.vehicle"
   chart={`flowchart TB
     P["res.groups.privilege<br/>Workshop"] --> U["res.groups<br/>Workshop / User"]
     P --> M["res.groups<br/>Workshop / Manager"]
@@ -94,7 +95,10 @@ security is `with_user()`: it re-runs your code as a real user, checks included.
 
 ## Hands-on
 
-### 1. Define the groups
+<Steps>
+
+<Step>
+### Define the groups
 
 New directory `security/`, first file
 `addons/librefleet/security/librefleet_security.xml`:
@@ -137,8 +141,10 @@ Three things to unpack, because this file is your first real data XML:
   code `4` means "link this existing record". Chapter 12 covers the whole family.
 - The Manager group adds `base.user_admin` to `user_ids`. Skip that line and even
   admin stays locked out of your app; core modules do exactly the same.
+</Step>
 
-### 2. Grant the permissions
+<Step>
+### Grant the permissions
 
 `addons/librefleet/security/ir.model.access.csv`:
 
@@ -153,8 +159,10 @@ after a service is their daily job), only managers register new vehicles or dele
 them. The `model_librefleet_vehicle` reference is an XML id too, one the ORM
 generated automatically for the model when chapter 9's upgrade registered it
 (pattern: `model_` + `_name` with dots as underscores).
+</Step>
 
-### 3. Declare both files, in the right order
+<Step>
+### Declare both files, in the right order
 
 In the manifest, bump the version and fill `data`:
 
@@ -167,7 +175,28 @@ In the manifest, bump the version and fill `data`:
 ```
 
 The list is loaded top to bottom, and the CSV references the groups, so the XML must
-come first. Hold that thought until the break-it lab. Upgrade:
+come first. Hold that thought until the break-it lab. The module now looks like this,
+and `data` is what ties the two new files to it:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="models">
+      <File name="__init__.py" />
+      <File name="vehicle.py" />
+    </Folder>
+    <Folder name="security" defaultOpen>
+      <File name="ir.model.access.csv" />
+      <File name="librefleet_security.xml" />
+    </Folder>
+    <Folder name="static/description">
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
+
+Upgrade:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -188,8 +217,10 @@ starts by checking a small signaling table (`orm_signaling_registry`) for a chan
 another process made, and reloads the registry first if so. Security data is exactly
 the kind of change this catches, so the very next request after the upgrade already
 sees it, no restart needed.
+</Step>
 
-### 4. Create a technician to test with
+<Step>
+### Create a technician to test with
 
 You need a user who is *only* a technician. From `odoo shell`:
 
@@ -207,8 +238,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 ```
 
 There's `env.ref()` again: the Python side of XML id resolution.
+</Step>
 
-### 5. Feel the permissions with `with_user`
+<Step>
+### Feel the permissions with `with_user`
 
 Still in the shell (or a new one), replay tina's workday:
 
@@ -239,8 +272,10 @@ And the escape hatch you should distrust on sight: `Vehicle.sudo()` returns to
 superuser and would happily create the record. Try it, see it work, then quit
 *without* committing. `sudo()` has legitimate uses (chapter 15 sets the rules), but
 every one of them deserves a comment explaining itself.
+</Step>
 
-### 6. Break-it lab: the bug that only bites on fresh installs
+<Step>
+### Break-it lab: the bug that only bites on fresh installs
 
 Swap the two lines in the manifest's `data` list so the CSV loads first, then
 upgrade. Expecting an explosion?
@@ -274,6 +309,9 @@ the manifest order, rerun the fresh install to see it pass, then clean up:
 ```console
 $ docker compose exec odoo odoo db -c /etc/odoo/odoo.conf drop freshtest
 ```
+</Step>
+
+</Steps>
 
 ## Verify
 

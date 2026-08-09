@@ -8,7 +8,7 @@ database and back. · **Time:** ~1.5 h · **Checkpoint:** none, Part 0 has no co
 
 ## Why this matters
 
-Every confusing moment you'll have in the next 37 chapters ("where does this view come
+Every confusing moment you'll have in the next 47 chapters ("where does this view come
 from?", "why did my change not appear?", "what runs on the server vs in the browser?")
 resolves instantly if your mental model of the architecture is right. Fifteen minutes
 here saves hours later. Nothing in this chapter needs memorizing; it needs *believing*,
@@ -18,20 +18,21 @@ and the rest of the tutorial keeps confirming it.
 
 ### Three tiers
 
-<Mermaid chart={`
-flowchart LR
+<Mermaid
+  label="Three tiers: the browser's OWL web client speaks JSON-RPC to the Python server's HTTP layer, which calls the ORM, which speaks SQL to PostgreSQL"
+  chart={`flowchart LR
     subgraph B["Browser"]
-        OWL["Web client\n(OWL components, JavaScript SPA)"]
+        OWL["Web client<br/>(OWL components, JavaScript SPA)"]
     end
     subgraph S["Odoo server (Python)"]
-        HTTP["HTTP layer\n(controllers, RPC)"]
-        ORM["ORM + business logic\n(models in modules)"]
+        HTTP["HTTP layer<br/>(controllers, RPC)"]
+        ORM["ORM + business logic<br/>(models in modules)"]
     end
-    DB[("PostgreSQL\nthe only supported database")]
+    DB[("PostgreSQL<br/>the only supported database")]
     OWL <-->|"JSON-RPC over HTTP"| HTTP
     HTTP --> ORM
-    ORM <-->|"SQL"| DB
-`} />
+    ORM <-->|"SQL"| DB`}
+/>
 
 - **Presentation.** The web client is a single-page JavaScript application built with
   **OWL** (Odoo Web Library), Odoo's own component framework. It's conceptually
@@ -60,7 +61,7 @@ Two consequences worth internalizing now:
    about a database, not a server.
 2. **Modules extend each other.** A module can add fields to another module's models,
    inject elements into its views, and override its logic, all without touching its
-   source. That inheritance machinery (Part 4) is the single most important thing that
+   source. That inheritance machinery (Part 6) is the single most important thing that
    makes Odoo customizable.
 
 ### The UI is data
@@ -78,8 +79,9 @@ That's why customizing Odoo rarely means forking anything. You ship a module who
 
 What actually happens when you open a customer and click **Save**:
 
-<Mermaid chart={`
-sequenceDiagram
+<Mermaid
+  label="Saving a customer: the browser sends one JSON-RPC call, the HTTP layer authenticates and opens a cursor, the ORM checks rights and writes, PostgreSQL commits, and the form re-renders"
+  chart={`sequenceDiagram
     participant U as Browser (OWL)
     participant H as HTTP layer
     participant O as ORM
@@ -93,8 +95,8 @@ sequenceDiagram
     O-->>H: record data
     H->>P: COMMIT
     H-->>U: JSON result
-    U->>U: re-render form with fresh data
-`} />
+    U->>U: re-render form with fresh data`}
+/>
 
 The details will fill in over the coming parts, but notice the shape: the browser never
 talks SQL, the ORM never trusts the browser, and one HTTP request is one database
@@ -183,6 +185,6 @@ worked, move on.
 
 - <Icon name="docs" /> [Architecture overview, official docs (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/01_architecture.html)
 - <Icon name="source" /> [OWL on GitHub](https://github.com/odoo/owl): skim the README,
-  Part 5 goes deep.
+  Part 7 goes deep.
 - <Icon name="docs" /> [PostgreSQL docs](https://www.postgresql.org/docs/): you'll touch
   real SQL from chapter 9 on.

@@ -17,17 +17,18 @@ at an integrator, the OCA part isn't optional culture, it's your daily toolbox.
 
 ### The players
 
-<Mermaid chart={`
-flowchart TD
-    SA["Odoo SA (Belgium)\nbuilds Odoo, sells Enterprise & hosting"]
-    P["Partners / integrators\nimplement & customize for clients"]
-    OCA["OCA (Odoo Community Association)\nnonprofit, community modules & standards"]
-    C["Client companies\nrun Odoo daily"]
+<Mermaid
+  label="Odoo SA releases to partners, partners deliver to clients and exchange modules with the OCA, which also sets standards for clients"
+  chart={`flowchart TD
+    SA["Odoo SA (Belgium)<br/>builds Odoo, sells Enterprise & hosting"]
+    P["Partners / integrators<br/>implement & customize for clients"]
+    OCA["OCA (Odoo Community Association)<br/>nonprofit, community modules & standards"]
+    C["Client companies<br/>run Odoo daily"]
     SA -->|"releases yearly"| P
     P -->|"deliver projects"| C
     P <-->|"contribute & reuse modules"| OCA
-    OCA -->|"quality standards, shared modules"| C
-`} />
+    OCA -->|"quality standards, shared modules"| C`}
+/>
 
 - **Odoo SA** is the editor. It writes the core, ships the yearly release, and runs
   odoo.com, Odoo Online, odoo.sh, and the Enterprise subscription business.
@@ -40,7 +41,7 @@ flowchart TD
   [github.com/OCA](https://github.com/OCA), organized by domain (`server-tools`,
   `web`, `partner-contact`, `account-financial-tools`, ...). Each repo is governed by a
   **PSC** (Project Steering Committee) and enforces serious quality gates: CI,
-  peer review, conventions. Part 6 of this tutorial is entirely about working the
+  peer review, conventions. Part 8 of this tutorial is entirely about working the
   OCA way.
 - **You, eventually.** The OCA runs on contributions from integrator developers.
   Reusing an OCA module instead of writing your own is standard practice; contributing
@@ -100,7 +101,7 @@ Notice what does **not** flow between branches: a fix on `19.0` does not automat
 reach `16.0`. Migration is a deliberate, separate act, which is exactly why chapter 47
 gives it a whole chapter rather than a paragraph.
 
-You don't need to memorize this yet; you'll live it in Part 6. For now, just recognize
+You don't need to memorize this yet; you'll live it in Part 8. For now, just recognize
 the shape.
 
 ## Hands-on
@@ -130,7 +131,7 @@ professionally-written module code, (d) an answer to "why does X behave like thi
   page's version selector.
 - **Odoo Apps store ≠ OCA.** The store hosts anyone's modules, including abandoned
   ones. OCA modules pass review and CI; store modules might not have either.
-- **PSC, ocabot, Runboat, Weblate**: OCA jargon you'll meet in Part 6. They're in the
+- **PSC, ocabot, Runboat, Weblate**: OCA jargon you'll meet in Part 8. They're in the
   [glossary](/docs/glossary) already if you're curious now.
 
 ## Quick check
@@ -180,6 +181,6 @@ professionally-written module code, (d) an answer to "why does X behave like thi
   the CLA.
 - <Icon name="docs" /> [OCA contribution guide](https://odoo-community.org/get-involved/contribute)
 - <Icon name="tool" /> [Runboat](https://runboat.odoo-community.org): the PR test
-  instances you'll use in Part 6.
+  instances you'll use in Part 8.
 - <Icon name="video" /> [Odoo official YouTube](https://www.youtube.com/@Odoo) ·
   <Icon name="video" /> [OCA YouTube](https://www.youtube.com/@OdooCommunity)

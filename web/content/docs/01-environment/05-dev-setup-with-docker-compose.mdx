@@ -10,7 +10,7 @@ here.
 ## Why this matters
 
 In chapter 4 you started this environment "on trust". Today the trust runs out: this
-is the workbench you'll use for the next 35 chapters, and when it misbehaves (a port
+is the workbench you'll use for the next 45 chapters, and when it misbehaves (a port
 collision, a dead database, a module that won't load), you fix it fastest by knowing
 exactly what each piece does.
 
@@ -113,10 +113,11 @@ dev_mode = all
 
 ### Where things live, mentally
 
-<Mermaid chart={`
-flowchart LR
+<Mermaid
+  label="Your machine holds the git-tracked addons directory and odoo.conf, bind-mounted into the odoo container; the containers' state lives in two Docker volumes, the filestore and the databases"
+  chart={`flowchart LR
     subgraph host["Your machine"]
-        code["addons/\n(your modules, git-tracked)"]
+        code["addons/<br/>(your modules, git-tracked)"]
         conf["odoo.conf"]
     end
     subgraph docker["Docker"]
@@ -126,15 +127,15 @@ flowchart LR
         subgraph pc["postgres:16 container"]
             pg["PostgreSQL"]
         end
-        fs[("odoo-data volume\nfilestore")]
-        dbv[("db-data volume\ndatabases")]
+        fs[("odoo-data volume<br/>filestore")]
+        dbv[("db-data volume<br/>databases")]
     end
     code -->|bind mount| srv
     conf -->|bind mount| srv
     srv <--> pg
     srv --- fs
-    pg --- dbv
-`} />
+    pg --- dbv`}
+/>
 
 The split to internalize: **code is yours and git-tracked on the host; state (databases
 and filestore) belongs to Docker volumes.** You can destroy and rebuild containers
@@ -142,7 +143,10 @@ freely. Destroying volumes is destroying your databases.
 
 ## Hands-on
 
-### 1. Get it running
+<Steps>
+
+<Step>
+### Get it running
 
 <Callout type="info" title="Already did this in chapter 4?">
   Same repository, same commands, nothing new to set up. `cd` into it and skip straight
@@ -201,8 +205,10 @@ odoo-1  | ... INFO ? odoo.service.server: HTTP service (werkzeug) running on ...
 $ docker compose up -d
 $ docker compose logs -f odoo    # Ctrl-C stops following, not the server
 ```
+</Step>
 
-### 2. Create your working database
+<Step>
+### Create your working database
 
 Open [http://localhost:8069](http://localhost:8069). If `tour` from chapter 4 is the
 only database you have, you'll see it listed with a **Manage databases** link
@@ -224,8 +230,10 @@ Create the database you'll build LibreFleet in. These exact values are what
 No demo data this time. The `tour` database from chapter 4 was for exploring; this
 one is your workshop, and client projects start empty too. Log in and you'll see a
 nearly bare Odoo. Perfect.
+</Step>
 
-### 3. Break it and fix it (on purpose)
+<Step>
+### Break it and fix it (on purpose)
 
 Your first break-it lab. Before touching anything, read these two commands closely:
 
@@ -238,8 +246,10 @@ Run the first one, then `docker compose up -d` again, refresh the browser, and
 confirm the `tutorial` database survived. Now you know a container restart is always
 safe. Leave `-v` for the day you *want* a factory reset. (If you just ran `-v`
 anyway: congratulations, you've proven the point. Recreate the database.)
+</Step>
 
-### 4. Look inside the containers
+<Step>
+### Look inside the containers
 
 Two commands you'll use constantly. A shell inside the Odoo container:
 
@@ -261,6 +271,9 @@ tutorial=# select count(*) from ir_module_module where state='installed';
 
 Fourteen modules installed and you haven't done anything: that's `base` and its
 minimal court. From chapter 9 on, `psql` is how we check what the ORM is really doing.
+</Step>
+
+</Steps>
 
 ## Verify
 

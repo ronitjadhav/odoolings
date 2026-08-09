@@ -269,7 +269,7 @@ even groups them in two columns).
 `sequence` orders siblings, and the big gap (10, 90) is deliberate: later chapters
 slot Reporting between Fleet and Configuration without renumbering.
 
-### 6. Manifest, upgrade, restart
+### 6. Manifest, upgrade
 
 The menus reference the actions, so the menu file loads last (chapter 10's lesson,
 applied):
@@ -291,17 +291,35 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 INFO tutorial odoo.modules.loading: loading librefleet/views/vehicle_views.xml
 INFO tutorial odoo.modules.loading: loading librefleet/views/service_type_views.xml
 INFO tutorial odoo.modules.loading: loading librefleet/views/librefleet_menus.xml
-INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.12s, 178 queries (+178 other)
-$ docker compose restart odoo
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.11s, 182 queries (+182 other)
 ```
+
+(This number moves between otherwise-identical runs, chapter 8 already flagged why; don't
+worry if yours differs.)
+
+Menus, actions and views are the same kind of data as chapter 10's groups: the
+registry-signaling mechanism (chapter 10's real finding) picks them up on the very
+next request, no server restart required. The one thing that genuinely needs a
+fresh look is a browser tab you already had open before the upgrade: the web
+client fetched the old menu tree into memory when that tab loaded, same as any
+single-page app, so reload it (a plain refresh, not a server restart) rather than
+opening a whole new tab to be safe.
 
 ### 7. Tour your app
 
 Log in as admin at [localhost:8069](http://localhost:8069). LibreFleet sits in the
 main menu with the chapter 8 icon. Click through: Fleet → Vehicles opens your list
-with `ZH 468 202` and `BE 30 447`, a row opens the two-column form, and the
-Configuration menu holds Service Types. Add the workshop's first price list right
-in the editable list (New, type, Enter):
+with `ZH 468 202` and `BE 30 447`:
+
+![The Vehicles list: license plate, model name, year and mileage columns, two rows (ZH 468 202, BE 30 447)](/screens/ch11-vehicle-list.jpg)
+
+A row opens the two-column form from step 3's arch: Identification and Usage side
+by side, Notes below with the placeholder text you wrote:
+
+![The vehicle form for ZH 468 202: Identification (license plate, model name, VIN) and Usage (year, mileage) groups side by side, a Notes section below](/screens/ch11-vehicle-form.jpg)
+
+The Configuration menu holds Service Types. Add the workshop's first price list
+right in the editable list (New, type, Enter):
 
 | Name | Flat Fee | Default Duration (h) |
 | --- | --- | --- |
@@ -309,10 +327,17 @@ in the editable list (New, type, Enter):
 | Brake inspection | 120.00 | 1.5 |
 | Full service | 349.00 | 4.0 |
 
-Then open a private browser window and log in as `tina` / `technician`: she gets
-Fleet and Vehicles, but no Configuration menu at all, and the vehicle form shows no
-Create button for her (chapter 10's ACL doing its job in the UI). You can prove
-the menu filtering from the shell too, with the same method the web client uses:
+![The Service Types editable list with three rows: Oil change (89.00, 1.00), Brake inspection (120.00, 1.50), Full service (349.00, 4.00)](/screens/ch11-service-types-editable-list.jpg)
+
+Then log out and log back in as `tina` / `technician` (or use a private browser
+window): she gets Fleet and Vehicles, but no Configuration menu at all, and no
+**New** button on the vehicle list either (chapter 10's ACL doing its job in the
+UI, not a coincidence):
+
+![Tina's view of the Vehicles list: only a Fleet menu next to the app switcher, no Configuration menu, and no New button above the list](/screens/ch11-tina-restricted-view.jpg)
+
+You can prove the menu filtering from the shell too, with the same method the web
+client uses:
 
 ```console
 >>> tina = env["res.users"].search([("login", "=", "tina")])
@@ -462,9 +487,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, type from ir_
 
 ## Further reading
 
-- [View records (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_records.html):
+- <Icon name="docs" /> [View records (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_records.html):
   actions, menus, and the record plumbing from this chapter.
-- [View architectures (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html):
+- <Icon name="docs" /> [View architectures (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html):
   every tag and attribute `<list>` and `<form>` accept; chapter 17 mines this page.
-- [Server framework 101, chapter 5 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/05_firstui.html):
+- <Icon name="docs" /> [Server framework 101, chapter 5 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/05_firstui.html):
   the official first UI walkthrough.
