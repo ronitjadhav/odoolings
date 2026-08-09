@@ -104,6 +104,13 @@ html {
   text-transform: uppercase;
 }
 
+/* Steps: give the numbered badge the site's actual accent instead of fumadocs'
+   default muted gray, so a Hands-on sequence reads as a real step UI at a glance. */
+.fd-step::before {
+  background-color: var(--color-fd-primary);
+  color: var(--color-fd-primary-foreground);
+}
+
 html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
