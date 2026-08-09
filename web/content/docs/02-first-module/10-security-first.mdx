@@ -1,6 +1,6 @@
 ---
 title: "10. Security First"
-description: Groups, access rules, and why Odoo pretends your model does not exist until you grant someone the right to see it.
+description: Groups, access rules, and the real error Odoo gives a user who has neither.
 ---
 
 **Goal:** give LibreFleet real user groups and access rules, and understand why the
@@ -22,11 +22,21 @@ permissions instead of superuser fantasy.
 ### Deny by default
 
 An Odoo model ships with zero permissions. Until an access rule grants a group the
-right to read it, a regular user calling it over RPC gets
-`Object librefleet.vehicle doesn't exist`: not "access denied", *doesn't exist*.
-The vagueness is deliberate (why confirm to an attacker what the database contains?),
-but it makes the failure look like a typo in the model name. You met this in
-chapter 9; now you know what it actually means.
+right to read it, a regular user calling it over RPC gets a real `AccessError`:
+
+```text
+AccessError: You are not allowed to access 'Workshop Vehicle' (librefleet.vehicle) records.
+
+No group currently allows this operation.
+
+Contact your administrator to request access if necessary.
+```
+
+Specific, not vague: it names the model by its `_description` (chapter 9's field
+doing real work) and says plainly that no group grants the operation. You met the
+shape of this in chapter 9, where the shell skipped it entirely by running as the
+superuser; now you'll grant the missing right instead of wondering why "the model
+doesn't exist."
 
 ### Groups, and how Odoo 19 organizes them
 
@@ -164,20 +174,20 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 ...
 INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
 INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
-INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 75 queries (+75 other)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 76 queries (+76 other)
 ```
 
-Chapter 9's WARNING about missing access rules is gone. One more step before the
-change is fully live: that upgrade ran in its own process, and your long-running web
-server keeps caches of exactly this kind of data. Restart it so nothing stale
-lingers:
+Chapter 9's WARNING about missing access rules is gone. (The query count moves a
+little between runs, ours has shown 76 and 78 on otherwise identical upgrades; don't
+worry if yours differs.)
 
-```console
-$ docker compose restart odoo
-```
-
-(Yes, this bit us while writing the chapter: without the restart, admin's RPC calls
-still answered "doesn't exist".)
+That upgrade ran in its own process, separate from your long-running web server. You
+might expect to need a restart before the server notices, the way a pure Python
+change does without `dev=all` (chapter 6). It doesn't: every request, HTTP or RPC,
+starts by checking a small signaling table (`orm_signaling_registry`) for a change
+another process made, and reloads the registry first if so. Security data is exactly
+the kind of change this catches, so the very next request after the upgrade already
+sees it, no restart needed.
 
 ### 4. Create a technician to test with
 
@@ -238,7 +248,7 @@ upgrade. Expecting an explosion?
 ```text
 INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
 INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
-INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.05s, 85 queries (+85 other)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.05s, 78 queries (+78 other)
 ```
 
 It *works*. Your database already contains the group records from the previous
@@ -277,9 +287,9 @@ $ python3 odoolings.py check ch10
 ch10 complete! On to the next chapter 🔧
 ```
 
-Note the third check: it is chapter 9's "doesn't exist" failure, inverted. odoolings
-talks to Odoo over XML-RPC as admin, so it could not see your model at all until the
-ACLs and the admin membership existed. Cross-check the matrix in psql:
+Note the third check: it is chapter 9's `AccessError` failure, inverted. odoolings
+talks to Odoo over XML-RPC as admin, so every call hit that error until the ACLs and
+the admin membership existed. Cross-check the matrix in psql:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read as r, a.perm_write as w, a.perm_create as c, a.perm_unlink as u from ir_model_access a join ir_model m on a.model_id = m.id where m.model = 'librefleet.vehicle';"
@@ -291,9 +301,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read
 
 ## Gotchas
 
-- **A CLI upgrade doesn't refresh the running server.** Groups, ACLs and registry
-  data are cached per process; after `-u` from another container process, restart
-  the web server or you'll debug phantom permission errors (we did).
+- **Restarting after a data or security change is folklore, not a requirement.** The
+  registry's own signaling table gets checked on every request, so the very next one
+  after a separate process's `-u` already sees it. What actually needs a restart (or
+  `dev=all`'s autoreload) is a pure Python change, chapter 6's rule, not this one.
 - **The data-order bug is invisible on your database.** Once an XML id exists in the
   DB, later loads resolve it regardless of file order. Only a fresh install tells
   the truth; test one before every release.
@@ -314,12 +325,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read
     {
       q: 'A model has no ACL at all. What does a regular user get when calling it over RPC?',
       options: [
-        'an AccessError naming the missing permission',
-        'read-only access as a safe default',
+        'an AccessError naming the model',
+        'a silent empty result, no error at all',
         'an error claiming the model does not exist',
       ],
-      answer: 2,
-      why: 'Deny-by-default plus deliberate vagueness: Odoo will not even confirm the model exists to someone with no right to it. Remember this the next time a model name "has a typo" that you cannot find.',
+      answer: 0,
+      why: 'Odoo raises a real AccessError, naming the model by its _description and stating plainly that no group grants the operation: specific, not vague. Deny-by-default means off-limits, not "pretend it is not there."',
     },
     {
       q: 'tina is in Workshop / User (read, write) and one day also joins Workshop / Manager. What are her effective rights on vehicles?',
@@ -382,11 +393,11 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read
 
 ## Further reading
 
-- [Security in Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
+- <Icon name="docs" /> [Security in Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
   the reference for groups, ACLs and record rules.
-- [Server framework 101, chapter 4 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/04_securityintro.html):
+- <Icon name="docs" /> [Server framework 101, chapter 4 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/04_securityintro.html):
   the official first pass at security, one CSV and done. Compare with what you now
   know about groups.
-- [Restrict access to data (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/restrict_data_access.html):
+- <Icon name="docs" /> [Restrict access to data (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/restrict_data_access.html):
   a whole tutorial on the layered security model, good preparation for chapter 12's
   record rule.
