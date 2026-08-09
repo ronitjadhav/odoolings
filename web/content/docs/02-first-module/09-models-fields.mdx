@@ -351,10 +351,12 @@ chapter 8 (swap `ch08` for `ch09`).
   `NotNullViolation` from Postgres, and every following statement fails with
   `InFailedSqlTransaction` until you run `env.cr.rollback()`. The transaction is
   poisoned, not just the one call.
-- **No access rules means invisible, not read-only.** Call the model over XML-RPC as
-  admin right now and the answer is `Object librefleet.vehicle doesn't exist`,
-  deliberately vague. The shell only works because it runs as the superuser, which
-  skips permission checks entirely. Chapter 10 fixes this properly.
+- **No access rules means off-limits, not read-only.** Call the model over XML-RPC as
+  admin right now and you get a real `AccessError`: "You are not allowed to access
+  'Workshop Vehicle' (librefleet.vehicle) records. No group currently allows this
+  operation." Specific, not a fake "doesn't exist." The shell only works because it
+  runs as the superuser, which skips permission checks entirely. Chapter 10 fixes
+  this properly.
 - **`display_name` is computed, never stored.** It shows up in `ir_model_fields` but
   there's no column; don't look for it in psql, and don't try to `select` it.
 
