@@ -1,7 +1,16 @@
 'use client';
 import { useEffect, useId, useState } from 'react';
 
-export function Mermaid({ chart, label = 'Diagram' }: { chart: string; label?: string }) {
+export function Mermaid({
+  chart,
+  label = 'Diagram',
+  wide = false,
+}: {
+  chart: string;
+  label?: string;
+  /** Render at natural width and scroll sideways, instead of scaling to fit. */
+  wide?: boolean;
+}) {
   const id = useId().replace(/[^a-zA-Z0-9]/g, '');
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(false);
@@ -42,7 +51,15 @@ export function Mermaid({ chart, label = 'Diagram' }: { chart: string; label?: s
     <div
       role="img"
       aria-label={label}
-      className="my-6 flex justify-center overflow-x-auto [&_svg]:max-w-full"
+      // Diagrams are centred and capped at the container, which is right for the
+      // flowcharts that make up almost all of them. `wide` opts out: a timeline
+      // spanning years has a large natural width, and capping it scales the whole
+      // SVG down until the labels are unreadable. Those scroll sideways instead.
+      className={
+        wide
+          ? 'my-6 overflow-x-auto'
+          : 'my-6 flex justify-center overflow-x-auto [&_svg]:max-w-full'
+      }
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
