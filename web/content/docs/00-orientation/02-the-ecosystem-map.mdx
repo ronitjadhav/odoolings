@@ -54,7 +54,7 @@ flowchart TD
 | [odoo/odoo source](https://github.com/odoo/odoo) | The ultimate reference. Reading core modules is a skill this tutorial trains deliberately. |
 | [OCA repositories](https://github.com/OCA) | Production-grade examples of *community* best practice, often better study material than core. |
 | [Odoo Apps store](https://apps.odoo.com) | Third-party modules, free and paid. Quality varies wildly, so check maintenance and reviews. |
-| [Official YouTube](https://www.youtube.com/@Odoo) & [OCA Days talks](https://www.youtube.com/@OCAOdooCommunityAssociation) | Functional walkthroughs (official) and deep technical/community talks (OCA). |
+| [Official YouTube](https://www.youtube.com/@Odoo) & [OCA Days talks](https://www.youtube.com/@OdooCommunity) | Functional walkthroughs (official) and deep technical/community talks (OCA). |
 | [Odoo forum](https://www.odoo.com/forum/help-1) & r/Odoo | Q&A. Check the answer's Odoo version before trusting it. |
 
 <Callout type="warn" title="The version trap">
@@ -72,6 +72,33 @@ development per Odoo version, and modules get **migrated** branch to branch by
 volunteers. Pull requests target a version branch (never a `master`), must pass CI and
 pre-commit linting, get reviewed by peers, and are test-driveable on **Runboat**,
 which spins up a throwaway live instance per PR.
+
+<Mermaid
+  label="One OCA repo holds several version branches, each its own line of development; a PR targets one branch and gets its own Runboat instance"
+  chart={`flowchart LR
+    repo["OCA/server-tools<br/>one repo, one domain"]
+    subgraph b16["branch 16.0"]
+      m16["auditlog<br/>base_exception<br/>..."]
+    end
+    subgraph b18["branch 18.0"]
+      m18["auditlog<br/>base_exception<br/>..."]
+    end
+    subgraph b19["branch 19.0"]
+      m19["auditlog<br/>base_exception<br/>..."]
+      pr["PR #3512<br/>fixes auditlog"]
+    end
+    repo --> b16
+    repo --> b18
+    repo --> b19
+    m16 -. "migrated forward,<br/>volunteer work" .-> m18
+    m18 -. "migrated forward" .-> m19
+    pr -. "CI + review,<br/>then merges into" .-> m19
+    pr --> rb["Runboat instance<br/>throwaway, one per PR"]`}
+/>
+
+Notice what does **not** flow between branches: a fix on `19.0` does not automatically
+reach `16.0`. Migration is a deliberate, separate act, which is exactly why chapter 47
+gives it a whole chapter rather than a paragraph.
 
 You don't need to memorize this yet; you'll live it in Part 6. For now, just recognize
 the shape.
@@ -152,4 +179,4 @@ professionally-written module code, (d) an answer to "why does X behave like thi
 - [OCA website](https://odoo-community.org): mission, membership, the CLA.
 - [OCA contribution guide](https://odoo-community.org/get-involved/contribute)
 - [Runboat](https://runboat.odoo-community.org): the PR test instances you'll use in Part 6.
-- [Odoo official YouTube](https://www.youtube.com/@Odoo) · [OCA YouTube](https://www.youtube.com/@OCAOdooCommunityAssociation)
+- [Odoo official YouTube](https://www.youtube.com/@Odoo) · [OCA YouTube](https://www.youtube.com/@OdooCommunity)
