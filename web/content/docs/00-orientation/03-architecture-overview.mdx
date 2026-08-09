@@ -107,8 +107,9 @@ data behind.
 Reading source counts as hands-on in this chapter:
 
 1. Open [`odoo/odoo` (19.0)](https://github.com/odoo/odoo/tree/19.0) and look at the
-   top level: `odoo/` is the framework (ORM, HTTP, tooling), `addons/` is ~350
-   modules, which is everything else. The split mirrors this chapter's story.
+   top level: `odoo/` is the framework (ORM, HTTP, tooling), `addons/` is over 600
+   modules (a good third of them country-specific `l10n_*` accounting
+   localizations), which is everything else. The split mirrors this chapter's story.
 2. Inside [`addons/crm`](https://github.com/odoo/odoo/tree/19.0/addons/crm), find:
    `__manifest__.py`, a `models/` directory (Python, tier 2) and a `views/` directory
    (XML descriptions, the "UI is data" idea).
