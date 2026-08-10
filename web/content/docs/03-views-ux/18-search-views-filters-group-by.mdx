@@ -28,10 +28,10 @@ of element:
 - **`<field>`**: a searchable field. Typing in the search bar against
   `vehicle_id` does a `name_search` on vehicles, exactly like typing into a many2one
   widget on a form.
-- **`<filter>`**: a named, static domain the user can toggle on with a click. Each
+- A <Term k="filter (search view)">`<filter>`</Term>: a named, static domain the user can toggle on with a click. Each
   one needs a `domain` (or a `context` for group-by, see below) and a `name` that
   matters more than it looks like it should.
-- **`<group>`** wrapping filters with `context="{'group_by': '...'}"`: the Group By
+- **`<group>`** wrapping filters with `context="{'group_by': '...'}"`: the <Term k="group-by">Group By</Term>
   menu. Grouping by a field runs a `read_group` (or a Python `_read_group`), which
   buckets records and returns counts per bucket, the same aggregation a pivot or
   kanban column count uses under the hood.
@@ -83,7 +83,7 @@ The "My Services" filter you're about to write uses `uid` inside a domain string
         domain="[('technician_ids', 'in', [uid])]"/>
 ```
 
-`uid` isn't a Python variable, an import, or anything you'd find defined anywhere in
+<Term k="uid">`uid`</Term> isn't a Python variable, an import, or anything you'd find defined anywhere in
 the codebase. It's a magic name the web client substitutes with **the current logged-in
 user's id** when it evaluates the domain, client-side, right before sending the
 search request. It only works inside domain and context strings written in XML (or
@@ -94,7 +94,7 @@ differently.
 ### The default-filter convention, and where it can quietly fail
 
 An action's `context` can pre-check a filter when the view first loads, using a naming
-convention: `search_default_<name>` set to a truthy value, where `<name>` is a
+convention: <Term k="`search_default_<name>`">`search_default_<name>`</Term> set to a truthy value, where `<name>` is a
 filter's `name` attribute:
 
 ```xml
@@ -102,6 +102,7 @@ filter's `name` attribute:
 ```
 
 <Mermaid
+  label="The search_default naming convention: a matching filter name applies on load, a typo fails silently with no error anywhere"
   chart={`flowchart LR
     A["action.context has\nsearch_default_not_cancelled: 1"] --> B{"a filter named\n'not_cancelled' exists\nin the search view?"}
     B -- yes --> C["client pre-checks it,\nfilter applies on load"]
@@ -116,6 +117,8 @@ it just... doesn't filter. No traceback, no log line, nothing. You'll build this
 purpose in a minute so you recognize the shape of it forever.
 
 ## Hands-on
+
+<Steps>
 
 ### 1. Build the search view
 
@@ -274,6 +277,8 @@ returns both. Ticking **Draft** and **Confirmed** in the browser gives you 2, so
 search view is building the second domain. Quit without `env.cr.commit()` and both
 orders are back to draft.
 
+</Steps>
+
 ## Verify
 
 ```console
@@ -286,10 +291,13 @@ $ python3 odoolings.py check ch18
 ch18 complete! On to the next chapter 🔧
 ```
 
-For the eyeball version (author tour, screenshots pending): open Service Orders, watch
-the cancelled-hiding filter already checked when the page loads, click Group By →
-Vehicle and watch the list split into per-vehicle sections, and toggle My Services as
-tina to see the list narrow to her own booking.
+For the eyeball version: open Service Orders, watch the cancelled-hiding filter already
+checked when the page loads, click Group By → Vehicle and watch the list split into
+per-vehicle sections,
+
+![The Service Orders list with the Exclude Cancelled filter chip already checked on load, grouped by Vehicle into two collapsed sections: ZH 468 202 (1) and BE 30 447 (1)](/screens/ch18-groupby-vehicle.jpg)
+
+and toggle My Services as tina to see the list narrow to her own booking.
 
 ## Gotchas
 
@@ -384,7 +392,7 @@ tina to see the list narrow to her own booking.
    `search_count` before and after, using the two domains the search bar would build
    (`['|', my_services, not_cancelled]` versus the two ANDed), and say which of the two
    the UI was producing before your fix.
-4. ⭐⭐⭐ Read core's `sale.order` search view (`get_view` in the shell, or Settings →
+5. ⭐⭐⭐ Read core's `sale.order` search view (`get_view` in the shell, or Settings →
    Technical → Views) and find a filter whose domain is more complex than anything
    here, one combining an OR with a nested AND. Explain what it's protecting against,
    in one sentence, using only what you learned about domain prefix operators back in
