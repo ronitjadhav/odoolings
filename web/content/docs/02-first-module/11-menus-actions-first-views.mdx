@@ -30,12 +30,12 @@ When a user clicks "Vehicles", four layers cooperate:
     V -- describes how to show --> D[("librefleet.vehicle")]`}
 />
 
-- A **menu item** is a clickable node in the app's navigation, usually pointing at
+- A **<Term k="menu item">menu item</Term>** is a clickable node in the app's navigation, usually pointing at
   an action.
-- A **window action** (`ir.actions.act_window`) says *what* to open: which model
+- A **<Term k="window action">window action</Term>** (`ir.actions.act_window`) says *what* to open: which model
   (`res_model`) and which view types in which order (`view_mode="list,form"` means
   "open the list; a row opens the form").
-- A **view** (`ir.ui.view`) holds an `arch` (architecture): an XML description of
+- A **view** (`ir.ui.view`) holds an <Term k="arch (view architecture)">`arch`</Term> (architecture): an XML description of
   *how* to render the model. The web client turns it into components; the server
   uses it to know which fields to fetch.
 
@@ -44,8 +44,8 @@ UI is data") stops being abstract today.
 
 ### List and form, the two views you cannot skip
 
-A **list view** (`<list>` root tag) renders records as rows; each `<field>` becomes
-a column. A **form view** (`<form>`) renders one record; inside it, `<sheet>` gives
+A **<Term k="list view">list view</Term>** (`<list>` root tag) renders records as rows; each `<field>` becomes
+a column. A **<Term k="form view">form view</Term>** (`<form>`) renders one record; inside it, `<sheet>` gives
 you the paper-like canvas, and `<group>` lays fields out in labeled columns (two
 `<group>`s side by side is the classic two-column form).
 
@@ -87,12 +87,15 @@ main menu. Two attributes do the everyday work:
 Views need a model, and vehicles are getting crowded, so this chapter adds the
 blueprint's smallest one: `librefleet.service.type`, the workshop's price list
 ("Oil change, 89 CHF, one hour"). Three scalar fields, no relations, perfect first
-customer for an **editable list**: `<list editable="bottom">` lets users add and
+customer for an **<Term k="editable list">editable list</Term>**: `<list editable="bottom">` lets users add and
 edit rows inline, no form round-trip, exactly right for quick config tables.
 
 ## Hands-on
 
-### 1. The model (chapter 9 muscle memory)
+<Steps>
+
+<Step>
+### The model (chapter 9 muscle memory)
 
 `addons/librefleet/models/service_type.py`:
 
@@ -117,8 +120,10 @@ say otherwise). Add the import to `models/__init__.py`:
 from . import service_type
 from . import vehicle
 ```
+</Step>
 
-### 2. The permissions (chapter 10 muscle memory)
+<Step>
+### The permissions (chapter 10 muscle memory)
 
 Two lines in `security/ir.model.access.csv`. It's a config model, so technicians
 read it and only managers change it:
@@ -127,8 +132,10 @@ read it and only managers change it:
 access_librefleet_service_type_user,librefleet.service.type user,model_librefleet_service_type,group_librefleet_user,1,0,0,0
 access_librefleet_service_type_manager,librefleet.service.type manager,model_librefleet_service_type,group_librefleet_manager,1,1,1,1
 ```
+</Step>
 
-### 3. Vehicle views and action
+<Step>
+### Vehicle views and action
 
 New directory `views/`, first file `addons/librefleet/views/vehicle_views.xml`:
 
@@ -192,8 +199,10 @@ Points worth pausing on: the view records are plain `<record>`s like chapter 10'
 groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
 `name` field on a view is a developer label, pick something greppable. The action's
 `help` becomes the friendly empty-state message users see before any record exists.
+</Step>
 
-### 4. Service type views: the editable list
+<Step>
+### Service type views: the editable list
 
 `addons/librefleet/views/service_type_views.xml`:
 
@@ -226,8 +235,10 @@ Note the `view_mode` is just `list`: with inline editing there's nothing a form
 would add. We didn't define a form at all, and that's fine; if something ever
 requests one, Odoo generates a sensible default from the fields (we checked: it
 even groups them in two columns).
+</Step>
 
-### 5. Menus
+<Step>
+### Menus
 
 `addons/librefleet/views/librefleet_menus.xml`:
 
@@ -268,8 +279,37 @@ even groups them in two columns).
 
 `sequence` orders siblings, and the big gap (10, 90) is deliberate: later chapters
 slot Reporting between Fleet and Configuration without renumbering.
+</Step>
 
-### 6. Manifest, upgrade
+<Step>
+### Manifest, upgrade
+
+Four new files this chapter, and the module has grown a `views/` directory to sit
+alongside `models/` and `security/`:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="service_type.py" />
+      <File name="vehicle.py" />
+    </Folder>
+    <Folder name="security">
+      <File name="ir.model.access.csv" />
+      <File name="librefleet_security.xml" />
+    </Folder>
+    <Folder name="views" defaultOpen>
+      <File name="librefleet_menus.xml" />
+      <File name="service_type_views.xml" />
+      <File name="vehicle_views.xml" />
+    </Folder>
+    <Folder name="static/description">
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
 
 The menus reference the actions, so the menu file loads last (chapter 10's lesson,
 applied):
@@ -304,8 +344,10 @@ fresh look is a browser tab you already had open before the upgrade: the web
 client fetched the old menu tree into memory when that tab loaded, same as any
 single-page app, so reload it (a plain refresh, not a server restart) rather than
 opening a whole new tab to be safe.
+</Step>
 
-### 7. Tour your app
+<Step>
+### Tour your app
 
 Log in as admin at [localhost:8069](http://localhost:8069). LibreFleet sits in the
 main menu with the chapter 8 icon. Click through: Fleet → Vehicles opens your list
@@ -345,8 +387,10 @@ client uses:
 >>> cfg.id in env["ir.ui.menu"].with_user(tina)._visible_menu_ids()
 False
 ```
+</Step>
 
-### 8. Break-it lab: the view that stops the upgrade
+<Step>
+### Break-it lab: the view that stops the upgrade
 
 Views are validated against the model when they load. In the vehicle list view,
 change `license_plate` to `licence_plate` (a one-letter typo a British keyboard
@@ -367,6 +411,9 @@ good news: check the database (or just reload the browser) and everything still
 works. A failed upgrade rolls the whole transaction back; your users keep the last
 good version while you fix the typo. Restore the field name, upgrade, and confirm
 calm returns.
+</Step>
+
+</Steps>
 
 ## Verify
 

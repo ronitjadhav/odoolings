@@ -19,7 +19,7 @@ make that customization industry possible.
 
 ### ERP, in one paragraph
 
-An ERP (Enterprise Resource Planning) system is the software a company runs its
+An <Term k="ERP">ERP</Term> (Enterprise Resource Planning) system is the software a company runs its
 operations on: sales, invoicing, inventory, accounting, HR, all sharing **one
 database**. A confirmed sale automatically reserves stock, creates an invoice, and
 shows up in the accounting reports. The alternative is a zoo of disconnected tools glued
@@ -73,8 +73,9 @@ PostgreSQL database. Two things make it different from classical ERPs:
 There is no technical difference. An **app** is just a module with
 `'application': True` in its manifest, which makes it show up on the Apps home screen
 with an icon. Modules that extend other modules (most of what you'll write) don't set
-that flag. When Odoo people say *addon*, they also mean module. You'll see
-`--addons-path` as the flag that tells the server where to find them.
+that flag. When Odoo people say *<Term k="addon">addon</Term>*, they also mean module. You'll see
+`--addons-path` as the flag that tells the server where to find them (the
+<Term k="addons path">addons path</Term>).
 
 <Mermaid
   label="One flag in the manifest is the only thing separating an app from a module"
@@ -90,7 +91,7 @@ first time someone tells you a customization needs to be "a proper app".
 
 ### Community vs Enterprise
 
-Odoo comes in two editions:
+Odoo comes in two <Term k="edition">editions</Term>:
 
 - **Community** is open source (LGPL-3): the complete framework and core apps. Its
   source lives publicly at [github.com/odoo/odoo](https://github.com/odoo/odoo). This
