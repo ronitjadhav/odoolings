@@ -48,7 +48,6 @@ const MERMAID = /<Mermaid\b([\s\S]*?)chart=/g;
 // its chapter gets its walkthrough pass, and never add one: a new unlabelled diagram
 // is the failure this test exists to catch.
 const UNLABELLED_BASELINE = new Set([
-  '02-first-module/13-computed-related-onchange.mdx',
   '02-first-module/14-constraints-defaults-sequences.mdx',
   '02-first-module/15-recordsets-deep-dive.mdx',
   '03-views-ux/16-view-architecture.mdx',

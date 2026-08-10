@@ -20,7 +20,7 @@ into LibreFleet and then breaks one on purpose so you recognize the failure fore
 
 ### Computed fields: value = f(other fields)
 
-A computed field declares a method that fills it and, through `@api.depends`, the
+A <Term k="computed field">computed field</Term> declares a method that fills it and, through `@api.depends`, the
 exact fields its value is built from:
 
 ```python
@@ -32,7 +32,7 @@ def _compute_subtotal(self):
         line.subtotal = line.qty * line.price_unit
 ```
 
-Two contracts to respect. The compute method receives a **recordset** and must
+Two contracts to respect. The compute method receives a <Term k="recordset">recordset</Term> and must
 assign a value to *every* record in it, hence the loop. And `depends` is not
 documentation: it is the trigger wiring. When `qty` changes, the ORM marks
 `subtotal` stale and recomputes it at the right moment, cascading into anything
@@ -55,7 +55,7 @@ presence and absence of columns in psql.
 
 ### Related fields: a path, not a formula
 
-`customer_id = fields.Many2one(related="vehicle_id.owner_id", store=True)` is a
+A <Term k="related field">related field</Term>, `customer_id = fields.Many2one(related="vehicle_id.owner_id", store=True)`, is a
 computed field the framework writes for you: follow the path, mirror the value. The
 blueprint stores this one, which buys a real column that search, group-by and the
 future portal can use, and the dependency system still updates it when the owner
@@ -64,7 +64,7 @@ stored copy on every order fixes itself.
 
 ### Onchange: a UI suggestion, nothing more
 
-`@api.onchange("part_id")` runs **in the form view only**, while the user edits,
+An <Term k="onchange">`@api.onchange("part_id")`</Term> runs **in the form view only**, while the user edits,
 on a draft record that isn't saved yet. It's perfect for prefilling: pick a part,
 get its list price as the suggested `price_unit`, still editable for a discount.
 Its sharp edge: code paths (shell, RPC, imports, other modules) never trigger it.
@@ -80,6 +80,7 @@ belongs in computes, defaults or constraints (chapter 14).
 </Callout>
 
 <Mermaid
+  label="How qty, price_unit, the flat fee and the vehicle's owner cascade into stored and non-stored order fields"
   chart={`flowchart LR
     Q["line.qty"] -- "depends" --> S["line.subtotal<br/>stored column"]
     P["line.price_unit"] -- "depends" --> S
@@ -91,6 +92,8 @@ belongs in computes, defaults or constraints (chapter 14).
 />
 
 ## Hands-on
+
+<Steps>
 
 ### 1. The stored line subtotal
 
@@ -180,8 +183,11 @@ stored columns for existing rows, watch the log do it.
 
 Open the oil change order in the UI: subtotals per line, totals in the Money group,
 customer Anna Keller. Add a line, pick "Brake pads, front", and watch `price_unit`
-snap to 79.00 before you save (that's the onchange; remove the line again). Now the
-same physics from the shell:
+snap to 79.00 before you save (that's the onchange; remove the line again).
+
+![The oil change service order: line subtotals (24.50 and 75.60), the Money group showing Parts Total 100.10, Labor Total 89.00 and Margin 139.10, and Customer reading Anna Keller](/screens/ch13-service-order-money.jpg)
+
+Now the same physics from the shell:
 
 ```console
 >>> o1 = env["librefleet.service.order"].browse(1)
@@ -222,6 +228,8 @@ Part chosen, price zero: the onchange never ran, because nobody was typing in a
 form. This is not a bug, it's the definition, and it's why business rules don't
 live in onchange. Roll back to discard the broken line.
 
+<BreakIt />
+
 ### 7. Break-it lab: the missing depends
 
 Delete the `@api.depends("qty", "price_unit")` line above `_compute_subtotal`
@@ -250,6 +258,8 @@ value stays stale** until a dependency actually changes (read it back: still 24.
 Fixing the code doesn't fix the data; touching `qty` again does. On a production
 database that's a targeted recompute script, not a shrug. Set `qty` back to 1 and
 commit, which both heals and restores the checkpoint state.
+
+</Steps>
 
 ## Verify
 
