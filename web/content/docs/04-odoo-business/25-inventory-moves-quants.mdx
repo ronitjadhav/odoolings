@@ -31,7 +31,7 @@ stock count is wrong" tickets that are not actually wrong:
 | `virtual_available` (**Forecasted**) | on-hand, plus incoming, minus outgoing |
 | `free_qty` | on-hand minus outgoing (what is left to promise *today*) |
 
-`qty_available` never lies about what is on a shelf. It also never tells you whether that
+<Term k="on-hand vs forecast (`qty_available` vs `virtual_available`)">`qty_available`</Term> never lies about what is on a shelf. It also never tells you whether that
 stock is already spoken for. That is what forecast is for.
 
 ### A warehouse is more than one location
@@ -40,7 +40,7 @@ stock is already spoken for. That is what forecast is for.
 warehouse already has an **Input**, an **Output**, a **Quality Control** area and a
 **Packing Zone**, alongside the main **Stock** location, whether or not you use them.
 
-Whether goods pass through any of them is a routing setting, `reception_steps` (and its
+Whether goods pass through any of them is a <Term k="routing (`reception_steps` / `delivery_steps`)">routing</Term> setting, `reception_steps` (and its
 outgoing twin, `delivery_steps`), with three options: receive directly into Stock (one
 step), receive into Input then move to Stock (two steps), or add a Quality Control stop
 in between (three steps). Chapter 24's purchase used the simplest case. Real warehouses
@@ -54,6 +54,7 @@ Stock, does not exist yet as a document, only as a rule waiting for something to
 it. It is created the moment the first transfer is validated, not before.
 
 <Mermaid
+  label="A two-step reception route: the receipt into Input happens first, and the second leg into Stock is created only once that step is validated"
   chart={`flowchart LR
     V["Vendors"] -- "step 1: Receipt" --> I["WH/Input"]
     I -- "step 2: created only<br/>once step 1 is done" --> S["WH/Stock"]
@@ -67,7 +68,7 @@ alone under-reports the route.
 
 ### Reordering rules are a promise, not an action
 
-A `stock.warehouse.orderpoint` states a minimum and a maximum for one product at one
+A <Term k="reordering rule (`stock.warehouse.orderpoint`)">`stock.warehouse.orderpoint`</Term> states a minimum and a maximum for one product at one
 location: when forecast quantity falls below the minimum, replenish up to the maximum.
 Creating the rule does nothing by itself. A scheduled action checks it, on the trigger you
 set (`auto` or `manual`), and chapter 35 is where you learn how scheduled actions actually
