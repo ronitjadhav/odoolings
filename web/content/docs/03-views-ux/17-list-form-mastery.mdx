@@ -24,6 +24,7 @@ Core Odoo forms share a fixed skeleton, and every element you add today has a
 designated slot in it:
 
 <Mermaid
+  label="A form's fixed skeleton: header, sheet with button box and ribbon, title, and a notebook of pages"
   chart={`flowchart TD
     F["form"] --> H["header: statusbar + workflow buttons"]
     F --> S["sheet: the white page"]
@@ -34,16 +35,16 @@ designated slot in it:
 />
 
 - The **header** hosts the record's lifecycle: the `stage` field rendered as a
-  **statusbar**, plus action buttons (chapter 20 adds those).
-- The **button box** holds **smart buttons**: stat counters that are also navigation,
+  <Term k="statusbar">statusbar</Term>, plus action buttons (chapter 20 adds those).
+- The <Term k="button box">button box</Term> holds <Term k="smart button">smart buttons</Term>: stat counters that are also navigation,
   like the "3 Services" you'll build.
-- A **notebook** is the tab container; each `<page>` keeps one concern (parts, notes)
+- A <Term k="notebook">notebook</Term> is the tab container; each `<page>` keeps one concern (parts, notes)
   from drowning the others.
-- A **ribbon** is the diagonal corner banner core uses for Archived and Paid.
+- A <Term k="ribbon">ribbon</Term> is the diagonal corner banner core uses for Archived and Paid.
 
 ### Widgets: same field, different rendering
 
-A field's *type* fixes how it's stored; the `widget` attribute picks how one view
+A field's *type* fixes how it's stored; the <Term k="widget">`widget`</Term> attribute picks how one view
 renders it. You've used `many2many_tags` since chapter 12; today adds
 `statusbar` (Selection as a stage bar), `badge` (Selection as a colored pill),
 `statinfo` (a number inside a smart button) and `daterange` (two Datetime fields
@@ -53,7 +54,7 @@ common ones.
 
 ### Decorations: rows that explain themselves
 
-List views accept `decoration-*` attributes whose value is a Python-ish expression
+List views accept <Term k="decoration-*">`decoration-*`</Term> attributes whose value is a Python-ish expression
 over the row's fields: `decoration-muted="stage == 'cancelled'"` greys cancelled
 orders out. The palette is semantic and fixed (`muted`, `info`, `success`,
 `warning`, `danger`, plus `bf`/`it` for bold/italic). One rule to remember:
@@ -68,6 +69,8 @@ the method returns an **action dictionary**: the same keys you've been writing i
 That's the whole trick behind "3 Services opens *this* vehicle's services".
 
 ## Hands-on
+
+<Steps>
 
 ### 1. Give the order form a lifecycle header
 
@@ -200,6 +203,8 @@ it. Delete the plain `service_count` line from the Usage group at the same time
 
 Bump the manifest to `19.0.1.10.0`, upgrade, restart (there's new Python).
 
+<BreakIt />
+
 ### 5. Break-it lab: the anchor you just moved
 
 Chapter 16's reception extension inserts `active` with
@@ -250,6 +255,8 @@ True
 
 An action is a dict all the way down; buttons just hand it to the client.
 
+</Steps>
+
 ## Verify
 
 ```console
@@ -266,9 +273,14 @@ ch17 complete! On to the next chapter 🔧
 
 The fifth check calls your button method over RPC and inspects the returned action's
 domain; the last one reads the ch16 extension's stored arch to make sure the stale
-anchor is gone. In the browser (author tour, screenshots pending): the order form
-shows the stage bar and tabs, the vehicles list is unchanged, a vehicle form has the
-wrench button, and archiving a vehicle from the new toggle raises the red ribbon.
+anchor is gone. In the browser: the order form shows the stage bar and tabs,
+
+![The oil change order's form: a Draft/Confirmed/In Progress/Done statusbar in the header, and the Parts/Internal Notes notebook tabs below the What and When groups](/screens/ch17-order-statusbar-notebook.jpg)
+
+the vehicles list is unchanged, a vehicle form has the wrench button, and archiving a
+vehicle from the new toggle raises the red ribbon.
+
+![An archived vehicle's form with the diagonal red ARCHIVED ribbon in the corner and the wrench-icon Services smart button reading 0](/screens/ch17-vehicle-ribbon.jpg)
 
 ## Gotchas
 
