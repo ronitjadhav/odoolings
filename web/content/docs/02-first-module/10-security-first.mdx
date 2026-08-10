@@ -73,8 +73,10 @@ two-level pattern almost every app uses:
 ### Access rules: the CSV
 
 Model-level permissions live in `ir.model.access` records, by convention loaded from
-`security/ir.model.access.csv`. One line grants one group four booleans on one
-model: **read, write, create, unlink**. Two properties matter more than the syntax:
+`security/ir.model.access.csv`. People shorten this to an **<Term k="access rights (ACL)">ACL</Term>**
+(access control list), and this chapter uses both names for the same thing. One line
+grants one group four booleans on one model: **read, write, create, unlink**. Two
+properties matter more than the syntax:
 
 - **Additive.** A user's effective rights are the union of all their groups' lines.
   There is no "deny" line; you subtract by *not granting*, never by overriding.
@@ -275,6 +277,7 @@ every one of them deserves a comment explaining itself.
 </Step>
 
 <Step>
+<BreakIt />
 ### Break-it lab: the bug that only bites on fresh installs
 
 Swap the two lines in the manifest's `data` list so the CSV loads first, then
@@ -302,9 +305,20 @@ No matching record found for external id 'group_librefleet_manager' in field 'Gr
 
 Same module, dead on arrival. This class of bug (data order, missing file, renamed
 XML id) hides perfectly in the database you develop on, because that database
-remembers every version you ever loaded. The antidote is cheap and worth making a
-habit: before shipping, install into a throwaway database exactly as above. Restore
-the manifest order, rerun the fresh install to see it pass, then clean up:
+remembers every version you ever loaded:
+
+<Mermaid
+  label="Whether the misordered access CSV breaks the module depends only on whether the group's XML id already exists in the database: harmless on a dev box that loaded it before, fatal on a fresh install"
+  chart={`flowchart TD
+    CSV["ir.model.access.csv loads,<br/>looks up group_librefleet_user"]
+    CSV --> Q{"Does that XML id<br/>already exist in this database?"}
+    Q -- "yes: your dev database,<br/>loaded it in an earlier upgrade" --> OK["resolves fine,<br/>the bug stays invisible"]
+    Q -- "no: a fresh install,<br/>the database starts empty" --> FAIL["No matching record found<br/>for external id 'group_librefleet_user'"]`}
+/>
+
+The antidote is cheap and worth making a habit: before shipping, install into a
+throwaway database exactly as above. Restore the manifest order, rerun the fresh
+install to see it pass, then clean up:
 
 ```console
 $ docker compose exec odoo odoo db -c /etc/odoo/odoo.conf drop freshtest

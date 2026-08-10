@@ -45,16 +45,16 @@ $ ls st-16 | wc -l
 73
 ```
 
-Same repository, 73 modules on the mature 16.0 branch, 34 on the young 19.0 branch (a
-handful of those entries are `README.md`, `setup`, and similar non-module files on both
-branches, so treat these as "roughly how many," not exact; either way the gap is the
-point). The difference is the migration queue: modules nobody has needed (or volunteered) on
-19 yet. When a client project needs one of the missing ones, an integrator developer
-does the `[MIG]`, and that developer will regularly be you.
+Same repository: 73 modules on the mature 16.0 branch, 34 on the young 19.0 branch.
+(A handful of those entries are `README.md`, `setup`, and similar non-module files on
+both branches, so treat these counts as roughly how many, not exact. Either way, the
+gap is the point.) The difference is the migration queue: modules nobody has needed,
+or volunteered, on 19 yet. When a client project needs one of the missing ones, an
+integrator developer does the `[MIG]`, and that developer will regularly be you.
 
 ### How commit messages look
 
-Odoo and OCA share a commit convention you'll adopt in Part 8, but should start
+Odoo and OCA share a commit convention you'll adopt from chapter 43 on, but should start
 reading now. Real messages from `server-tools` 19.0:
 
 ```text
@@ -63,7 +63,7 @@ reading now. Real messages from `server-tools` 19.0:
 f0a3744 [IMP] module_auto_update: confirm message before updating
 ```
 
-The shape is `[TAG] module_name: what and why`. Common tags: `[FIX]` bugfix, `[IMP]`
+The shape is <Term k="commit tags">`[TAG] module_name: what and why`</Term>. Common tags: `[FIX]` bugfix, `[IMP]`
 improvement, `[ADD]` new module/feature, `[MIG]` migration to a version, `[REF]`
 refactor. A `git log --oneline` on any OCA module reads like a changelog, which is
 the point.
@@ -92,13 +92,21 @@ assembly is *other people's modules at exact versions*.
 `OCA/server-tools` 19.0 is today", every deploy is a surprise. So professional
 projects <Term k="pinning">pin</Term>, using one of three mechanisms:
 
-| Mechanism | How it pins | Feel |
-|---|---|---|
-| **git submodules** | a SHA per external repo, recorded in `.gitmodules` | native git, clunky UX |
-| **git-aggregator** | `repos.yml` listing repos + SHAs/PRs to merge | OCA tooling, powerful (can stack unmerged PRs) |
-| **pip** | OCA publishes every module as `odoo-addon-<name>`; pin in `requirements.txt` | plain Python packaging |
+<CardGrid cols={3}>
+  <Card tone="sage" icon={<Icon name="branch" />} title="git submodules">
+    A SHA per external repo, recorded in `.gitmodules`. Native git, clunky UX.
+  </Card>
+  <Card tone="sand" icon={<Icon name="layers" />} title="git-aggregator">
+    A `repos.yml` listing repos and SHAs/PRs to merge. OCA tooling, powerful: can
+    **stack unmerged PRs**.
+  </Card>
+  <Card tone="violet" icon={<Icon name="module" />} title="pip">
+    OCA publishes every module as `odoo-addon-<name>`; pin it in `requirements.txt`.
+    Plain Python packaging.
+  </Card>
+</CardGrid>
 
-<Callout title="In the field">
+<Callout type="info" title="In the field">
   [git-aggregator](https://github.com/acsone/git-aggregator) is widespread among OCA
   contributors and integrators (including Camptocamp): one YAML file describes every
   external repo, the commit to pin, and even pending PRs to merge into your build,
@@ -125,7 +133,7 @@ rather than taking on trust:
   colleague (or an interviewer) it is a clean Odoo module repo with your history on it,
   which is also exactly how a custom module arrives on a client engagement.
 - From chapter 8 on, **commit after every chapter** using the OCA message style
-  (`[ADD] librefleet: vehicle model`). By Part 8 the convention will be muscle
+  (`[ADD] librefleet: vehicle model`). By chapter 43 the convention will be muscle
   memory, and your git history becomes your own set of checkpoints.
 
 You never clone this tutorial's repository at all. When you want to compare your work
@@ -290,8 +298,8 @@ outside the Odoo server.
 ## Further reading
 
 - <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
-  the commit convention in full. Part 8 turns it into practice.
-- <Icon name="docs" /> [git-aggregator](https://github.com/acsone/git-aggregator) ·
+  the commit convention in full. Chapter 43 on turns it into practice.
+- <Icon name="tool" /> [git-aggregator](https://github.com/acsone/git-aggregator) ·
   <Icon name="docs" /> [OCA on PyPI](https://pypi.org/search/?q=odoo-addon): the two pinning ecosystems.
-- <Icon name="docs" /> [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
+- <Icon name="source" /> [odoo/odoo branches](https://github.com/odoo/odoo/branches): see the
   branch-per-version model at the source.

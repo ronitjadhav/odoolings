@@ -115,7 +115,7 @@ Odoo comes in two <Term k="edition">editions</Term>:
     end`}
 />
 
-<Callout title="Enterprise is a superset">
+<Callout type="info" title="Enterprise is a superset">
   Enterprise *contains* Community, which is why the boxes nest rather than sit side by
   side. It's the same framework with more modules on top, so everything you learn here
   transfers directly to Enterprise projects. We'll flag Enterprise-only features in
@@ -166,11 +166,17 @@ see an "On Odoo 18" callout, useful when your client project runs a version behi
 
 Three hosting models, and the choice constrains what you can customize:
 
-| Hosting model | What it is | Custom modules? |
-|---|---|---|
-| **Odoo Online** | SaaS at odoo.com, Enterprise only | No. Configuration and Studio only |
-| **odoo.sh** | Odoo's PaaS: git-driven, per-branch staging builds | Yes |
-| **On-premise / self-hosted** | You run the server (bare metal, VMs, Docker, k8s) | Yes, full control |
+<CardGrid cols={3}>
+  <Card tone="sage" icon={<Icon name="rocket" />} title="Odoo Online">
+    SaaS at odoo.com, Enterprise only. **Custom modules: no.** Configuration and Studio only.
+  </Card>
+  <Card tone="sand" icon={<Icon name="branch" />} title="odoo.sh">
+    Odoo's PaaS: git-driven, per-branch staging builds. **Custom modules: yes.**
+  </Card>
+  <Card tone="violet" icon={<Icon name="tool" />} title="On-premise / self-hosted">
+    You run the server yourself (bare metal, VMs, Docker, k8s). **Custom modules: yes, full control.**
+  </Card>
+</CardGrid>
 
 Integrators mostly live in the last two. This tutorial self-hosts with Docker, which
 is also the closest to how professional teams run client projects.
@@ -178,7 +184,7 @@ is also the closest to how professional teams run client projects.
 ## Hands-on
 
 No code yet, but do actually open these. The goal is that none of these sites feel
-foreign by the end of Part 0.
+foreign by the end of chapter 4.
 
 1. Skim the [Odoo apps overview](https://www.odoo.com/page/all-apps) to see the
    breadth of the suite. Count how many of these you'd expect a small workshop

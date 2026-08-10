@@ -10,7 +10,7 @@ here.
 ## Why this matters
 
 In chapter 4 you started this environment "on trust". Today the trust runs out: this
-is the workbench you'll use for the next 45 chapters, and when it misbehaves (a port
+is the workbench you'll use for the rest of the tutorial, and when it misbehaves (a port
 collision, a dead database, a module that won't load), you fix it fastest by knowing
 exactly what each piece does.
 
@@ -104,7 +104,7 @@ dev_mode = all
   the server picks up Python changes without a manual restart. Chapter 6 tours what
   else it does.
 
-<Callout title="Official docs">
+<Callout type="info" title="Official docs">
   The [configuration file reference](https://www.odoo.com/documentation/19.0/developer/reference/cli.html)
   lists every option, and the
   [Docker image docs](https://hub.docker.com/_/odoo) explain the image's defaults and
@@ -224,9 +224,9 @@ $ docker compose logs -f odoo    # Ctrl-C stops following, not the server
 
 Open [http://localhost:8069](http://localhost:8069). If `tour` from chapter 4 is the
 only database you have, you'll see it listed with a **Manage databases** link
-underneath rather than a creation form directly: that list only skips itself when
-there are zero databases at all, which was only ever true the very first time. Click
-**Manage databases** to reach the real form.
+underneath, not a creation form directly. Odoo only shows the creation form up front
+when zero databases exist, which was true only the very first time you ever opened
+this page. Click **Manage databases** to reach the real form.
 
 Create the database you'll build LibreFleet in. These exact values are what
 `odoolings` expects by default, so use them unless you enjoy typing flags:
@@ -245,6 +245,7 @@ nearly bare Odoo. Perfect.
 </Step>
 
 <Step>
+<BreakIt />
 ### Break it and fix it (on purpose)
 
 Your first break-it lab. Before touching anything, read these two commands closely:

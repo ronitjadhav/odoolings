@@ -52,7 +52,7 @@ class Vehicle(models.Model):
 
 How the class becomes a table: every time a server process starts, it imports the
 Python of all installed modules and registers each `models.Model` subclass in the
-**registry** under its `_name`. But the *schema* work (CREATE TABLE, ADD COLUMN) only
+**<Term k="registry">registry</Term>** under its `_name`. But the *schema* work (CREATE TABLE, ADD COLUMN) only
 happens when a module is installed or upgraded. That's the deeper reason behind the
 chapter 6 rule of thumb: a pure Python change needs a restart, but anything touching
 fields needs `-u` so the DDL runs.
@@ -150,7 +150,7 @@ That chain matters: Odoo imports the *module* package, which imports `models`, w
 imports `vehicle`. Any missing link and the class simply never registers, with no
 error to tell you (the break-it lab makes this visceral).
 
-Chapter 8's four files are now seven:
+Chapter 8's three files are now five:
 
 <Files className="bg-(--tone-sky)">
   <Folder name="addons/librefleet" defaultOpen>
@@ -276,9 +276,9 @@ Quit the shell (`Ctrl-D`), upgrade, and start a fresh shell:
 
 Wait: why did the *old* shell show the stale behavior? Because `_rec_name` lives in
 the registry, which each process builds at startup. Strictly, this pure-Python change
-only needed a new process, not `-u`; but "edit, upgrade, retest" is the reflex worth
-building, because the moment your edit touches a field, skipping `-u` means Python
-knows about a column Postgres doesn't have.
+only needed a new process, not `-u`. But "edit, upgrade, retest" is the reflex worth
+building: the moment your edit touches a field, skipping `-u` leaves Python knowing
+about a column Postgres doesn't have.
 
 Create a second vehicle and, remembering chapter 6's lesson, commit before leaving:
 
@@ -309,6 +309,7 @@ both vehicles stay active.
 </Step>
 
 <Step>
+<BreakIt />
 ### Break-it lab: the missing import
 
 This chapter's failure mode is the silent one. Comment out the import:

@@ -24,6 +24,7 @@ order carries straight over.
 When a user clicks "Vehicles", four layers cooperate:
 
 <Mermaid
+  label="A menu points at a window action, which opens a view describing how to render the model"
   chart={`flowchart LR
     M["ir.ui.menu<br/>Vehicles"] -- action --> A["ir.actions.act_window<br/>res_model, view_mode"]
     A -- opens --> V["ir.ui.view<br/>list arch / form arch"]
@@ -390,6 +391,7 @@ False
 </Step>
 
 <Step>
+<BreakIt />
 ### Break-it lab: the view that stops the upgrade
 
 Views are validated against the model when they load. In the vehicle list view,
