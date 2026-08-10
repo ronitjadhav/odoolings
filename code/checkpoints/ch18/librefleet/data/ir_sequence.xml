@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!-- noupdate: create once, never overwrite on upgrade, so the running
-         next-number is preserved (chapter 24 goes deeper on noupdate). -->
+         next-number is preserved (chapter 34 goes deeper on noupdate). -->
     <data noupdate="1">
         <record id="seq_librefleet_service_order" model="ir.sequence">
             <field name="name">LibreFleet Service Order</field>
