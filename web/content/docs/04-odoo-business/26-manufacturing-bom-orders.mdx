@@ -23,7 +23,7 @@ yourself, and you will have watched the arithmetic tie back to the recipe exactl
 
 ### A bill of materials is a recipe with an optional routing
 
-`mrp.bom` says what a product is made of: a `product_tmpl_id` (or a specific variant), a
+<Term k="bill of materials (`mrp.bom`)">`mrp.bom`</Term> says what a product is made of: a `product_tmpl_id` (or a specific variant), a
 `product_qty` the recipe yields, and `bom_line_ids`, the components and their quantities.
 Its `type` is usually `normal` (build it), occasionally `phantom` (a kit: the components
 appear directly on whatever order references it, with no separate manufacturing step at
@@ -36,7 +36,7 @@ sometimes a recipe is just "these parts, combined", with no routing worth tracki
 
 ### The manufacturing order's lifecycle
 
-`mrp.production` has six states, more than the documents you have seen so far, because
+A <Term k="manufacturing order (`mrp.production`)">`mrp.production`</Term> has six states, more than the documents you have seen so far, because
 factory work has a middle that pure paperwork does not:
 
 | `state` | Label |
@@ -64,10 +64,11 @@ chapter's recipe does not need them.
 ### Manufacturing is two more stock moves, through a third location
 
 Confirming a manufacturing order creates raw material moves, one per component, from
-Stock into a virtual **Production** location, and a finished-good move from Production
+Stock into a virtual <Term k="Production (location)">**Production**</Term> location, and a finished-good move from Production
 back into Stock. Marking the order done is what actually executes them.
 
 <Mermaid
+  label="Manufacturing as two more stock moves: components leave Stock for the virtual Production location, and the finished good leaves Production back into Stock"
   chart={`flowchart LR
     S1["WH/Stock<br/>components"] -- "consumed" --> P["Production<br/>(virtual)"]
     P -- "produced" --> S2["WH/Stock<br/>finished good"]`}
