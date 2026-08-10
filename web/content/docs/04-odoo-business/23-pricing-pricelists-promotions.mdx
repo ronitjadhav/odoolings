@@ -33,7 +33,7 @@ pricelist rule can possibly be responsible for the price.
 
 ### A pricelist is a bag of rules, and specificity decides
 
-`product.pricelist` holds `product.pricelist.item` rules. Each says **what it applies to**
+A <Term k="pricelist (`product.pricelist`)">`product.pricelist`</Term> holds `product.pricelist.item` rules. Each says **what it applies to**
 and **how it computes a price**:
 
 | `applied_on` | Scope |
@@ -64,12 +64,13 @@ and they leave different traces:
 | **Discount field** | `discount` percent on the line | `price_unit` still equals the product price, `discount` is non-zero |
 | **Promotion / reward** | adds a **new line** with a negative `price_unit` | an extra line you did not add, priced below zero |
 
-The third one surprises people. A claimed reward does not edit your product line and does
+The third one surprises people. A claimed <Term k="reward (loyalty)">reward</Term> does not edit your product line and does
 not touch the discount field. It appends its own line, and the order total falls because
 that line is negative. So "the 10% is missing from the line" and "the 10% is a separate
 line" can both be accurate descriptions of different mechanisms.
 
 <Mermaid
+  label="Three ways a line's price stops being the product's price: a pricelist rule rewrites price_unit, the discount field applies to the line, and a reward appends a separate negative line"
   chart={`flowchart TD
     P["product.product<br/>lst_price 79.00"]
     PL["pricelist rule<br/>0_product_variant, fixed 60.00"]
