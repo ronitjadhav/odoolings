@@ -28,6 +28,7 @@ record, a `model`, an `arch`. Kanban, calendar, pivot and graph are no different
 they just have their own root tag and their own vocabulary inside it:
 
 <Mermaid
+  label="Kanban, calendar, pivot and graph are all the same ir.ui.view record type, each with its own root tag and vocabulary"
   chart={`flowchart TD
     V["ir.ui.view, same as always"] --> K["kanban: cards grouped\nby a field, draggable"]
     V --> C["calendar: records placed\nby a date range"]
@@ -37,7 +38,7 @@ they just have their own root tag and their own vocabulary inside it:
 
 ### Kanban: a card template, not a list
 
-A kanban view's arch wraps a QWeb template named `card` (older tutorials and some
+A <Term k="kanban view">kanban view</Term>'s arch wraps a QWeb template named `card` (older tutorials and some
 still-unmigrated modules call it `kanban-box`, the name Odoo used before this
 release cycle; `card` is what 19.0 expects):
 
@@ -75,7 +76,7 @@ is used but never written as a `<field>`, say so at the root.
 </calendar>
 ```
 
-`date_start`/`date_stop` place each record on the grid; `color` buckets events by
+A <Term k="calendar view">calendar view</Term>'s `date_start`/`date_stop` place each record on the grid; `color` buckets events by
 another field's value so records sharing that value get the same color band, handy
 here for spotting a vehicle booked twice at a glance (which chapter 14's constraint
 already refuses to let happen, but seeing it visually is still worth having).
@@ -90,13 +91,15 @@ already refuses to let happen, but seeing it visually is still worth having).
 </pivot>
 ```
 
-A pivot's `row`/`col`/`measure` fields describe a table; a graph view (`type="bar"`,
+A <Term k="pivot view">pivot view</Term>'s `row`/`col`/<Term k="measure">`measure`</Term> fields describe a table; a <Term k="graph view">graph view</Term> (`type="bar"`,
 `"line"` or `"pie"`) describes the same kind of aggregation as a chart. Both are thin
 UI layers over the exact `read_group` mechanism chapter 18 used for the Group By
 menu: rows and columns become `groupby`, measures become the fields being summed.
 That shared foundation is about to matter.
 
 ## Hands-on
+
+<Steps>
 
 ### 1. Add all four views
 
@@ -261,6 +264,8 @@ One new column, correct values already in it, and `parts_total`/`labor_total`
 confirmed still absent from the table, exactly the selective storing this chapter is
 demonstrating.
 
+</Steps>
+
 ## Verify
 
 ```console
@@ -274,11 +279,20 @@ ch19 complete! On to the next chapter 🔧
 ```
 
 The third check re-runs the exact `read_group` call from step 2 over RPC; if it still
-raised, the check would fail the same way the shell did. For the eyeball version
-(author tour, screenshots pending): open Service Orders, switch to Kanban and drag a
-card between stage columns, switch to Calendar and see the two bookings colored by
-vehicle, then Pivot and Graph to see the margin numbers actually render instead of
-crashing.
+raised, the check would fail the same way the shell did. For the eyeball version: open
+Service Orders, switch to Kanban and drag a card between stage columns (notice the
+technician tag rendering as a plain green initial, not an avatar, exactly the gotcha
+above),
+
+![The Service Orders kanban, grouped into a Draft column, each card showing the reference, vehicle, customer, and a plain green initial tag instead of the many2many_avatar_user widget it asked for](/screens/ch19-kanban-pipeline.jpg)
+
+switch to Calendar and see the two bookings colored by vehicle,
+
+![The Service Orders calendar for the week of July 16, 2026, showing SO/2026/0001 at 10:00 AM in one color and SO/2026/0002 at 11:00 AM in a different color, one band per vehicle](/screens/ch19-calendar-colored.jpg)
+
+then Pivot to see the margin numbers actually render instead of crashing.
+
+![The Service Orders pivot table: rows ZH 468 202 and BE 30 447 under a Draft column, with Margin values 139.10 and 120.00 and a Total of 259.10](/screens/ch19-pivot-margin.jpg)
 
 ## Gotchas
 
