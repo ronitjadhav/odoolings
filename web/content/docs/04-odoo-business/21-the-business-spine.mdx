@@ -54,7 +54,7 @@ fields on it:
 
 - **Company or person**: `is_company`, a boolean. Companies can have people under them
   through `parent_id`, and read them back through `child_ids`.
-- **Customer, vendor, or both**: not a type at all, but two counters, `customer_rank`
+- **Customer, vendor, or both**: not a type at all, but two <Term k="rank (`customer_rank` / `supplier_rank`)">counters</Term>, `customer_rank`
   and `supplier_rank`. They rise as a partner appears on orders. A partner with both
   above zero is a company you buy from *and* sell to, which is completely normal, and
   which a two-table design makes awkward.
@@ -66,8 +66,8 @@ rather than inventing an owner model. You were already using the spine.
 
 This one confuses every new Odoo developer, and it is worth slowing down for.
 
-- **`product.template`** is the product as a human talks about it: "Brake Pad Set".
-- **`product.product`** is the specific thing you can put in a box: "Brake Pad Set
+- <Term k="product template / product variant">`product.template`</Term> is the product as a human talks about it: "Brake Pad Set".
+- `product.product` is the specific thing you can put in a box: "Brake Pad Set
   (Front)". Odoo calls these **variants**.
 
 Add an attribute to a template with two values and Odoo generates one `product.product`
@@ -76,6 +76,7 @@ gets costed is a `product.product`. Everything a person names and prices is usua
 `product.template`.
 
 <Mermaid
+  label="A product template with an Axle attribute generates one product.product variant per attribute value, each pointing back at the template"
   chart={`flowchart TD
     T["product.template<br/>Brake Pad Set<br/>list_price 79.00"]
     A["product.attribute<br/>Axle"]
@@ -113,7 +114,7 @@ choices:
 | `combo` | Combo |
 
 There is **no `product` type any more**. The old "storable product" idea is now a
-separate boolean, `is_storable`, labelled **Track Inventory**, and it is contributed by
+separate boolean, <Term k='is_storable ("Track Inventory")'>`is_storable`</Term>, labelled **Track Inventory**, and it is contributed by
 the Inventory app rather than by `product`. So "is this a physical thing" and "do we
 count it in stock" became two independent questions, which is the better model: a
 consumable you buy and immediately expense is Goods without inventory tracking.
@@ -128,7 +129,7 @@ consumable you buy and immediately expense is Goods without inventory tracking.
 
 ### Units of measure are a tree in Odoo 19
 
-Units also changed, and more deeply than the product type did. A `uom.uom` record now
+Units also changed, and more deeply than the product type did. A <Term k="unit of measure (`uom.uom`)">`uom.uom`</Term> record now
 declares its size **relative to another unit**:
 
 - `relative_uom_id` points at the unit it is defined against (Dozens points at Units).
@@ -211,6 +212,8 @@ Go to **Sales → Products → Products → New** and build a brake pad set:
 
 Now look at the top of the form: a **Variants** smart button appeared, reading 2. You
 created one product and Odoo made two.
+
+![The Brake Pad Set product form: a Variants smart button reading 2, Product Type set to Goods, and Sales Price $79.00](/screens/ch21-brake-pad-set-variants.jpg)
 
 ### Movement 2: read what it did
 
