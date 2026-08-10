@@ -5,7 +5,7 @@ class Vehicle(models.Model):
     """Classic extension: no _name, so this IS librefleet.vehicle.
 
     The fields below land on the existing model and the existing table. This is
-    the same mechanism chapter 22 uses to add fields to core models.
+    the same mechanism chapter 32 uses to add fields to core models.
     """
 
     _inherit = "librefleet.vehicle"
