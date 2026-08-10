@@ -24,7 +24,7 @@ you were told and becomes a pattern you watched core use on itself.
 
 ### The pipeline is one model with a flag
 
-CRM looks like two things, leads and opportunities, and it is one. `crm.lead` has a
+CRM looks like two things, <Term k="lead / opportunity">leads and opportunities</Term>, and it is one. `crm.lead` has a
 `type` field with exactly two values, `lead` and `opportunity`, and "converting" a lead
 flips that field on the record you already had. No copy, no second table, no new id.
 
@@ -48,6 +48,7 @@ Four values, and that is the whole machine:
 | `cancel` | Cancelled |
 
 <Mermaid
+  label="sale.order.state has four values: draft, sent, sale and cancel; locked is a separate boolean, not a fifth state"
   chart={`stateDiagram-v2
     [*] --> draft: create
     draft --> sent: Send by Email
@@ -70,7 +71,7 @@ Four values, and that is the whole machine:
   `type == 'product'`.
 </Callout>
 
-`invoice_status` is a second, independent field tracking the billing side: `no`
+<Term k="invoice_status">`invoice_status`</Term> is a second, independent field tracking the billing side: `no`
 (Nothing to Invoice), `to invoice` (To Invoice), `invoiced` (Fully Invoiced), and
 `upselling` (an ordered quantity was exceeded by what was delivered). Keeping it apart
 from `state` is deliberate: an order's commercial state and its billing state move at
@@ -79,7 +80,7 @@ different speeds.
 ### The invoice policy lives on the product, not the order
 
 This one causes real confusion, so it is worth stating flatly. Whether a confirmed order
-can be invoiced immediately is decided by **each product's** `invoice_policy`:
+can be invoiced immediately is decided by **each product's** <Term k="invoice policy (`invoice_policy`)">`invoice_policy`</Term>:
 
 | `invoice_policy` | Meaning |
 |---|---|
@@ -148,6 +149,8 @@ In **Sales → Orders → Quotations → New**:
 
 Press **Confirm**. Two things happen that you did not ask for: a **Delivery** smart
 button appears at the top of the order, and the order's status changes.
+
+![The confirmed sales order S00025: a Delivery smart button reading 1 and an Invoices smart button reading 1, top right, with the statusbar past Quotation and Quotation Sent, at Sales Order](/screens/ch22-confirmed-order-delivery.jpg)
 
 ### Movement 2: read what it did
 
