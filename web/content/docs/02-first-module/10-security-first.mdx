@@ -4,7 +4,7 @@ description: Groups, access rules, and the real error Odoo gives a user who has 
 ---
 
 **Goal:** give LibreFleet real user groups and access rules, and understand why the
-model was invisible without them. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch10`
+model refused every caller without them. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch10`
 
 ## Why this matters
 
@@ -40,9 +40,9 @@ doesn't exist."
 
 ### Groups, and how Odoo 19 organizes them
 
-Permissions are never granted to individual users, always to **groups**
+Permissions are never granted to individual users, always to **<Term k="group">groups</Term>**
 (`res.groups`), and users join groups. Since Odoo 19, groups are organized under a
-**privilege** (`res.groups.privilege`, the "Workshop" row you'll see on the user
+**<Term k="privilege">privilege</Term>** (`res.groups.privilege`, the "Workshop" row you'll see on the user
 form), and privileges sit in a module category. LibreFleet follows the standard
 two-level pattern almost every app uses:
 
@@ -79,7 +79,7 @@ model: **read, write, create, unlink**. Two properties matter more than the synt
 - **Additive.** A user's effective rights are the union of all their groups' lines.
   There is no "deny" line; you subtract by *not granting*, never by overriding.
 - **Model-wide.** An ACL answers "may tina write vehicles at all?". "May she write
-  *this* vehicle?" is a different mechanism, **record rules** (`ir.rule`), which
+  *this* vehicle?" is a different mechanism, **<Term k="record rule">record rules</Term>** (`ir.rule`), which
   filter per record with a domain. LibreFleet's record rule ("technicians may only
   write service orders assigned to them") arrives in chapter 12, once service orders
   exist to filter.
@@ -87,11 +87,11 @@ model: **read, write, create, unlink**. Two properties matter more than the synt
 ### Superuser, admin, and testing as somebody real
 
 Chapter 9's shell worked without any ACL because `odoo shell` runs as the
-**superuser** (`__system__`, uid 1), which skips permission checks entirely. The
+**<Term k="superuser">superuser</Term>** (`__system__`, uid 1), which skips permission checks entirely. The
 `admin` account is *not* that: it's an ordinary user born into the administration
 groups, and your new model's ACLs don't mention those. That's why this chapter's
 XML explicitly adds admin to Workshop / Manager, and why the honest way to test
-security is `with_user()`: it re-runs your code as a real user, checks included.
+security is <Term k="with_user()">`with_user()`</Term>: it re-runs your code as a real user, checks included.
 
 ## Hands-on
 
@@ -134,7 +134,7 @@ New directory `security/`, first file
 
 Three things to unpack, because this file is your first real data XML:
 
-- Every `<record>` gets an **XML id** (`id="group_librefleet_user"`), a stable
+- Every `<record>` gets an **<Term k="XML id (external id)">XML id</Term>** (`id="group_librefleet_user"`), a stable
   handle other files and modules use to point at the record. `ref("...")` resolves
   one; ids from other modules need the module prefix (`base.group_user`).
 - `eval="[(4, ref(...))]"` is the ORM's list-manipulation syntax for x2many fields:
@@ -268,7 +268,7 @@ The server log tells the same story from its side:
 INFO tutorial odoo.addons.base.models.ir_model: Access Denied by ACLs for operation: create, uid: 5, model: librefleet.vehicle
 ```
 
-And the escape hatch you should distrust on sight: `Vehicle.sudo()` returns to
+And the escape hatch you should distrust on sight: <Term k="sudo()">`Vehicle.sudo()`</Term> returns to
 superuser and would happily create the record. Try it, see it work, then quit
 *without* committing. `sudo()` has legitimate uses (chapter 15 sets the rules), but
 every one of them deserves a comment explaining itself.

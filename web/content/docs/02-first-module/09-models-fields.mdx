@@ -101,7 +101,7 @@ declared: `id` (the primary key), `create_uid`, `create_date`, `write_uid`,
 `write_date` (who created and last modified each record, and when). The ORM
 maintains all five on every regular model; audit trail included, no code required.
 
-There's a sixth automatic field that is *not* a column: **`display_name`**, the
+There's a sixth <Term k="automatic fields">automatic field</Term> that is *not* a column: **<Term k="display_name">`display_name`</Term>**, the
 string Odoo shows whenever a record is presented as one line (breadcrumbs, dropdown
 options, tab titles). It's computed on the fly from the field named by
 **`_rec_name`**, which defaults to a field literally called `name`. Our model has no
@@ -110,7 +110,7 @@ options, tab titles). It's computed on the fly from the field named by
 ### `active` is a reserved name
 
 `active` is not automatic (you declare it yourself), but the name carries behavior:
-when a record has `active = False` it is **archived**, and `search()` pretends it
+when a record has `active = False` it is **<Term k="archiving">archived</Term>**, and `search()` pretends it
 doesn't exist unless you explicitly ask for archived records. That's how Odoo does
 "soft delete" everywhere: old products, ex-employees, sold vehicles. Almost every
 model you'll ever write wants this field, and `default=True` on it is essential

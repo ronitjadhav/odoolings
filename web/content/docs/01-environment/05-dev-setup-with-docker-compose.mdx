@@ -70,7 +70,7 @@ Read it top to bottom:
 - **`ports: "8069:8069"`** publishes Odoo's HTTP port to your machine. 8069 is Odoo's
   default and every Odoo developer has it memorized.
 - **Named volumes** (`db-data`, `odoo-data`) are where the *state* lives: the Postgres
-  data directory and Odoo's **filestore** (attachments and uploaded files live on
+  data directory and Odoo's **<Term k="filestore">filestore</Term>** (attachments and uploaded files live on
   disk, not in the database). Containers are disposable; these volumes are not.
 - **Bind mounts** are the developer magic: `./odoo.conf` injects our config file, and
   `./addons` (an empty directory today) is where LibreFleet will live from chapter 8.
@@ -97,7 +97,7 @@ dev_mode = all
   addons; this adds ours.
 - **`db_host = db`** is Compose networking in action: services reach each other by
   service name. No IP addresses, no localhost.
-- **`admin_passwd`** is the **master password**, the one the database manager screen
+- **`admin_passwd`** is the **<Term k="master password">master password</Term>**, the one the database manager screen
   asks for when you create, duplicate or drop databases. It is *not* a user's login
   password.
 - **`dev_mode = all`** turns on developer conveniences, most importantly auto-reload:
@@ -168,6 +168,18 @@ $ docker compose up
 
 You now own five files: the two you just read line by line, an empty `addons/`, a
 `.gitignore`, and a README. Read them, edit them, they are yours.
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="librefleet" defaultOpen>
+    <Folder name="addons" defaultOpen>
+      <File name=".gitkeep" />
+    </Folder>
+    <File name=".gitignore" />
+    <File name="docker-compose.yml" />
+    <File name="odoo.conf" />
+    <File name="README.md" />
+  </Folder>
+</Files>
 
 <Callout type="info" title="This repository is yours, not a copy of ours">
   Your LibreFleet is your own project, exactly like a custom module on a real client
