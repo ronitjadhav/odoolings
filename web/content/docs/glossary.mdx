@@ -459,6 +459,11 @@ install/upgrade.
 `related="vehicle_id.owner_id"` mirrors the value at the end of the path and
 updates when it changes. Storable like any computed field.
 
+**ribbon**: the `web_ribbon` widget, a diagonal corner banner on a form (core uses it
+for "Archived" and "Paid"). Placed with `<widget name="web_ribbon" title="..."
+bg_color="..." invisible="...">` right after the sheet's button box; the `invisible`
+expression decides when it shows, most often over `active` (chapter 17).
+
 **Runboat**: OCA infrastructure that spins up a throwaway live Odoo instance for every
 pull request, so reviewers can click through changes.
 
