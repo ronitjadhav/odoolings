@@ -23,10 +23,10 @@ worth a small form, not a click.
 
 ### TransientModel: a model that cleans up after itself
 
-A wizard is a model like any other, `_name`, fields, methods, security, except it
+A <Term k="wizard">wizard</Term> is a model like any other, `_name`, fields, methods, security, except it
 inherits `models.TransientModel` instead of `models.Model`. The difference is
 lifecycle: transient records aren't meant to live forever. Odoo runs a scheduled
-vacuum that deletes old transient rows automatically (a default cutoff measured in
+<Term k="vacuum">vacuum</Term> that deletes old transient rows automatically (a default cutoff measured in
 hours, configurable per model via `_transient_max_hours`), so a wizard's table never
 accumulates years of throwaway "I opened this popup once" records the way a real
 business model's table would. Everything else about a `TransientModel`, fields,
@@ -35,6 +35,7 @@ business model's table would. Everything else about a `TransientModel`, fields,
 ### A wizard's three-part shape
 
 <Mermaid
+  label="A wizard's three-part shape: a button opens a popup act_window, the user fills the wizard form, and its own button validates and writes back to the record that opened it"
   chart={`flowchart LR
     A["button on the order form\n(type=object)"] --> B["method returns an\nact_window, target=new"]
     B --> C["wizard form opens as\na popup, order_id defaulted\nfrom context"]
@@ -67,6 +68,8 @@ rule is about *process*, a specific action a user takes on purpose, that benefit
 from a confirmation step and maybe some extra input first.
 
 ## Hands-on
+
+<Steps>
 
 ### 1. Scaffold the wizard
 
@@ -167,7 +170,7 @@ On `librefleet.service.order`, add the method the button calls:
         }
 ```
 
-`target="new"` is what makes this open as a popup instead of navigating away from
+<Term k='target="new"'>`target="new"`</Term> is what makes this open as a popup instead of navigating away from
 the order. `default_order_id` in the context does the same job chapter 15 and 17's
 smart buttons already showed you: the wizard's `order_id` field gets pre-filled the
 moment the form opens, no `default_get` override needed.
@@ -212,12 +215,16 @@ Bump the manifest to `19.0.1.14.0` and upgrade:
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-### 4. A warning you'll actually see, and the fix
+### 4. Two warnings you'll actually see, and the fix
 
 Watch the upgrade output closely (or check it in the shell afterward) and you'll spot
-something new:
+something new, and it's actually two distinct warnings, not one:
 
 ```console
+UserWarning: librefleet.service.order: inconsistent 'compute_sudo' for computed
+fields parts_total, labor_total, margin. Either set 'compute_sudo' to the same
+value on all those fields, or use distinct compute methods for sudoed and
+non-sudoed fields.
 UserWarning: librefleet.service.order: inconsistent 'store' for computed fields,
 accessing parts_total, labor_total may recompute and update margin. Use distinct
 compute methods for stored and non-stored fields.
@@ -225,10 +232,13 @@ compute methods for stored and non-stored fields.
 
 This is chapter 19's `store=True` on `margin` catching up with you. All three fields,
 `parts_total`, `labor_total`, `margin`, still shared one `_compute_totals` method,
-but only `margin` got a real column. Odoo 19 now warns explicitly that mixing stored
-and non-stored fields in a single compute method is a bad pattern, because the two
-kinds have genuinely different recompute triggers under the hood. The fix is the
-split it's asking for. In `models/service_order.py`:
+but only `margin` got a real column. Odoo 19 now warns explicitly, twice, that mixing
+stored and non-stored (and, separately, sudoed and non-sudoed) fields in a single
+compute method is a bad pattern, because each pairing has genuinely different
+behavior under the hood. One fix resolves both warnings at once: splitting the
+compute method by storage also gives each half a consistent `compute_sudo`, since
+that attribute defaults per field and both fields in each half share the same
+default. In `models/service_order.py`:
 
 ```python
     parts_total = fields.Float(compute="_compute_parts_labor")
@@ -258,14 +268,14 @@ Two methods now: one computes the two non-stored fields, one computes the stored
 one. Notice `_compute_margin`'s `@api.depends` includes `"parts_total"` and
 `"labor_total"` directly, a computed field can depend on another computed field,
 same as any stored field, so the dependency chain still cascades correctly when a
-line's quantity changes. Bump to `19.0.1.15.0`, upgrade, and confirm the warning is
-gone:
+line's quantity changes. Bump to `19.0.1.15.0`, upgrade, and confirm both warnings
+are gone:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-No warning this time, and a quick psql check confirms the actual numbers didn't
+No warnings this time, and a quick psql check confirms the actual numbers didn't
 move, only how they're computed did:
 
 ```console
@@ -335,6 +345,8 @@ data matches the real chapter demonstration, not your break-it experiments:
 >>> env.cr.rollback()
 ```
 
+<BreakIt />
+
 ### 6. Break-it lab: is `groups=` on a field a real security boundary, or just UI polish?
 
 You might reasonably assume `groups=` on a field only hides it from the form, the
@@ -392,6 +404,8 @@ That is not a flaw, it is the definition of `sudo()`, and it is why the audit qu
 a real project is never "is this field restricted?" but "which code paths sudo their way
 to it?". Chapter 38 writes the test that pins that down.
 
+</Steps>
+
 ## Verify
 
 ```console
@@ -407,10 +421,12 @@ ch20 complete! On to the next chapter 🔧
 The last two checks build their own throwaway order and part line, run the wizard
 against it, and unlink the order in a `finally` block regardless of outcome, so
 running the check suite never leaves stray fixture data in your database (the same
-discipline chapter 15's boss challenge checks used). For the eyeball version (author
-tour, screenshots pending): move an order to In Progress, click Mark Done, watch the
-popup, and confirm the order lands on Done only after clicking the wizard's own
-button.
+discipline chapter 15's boss challenge checks used). For the eyeball version: move an
+order to In Progress, click Mark Done, watch the popup,
+
+![The Approve & Complete wizard popup, showing a read-only Margin of 139.10, an empty Completion Note field, and Mark Done / Cancel buttons in the footer](/screens/ch20-approve-wizard.jpg)
+
+and confirm the order lands on Done only after clicking the wizard's own button.
 
 ## Gotchas
 
@@ -509,10 +525,9 @@ button.
 
 ## Further reading
 
-- [TransientModel in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
-  the official walkthrough of `TransientModel` and popup actions.
 - [`TransientModel` in the ORM reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
-  the vacuum mechanism and `_transient_max_hours`.
+  the official walkthrough of `TransientModel`, popup actions, the vacuum mechanism,
+  and `_transient_max_hours`.
 - [Access rights and record rules (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html):
   where field-level `groups=` sits alongside ACLs and record rules in the security
   model this chapter's break-it lab tested directly.
