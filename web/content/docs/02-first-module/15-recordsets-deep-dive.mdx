@@ -119,6 +119,7 @@ Both give you a subset, and choosing well is a performance habit worth building 
 day one:
 
 <Mermaid
+  label="search pushes a domain into Postgres and only matching rows travel back, while filtered loops in Python over records already in memory"
   chart={`flowchart LR
     subgraph P["Postgres does the work"]
       S["search(domain)"] --> SQL["SELECT ... WHERE ..."]
@@ -191,6 +192,8 @@ into archaeology. House rule you'll see at every serious integrator: sudo the
 *smallest possible operation*, never the whole method, and leave a comment saying why.
 
 ## Hands-on
+
+<Steps>
 
 ### 1. Anatomy of a recordset
 
@@ -353,6 +356,8 @@ permanent. The `commit()` matters, as always in the shell, and this exact state
 (SHELL-001 active with its note, SHELL-002 archived, SHELL-003 gone) is what
 `odoolings` will verify.
 
+<BreakIt />
+
 ### 7. Become tina: record rules in action (break-it lab)
 
 Chapter 10's record rule says technicians may only *write* orders they're assigned
@@ -463,6 +468,8 @@ One nuance so you're never surprised: the rollback above still cost numbers, bec
 number drawn inside `create` is as non-transactional as anywhere else. What the override
 fixes is forms and abandoned drafts (no draw before save), not rollbacks after a
 successful save.
+
+</Steps>
 
 ## Verify
 
