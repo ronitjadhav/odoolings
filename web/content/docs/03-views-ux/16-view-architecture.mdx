@@ -23,7 +23,7 @@ LibreFleet, including how it breaks.
 
 Every list, form, kanban and search screen is described by a record of `ir.ui.view`,
 holding among other things: the `model` it renders, its `type` (list, form...), its
-`arch` (the XML you've been writing), a `priority`, a `mode`, and optionally an
+<Term k="arch (view architecture)">`arch`</Term> (the XML you've been writing), a `priority`, a `mode`, and optionally an
 `inherit_id`. Your module's XML files don't "declare" views in some special sense;
 they just load records into this table, like any other data file.
 
@@ -46,6 +46,7 @@ Two views, both `primary`, both at the default priority of 16. Those two columns
 When the web client asks for, say, the form view of `librefleet.vehicle`, the server:
 
 <Mermaid
+  label="How Odoo assembles a form view: pick the lowest-priority primary view, collect its extensions, and apply their patches in priority order"
   chart={`flowchart TD
     A["client requests form view<br/>(no explicit view_id)"] --> B["pick the PRIMARY view of that<br/>model and type with the<br/>LOWEST priority"]
     B --> C["collect its extension views<br/>(mode=extension, inherit_id set)"]
@@ -55,11 +56,11 @@ When the web client asks for, say, the form view of `librefleet.vehicle`, the se
 
 Two consequences worth engraving:
 
-- **Extensions never replace, they patch.** An extension view is a list of edits
+- **<Term k="extension view">Extensions</Term> never replace, they patch.** An extension view is a list of edits
   (add this after that, change this attribute) applied to its parent's arch at
   request time. The parent's record is untouched; uninstall the extension and the
   original is back, unchanged.
-- **Priority is a golf score.** Among primary views, the *lowest* number wins the
+- **<Term k="view priority">Priority</Term> is a golf score.** Among <Term k="primary view">primary views</Term>, the *lowest* number wins the
   default slot. Base views sit at 16, so a view with priority 8 hijacks the default,
   and one at 99 never wins unless an action asks for it by `view_id` explicitly.
 
@@ -120,6 +121,8 @@ The reception desk has two requests: show the archive toggle on the vehicle form
 (chapter 15 taught archiving, but there's no way to do it from the UI yet), and call
 the mileage field what everyone calls it, the odometer. You'll do both without
 touching `vehicle_views.xml`.
+
+<Steps>
 
 ### 1. Write the extension view
 
@@ -199,7 +202,7 @@ Everything this chapter claimed, visible in one query: the extension with its
 
 ### 3. Watch the combination happen
 
-`get_view` is the method the web client itself calls; ask it for the combined form
+<Term k="get_view">`get_view`</Term> is the method the web client itself calls; ask it for the combined form
 arch from the shell:
 
 ```console
@@ -239,6 +242,8 @@ priority is data, and the winner is recomputed on every request. (The rollback k
 your database matching the checkpoint; the file's `eval="99"` is the state that
 ships.)
 
+<BreakIt />
+
 ### 5. Break-it lab: the locator that matches nothing
 
 Sabotage the xpath in your extension view, replacing `service_count` with a field
@@ -253,24 +258,35 @@ Upgrade and read the failure carefully:
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ...
-odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml:7
+odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views.xml:18
 Error while parsing or validating view:
 
 Element '<xpath expr="//field[@name=&#39;does_not_exist&#39;]">' cannot be located in parent view
 
 View error context:
-{'file': '/mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml',
- 'line': 2,
+{'file': '/mnt/extra-addons/librefleet/views/vehicle_views.xml',
+ 'line': 1,
  'name': 'librefleet.vehicle.form.reception',
- 'view': ir.ui.view(261,),
- 'view.parent': ir.ui.view(254,),
- ...
+ 'view': ir.ui.view(259,),
+ 'view.model': 'librefleet.vehicle',
+ 'view.parent': ir.ui.view(184,),
+ 'xmlid': 'view_librefleet_vehicle_form'}
 ```
 
-This traceback is a gift and you should learn its shape now: the exact file and line,
-the locator that failed, the view record and its parent. You will meet it again every
-time a version migration renames a field your xpath anchored on (chapter 47's bread
-and butter). Restore `service_count`, upgrade, and confirm the module loads clean.
+Read this one carefully, because its `file` and `line` lie to you a little. They point
+at `vehicle_views.xml`, the *base* form's file, not `vehicle_views_inherit.xml` where
+your broken xpath actually lives. That's because the base form isn't `noupdate`, so
+every upgrade rewrites its record, and that write is what triggers Odoo to recombine
+it with every extension and validate the result, while `vehicle_views.xml` is still
+the file the loader is nominally "in". The `name`, `view` and `view.parent` keys don't
+lie, though: `name` is your extension's own name, `view` is its record id, and
+`view.parent` is the base form it failed to patch. When file and line point somewhere
+that looks innocent, trust those three instead; they name the real culprit every time.
+You will meet this shape again whenever a version migration renames a field your xpath
+anchored on (chapter 47's bread and butter). Restore `service_count`, upgrade, and
+confirm the module loads clean.
+
+</Steps>
 
 ## Verify
 
