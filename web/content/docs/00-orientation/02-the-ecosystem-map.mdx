@@ -30,22 +30,32 @@ at an integrator, the OCA part isn't optional culture, it's your daily toolbox.
     OCA -->|"quality standards, shared modules"| C`}
 />
 
-- **<Term k="Odoo SA">Odoo SA</Term>** is the editor. It writes the core, ships the yearly release, and runs
-  odoo.com, Odoo Online, odoo.sh, and the Enterprise subscription business.
-- **Partners / <Term k="integrator / partner">integrators</Term>** are companies that implement Odoo for clients:
-  requirements, configuration, custom modules, migrations, support. This is where most
-  Odoo developers work (Camptocamp, where this tutorial's author works, is one of the
-  larger ones).
-- **The <Term k="OCA">OCA</Term> (Odoo Community Association)** is a Swiss nonprofit that maintains hundreds
-  of open-source module repositories at
-  [github.com/OCA](https://github.com/OCA), organized by domain (`server-tools`,
-  `web`, `partner-contact`, `account-financial-tools`, ...). Each repo is governed by a
-  **<Term k="PSC">PSC</Term>** (Project Steering Committee) and enforces serious quality gates: CI,
-  peer review, conventions. Part 8 of this tutorial is entirely about working the
-  OCA way.
-- **You, eventually.** The OCA runs on contributions from integrator developers.
-  Reusing an OCA module instead of writing your own is standard practice; contributing
-  fixes back is expected etiquette.
+<CardGrid cols={2}>
+  <Card tone="sage" icon={<Icon name="milestone" />} title="Odoo SA">
+    The <Term k="Odoo SA">editor</Term>. Writes the core, ships the yearly release, and runs odoo.com,
+    Odoo Online, odoo.sh, and the Enterprise subscription business.
+  </Card>
+  <Card tone="sand" icon={<Icon name="people" />} title="Partners / integrators">
+    Companies that <Term k="integrator / partner">implement Odoo</Term> for clients: requirements, configuration, custom
+    modules, migrations, support. Where most Odoo developers work (Camptocamp, where
+    this tutorial's author works, is one of the larger ones).
+  </Card>
+  <Card tone="violet" icon={<Icon name="branch" />} title="The OCA">
+    A Swiss nonprofit, the <Term k="OCA">Odoo Community Association</Term>, maintaining hundreds of
+    open-source module repositories at [github.com/OCA](https://github.com/OCA),
+    organized by domain (`server-tools`, `web`, `partner-contact`,
+    `account-financial-tools`, ...). Each repo is governed by a <Term k="PSC">PSC</Term> (Project
+    Steering Committee) and enforces serious quality gates: CI, peer review,
+    conventions.
+  </Card>
+  <Card tone="plain" icon={<Icon name="learn" />} title="You, eventually">
+    The OCA runs on contributions from integrator developers. Reusing an OCA module
+    instead of writing your own is standard practice; contributing fixes back is
+    expected etiquette.
+  </Card>
+</CardGrid>
+
+Chapter 43 on is entirely about working the OCA way.
 
 ### Where the knowledge lives
 
@@ -101,7 +111,7 @@ Notice what does **not** flow between branches: a fix on `19.0` does not automat
 reach `16.0`. Migration is a deliberate, separate act, which is exactly why chapter 47
 gives it a whole chapter rather than a paragraph.
 
-You don't need to memorize this yet; you'll live it in Part 8. For now, just recognize
+You don't need to memorize this yet; you'll live it starting at chapter 43. For now, just recognize
 the shape.
 
 ## Hands-on
@@ -131,7 +141,7 @@ professionally-written module code, (d) an answer to "why does X behave like thi
   page's version selector.
 - **Odoo Apps store ≠ OCA.** The store hosts anyone's modules, including abandoned
   ones. OCA modules pass review and CI; store modules might not have either.
-- **PSC, ocabot, Runboat, Weblate**: OCA jargon you'll meet in Part 8. They're in the
+- **PSC, ocabot, Runboat, Weblate**: OCA jargon you'll meet from chapter 43 on. They're in the
   [glossary](/docs/glossary) already if you're curious now.
 
 ## Quick check
@@ -181,6 +191,6 @@ professionally-written module code, (d) an answer to "why does X behave like thi
   the CLA.
 - <Icon name="docs" /> [OCA contribution guide](https://odoo-community.org/get-involved/contribute)
 - <Icon name="tool" /> [Runboat](https://runboat.odoo-community.org): the PR test
-  instances you'll use in Part 8.
+  instances you'll use from chapter 43 on.
 - <Icon name="video" /> [Odoo official YouTube](https://www.youtube.com/@Odoo) ·
   <Icon name="video" /> [OCA YouTube](https://www.youtube.com/@OdooCommunity)

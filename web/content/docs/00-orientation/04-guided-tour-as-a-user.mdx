@@ -8,8 +8,8 @@ behind the curtain. · **Time:** ~1.5 h · **Checkpoint:** none, but your Odoo r
 
 ## Why this matters
 
-You cannot develop a product you've never used. Every model you'll build in Part 2
-(customers, orders, stages, activities) is a concept Odoo's own apps already express,
+You cannot develop a product you've never used. Every model you'll build starting in
+chapter 8 (customers, orders, stages) is a concept Odoo's own apps already express,
 and once you've clicked through them, the framework's vocabulary stops being abstract.
 Developers who skip this stage write modules that fight the platform; developers who
 know the product write modules that feel native.
@@ -80,7 +80,7 @@ Fill the form like this:
 </Callout>
 
 <Callout type="warn" title="Demo data is a birth decision">
-  Demo data fills the database with a fictional company (customers, products, open
+  <Term k="demo data">Demo data</Term> fills the database with a fictional company (customers, products, open
   orders), which is exactly what makes clicking around instructive. It also gets loaded
   at creation or never: there's no switch to flip later. If you forgot the checkbox, drop
   the database in the manager and create it again.
@@ -150,7 +150,7 @@ Go to **Settings → General Settings**, scroll to the bottom, and under *Develo
 Tools* click **Activate the developer mode**. (The shortcut you'll actually use daily:
 append `?debug=1` to any backend URL.)
 
-Three things just changed:
+Three things just changed now that <Term k="developer mode">developer mode</Term> is on:
 
 - A 🐞 icon appeared in the top bar: the developer tools menu.
 - **Settings** grew a **Technical** section, the database's guts: views, actions,
@@ -168,7 +168,7 @@ Three things just changed:
 With developer mode on, open **Settings → Technical → Database Structure → Models**
 and find `crm.lead`. Every field of the opportunity form you used ten minutes ago is a
 row here, 116 of them. Now the circle closes: *the UI you clicked is described by data
-you can browse*. In five chapters, rows in this list will be yours.
+you can browse*. By chapter 9, rows in this list will be yours.
 
 ![The crm.lead model's Fields tab: 116 rows, Field Name, Field Label, Field Type, Required, Readonly, Indexed](/screens/ch04-model-crm-lead-fields.jpg)
 </Step>
@@ -196,7 +196,7 @@ checkbox was missed. Recreate the database.
 - **Developer mode is per session, not per server.** It follows your login session;
   activating it doesn't affect other users, and `?debug=0` turns it off.
 - **`debug=assets` exists too.** It serves unminified JS/CSS. You'll want it in
-  Part 7 when debugging OWL; it makes everything slower, so don't leave it on.
+  chapter 39 on when debugging OWL; it makes everything slower, so don't leave it on.
 - **Demo data is not sample data for production.** It exists for training, tests, and
   Runboat-style throwaway instances. Client projects always start without it.
 - **Don't study Enterprise-only apps yet.** If you see apps in the list that ask for a

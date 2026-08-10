@@ -81,12 +81,21 @@ Our `odoo.conf` sets `dev_mode = all`. Watch the spelling: the config-file key i
 disables the whole thing rather than complaining. On Odoo 19, `all` expands to four
 features:
 
-- **`reload`**: the server restarts itself when Python source changes.
-- **`xml`**: view architectures are read directly from your XML files instead of the
-  database, which papers over many (not all) of the `-u` cases during development.
-- **`qweb`**: logs the compiled XML when a QWeb template breaks.
-- **`access`**: logs the full traceback of access errors, which will save you in
-  chapter 10.
+<CardGrid cols={2}>
+  <Card tone="sage" title="reload">
+    The server restarts itself when Python source changes.
+  </Card>
+  <Card tone="sand" title="xml">
+    View architectures are read directly from your XML files instead of the database,
+    papering over many (not all) `-u` cases during development.
+  </Card>
+  <Card tone="violet" title="qweb">
+    Logs the compiled XML when a QWeb template breaks.
+  </Card>
+  <Card tone="plain" title="access">
+    Logs the full traceback of access errors, which will save you in chapter 10.
+  </Card>
+</CardGrid>
 
 (A fifth, `werkzeug`, can be enabled by name: an interactive HTML debugger on request
 errors.)
