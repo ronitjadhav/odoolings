@@ -22,20 +22,21 @@ technicians to their own work.
 
 ### Three relation types, one foreign key story
 
-- **`Many2one`** is *the* relation; the other two are conveniences built around it.
+- **<Term k="many2one">`Many2one`</Term>** is *the* relation; the other two are conveniences built around it.
   `vehicle_id = fields.Many2one("librefleet.vehicle")` becomes a plain integer
   column holding the other record's id, with a real foreign key constraint in
   Postgres. Naming convention: singular, `_id` suffix.
-- **`One2many`** is a Many2one read from the other end. `service_order_ids` on the
+- **<Term k="one2many">`One2many`</Term>** is a Many2one read from the other end. `service_order_ids` on the
   vehicle is *not* a column anywhere: it's a live query ("all orders whose
   `vehicle_id` is me"), which is why declaring one always names the inverse field:
   `fields.One2many("librefleet.service.order", "vehicle_id")`. No Many2one, no
   One2many. Naming: plural, `_ids` suffix.
-- **`Many2many`** links both ways without a "belongs to" side. Technicians work on
+- **<Term k="many2many">`Many2many`</Term>** links both ways without a "belongs to" side. Technicians work on
   many orders, orders can need two mechanics. In Postgres this becomes a separate
   *relation table* of id pairs that Odoo names and manages for you.
 
 <Mermaid
+  label="An owner has many vehicles, a vehicle has many service orders, each order has a service type, many order lines and many technicians, each line has one part"
   chart={`erDiagram
     "res.partner" ||--o{ "librefleet.vehicle" : "owner_id"
     "librefleet.vehicle" ||--o{ "librefleet.service.order" : "vehicle_id"
@@ -47,7 +48,7 @@ technicians to their own work.
 
 ### `ondelete`: decide now what deletion means
 
-Every Many2one carries an `ondelete` policy, and the default (`set null`) is a
+Every Many2one carries an <Term k="ondelete">`ondelete`</Term> policy, and the default (`set null`) is a
 decision too. LibreFleet uses all three settings deliberately:
 
 | Field | Policy | Because |
@@ -62,7 +63,7 @@ SQL. You'll read them straight out of `\d` in the hands-on.
 ### Record rules: the per-record layer, at last
 
 Chapter 10 promised it: ACLs answer "may technicians write orders at all" (yes),
-record rules answer "*which* orders". An `ir.rule` attaches a domain to a model for
+<Term k="record rule">record rules</Term> answer "*which* orders". An `ir.rule` attaches a domain to a model for
 some groups; the ORM silently appends it to every read, write, create or unlink the
 rule is flagged for (`perm_read`, `perm_write`...).
 
@@ -77,7 +78,7 @@ hands-on walks you into that trap with your own admin account, then out of it.
 
 You'll meet writes like `technician_ids: [(4, tina.id)]` in this chapter's shell
 work (you already saw one in chapter 10's group XML). Relational fields are written
-with a small command language: `(4, id)` links an existing record, `(0, 0, {vals})`
+with a small <Term k="command list (x2many commands)">command language</Term>: `(4, id)` links an existing record, `(0, 0, {vals})`
 creates one attached to the parent, `(6, 0, [ids])` replaces the whole set,
 `(3, id)`/`(2, id)` unlink or delete one. Since Odoo 15 you can also write them
 readably as `Command.link(id)`, `Command.create(vals)` and so on; the tuple form is
@@ -85,7 +86,10 @@ what you'll encounter in twenty years of existing code, so learn to read both.
 
 ## Hands-on
 
-### 1. The service order and its lines
+<Steps>
+
+<Step>
+### The service order and its lines
 
 `addons/librefleet/models/service_order.py`, two models in one file because
 lines never live apart from their order:
@@ -137,7 +141,10 @@ the heavily-searched Many2ones adds a real database index. `_rec_name =
 "vehicle_id"` borrows the vehicle's display name until chapter 14 gives orders a
 proper reference. And until chapter 13 computes them, prices sit as plain floats.
 
-### 2. The parts catalog
+</Step>
+
+<Step>
+### The parts catalog
 
 `addons/librefleet/models/part.py` is chapter 9 material, four fields, no
 relations (`name` required, `code`, `standard_cost`, `list_price`; see the
@@ -146,7 +153,10 @@ real products is chapter 32's whole point. Import both new files in
 `models/__init__.py` (alphabetical, so `part`, `service_order`, `service_type`,
 `vehicle`).
 
-### 3. Close the loop on the vehicle
+</Step>
+
+<Step>
+### Close the loop on the vehicle
 
 Two lines in `vehicle.py`, right after `license_plate`:
 
@@ -160,7 +170,40 @@ of inventing a customer model is the single most integrator-brained decision in
 this chapter. Every module that touches partners (mail, invoicing, portal) now
 composes with yours for free.
 
-### 4. ACLs for three new models
+Three new Python files this chapter, and every model from chapter 8 on is now wired
+together:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="part.py" />
+      <File name="service_order.py" />
+      <File name="service_type.py" />
+      <File name="vehicle.py" />
+    </Folder>
+    <Folder name="security">
+      <File name="ir.model.access.csv" />
+      <File name="librefleet_security.xml" />
+    </Folder>
+    <Folder name="views">
+      <File name="librefleet_menus.xml" />
+      <File name="part_views.xml" />
+      <File name="service_order_views.xml" />
+      <File name="service_type_views.xml" />
+      <File name="vehicle_views.xml" />
+    </Folder>
+    <Folder name="static/description">
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
+</Step>
+
+<Step>
+### ACLs for three new models
 
 Six new lines in `security/ir.model.access.csv`, same pattern as always:
 technicians read the parts catalog but don't edit it, and they work with orders and
@@ -168,7 +211,10 @@ lines but never delete an order (see the checkpoint for the exact lines). Note
 what's *deliberately* granted: user create on orders and full line access; the real
 restriction comes next.
 
-### 5. The record rule, and the trap
+</Step>
+
+<Step>
+### The record rule, and the trap
 
 Append the technician rule to `security/librefleet_security.xml`, inside a
 `<data noupdate="1">` block (rules are policy, not code; `noupdate` keeps a later
@@ -222,6 +268,9 @@ AccessError: Uh-oh! Looks like you have stumbled upon some top-secret records.
 
 Sorry, Administrator (id=2) doesn't have 'write' access to:
 - Service Order (librefleet.service.order)
+
+If you really, really need access, perhaps you can win over your friendly
+administrator with a batch of freshly baked cookies.
 ```
 
 The boss is locked out of the workshop. Why: admin is a Workshop Manager, Manager
@@ -247,7 +296,10 @@ narrates every denial:
 INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for operation: write on record ids: [2], uid: 2, model: librefleet.service.order
 ```
 
-### 6. Views and menus for the new models
+</Step>
+
+<Step>
+### Views and menus for the new models
 
 Nothing conceptually new, so skim the checkpoint for the full XML:
 `views/service_order_views.xml` (list + form + action) and `views/part_views.xml`
@@ -270,11 +322,16 @@ Configuration → Parts. Two details in the order form deserve your attention:
 a handful of technicians; chapter 17 tours the widget zoo). And nesting a `<list>`
 inside a one2many field gives you the inline lines editor every Odoo order screen
 uses; rows you add there are `(0, 0, {...})` commands under the hood. Also add
-`owner_id` to the vehicle list and form from chapter 11. Upgrade, restart, and
-click through: Fleet → Service Orders, open the oil change, add a line, pick
-technicians by name.
+`owner_id` to the vehicle list and form from chapter 11. Upgrade (no restart needed,
+chapter 10's registry-signaling finding again), and click through: Fleet → Service
+Orders, open the oil change, add a line, pick technicians by name.
 
-### 7. Read the relations back from Postgres
+![The oil change service order: Technicians tag widget showing Tina Technician, a Parts Used inline editable list with oil filter and engine oil lines, scheduling fields on the right](/screens/ch12-service-order-form.jpg)
+
+</Step>
+
+<Step>
+### Read the relations back from Postgres
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c '\d librefleet_service_order_line'
@@ -302,7 +359,11 @@ ForeignKeyViolation: update or delete on table "librefleet_vehicle" violates for
 
 (That's the raw violation; remember to `env.cr.rollback()` after it.)
 
-### 8. Break-it lab: the inverse that isn't
+</Step>
+
+<Step>
+<BreakIt />
+### Break-it lab: the inverse that isn't
 
 One2many's inverse name is a string, and strings can lie. In `line_ids`, change
 `"order_id"` to `"service_order_id"` and upgrade:
@@ -315,6 +376,9 @@ This one fails at registry setup, before any XML loads, so the message is short 
 surgical: the One2many names its comodel and the exact field it expected to find
 there. When you meet it in real life it's usually a rename that only got done on
 one side. Restore `"order_id"`, upgrade, breathe.
+</Step>
+
+</Steps>
 
 ## Verify
 
@@ -444,9 +508,9 @@ librefleet.service.order(1,)
 
 ## Further reading
 
-- [ORM reference: relational fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#relational-fields):
+- <Icon name="docs" /> [ORM reference: relational fields (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#relational-fields):
   every attribute of Many2one, One2many, Many2many, and the Command API.
-- [Server framework 101, chapter 7 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/07_relations.html):
+- <Icon name="docs" /> [Server framework 101, chapter 7 (19.0)](https://www.odoo.com/documentation/19.0/developer/tutorials/server_framework_101/07_relations.html):
   the official pass at relations, on real estate offers.
-- [Security reference: record rules (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html#record-rules):
+- <Icon name="docs" /> [Security reference: record rules (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/security.html#record-rules):
   the rule-combination semantics you just felt in your own admin account.
