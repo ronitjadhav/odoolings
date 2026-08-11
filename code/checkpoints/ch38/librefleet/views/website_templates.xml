@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Deliberately not built on web.layout or website.layout: this is a
+         standalone type='http', auth='public' page, no website module
+         installed. A real marketing page would extend website.layout
+         instead, chapter 42 is where that gets built properly. -->
+    <template id="services_page" name="LibreFleet Services">
+        <html>
+            <head><title>LibreFleet Services</title></head>
+            <body>
+                <h1>What we service</h1>
+                <ul>
+                    <li t-foreach="service_types" t-as="service_type">
+                        <span t-field="service_type.name"/>
+                        (<span t-field="service_type.flat_fee"/>)
+                    </li>
+                </ul>
+            </body>
+        </html>
+    </template>
+
+</odoo>

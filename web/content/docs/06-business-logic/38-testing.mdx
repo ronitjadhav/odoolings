@@ -1,24 +1,445 @@
 ---
 title: "38. Testing"
-description: Not written yet, tracked in the roadmap.
+description: Write real automated tests for everything LibreFleet does, and catch the demo-data trap that only shows up on a clean install.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch38`
+**Goal:** write `TransactionCase` and `HttpCase` tests covering the constraint,
+computed field, wizard guard and idempotent cron from earlier chapters, run them with
+`--test-tags`, and see the demo-data pitfall fail for real before fixing it. ·
+**Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/ch38`
 
 ## Why this matters
 
+Every chapter since chapter 8 has ended in the same place: `python3 odoolings.py
+check chNN`, green, move on. That has been genuinely verifying your work, but it
+verifies *your running instance*, by hand, once. It says nothing about whether
+chapter 14's overlap constraint still holds after someone refactors
+`_check_no_overlap` next month, and it cannot run in a CI pipeline that spins up a
+brand new database for every pull request. That is what this chapter's tests are
+for: the same behaviors, proven automatically, on any database, forever, not just on
+yours today.
+
+This is also where the tutorial's own house rule (chapter 4: readers get
+`--without-demo`, no demo data ships to production installs) stops being background
+noise and becomes a trap you can walk straight into. A test that reaches for a demo
+record works perfectly on your machine, where you happened to install with demo
+data on, and fails on the first real CI run that does not. This chapter makes you
+watch that failure happen before showing you how to avoid it.
+
 ## Concepts
+
+### TransactionCase: a whole test, one transaction, never committed
+
+`odoo.tests.TransactionCase` wraps every test method in a database transaction that
+gets rolled back when the method ends. Nothing you create in a test method
+persists, which is what makes tests safe to run against a real database and fast to
+run in bulk: no cleanup code, no risk of one test's leftover data breaking the next
+one.
+
+```python
+from odoo.tests import TransactionCase, tagged
+
+@tagged("post_install", "-at_install")
+class TestServiceOrder(TransactionCase):
+    def test_something(self):
+        order = self.env["librefleet.service.order"].create({...})
+        self.assertEqual(order.margin, 42.0)
+```
+
+`@tagged` is what makes a test class findable by the test runner and controls when
+it runs. `at_install` (the default) runs right after this module installs, before
+any *other* module that might later depend on it. `post_install` runs after
+everything in the current batch has finished loading, the more realistic moment for
+a test that reads company settings or cross-module data. `@tagged("post_install",
+"-at_install")` is the standard combination for a test that needs the database in a
+finished state, the `-` removes the default tag rather than adding a second one.
+
+### `--test-tags`: choosing which tests actually run
+
+Odoo's own test suite, every core and OCA module combined, is enormous. Running all
+of it on every `-u librefleet` would make iteration unbearable, so `--test-tags`
+filters by a compact spec:
+
+```
+[-][tag][/module][:class][.method]
+```
+
+`/librefleet` runs everything tagged in this module. `/librefleet:TestServiceOrder`
+narrows to one class, `.test_no_overlapping_bookings` narrows to one method. A
+leading `-` excludes instead of includes. This chapter's Hands-on uses all three
+forms for real, against the actual test output, not a description of what they
+would do.
+
+### HttpCase: the same idea, over a real HTTP connection
+
+`HttpCase` (itself a `TransactionCase` subclass) starts an actual HTTP client
+against the server under test, so `self.url_open(path)` genuinely round-trips
+through your `@http.route` decorators, chapter 37's routing and auth logic
+included, not a mocked call. It is the non-browser half of Odoo's test tooling; the
+browser-driven half, **tours**, script real clicks through real JavaScript and are
+what chapter 39's OWL work will use, briefly surveyed in Further reading rather than
+built here.
+
+<Callout type="info" title="Official docs">
+  [Testing Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/testing.html):
+  `TransactionCase`, `HttpCase`, the full `--test-tags` grammar, and tours.
+</Callout>
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Fixtures that build their own world
+
+```python title="addons/librefleet/tests/test_service_order.py"
+from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Datetime
+from odoo.tests import TransactionCase, tagged
+
+
+@tagged("post_install", "-at_install")
+class TestServiceOrder(TransactionCase):
+    """Every fixture is built here, on purpose: this module installs with
+    --without-demo (chapter 4's rule), so a test that reaches for a demo
+    record instead is a test that only passes on the author's machine."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.vehicle = cls.env["librefleet.vehicle"].create({
+            "license_plate": "TEST-001",
+        })
+        cls.service_type = cls.env["librefleet.service.type"].create({
+            "name": "Test Service",
+            "flat_fee": 100.0,
+        })
+        cls.part = cls.env["librefleet.part"].create({
+            "name": "Test Part",
+            "standard_cost": 10.0,
+            "list_price": 20.0,
+        })
+
+    def _create_order(self, start, end, **extra):
+        vals = {
+            "vehicle_id": self.vehicle.id,
+            "service_type_id": self.service_type.id,
+            "scheduled_start": start,
+            "scheduled_end": end,
+        }
+        vals.update(extra)
+        return self.env["librefleet.service.order"].create(vals)
+```
+
+`setUpClass` runs once for the whole class, in its own transaction shared by every
+test method, faster than repeating the same creates per test. `_create_order` is a
+plain helper, not a test itself; nothing about it is special to Odoo.
+</Step>
+
+<Step>
+### Chapter 14's constraint and chapter 13's computed field
+
+```python title="addons/librefleet/tests/test_service_order.py"
+    def test_no_overlapping_bookings(self):
+        """Chapter 14's constraint: the same vehicle cannot be double-booked."""
+        self._create_order(Datetime.to_datetime("2026-09-01 09:00:00"),
+                            Datetime.to_datetime("2026-09-01 11:00:00"))
+        with self.assertRaises(ValidationError):
+            self._create_order(Datetime.to_datetime("2026-09-01 10:00:00"),
+                                Datetime.to_datetime("2026-09-01 12:00:00"))
+
+    def test_margin_computed(self):
+        """Chapter 13: parts_total + labor_total, minus what the parts cost the workshop."""
+        order = self._create_order(
+            Datetime.to_datetime("2026-09-02 09:00:00"),
+            Datetime.to_datetime("2026-09-02 10:00:00"),
+            line_ids=[(0, 0, {"part_id": self.part.id, "qty": 2, "price_unit": 20.0})])
+        # 2 * 20.0 parts revenue + 100.0 labor - 2 * 10.0 parts cost = 120.0
+        self.assertEqual(order.margin, 120.0)
+```
+
+`assertRaises` as a context manager is the standard way to assert a constraint
+fires: the `with` block is expected to raise, and the test fails if it does not.
+</Step>
+
+<Step>
+### Chapter 20's wizard guard, tuned to actually lose money
+
+```python title="addons/librefleet/tests/test_service_order.py"
+    def test_approve_wizard_blocks_negative_margin(self):
+        """Chapter 20: a losing order needs the manager override, not a plain confirm."""
+        # A part priced far under what it costs the workshop, so the loss on
+        # the part outweighs the flat labor fee: 1.0 revenue + 100.0 labor -
+        # 200.0 cost = -99.0. A more realistic loss (say, one cheap part)
+        # would not necessarily overcome a flat fee this high, and the point
+        # of this test is the wizard's guard, not tuning a margin to the wire.
+        expensive_part = self.env["librefleet.part"].create({
+            "name": "Expensive Part", "standard_cost": 200.0, "list_price": 1.0,
+        })
+        order = self._create_order(
+            Datetime.to_datetime("2026-09-03 09:00:00"),
+            Datetime.to_datetime("2026-09-03 10:00:00"),
+            line_ids=[(0, 0, {"part_id": expensive_part.id, "qty": 1, "price_unit": 1.0})])
+        order.write({"stage": "confirmed"})
+        order.write({"stage": "in_progress"})
+        self.assertLess(order.margin, 0, "fixture should lose money for this test to mean anything")
+        wizard = self.env["librefleet.service.order.approve.wizard"].create({"order_id": order.id})
+        with self.assertRaises(UserError):
+            wizard.action_confirm()
+```
+
+The first version of this test used `self.part` (standard_cost 10.0) at a low
+price, expecting a loss. It passed the `assertLess` check by accident, barely, and a
+slightly different fixture would have flipped it silent-green for the wrong reason:
+the flat labor fee (100.0) covers a small parts loss easily. The
+`self.assertLess(order.margin, 0, ...)` line above is not decoration, it is what
+would have caught that: a fixture that fails to set up the scenario it claims to
+test should fail loudly, not pass by luck.
+</Step>
+
+<Step>
+### Chapter 35's idempotency, and an HttpCase for chapter 37's route
+
+```python title="addons/librefleet/tests/test_service_order.py"
+    def test_maintenance_reminder_is_idempotent(self):
+        """Chapter 35: running the reminder twice must not create two activities."""
+        vehicle = self.env["librefleet.vehicle"].create({"license_plate": "TEST-002"})
+        vehicle.action_send_maintenance_reminders()
+        vehicle.action_send_maintenance_reminders()
+        reminders = vehicle.activity_ids.filtered(lambda a: a.summary == "Schedule maintenance")
+        self.assertEqual(len(reminders), 1)
+```
+
+```python title="addons/librefleet/tests/test_controllers.py"
+from odoo.tests import HttpCase, tagged
+
+
+@tagged("post_install", "-at_install")
+class TestPublicControllers(HttpCase):
+    """HttpCase actually starts an HTTP client against a real running server,
+    the browser-less cousin of the tours chapter 39's OWL work will use."""
+
+    def test_services_page_public(self):
+        response = self.url_open("/librefleet/services")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"What we service", response.content)
+```
+
+Wire both files into the package (`tests/__init__.py` is what makes them
+discoverable, the same import-chain rule chapter 9 taught for models):
+
+```python title="addons/librefleet/tests/__init__.py"
+from . import test_service_order
+from . import test_controllers
+```
+
+Test files never go in the manifest's `data` list, only Python files that get
+imported. Bump the version, then run the whole module's tests on a scratch
+database, `--without-demo` on purpose:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 --without-demo=True \
+    -i librefleet --test-tags /librefleet --http-port=8070 --stop-after-init
+...
+INFO test_ch38 odoo.tests.result: 0 failed, 0 error(s) of 5 tests when loading database 'test_ch38'
+```
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  `--without-demo=all` was the idiom on 18 and earlier. Odoo 19 wants a plain
+  boolean: passing `all` logs `WARNING option --without-demo: since 19.0, invalid
+  boolean value: 'all', assume True` and falls back to `True` anyway, so old scripts
+  still work, just noisily. Use `--without-demo=True` going forward. The
+  `--http-port=8070` above is only needed because this tutorial's own container is
+  already running on 8069, your own single-container setup will not need it.
+</Callout>
+</Step>
+
+<Step>
+### Watch the demo-data pitfall fail, for real
+
+Before settling on the self-contained fixtures above, the natural first instinct is
+reaching for a real demo record instead of creating one:
+
+```python
+def test_vehicle_count_via_demo_ref(self):
+    vehicle = self.env.ref("librefleet.vehicle_demo_ag_12_345")
+    self.assertTrue(vehicle.license_plate)
+```
+
+That xml id is real, `data/librefleet.vehicle-demo.csv` defines it, and this test
+passes on a database installed *with* demo data. Run it on the same
+`--without-demo` scratch database everything else in this chapter uses:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 -u librefleet \
+    --test-tags /librefleet:TestNaiveDemoPitfall --http-port=8070 --stop-after-init
+...
+ValueError: External ID not found in the system: librefleet.vehicle_demo_ag_12_345
+0 failed, 1 error(s) of 1 tests when loading database 'test_ch38'
+```
+
+An `error`, not a `failure`, Odoo's test runner's way of distinguishing "the
+assertion was wrong" from "the test could not even run". This tutorial's own
+convention (chapter 4, `--without-demo` by default) is exactly the production
+convention: a real CI pipeline testing a module meant to ship should never assume
+demo data exists. Delete this test, the fixture-building version from the earlier
+steps is the fix, not a patch on top of it.
+</Step>
+
+<Step>
+### Narrow with `--test-tags`, then run the real suite one more time
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 -u librefleet \
+    --test-tags /librefleet:TestServiceOrder.test_no_overlapping_bookings \
+    --http-port=8070 --stop-after-init
+...
+INFO test_ch38 odoo.tests.result: 0 failed, 0 error(s) of 1 tests when loading database 'test_ch38'
+```
+
+One test ran, not five. Confirm the full suite is still clean before moving on:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 -u librefleet \
+    --test-tags /librefleet --http-port=8070 --stop-after-init
+...
+INFO test_ch38 odoo.tests.result: 0 failed, 0 error(s) of 5 tests when loading database 'test_ch38'
+```
+</Step>
+
+</Steps>
+
+Chapter 8's module tree, after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="tests" defaultOpen>
+      <File name="__init__.py" />
+      <File name="test_service_order.py" />
+      <File name="test_controllers.py" />
+    </Folder>
+    <Folder name="models">
+      <File name="service_order.py" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+This chapter's verification is the test runner itself, not `odoolings`: the whole
+point is a check that runs on a database it built from scratch, not one that reads
+state off yours. There is no `python3 odoolings.py check ch38`.
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet \
+    --test-tags /librefleet --stop-after-init
+...
+INFO tutorial odoo.tests.result: 0 failed, 0 error(s) of 5 tests when loading database 'tutorial'
+```
+
+Running against your own `tutorial` database works too, since every test rolls
+back: nothing about your chapters 1-37 work changes.
 
 ## Gotchas
 
+- **`--without-demo=all` is deprecated.** Odoo 19 wants a boolean; the old value
+  still works with a warning, but write `--without-demo=True`.
+- **`error` and `failure` are different things in the test summary.** A `failure` is
+  a wrong assertion, an `error` is the test not completing at all (an exception
+  outside an `assertRaises` block). `self.env.ref()` on a demo xmlid that does not
+  exist is always the second kind.
+- **Test files are never registered in the manifest.** Only `tests/__init__.py`'s
+  imports make them discoverable; adding a file to `data` would try (and fail) to
+  load it as an XML or CSV data file instead.
+- **A weak assertion can pass by accident.** `test_approve_wizard_blocks_negative_margin`'s
+  first fixture happened to pass without actually losing money, because the flat
+  labor fee dominated. `assertLess(order.margin, 0, ...)` before the real assertion
+  is what would have caught it.
+- **`at_install` runs before every module in the batch has finished loading.** A
+  test that reads company settings, cross-module records, or anything set up by a
+  dependency's own data files should be `post_install`, or it can run against a
+  database that is not actually finished yet.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A test method creates a service order, an approve wizard, and calls action_confirm() inside it. Nothing is cleaned up afterward. What happens to those records once the test method returns?",
+    options: [
+      "They are deleted individually by TransactionCase's built-in teardown logic before the next test starts",
+      "They are rolled back along with the whole transaction the test ran in, as if they were never created",
+      "They persist in the database permanently, which is why test databases need periodic manual cleanup",
+      "They are archived (active=False) automatically rather than deleted or rolled back",
+    ],
+    answer: 1,
+    why: "TransactionCase wraps each test method in a database transaction and rolls it back at the end, whether the test passed or failed. Nothing needs individual cleanup code, the same mechanism that makes a failed migration's partial writes vanish makes a test's fixtures vanish too.",
+  },
+  {
+    q: "A test calls self.env.ref(\"librefleet.vehicle_demo_ag_12_345\") and the xml id genuinely exists in the module's demo data files. Run with --test-tags on a database installed --without-demo, what happens?",
+    options: [
+      "The test passes anyway, ir.model.data resolves xml ids independently of whether demo mode was used at install",
+      "The test is automatically skipped, since Odoo detects the referenced record depends on demo data",
+      "The test errors with 'External ID not found', because the demo file that defines that xml id was never loaded at all",
+      "The test fails (not errors) with an assertion mismatch, since vehicle resolves to an empty recordset rather than raising",
+    ],
+    answer: 2,
+    why: "Demo files only load when a database is installed WITH demo data; --without-demo skips them entirely, so the xml id was never registered in ir.model.data in the first place. env.ref() raises ValueError for a genuinely missing id, which the test runner reports as an error rather than a failure, a different category from a wrong assertion.",
+  },
+  {
+    q: "@tagged(\"post_install\", \"-at_install\") is applied to a test class. What does the \"-\" in \"-at_install\" actually do?",
+    options: [
+      "It marks the test as lower priority, running after all other post_install tests in the same module",
+      "It removes the at_install tag that every TransactionCase-derived class carries by default, rather than adding a new tag",
+      "It tells the runner to retry the test up to once more if it fails on the first attempt",
+      "It excludes this specific test method from any --test-tags filter that does not explicitly name it",
+    ],
+    answer: 1,
+    why: "Every test class starts with 'standard' and 'at_install' by default. A leading '-' in @tagged removes a tag rather than adding one, so \"-at_install\" cancels the default and, combined with adding \"post_install\", moves the test to run after the whole module batch has finished loading instead of mid-install.",
+  },
+  {
+    q: "HttpCase's url_open(\"/librefleet/services\") is used to test the public controller from chapter 37. What does this test actually exercise that a plain TransactionCase call to the same Python method would not?",
+    options: [
+      "Nothing extra; url_open is purely a convenience wrapper with identical behavior to calling the controller method directly",
+      "The full HTTP request/response cycle including @http.route's own auth and routing logic, not just the method body",
+      "Only the database queries the method makes, HTTP-level concerns like status codes are mocked out for speed",
+      "JavaScript execution in a headless browser, the same mechanism a tour test uses",
+    ],
+    answer: 1,
+    why: "HttpCase starts a real HTTP client against the server under test, so the request genuinely goes through routing, the auth check the @http.route decorator specifies, and whatever middleware sits in front of the method, not just the method's own code. That is the gap between it and calling a controller method as a plain Python function.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a test proving chapter 14's other constraint, the `year` range check on
+   `librefleet.vehicle`, raises `ValidationError` for a year like `1850`.
+2. ⭐⭐ Write a test for chapter 32's `res.partner` extension: creating two vehicles
+   owned by the same partner and asserting `librefleet_vehicle_count` computes to 2.
+3. ⭐⭐ Chapter 33 added chatter and activities. Write a test asserting that marking
+   a service order's stage to "done" (the flow chapter 35's automated action reacts
+   to) actually clears the vehicle's "Schedule maintenance" activity, without going
+   through the UI at all.
+4. ⭐⭐⭐ Break-it lab: comment out the `-at_install` half of
+   `TestServiceOrder`'s tag (leave `at_install` as the default), reinstall the
+   module fresh with `--test-tags /librefleet`, and read what changes about when the
+   test runs relative to the rest of the install log. Explain why a test reading
+   `res.company` fields could behave differently at `at_install` time versus
+   `post_install` time on a real multi-module install.
+5. ⭐⭐⭐ Read the [tours section of the testing docs](https://www.odoo.com/documentation/19.0/developer/reference/backend/testing.html)
+   and sketch (no steps given) what a tour test clicking through the approve wizard
+   from chapter 20 would need: which JS module registers a tour, and how
+   `--test-tags` selects a tour versus a Python test class.
+
 ## Further reading
+
+- <Icon name="docs" /> [Testing Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/testing.html):
+  the full reference this chapter draws from, including tours and screenshots/screencasts
+  for debugging a failing `HttpCase`.
+- <Icon name="source" /> [`odoo/tests/common.py`](https://github.com/odoo/odoo/blob/19.0/odoo/tests/common.py):
+  `TransactionCase`, `HttpCase`, and `tagged` themselves, worth reading once end to end.
+- <Icon name="source" /> [`sale/tests/`](https://github.com/odoo/odoo/tree/19.0/addons/sale/tests):
+  a real, large test suite for a module you have already used as a functional
+  reference back in chapters 21-22.
