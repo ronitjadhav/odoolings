@@ -1,25 +1,442 @@
 ---
 title: "30. Inventory Valuation: Where Stock Meets Accounting"
-description: Not written yet, tracked in the roadmap.
+description: You own 19 brake pads, your books say they are worth nothing, and no stock movement has ever produced a journal entry. All three are true at once, and this chapter explains why.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** none, this part runs in a
-separate demo database (see the part index).
+**Goal:** be able to say what a warehouse is worth, which of two independent switches
+decides that, and exactly which journal entry a delivery will post before you validate
+it. · **Time:** ~2.5 h · **Checkpoint:** none, this part continues in the `functional`
+demo database
 
 ## Why this matters
 
+You have bought brake pads twice and manufactured four more. Ask your database what they
+are worth and it says this:
+
+```text
+qty_available: 19.0 | standard_price: 0.0
+```
+
+Nineteen units, worth nothing. Meanwhile Odoo knows perfectly well that 630.00 of stock
+came through the door, because it wrote that number down on every move as it happened.
+And the accounting journal reserved for stock, the STJ you met in chapter 27, has never
+had a single entry posted to it.
+
+None of that is a bug. It is three separate mechanisms doing exactly what they were
+configured to do, and a developer who cannot tell them apart cannot answer the question
+this chapter exists for: **why is the P&L wrong?** That ticket is nearly always one of
+these three, and they have different fixes.
+
+This is also where Part 4 and Part 5 finally join. The delivery you are about to validate
+has been sitting in your database since chapter 22.
+
 ## Concepts
+
+### Two switches, and people conflate them constantly
+
+Valuation is quantity times cost, and Odoo splits the decision in two. They are set in
+the same place, on the product category, which is exactly why they get confused:
+
+| Question | Field | Values |
+|---|---|---|
+| What is a unit worth? | `property_cost_method` | `standard`, `fifo`, `average` |
+| When do the books hear about it? | `property_valuation` | `periodic`, `real_time` |
+
+The first is a <Term k="costing method (`property_cost_method`)">costing</Term> decision. The second is an <Term k="inventory valuation (`property_valuation`)">accounting</Term> decision. You can
+run AVCO costing and still post nothing to the ledger until year end, which is what the
+demo database has been doing all along.
+
+- **Standard Price**: a cost you type. Every movement is valued at that number until you
+  change it. Predictable, and wrong the moment your supplier raises prices.
+- **FIFO**: each receipt keeps its own cost, and outgoing moves consume the oldest layer
+  first. Odoo tracks what is left of each receipt in `stock.move.remaining_value`.
+- **AVCO**: one running average, recomputed on every receipt.
+
+And for the second switch:
+
+- **`periodic`**, labelled **Periodic (at closing)**: moves are still valued, but no
+  journal entry is created. Somebody posts the change in stock manually at period end.
+- **`real_time`**, labelled **Perpetual (at invoicing)**: every valued move posts its own
+  journal entry as it happens.
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  Both the stored values and the labels changed. Odoo 18 stores `manual_periodic` and
+  calls the pair Manual/Automated; Odoo 19 stores `periodic` and calls them
+  Periodic/Perpetual. Code that branches on `manual_periodic` is dead on 19, silently,
+  which is the same shape of breakage as chapter 21's `type == 'product'`.
+</Callout>
+
+### Where the value actually lives, and what disappeared
+
+If you have worked with Odoo 15 through 18, you know `stock.valuation.layer`: one row per
+valuation event, the model every valuation report and every custom costing script was
+built on.
+
+**It does not exist in Odoo 19.** Confirm it yourself in the Hands-on. Valuation moved
+onto the move:
+
+| Field | What it holds |
+|---|---|
+| `stock.move.value` | what this movement was worth |
+| `stock.move.is_valued` | whether it counts towards stock value at all |
+| `stock.move.remaining_value` | what is left of this receipt, for FIFO |
+| `stock.move.value_manual` and `value_justification` | a manual override and why |
+| `stock.quant.value` | what is sitting in this location right now |
+
+<Term k="valued move (`is_valued`)">`is_valued`</Term> is the one worth pausing on, because it encodes a real accounting idea.
+Locations are either **inside** the company or outside it: `usage` of `internal` or
+`transit` counts as inside, everything else (customers, vendors, production, inventory
+loss) is outside. Value only changes when stock crosses that boundary. Move goods from
+one shelf to another and nothing has happened economically, so the move is valued at
+zero and `is_valued` is `False`. You will see exactly that on the two-step receipt from
+chapter 25.
+
+### The account routing, which also moved
+
+Older Odoo hung a pair of interim accounts off the product category, Stock Input and
+Stock Output. **Those fields are gone in 19.** The routing now reads like a sentence:
+
+- the **product category** says which asset account holds stock, in
+  `property_stock_valuation_account_id`
+- each **location outside the company** says what value *becomes* when it arrives there,
+  in `stock.location.valuation_account_id`
+
+So Customers means cost of goods sold, Inventory Loss means a shrinkage expense,
+Production means work in progress. One field per destination, and the entry writes itself:
+
+<Mermaid
+  label="Stock leaving for a customer credits the category's stock asset account and debits the account named on the Customers location, which is cost of goods sold"
+  chart={`flowchart LR
+    S["WH/Stock<br/>(inside the company)"] -- "delivery, 4 units" --> C["Customers<br/>valuation_account_id<br/>= 500000 COGS"]
+    S -.-> A["category:<br/>110100 Stock Valuation"]
+    A --> E1["credit 132.63"]
+    C --> E2["debit 132.63"]
+    E1 --> J["one STJ journal entry"]
+    E2 --> J`}
+/>
+
+Core reads it in one `if`, and the symmetry is the whole design: whichever end of the
+move names an account, the stock account takes the other side.
+
+```python
+if self.location_id.valuation_account_id:
+    debit_acc = self.product_id._get_product_accounts()['stock_valuation']
+    credit_acc = self.location_id.valuation_account_id
+else:
+    debit_acc = self.location_dest_id.valuation_account_id
+    credit_acc = self.product_id._get_product_accounts()['stock_valuation']
+```
+
+The consequence catches everyone once: **a location with no account posts nothing.**
+Not an error, not a warning. `_should_create_account_move` simply returns falsy and the
+move completes with a value and no journal entry.
 
 ## Hands-on
 
+Continuing in `functional`. Same two movements as the rest of Parts 4 and 5.
+
+### Movement 1: run the flow
+
+#### 1. Ask what you own, before changing anything
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> prod = env["product.product"].search([("product_tmpl_id.name", "=", "Brake Pad Set")], limit=1)
+>>> prod.qty_available, prod.standard_price
+(19.0, 0.0)
+>>> prod.valuation, prod.cost_method
+('periodic', 'standard')
+>>> prod.categ_id.complete_name or "(none)"
+'(none)'
+```
+
+Nineteen units at a standard cost of zero, because the product has **no category at
+all**, and a category is what supplies a costing method, a valuation mode and a stock
+account. Chapter 21 created this product through the interface without one, and nothing
+has complained since.
+
+Now ask the moves what they were worth:
+
+```python
+>>> stj = env["account.journal"].search([("code", "=", "STJ")], limit=1)
+>>> env["account.move"].search_count([("journal_id", "=", stj.id)])
+0
+>>> moves = env["stock.move"].search([("product_id", "=", prod.id), ("state", "=", "done")])
+>>> sum(moves.filtered("is_valued").mapped("value"))
+630.0
+```
+
+**630.00 of stock has moved and the ledger has heard nothing.** Both numbers are correct:
+`periodic` values every move and posts none of them. Hold on to the 630.00, it comes back.
+
+#### 2. Confirm what is not there any more
+
+Worth thirty seconds if you have ever written valuation code:
+
+```python
+>>> "stock.valuation.layer" in env
+False
+>>> "property_stock_account_input_categ_id" in env["product.category"]._fields
+False
+```
+
+The layer model and the interim account fields are both gone. Anything you remember about
+either is Odoo 18 knowledge.
+
+#### 3. Give the product a category, and watch nothing happen
+
+```python
+>>> goods = env["product.category"].search([("name", "=", "Goods")], limit=1)
+>>> prod.product_tmpl_id.categ_id = goods.id
+>>> prod.invalidate_recordset()
+>>> prod.valuation, prod.cost_method, prod.standard_price
+('periodic', 'standard', 0.0)
+```
+
+Still zero. The category exists, but the demo's Goods category is itself on Standard
+Price and Periodic, so the product inherited a costing method that says "the cost is
+whatever you typed", and nobody has typed anything.
+
+#### 4. Throw both switches
+
+```python
+>>> goods.write({"property_valuation": "real_time", "property_cost_method": "average"})
+True
+>>> prod.invalidate_recordset()
+>>> prod.valuation, prod.cost_method, prod.standard_price
+('real_time', 'average', 33.1578947368421)
+```
+
+The cost appeared out of nowhere, except it did not:
+
+```python
+>>> 630.0 / 19
+33.15789473684211
+```
+
+That is the whole point of AVCO. The value was recorded on every move all along; asking
+for an average is what makes Odoo go and read it. Nothing was imported and no cost was
+typed.
+
+#### 5. Tell the Customers location what stock becomes when it leaves
+
+In the interface this is **Inventory → Configuration → Locations → Customers**, field
+**Stock Valuation Account**. From the shell:
+
+```python
+>>> cust = env["stock.location"].search([("usage", "=", "customer")], limit=1)
+>>> cogs = env["account.account"].search([("account_type", "=", "expense_direct_cost")], limit=1)
+>>> cust.valuation_account_id = cogs.id
+>>> cogs.code, cogs.name
+('500000', 'Cost of Goods Sold')
+```
+
+#### 6. Validate the delivery that has been waiting since chapter 22
+
+`WH/OUT/00044` is the delivery chapter 22 created when you confirmed S00025, and which
+chapter 24's receipt quietly made reservable. It has been sitting at `assigned` ever
+since. Open **Inventory → Deliveries**, find it, and **Validate**.
+
+Odoo may ask whether to send the customer an SMS. Decline; the demo has no SMS credits
+and it is not part of this lesson.
+
+### Movement 2: read what it did
+
+#### 7. The first stock journal entry in the database
+
+```python
+>>> pick = env["stock.picking"].search([("name", "=", "WH/OUT/00044")])
+>>> pick.state
+'done'
+>>> mv = pick.move_ids[0]
+>>> mv.quantity, mv.value
+(4.0, 132.63)
+>>> am = mv.account_move_id
+>>> am.name, am.journal_id.name
+('STJ/2026/08/0001', 'Inventory Valuation')
+>>> for l in am.line_ids:
+...     print(l.account_id.code, l.account_id.name, l.debit, l.credit)
+...
+110100 Stock Valuation 0.0 132.63
+500000 Cost of Goods Sold 132.63 0.0
+```
+
+Four units at the 33.16 average is 132.63, and it lands as a balanced pair: the asset
+account goes down, the expense account goes up. That is <Term k="COGS (cost of goods sold)">cost of goods sold</Term>, produced by
+validating a transfer rather than by anything on the invoice, and it is the first entry
+this journal has ever received.
+
+Read it against chapter 27's rule and nothing is new. Value did not appear or vanish, it
+moved: out of an asset, into an expense, because the goods left the company.
+
+#### 8. Now look at the damage
+
+```python
+>>> acc = env["account.account"].search([("code", "=", "110100")], limit=1)
+>>> lines = env["account.move.line"].search([("account_id", "=", acc.id), ("parent_state", "=", "posted")])
+>>> sum(lines.mapped("debit")) - sum(lines.mapped("credit"))
+-132.63
+>>> prod.invalidate_recordset()
+>>> prod.qty_available * prod.standard_price
+497.3684210526316
+```
+
+Your warehouse holds 497.37 of brake pads. Your balance sheet says stock is worth
+**minus 132.63**. The difference is 630.00, and you have seen that number before: it is
+exactly the value that came in while the category was still `periodic`, when Odoo valued
+every receipt and posted none of them.
+
+This is the single most useful thing in the chapter. **Switching valuation mode is not
+retroactive.** It does not go back and post the history, so a database that has traded
+under Periodic and is flipped to Perpetual will report a negative stock asset until
+somebody posts an opening entry for the stock already on hand. On a real migration that
+entry is planned work, not a surprise, and the way you catch it is exactly the comparison
+above: what the warehouse holds against what the account says.
+
+#### 9. Why one of your moves is worth nothing
+
+```python
+>>> for m in env["stock.move"].search([("product_id", "=", prod.id), ("state", "=", "done")]):
+...     print(m.reference, m.location_id.complete_name, "->", m.location_dest_id.complete_name, m.quantity, m.value, m.is_valued)
+...
+WH/IN/00007 Vendors -> WH/Stock 10.0 420.0 True
+WH/IN/00008 Vendors -> WH/Input 5.0 210.0 True
+WH/STOR/00001 WH/Input -> WH/Stock 5.0 0.0 False
+WH/OUT/00044 WH/Stock -> Customers 4.0 132.63 True
+WH/MO/00007 Production -> WH/Stock 4.0 0.0 True
+```
+
+`WH/STOR/00001` is the second leg of chapter 25's two-step receipt, and it is the only
+one with `is_valued` of `False`. Both of its locations are inside the company, so nothing
+economic happened: the goods were already yours before you moved them from Input to
+Stock. Valuing that move would double-count the 210.00 the receipt above it already
+recorded.
+
+The manufacturing order is worth a second look too. `WH/MO/00007` produced four brake
+pads and valued them at 0.00, because at the time it ran the product was on Standard
+Price with a cost of zero. Manufacturing values its output at whatever the costing method
+says the product is worth, and back then that was nothing.
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch30 --db functional
+✔ the brake pads have a product category
+✔ the category is AVCO and Perpetual
+✔ AVCO derived the unit cost from real movements
+✔ the Customers location routes stock to an expense account
+✔ chapter 22's delivery posted a balanced stock entry
+
+ch30 complete! On to the next chapter 🔧
+```
+
+The last check does more than confirm the picking is done: it reads the journal entry's
+two lines and asserts they balance, because an unbalanced stock entry would be a genuine
+emergency and chapter 27 says it is impossible.
 
 ## Gotchas
 
+- **A product with no category values at zero, silently.** No warning at any point, on
+  any screen. The category is where the costing method, the valuation mode and the stock
+  account all come from, so a product without one is unpriceable by construction. This
+  chapter's own product had gone nine chapters that way.
+- **`stock.valuation.layer` does not exist in Odoo 19.** Value lives on `stock.move.value`.
+  Every valuation script, report and custom costing module written for 15 to 18 is built
+  on a model that is no longer there, which makes this one of the more expensive parts of
+  an 18 to 19 migration.
+- **A location with no valuation account posts nothing, and says nothing.**
+  `_should_create_account_move` needs an account on one end or the other. Set the category
+  to Perpetual, forget the location, and you get moves that are valued, a stock account
+  that never changes, and no error to tell you.
+- **Switching valuation mode is not retroactive.** History posted under Periodic stays
+  unposted forever. Flipping a live database to Perpetual without an opening entry leaves
+  the stock account reporting a negative asset, exactly as it does here.
+- **Internal transfers are valued at zero on purpose.** `is_valued` is `False` whenever
+  both ends are inside the company, and treating that as a missing value is a
+  double-counting bug waiting to happen.
+- **Changing the costing method rewrites the cost.** Moving to AVCO recomputed
+  `standard_price` from the movement history the moment it was saved. On a live database
+  that is a repricing of everything you own, which is why the field is not something to
+  try out on production and see.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A category is set to Perpetual, a delivery is validated, the move shows a value, and no journal entry exists. What is missing?',
+      options: [
+        'A Stock Valuation Account on the destination location',
+        'The costing method, since Standard Price cannot post entries and only AVCO or FIFO can',
+        'An invoice, because stock entries are posted when the customer is billed rather than on delivery',
+      ],
+      answer: 0,
+      why: 'Odoo 19 asks the location outside the company what value becomes when it arrives, and _should_create_account_move needs an account on one end of the move or the other. Without it the move is valued and nothing posts, with no error anywhere. The costing method decides the amount, never whether an entry appears, and Perpetual posts on the stock move rather than on the invoice.',
+    },
+    {
+      q: 'Where does Odoo 19 store what a stock movement was worth?',
+      options: [
+        'On stock.valuation.layer, one row per valuation event',
+        'On the stock move itself, in a value field',
+        'On the journal entry, which is the only record of value once it is posted',
+      ],
+      answer: 1,
+      why: 'stock.valuation.layer was removed in 19: "stock.valuation.layer" in env returns False. Value moved onto stock.move.value, with remaining_value carrying the FIFO leftovers. The journal entry cannot be the store either, because Periodic valuation records value on every move while posting no entries at all, which is the state this chapter opens in.',
+    },
+    {
+      q: 'A two-step receipt produces a Vendors to Input move worth 210.00 and an Input to Stock move worth 0.00. Why is the second one zero?',
+      options: [
+        'The value was consumed by the first move and cannot be counted twice in the same receipt',
+        'Both of its locations are inside the company, so nothing economic happened',
+        'Internal transfers are valued later, when the period is closed',
+      ],
+      answer: 1,
+      why: 'is_valued is False when both ends have a usage of internal or transit, because value only changes when stock crosses the company boundary. The goods were already yours before the putaway. Option 1 sounds right and is the wrong reason: it is not that the value is used up, it is that moving your own goods between your own shelves is not an economic event.',
+    },
+    {
+      q: 'A database traded for a year under Periodic, was switched to Perpetual last week, and now reports a negative stock asset. What happened?',
+      options: [
+        'The switch reversed the earlier entries, so the balance is the negative of the stock on hand',
+        'Only movements since the switch have posted, and the stock that was already there never did',
+        'AVCO recomputed every historical cost, and the recomputation ran the wrong way',
+      ],
+      answer: 1,
+      why: 'Switching valuation mode is not retroactive. Everything received under Periodic was valued and never posted, so the account starts from zero and the first thing to hit it is an outgoing move, which credits it. The chapter shows the arithmetic exactly: 497.37 of physical stock against an account balance of -132.63, a difference of 630.00, which is precisely the receipts that predate the switch. The fix is an opening entry, not a costing change.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Give the **Inventory adjustment** location a Stock Valuation Account of your
+   choosing (a shrinkage or other-expense account), then use **Physical Inventory** to
+   write the brake pad count down by one. Read the journal entry it posts and say, from
+   the routing rule alone, why the accounts appear on the sides they do.
+2. ⭐⭐ Post the opening entry the chapter says is missing: one journal entry that debits
+   Stock Valuation and credits an equity or opening-balance account for the 630.00 of
+   stock that predates the switch. Then re-run the comparison from step 8 and show the
+   account agrees with the warehouse. Say why this is bookkeeping rather than a fix to
+   the valuation configuration.
+3. ⭐⭐ Switch the category from AVCO to FIFO and read `standard_price` and the moves'
+   `remaining_value` before and after. Explain what FIFO can tell you that AVCO cannot,
+   and what it costs you in return, using the fields rather than a definition.
+4. ⭐⭐⭐ Break-it lab: set the Customers location's Stock Valuation Account to the *stock
+   valuation account itself*, 110100, then deliver one unit. Predict the entry before you
+   look. Read it, explain why it balances and why it is meaningless, and then work out
+   from `_get_account_move_line_vals` what Odoo would have to check to stop you. Put the
+   account back afterwards.
+
 ## Further reading
+
+- [Inventory valuation configuration (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/inventory_valuation_config.html):
+  the costing methods and the Periodic/Perpetual choice from the configuration side.
+- [Using inventory valuation (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/using_inventory_valuation.html):
+  what the valuation report shows and how the numbers are meant to be read.
+- [`stock_move.py` in `stock_account`](https://github.com/odoo/odoo/blob/19.0/addons/stock_account/models/stock_move.py):
+  `_should_create_account_move` and `_get_account_move_line_vals` are twenty lines that
+  contain the whole routing rule this chapter is built on.
+- [`stock_location.py` in `stock_account`](https://github.com/odoo/odoo/blob/19.0/addons/stock_account/models/stock_location.py):
+  `_should_be_valued` is the definition of "inside the company", and it is three lines.
