@@ -1,0 +1,869 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* librefleet
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0-20260630\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-11 08:47+0000\n"
+"PO-Revision-Date: 2026-08-11 08:47+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_loaner__vin
+#: model:ir.model.fields,help:librefleet.field_librefleet_vehicle__vin
+msgid "17-character vehicle identification number"
+msgstr ""
+
+#. module: librefleet
+#: model:mail.template,body_html:librefleet.mail_template_service_done
+msgid ""
+"<div>\n"
+"                    <p>Hello <t t-out=\"object.customer_id.name or ''\">Customer</t>,</p>\n"
+"                    <p>\n"
+"                        The work on <t t-out=\"object.vehicle_id.license_plate or ''\">plate</t>\n"
+"                        is finished and the vehicle is ready for collection.\n"
+"                    </p>\n"
+"                    <p>\n"
+"                        Reference: <t t-out=\"object.reference or ''\">SO/0000</t><br/>\n"
+"                        Parts: <t t-out=\"object.parts_total or 0\">0.00</t><br/>\n"
+"                        Labour: <t t-out=\"object.labor_total or 0\">0.00</t>\n"
+"                    </p>\n"
+"                    <p>Thank you for choosing LibreFleet.</p>\n"
+"                </div>\n"
+"            "
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.actions.act_window,help:librefleet.action_librefleet_service_order
+msgid ""
+"A service order is one vehicle, one visit: what gets done, by whom, and "
+"which parts it takes."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_needaction
+msgid "Action Needed"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__active
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__active
+msgid "Active"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_ids
+msgid "Activities"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_exception_decoration
+msgid "Activity Exception Decoration"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_state
+msgid "Activity State"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_type_icon
+msgid "Activity Type Icon"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Anything the next technician should know..."
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_approve_wizard_form
+msgid "Approve & Complete"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_service_order_approve_wizard
+msgid "Approve & Complete Service Order"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Archived"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_attachment_count
+msgid "Attachment Count"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__available
+msgid "Available"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.actions.act_window,help:librefleet.action_librefleet_service_order
+msgid "Book the first service"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_loaner__is_loanable
+#: model:ir.model.fields,help:librefleet.field_librefleet_vehicle__is_loanable
+msgid ""
+"Can this vehicle be lent out while a customer's own car is in the workshop?"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_approve_wizard_form
+msgid "Cancel"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields.selection,name:librefleet.selection__librefleet_service_order__stage__cancelled
+msgid "Cancelled"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__product_id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__product_id
+msgid "Catalogue Product"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__code
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__code
+msgid "Code"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__override_negative_margin
+msgid "Complete anyway (negative margin)"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__note
+msgid "Completion Note"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_config
+msgid "Configuration"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields.selection,name:librefleet.selection__librefleet_service_order__stage__confirmed
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Confirmed"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_res_partner
+msgid "Contact"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__create_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__create_uid
+msgid "Created by"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__create_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__create_date
+msgid "Created on"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__customer_id
+msgid "Customer"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__daily_rate
+msgid "Daily Rate"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__default_duration_h
+msgid "Default Duration (h)"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "Diagnosis, customer requests, anything the invoice should remember..."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__display_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__display_name
+#: model:ir.model.fields,field_description:librefleet.field_product_template__display_name
+#: model:ir.model.fields,field_description:librefleet.field_res_partner__display_name
+msgid "Display Name"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields.selection,name:librefleet.selection__librefleet_service_order__stage__done
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Done"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields.selection,name:librefleet.selection__librefleet_service_order__stage__draft
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Draft"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.actions.act_window,help:librefleet.action_librefleet_vehicle
+msgid "Every vehicle that rolls into the workshop gets its card here."
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Exclude Cancelled"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_type__flat_fee
+msgid "Fixed price charged for this service, parts excluded."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__flat_fee
+msgid "Flat Fee"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_fleet
+msgid "Fleet"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_follower_ids
+msgid "Followers"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_partner_ids
+msgid "Followers (Partners)"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__activity_type_icon
+msgid "Font awesome icon e.g. fa-tasks"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__has_message
+msgid "Has Message"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__reference
+msgid ""
+"Human-readable order number, assigned from the sequence when the order is "
+"saved."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__id
+#: model:ir.model.fields,field_description:librefleet.field_product_template__id
+#: model:ir.model.fields,field_description:librefleet.field_res_partner__id
+msgid "ID"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_exception_icon
+msgid "Icon"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__activity_exception_icon
+msgid "Icon to indicate an exception activity."
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Identification"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__message_needaction
+msgid "If checked, new messages require your attention."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__message_has_error
+msgid "If checked, some messages have a delivery error."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields.selection,name:librefleet.selection__librefleet_service_order__stage__in_progress
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "In Progress"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "Internal Notes"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_consumable__code
+#: model:ir.model.fields,help:librefleet.field_librefleet_part__code
+msgid "Internal reference printed on the shelf label."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_is_follower
+msgid "Is Follower"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__is_loanable
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__is_loanable
+msgid "Is Loanable"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__labor_total
+msgid "Labor Total"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__write_uid
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__write_uid
+msgid "Last Updated by"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__write_date
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__write_date
+msgid "Last Updated on"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_root
+msgid "LibreFleet"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__license_plate
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__license_plate
+msgid "License Plate"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__line_ids
+msgid "Line"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_consumable__product_id
+#: model:ir.model.fields,help:librefleet.field_librefleet_part__product_id
+msgid "Link to the real product, once this part is sold or stocked."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__list_price
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__list_price
+msgid "List Price"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_consumable__unit
+msgid "Litres, metres, whatever it is sold in."
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_loaner_form
+msgid "Loan terms"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_loaner
+msgid "Loaner Car"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.actions.act_window,name:librefleet.action_librefleet_loaner
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_loaners
+msgid "Loaner Cars"
+msgstr ""
+
+#. module: librefleet
+#: model:res.groups,name:librefleet.group_librefleet_manager
+msgid "Manager"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__margin
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__margin
+msgid "Margin"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_graph
+msgid "Margin by Vehicle"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_approve_wizard_form
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "Mark Done"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_has_error
+msgid "Message Delivery error"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_ids
+msgid "Messages"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__mileage_km
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__mileage_km
+msgid "Mileage (km)"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__model_name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__model_name
+msgid "Model Name"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "Money"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__my_activity_date_deadline
+msgid "My Activity Deadline"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "My Services"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__name
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__name
+msgid "Name"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_date_deadline
+msgid "Next Activity Deadline"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_summary
+msgid "Next Activity Summary"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_type_id
+msgid "Next Activity Type"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__notes
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__notes
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__notes
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Notes"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_needaction_counter
+msgid "Number of Actions"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__message_has_error_counter
+msgid "Number of errors"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__message_needaction_counter
+msgid "Number of messages requiring action"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__message_has_error_counter
+msgid "Number of messages with delivery error"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form_reception
+msgid "Odometer (km)"
+msgstr ""
+
+#. module: librefleet
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid "Only an order that is in progress can be marked done."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_approve_wizard__order_id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__order_id
+msgid "Order"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__owner_id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__owner_id
+msgid "Owner"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__part_id
+msgid "Part"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.actions.act_window,name:librefleet.action_librefleet_part
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_parts
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "Parts"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__parts_total
+msgid "Parts Total"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_product_template
+msgid "Product"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__qty
+msgid "Quantity"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__reference
+msgid "Reference"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.actions.act_window,help:librefleet.action_librefleet_vehicle
+msgid "Register your first vehicle"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__activity_user_id
+msgid "Responsible User"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__scheduled_end
+msgid "Scheduled End"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__scheduled_start
+msgid "Scheduled Start"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__service_count
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__service_count
+msgid "Service Count"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_service_order
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__service_order_ids
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__service_order_ids
+msgid "Service Order"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_service_order_line
+msgid "Service Order Line"
+msgstr ""
+
+#. module: librefleet
+#: model:mail.template,name:librefleet.mail_template_service_done
+msgid "Service Order: ready for collection"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.actions.act_window,name:librefleet.action_librefleet_service_order
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_service_orders
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_pivot
+msgid "Service Orders"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_calendar
+msgid "Service Schedule"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_service_type
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__service_type_id
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Service Type"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.actions.act_window,name:librefleet.action_librefleet_service_type
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_service_types
+msgid "Service Types"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Services"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_part
+msgid "Spare Part"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__stage
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Stage"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__standard_cost
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_part__standard_cost
+msgid "Standard Cost"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__activity_state
+msgid ""
+"Status based on activities\n"
+"Overdue: Due date is already passed\n"
+"Today: Activity date is today\n"
+"Planned: Future activities."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__subtotal
+msgid "Subtotal"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__technician_ids
+msgid "Technicians"
+msgstr ""
+
+#. module: librefleet
+#: model:res.groups,comment:librefleet.group_librefleet_user
+msgid "Technicians: see the whole fleet and keep vehicle data up to date."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.constraint,message:librefleet.constraint_librefleet_vehicle_license_plate_unique
+msgid "That license plate is already registered on another vehicle."
+msgstr ""
+
+#. module: librefleet
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid ""
+"This order loses money (margin %(margin).2f). A manager must tick the "
+"override to complete it anyway."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_product_product__librefleet_is_part
+#: model:ir.model.fields,help:librefleet.field_product_template__librefleet_is_part
+msgid "Tick to offer this product as a spare part on service orders."
+msgstr ""
+
+#. module: librefleet
+#: model:librefleet.service.type,name:librefleet.service_type_tire_rotation
+msgid "Tire Rotation"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__activity_exception_decoration
+msgid "Type of the exception activity on record."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_consumable__unit
+msgid "Unit"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order_line__price_unit
+msgid "Unit Price"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_vehicle_form
+msgid "Usage"
+msgstr ""
+
+#. module: librefleet
+#: model:res.groups,name:librefleet.group_librefleet_user
+msgid "User"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__vin
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__vin
+msgid "VIN"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__vehicle_id
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_order__vehicle_id
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_loaner_form
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_search
+msgid "Vehicle"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_res_partner__librefleet_vehicle_count
+#: model:ir.model.fields,field_description:librefleet.field_res_users__librefleet_vehicle_count
+msgid "Vehicle Count"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.actions.act_window,name:librefleet.action_librefleet_vehicle
+#: model:ir.model.fields,field_description:librefleet.field_res_partner__librefleet_vehicle_ids
+#: model:ir.model.fields,field_description:librefleet.field_res_users__librefleet_vehicle_ids
+#: model:ir.ui.menu,name:librefleet.menu_librefleet_vehicles
+#: model_terms:ir.ui.view,arch_db:librefleet.view_partner_form_librefleet
+msgid "Vehicles"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "What and for whom"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_loaner__daily_rate
+msgid "What the customer is charged per day."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_consumable__list_price
+#: model:ir.model.fields,help:librefleet.field_librefleet_part__list_price
+msgid "What the customer pays for it."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order__margin
+#: model:ir.model.fields,help:librefleet.field_librefleet_service_order_approve_wizard__margin
+msgid ""
+"What the order earns: parts revenue plus the flat fee, minus what the parts "
+"cost the workshop."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,help:librefleet.field_librefleet_consumable__standard_cost
+#: model:ir.model.fields,help:librefleet.field_librefleet_part__standard_cost
+msgid "What the workshop pays for it."
+msgstr ""
+
+#. module: librefleet
+#: model:librefleet.service.type,name:librefleet.service_type_wheel_alignment
+msgid "Wheel Alignment"
+msgstr ""
+
+#. module: librefleet
+#: model_terms:ir.ui.view,arch_db:librefleet.view_librefleet_service_order_form
+msgid "When"
+msgstr ""
+
+#. module: librefleet
+#: model:res.groups.privilege,name:librefleet.privilege_librefleet
+msgid "Workshop"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_consumable
+msgid "Workshop Consumable"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_product_product__librefleet_is_part
+#: model:ir.model.fields,field_description:librefleet.field_product_template__librefleet_is_part
+msgid "Workshop Part"
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model,name:librefleet.model_librefleet_vehicle
+msgid "Workshop Vehicle"
+msgstr ""
+
+#. module: librefleet
+#: model:res.groups,comment:librefleet.group_librefleet_manager
+msgid "Workshop managers: full control, including configuration."
+msgstr ""
+
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_loaner__year
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_vehicle__year
+msgid "Year"
+msgstr ""
+
+#. module: librefleet
+#: model:mail.template,subject:librefleet.mail_template_service_done
+msgid "Your vehicle is ready ({{ object.reference }})"
+msgstr ""

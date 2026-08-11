@@ -1,24 +1,434 @@
 ---
 title: "40. Extending the Web Client"
-description: Not written yet, tracked in the roadmap.
+description: Build a custom field widget the clean way, then patch a core component the careful way, and learn exactly why the second one is a last resort.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch40`
+**Goal:** write a `librefleet_margin` field widget that colours profit and loss, then
+patch core's `FormController` to warn on saving a losing order, and understand why
+those two techniques are not interchangeable. · **Time:** ~2 h ·
+**Checkpoint:** `code/checkpoints/ch40`
 
 ## Why this matters
 
+Chapter 39's systray component was additive: nothing in Odoo had to change for it to
+appear, because the systray is a registry and adding to a registry is what registries
+are for. Real tickets are rarely that polite. "Make the margin red when we're losing
+money" means changing how an existing field renders. "Warn me before I save this"
+means changing what an existing controller does.
+
+Odoo gives you two tools for that, and choosing between them is the actual skill this
+chapter teaches. **Registries** are the front door: Odoo publishes a named slot, you
+add an entry, and nothing else in the system is affected. **Patching** is the fire
+escape: you reach into a core class and rewrite its methods in place, for every user of
+that class, everywhere. Both are legitimate. Only one of them is safe by default.
+
 ## Concepts
+
+### A field widget is a component plus a descriptor plus a registry entry
+
+The `widget="..."` attribute you have been writing since chapter 11 (`many2many_tags`,
+`statusbar`, `badge`, `daterange`) is a registry lookup. Each name maps to a
+**descriptor object**, and the descriptor points at an OWL component:
+
+```js
+export const marginField = {
+    component: MarginField,
+    displayName: _t("Workshop Margin"),
+    supportedTypes: ["float", "monetary"],
+};
+
+registry.category("fields").add("librefleet_margin", marginField);
+```
+
+The component itself receives a fixed set of props from the view engine, declared by
+spreading `standardFieldProps`:
+
+```js
+static props = { ...standardFieldProps };
+```
+
+That gives you `name`, `record`, `readonly` and `id`. The important pair is `record`
+and `name`: a widget never hardcodes which field it displays, it reads
+`this.props.record.data[this.props.name]`. That indirection is exactly why one widget
+can serve many fields on many models.
+
+`supportedTypes` is not decoration. It is what makes Odoo refuse the widget on a field
+type it cannot render, instead of letting someone put `widget="librefleet_margin"` on a
+Char field and getting nonsense at runtime.
+
+### Patching: the escape hatch, and why it needs a guard
+
+Some things have no registry slot. `FormController.onWillSaveRecord` is a hook that
+runs before every form save, and there is no "add a save hook" registry to append to.
+For that, Odoo ships `patch`:
+
+```js
+import { patch } from "@web/core/utils/patch";
+import { FormController } from "@web/views/form/form_controller";
+
+patch(FormController.prototype, {
+    async onWillSaveRecord(record) {
+        const result = await super.onWillSaveRecord(...arguments);
+        // ...
+        return result;
+    },
+});
+```
+
+Two mechanics worth naming. `super` works inside a patch even though this is a plain
+object literal, because `patch` stores the original method on a skeleton object and
+wires the prototype chain so `super` resolves to whatever was there before, including
+another module's patch. That is what makes patches stack rather than clobber.
+
+And the part that bites: **a patch is global and unconditional.** There is no way to
+register a patch "only for this model" or "only in my app". The code above runs on
+every form view in the entire web client, in Sales, in Invoicing, in Settings, for
+every model. The only scoping available is a check inside the method body:
+
+```js
+if (record.resModel !== "librefleet.service.order") {
+    return result;
+}
+```
+
+Forget that line and you have quietly changed how the whole client behaves.
+
+<Mermaid label="Choosing between a registry entry and a patch: prefer a registry slot when Odoo publishes one, and fall back to patching only when no slot exists, adding a model guard inside the method." chart={`flowchart TD
+    Need["You need to change<br/>existing web client behaviour"] --> Q{"Does Odoo publish<br/>a registry for it?"}
+    Q -->|"Yes: fields, views,<br/>systray, services..."| Reg["Add a registry entry<br/>(isolated, nothing else affected)"]
+    Q -->|"No: a controller hook,<br/>an internal method"| Patch["patch(SomeClass.prototype, ...)"]
+    Patch --> Guard["Guard inside the method:<br/>a patch is global"]
+`} />
+
+<Callout type="info" title="Official docs">
+  [Field widgets (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html#fields)
+  for the descriptor's full option list, and
+  [patching (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/patching_code.html)
+  for the mechanics and the warnings.
+</Callout>
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Build the margin widget
+
+```js title="addons/librefleet/static/src/margin_field/margin_field.js"
+import { Component } from "@odoo/owl";
+import { _t } from "@web/core/l10n/translation";
+import { registry } from "@web/core/registry";
+import { formatFloat } from "@web/views/fields/formatters";
+import { standardFieldProps } from "@web/views/fields/standard_field_props";
+
+export class MarginField extends Component {
+    static template = "librefleet.MarginField";
+    // Spreading standardFieldProps is not optional: the view engine always
+    // passes name/record/readonly/id, and OWL's prop validation rejects any
+    // prop the component did not declare.
+    static props = { ...standardFieldProps };
+
+    get value() {
+        // Every field widget reads its own value the same way: the record is
+        // handed to it as a prop, and props.name says which field it is bound
+        // to. That indirection is what lets one widget serve many fields.
+        return this.props.record.data[this.props.name];
+    }
+
+    get formattedValue() {
+        return formatFloat(this.value, {
+            field: this.props.record.fields[this.props.name],
+        });
+    }
+
+    get isLoss() {
+        return this.value < 0;
+    }
+
+    get cssClass() {
+        return this.isLoss ? "text-danger fw-bold" : "text-success";
+    }
+
+    get iconClass() {
+        return this.isLoss ? "fa-arrow-down" : "fa-arrow-up";
+    }
+}
+
+export const marginField = {
+    component: MarginField,
+    displayName: _t("Workshop Margin"),
+    // Declaring the types this widget understands is what makes Odoo refuse
+    // it on, say, a Char field, instead of rendering something broken.
+    supportedTypes: ["float", "monetary"],
+};
+
+registry.category("fields").add("librefleet_margin", marginField);
+```
+
+`formatFloat` from core is doing real work here: it applies the user's language
+settings (decimal separator, thousands separator) and the field's own `digits`
+precision. Formatting a number by hand with `toFixed` would look right in English and
+wrong in half the world.
+
+```xml title="addons/librefleet/static/src/margin_field/margin_field.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.MarginField">
+        <span t-att-class="cssClass">
+            <i class="fa" t-att-class="iconClass"/>
+            <span t-out="formattedValue"/>
+        </span>
+    </t>
+
+</templates>
+```
+</Step>
+
+<Step>
+### Ask the view for it
+
+Registering a widget does not apply it anywhere. The view has to name it:
+
+```xml title="addons/librefleet/views/service_order_views.xml"
+                                <group string="Money">
+                                    <field name="parts_total"/>
+                                    <field name="labor_total"/>
+                                    <field name="margin" widget="librefleet_margin"
+                                           groups="librefleet.group_librefleet_manager"/>
+                                </group>
+```
+
+Bump the manifest to `19.0.1.26.0` and upgrade. The `assets` key from chapter 39
+already globs `static/src/**/*`, so new files under it need no manifest change at all:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.registry: Registry loaded in 2.797s
+```
+
+Open any service order and look at the Money group. A profitable order shows a green
+up-arrow; an order underwater shows bold red with a down-arrow:
+
+![The Money group of a service order form: Parts Total 10.00, Labor Total 89.00, and Margin rendered as a red down-arrow followed by -401.00 in bold red](/screens/ch40-margin-widget-loss.jpg)
+
+<Callout type="warn" title="Gotcha">
+  If the widget renders nothing at all and the console says
+  `Invalid props for component "MarginField"`, you forgot to spread
+  `standardFieldProps`. OWL validates props in dev mode, and the view engine always
+  passes `record` and `name` whether you declared them or not.
+</Callout>
+</Step>
+
+<Step>
+### Patch the form controller
+
+```js title="addons/librefleet/static/src/form_controller/service_order_save_warning.js"
+import { _t } from "@web/core/l10n/translation";
+import { patch } from "@web/core/utils/patch";
+import { useService } from "@web/core/utils/hooks";
+import { FormController } from "@web/views/form/form_controller";
+
+// A patch is GLOBAL and unconditional: this runs on every form view in the
+// entire web client, for every model, in every app. There is no way to scope
+// a patch at registration time, so the scoping has to happen inside the
+// method (the resModel guard below). Forget it and you have changed how
+// Sales, Invoicing and Settings behave too.
+patch(FormController.prototype, {
+    setup() {
+        super.setup(...arguments);
+        this.notification = useService("notification");
+    },
+
+    async onWillSaveRecord(record) {
+        const result = await super.onWillSaveRecord(...arguments);
+        if (record.resModel === "librefleet.service.order" && record.data.margin < 0) {
+            this.notification.add(
+                _t("This order is being saved at a loss of %s.", record.data.margin.toFixed(2)),
+                { type: "warning", title: _t("Negative margin") }
+            );
+        }
+        // Returning false from this hook cancels the save. We deliberately do
+        // not: chapter 20's wizard is where the hard block lives, and a UI
+        // patch is the wrong place to enforce a business rule (an import or
+        // an RPC call would bypass it entirely).
+        return result;
+    },
+});
+```
+
+Patching `setup` to add a service is the standard way to give a patched class
+something it did not have. `useService` is a hook, so it has to run inside `setup`,
+which is exactly where the patched version puts it.
+
+Upgrade, then create a service order that loses money (a part whose `standard_cost`
+exceeds what you charge for it), edit any field, and save. A warning toast appears at
+the top right reading "Negative margin: This order is being saved at a loss of
+-401.00", and the save still goes through.
+
+That last detail is the design decision worth arguing about, so the code says why in a
+comment: this hook *can* block the save by returning `false`, and it deliberately does
+not. A rule enforced only in the browser is not enforced. Chapter 20's wizard, running
+on the server, is what actually stops a losing order being completed; this patch is a
+convenience for the person clicking, not a control.
+</Step>
+
+<Step>
+### Break-it lab: remove the guard
+
+Delete the `record.resModel === "librefleet.service.order" &&` half of the condition,
+upgrade, reload, and go edit a record in a completely different app: a contact under
+Settings > Users & Companies > Contacts, say. Save it.
+
+Nothing visibly breaks, which is the point. `record.data.margin` is `undefined` on a
+partner, `undefined < 0` is `false`, and the notification stays quiet. Your patch is
+now running on every save of every record in the database and *happening* to be
+harmless because of a JavaScript coercion rule.
+
+Change the condition to something that is truthy on other models (`record.data.id`,
+for instance) and save that contact again to watch a LibreFleet warning appear on a
+screen that has nothing to do with LibreFleet. Then put the guard back. The lesson is
+not "this particular patch was dangerous", it is that **the blast radius of a patch is
+the whole client and nothing warns you**.
+</Step>
+
+</Steps>
+
+The module tree after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__manifest__.py" />
+    <Folder name="static/src" defaultOpen>
+      <Folder name="workshop_clock">
+        <File name="workshop_clock.js" />
+        <File name="workshop_clock.xml" />
+      </Folder>
+      <Folder name="margin_field" defaultOpen>
+        <File name="margin_field.js" />
+        <File name="margin_field.xml" />
+      </Folder>
+      <Folder name="form_controller" defaultOpen>
+        <File name="service_order_save_warning.js" />
+      </Folder>
+    </Folder>
+    <Folder name="views">
+      <File name="service_order_views.xml" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch40
+✔ the margin widget is registered
+✔ it declares which field types it supports
+✔ the service order form actually uses it
+✔ the FormController patch is scoped to one model
+
+ch40 complete! On to the next chapter 🔧
+```
+
+The last check is the interesting one: it reads your patch out of the compiled bundle
+and fails if the `resModel` guard is missing, because that is a mistake nothing else in
+the stack will ever tell you about.
 
 ## Gotchas
 
+- **Registering a widget does not apply it.** The registry entry and the view's
+  `widget="..."` attribute are two separate halves, and only the second one puts it on
+  a screen.
+- **`static props` must spread `standardFieldProps`.** The view engine passes
+  `record`, `name`, `readonly` and `id` regardless; OWL's prop validation rejects
+  anything undeclared, so the widget fails to render with a props error.
+- **A patch applies to every instance of the class, everywhere.** There is no
+  per-model or per-app registration. The guard goes inside the method body, and
+  forgetting it is silent.
+- **Don't enforce business rules in a patch.** Anything the browser enforces is
+  bypassed by an import, an RPC call, or the shell. Warn in the client, block on the
+  server.
+- **`formatFloat` over `toFixed`.** Core's formatter respects the user's language
+  separators and the field's own precision; hand formatting is a localisation bug
+  waiting for its first non-English user.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A module adds widget=\"librefleet_margin\" to a Char field on some other model. supportedTypes on the descriptor lists only [\"float\", \"monetary\"]. What does that declaration actually do?",
+    options: [
+      "It silently coerces the Char value into a float before the component receives it as a prop",
+      "It makes Odoo reject that pairing instead of handing a string to a component written to expect a number",
+      "It has no runtime effect and exists purely as documentation for other developers reading the source",
+      "It restricts which models may use the widget, based on the field types those models happen to declare",
+    ],
+    answer: 1,
+    why: "supportedTypes is checked when the view is set up, so an unsupported pairing is refused up front rather than producing a component that receives a type it was never written to handle. It constrains field types, not models, and it does not convert anything.",
+  },
+  {
+    q: "Two different modules both patch FormController.prototype.onWillSaveRecord, and both call super.onWillSaveRecord(...arguments) first. What happens when a form is saved?",
+    options: [
+      "Only the patch from the module that loaded last runs, since it overwrote the method definition",
+      "Odoo raises an error at load time refusing a second patch on a method that is already patched",
+      "Both run, because patch keeps the previous implementation reachable through super, so patches stack in load order",
+      "Both run, but in an order determined by module dependency depth rather than by when the patch was applied",
+    ],
+    answer: 2,
+    why: "patch stores the existing method on a skeleton object and wires the prototype chain so super resolves to whatever was there before, which may be core's original or another module's patch. That is precisely why calling super is a convention worth keeping: skip it and you silently drop everyone else's work.",
+  },
+  {
+    q: "A patch on FormController.onWillSaveRecord has no model guard, and its body reads record.data.margin < 0. A user saves a contact form. What happens?",
+    options: [
+      "Nothing happens, because undefined < 0 is false, and the patch stays quiet by accident rather than by design",
+      "The save fails, because reading an undeclared field off a record raises a TypeError in the model layer",
+      "The patch is skipped, since Odoo only runs a module's patches while viewing that module's own models",
+      "A warning appears on every contact save, since a missing field is treated as zero and zero is not above zero",
+    ],
+    answer: 0,
+    why: "record.data.margin is undefined on a partner, and undefined < 0 evaluates to false, so nothing visible happens. That is the danger: the patch genuinely is running on every save in the client and the only reason it looks fine is a coercion rule, not a decision anyone made.",
+  },
+  {
+    q: "Given the choice between adding a registry entry and patching a core class, why is the registry the default recommendation?",
+    options: [
+      "Registry entries load faster, because they are resolved at build time instead of at runtime",
+      "Patches are officially deprecated in Odoo 19 and scheduled for removal in a future version",
+      "A registry entry only affects code that opts into it by name, while a patch changes the class for every existing user of it",
+      "Registry entries survive module upgrades automatically, whereas patches must be reapplied after each upgrade",
+    ],
+    answer: 2,
+    why: "A registry is a published extension point: your entry sits alongside others and only affects a view that asks for it by name. A patch rewrites a shared class in place, so its blast radius is every current and future user of that class, which is why it is the fallback rather than the default.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a `title` attribute to the widget's outer span showing "Profit" or "Loss", so
+   hovering the value explains the colour to someone who cannot distinguish red from
+   green.
+2. ⭐⭐ The widget currently hardcodes its two colours. Make the loss threshold
+   configurable from the view (`options="{'warn_below': 50}"`) so a margin under 50 is
+   amber rather than green. You will need `extractProps` on the descriptor, which
+   chapter 39's Further reading links cover.
+3. ⭐⭐ Apply the widget to the `margin` measure in the pivot view too, then explain
+   why it does or does not take effect there.
+4. ⭐⭐⭐ Break-it lab: remove the `super.onWillSaveRecord(...arguments)` call from the
+   patch, then install a second module (or add a second patch file of your own) that
+   also patches the same method. Show which one stops running, and explain what that
+   means for a client project running twelve OCA modules that all patch the same class.
+5. ⭐⭐⭐ Read core's [`web/static/src/views/fields/badge/badge_field.js`](https://github.com/odoo/odoo/blob/19.0/addons/web/static/src/views/fields/badge/badge_field.js)
+   and work out how its `decorations` prop reaches the component from a view's
+   `decoration-success="..."` attribute. Which descriptor function is responsible?
+
 ## Further reading
+
+- <Icon name="docs" /> [Patching code (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/patching_code.html):
+  the official treatment, including the same warnings this chapter arrived at from the
+  other direction.
+- <Icon name="source" /> [`web/static/src/views/fields/`](https://github.com/odoo/odoo/tree/19.0/addons/web/static/src/views/fields):
+  every built-in widget, and the best possible reference for descriptor options.
+- <Icon name="source" /> [`mail/static/src/chatter/web/form_controller.js`](https://github.com/odoo/odoo/blob/19.0/addons/mail/static/src/chatter/web/form_controller.js):
+  a real core patch of the exact class this chapter patched, worth comparing against
+  your own.

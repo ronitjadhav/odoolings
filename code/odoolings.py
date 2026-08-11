@@ -1456,6 +1456,77 @@ def workshop_clock_reads_open_orders_over_rpc(env):
     assert isinstance(n, int), "search_count did not return a number"
 
 
+def _margin_field_descriptor(bundle):
+    """Slice out just our own field descriptor.
+
+    Bare substring checks are useless against a 9 MB bundle that contains all
+    of core: "supportedTypes" alone appears ~67 times, once per built-in
+    widget, so a check for it would pass even if OUR descriptor lacked it.
+    """
+    start = bundle.find("marginField = {")
+    if start == -1:
+        start = bundle.find("marginField =")
+    assert start != -1, (
+        "no marginField descriptor found in the bundle. A field widget needs "
+        "an exported descriptor object, { component, supportedTypes, ... }, "
+        "next to its component class")
+    end = bundle.find("};", start)
+    return bundle[start:end]
+
+
+def margin_widget_is_registered(env):
+    """A widget only exists once it is added to the "fields" registry under a name."""
+    bundle = _backend_bundle(env)
+    assert "class MarginField extends Component" in bundle, (
+        "the MarginField component class is not in the bundle. Check the "
+        "manifest's assets list includes librefleet/static/src/**/*.js")
+    assert 'registry.category("fields").add("librefleet_margin"' in bundle, (
+        "librefleet_margin is not registered in the fields registry. A widget "
+        "class on its own is inert: it needs "
+        'registry.category("fields").add("librefleet_margin", marginField). '
+        "The string you register under is the same one the view's "
+        'widget="..." attribute asks for')
+
+
+def margin_widget_declares_supported_types(env):
+    """supportedTypes is what makes Odoo refuse the widget on a Char field."""
+    descriptor = _margin_field_descriptor(_backend_bundle(env))
+    assert "supportedTypes" in descriptor, (
+        "the marginField descriptor has no supportedTypes. Without it nothing "
+        "stops someone putting widget=\"librefleet_margin\" on a Char field "
+        "and getting nonsense; declare [\"float\", \"monetary\"]")
+    assert "float" in descriptor, (
+        "supportedTypes does not include \"float\", which is what "
+        "librefleet.service.order.margin actually is")
+
+
+def margin_widget_is_used_on_the_form(env):
+    """The registry entry is half of it; the view has to ask for the widget by name."""
+    res = env.call("ir.model.data", "check_object_reference",
+                    "librefleet", "view_librefleet_service_order_form")
+    view = env.call("ir.ui.view", "read", [res[1]], fields=["arch_db"])[0]
+    assert 'widget="librefleet_margin"' in view["arch_db"], (
+        "the service order form does not use the widget. Add "
+        'widget="librefleet_margin" to the <field name="margin"/> in '
+        "views/service_order_views.xml, then upgrade")
+
+
+def form_controller_patch_is_scoped(env):
+    """A patch is global: the resModel guard is the only thing keeping it off other apps."""
+    bundle = _backend_bundle(env)
+    assert "patch(FormController.prototype" in bundle, (
+        "FormController.prototype is not patched. Import patch from "
+        '"@web/core/utils/patch" and FormController from '
+        '"@web/views/form/form_controller", then patch its prototype')
+    assert "onWillSaveRecord" in bundle, (
+        "the patch does not override onWillSaveRecord, the hook that runs "
+        "before a form saves")
+    assert 'record.resModel === "librefleet.service.order"' in bundle, (
+        "the patch has no resModel guard. patch() applies to EVERY form view "
+        "in the web client, for every model in every app, so the method body "
+        "must check which model it is looking at before doing anything")
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2817,6 +2888,25 @@ CHAPTERS = {
          "useService(\"orm\") then orm.searchCount(\"librefleet.service.order\", "
          "[[\"stage\", \"not in\", [\"done\", \"cancelled\"]]]). The ORM service "
          "goes through the session, so access rules still apply."),
+    ],
+    "ch40": [
+        ("the margin widget is registered", margin_widget_is_registered,
+         "A component class plus an exported descriptor, then "
+         "registry.category(\"fields\").add(\"librefleet_margin\", marginField). "
+         "The registry name is what widget=\"...\" in a view looks up."),
+        ("it declares which field types it supports",
+         margin_widget_declares_supported_types,
+         "supportedTypes: [\"float\", \"monetary\"] on the descriptor. This is "
+         "what stops the widget being used on a field type it cannot render."),
+        ("the service order form actually uses it", margin_widget_is_used_on_the_form,
+         "Add widget=\"librefleet_margin\" to <field name=\"margin\"/> in "
+         "views/service_order_views.xml. Registering a widget does not apply "
+         "it anywhere by itself."),
+        ("the FormController patch is scoped to one model",
+         form_controller_patch_is_scoped,
+         "patch(FormController.prototype, { async onWillSaveRecord(record) "
+         "{...} }) with a record.resModel check inside. A patch applies to "
+         "every form view in the client, so the guard is mandatory."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,

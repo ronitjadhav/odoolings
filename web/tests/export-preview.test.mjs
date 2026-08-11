@@ -71,7 +71,7 @@ try {
   assert.match(lessonBody, /rel="canonical" href="https:\/\/odoolings\.ronit\.io\/docs\/00-orientation\/01-what-odoo-is\/"/);
   assert.match(lessonBody, /"@type":"LearningResource"/);
 
-  const stubRoute = '/docs/07-frontend-owl/40-extending-the-web-client/';
+  const stubRoute = '/docs/07-frontend-owl/41-the-librefleet-dashboard/';
   const stub = await fetch(`${origin}${stubRoute}`);
   assert.equal(stub.status, 200, 'planned lessons should remain navigable');
   const stubBody = await stub.text();
@@ -80,8 +80,8 @@ try {
   const sitemap = await fetch(`${origin}/sitemap.xml`);
   assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
   const sitemapBody = await sitemap.text();
-  assert.match(sitemapBody, /\/docs\/07-frontend-owl\/39-owl-fundamentals\/<\/loc>/);
-  assert.doesNotMatch(sitemapBody, /\/docs\/07-frontend-owl\/40-extending-the-web-client/);
+  assert.match(sitemapBody, /\/docs\/07-frontend-owl\/40-extending-the-web-client\/<\/loc>/);
+  assert.doesNotMatch(sitemapBody, /\/docs\/07-frontend-owl\/41-the-librefleet-dashboard/);
   const expectedLocs = 1 + completeDocsPageCount();
   assert.equal(
     (sitemapBody.match(/<loc>/g) ?? []).length,

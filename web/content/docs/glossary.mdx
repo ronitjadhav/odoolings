@@ -410,6 +410,15 @@ used: overdue is a date question, unpaid is a reconciliation question (chapter 2
 do not want to edit. It needs a real terminal to read commands from, so it works in
 `odoo shell` but not in the containerised server process (chapter 6).
 
+**patch (`@web/core/utils/patch`)**: the frontend's escape hatch for changing a core
+class that publishes no registry slot. `patch(SomeClass.prototype, { method() { ... } })`
+rewrites methods in place, keeping the previous implementation reachable through
+`super` so several modules' patches stack in load order rather than clobbering each
+other. **A patch is global and unconditional**: it applies to every instance of that
+class everywhere in the web client, with no way to scope it at registration time, so
+any narrowing (a `record.resModel` check, say) has to happen inside the method body.
+Prefer a registry entry wherever Odoo publishes one (chapter 40).
+
 **picking (`stock.picking`)**: one transfer, a batch of `stock.move` lines sharing a
 source, a destination and a `picking_type_id`. A multi-step route (chapter 25) is a chain
 of pickings, and later legs are created only once the ones before them are done, not all
@@ -658,7 +667,11 @@ an action requests them via `view_id`.
 
 **widget**: an attribute on a view field picking an alternative renderer for the
 same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17
-tours the built-ins; chapter 40 builds one.
+tours the built-ins; chapter 40 builds one. The attribute's value is a lookup into
+the `fields` registry, where each name maps to a descriptor object
+(`{ component, supportedTypes, ... }`) pointing at an OWL component. The component
+reads its own value as `props.record.data[props.name]`, which is why one widget can
+serve many fields on many models.
 
 **window action**: an `ir.actions.act_window` record saying what to open: the
 model (`res_model`) and the view types in order (`view_mode="list,form"`). The glue
