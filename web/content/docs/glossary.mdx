@@ -351,6 +351,11 @@ and the lines' `reconciled` flags, so writing it directly fixes nothing (chapter
 into dated instalments. It changes *when* money is expected, never which accounts are
 used: overdue is a date question, unpaid is a reconciliation question (chapter 28).
 
+**pdb**: Python's built-in interactive debugger. Entered either by calling
+`breakpoint()` in your own code or with `pdb.runcall(fn, *args)` to stop inside code you
+do not want to edit. It needs a real terminal to read commands from, so it works in
+`odoo shell` but not in the containerised server process (chapter 6).
+
 **picking (`stock.picking`)**: one transfer, a batch of `stock.move` lines sharing a
 source, a destination and a `picking_type_id`. A multi-step route (chapter 25) is a chain
 of pickings, and later legs are created only once the ones before them are done, not all

@@ -1055,6 +1055,60 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 — syllabus coverage audit against an external checklist; pdb lands in ch6
+
+Prompted by an external Odoo-onboarding checklist (a Camptocamp "Odoo core" skills list)
+the author asked whether the tutorial covers it all. Audited §5.4's own coverage
+checklist, which explicitly invites this ("agent: verify before calling the syllabus
+done"), by grepping the real chapter files rather than trusting the syllabus prose.
+
+Result, and the surprise is the second line:
+
+- Everything on that checklist **except two items** is either written (module structure,
+  models, views, ORM/domain/env, field types, both inheritance kinds,
+  compute/onchange/constraints, shell, security rules, module data, mixins) or already
+  planned with a stub in place (QWeb reports ch36, controllers/portal ch37, testing ch38,
+  OWL ch39-42).
+- **ch30 and ch35-50 are all still 24-line stubs.** 17 chapters. Written chapters are
+  ch1-29 and ch31-34. This is worth stating plainly in the changelog because the syllabus
+  reads as though Parts 6-9 exist, and they do not yet.
+- Two items were genuinely unplanned, with no chapter and no slot: **i18n/translations**
+  (only an unchecked `i18n basics ▢` in §5.4) and **`pdb`/`debugpy`** (named in §3.5's
+  tooling list, homeless).
+
+Decisions (author's call, offered with costs):
+
+1. **Translations folds into ch34 Data Files** rather than becoming its own chapter.
+   `.po` files *are* data files, ch34 already owns XML/CSV/`noupdate`/`ref()`, and this
+   avoids a 16-chapter renumber. §5.4's `i18n basics` gets ticked from there. The
+   renumber alternative was priced explicitly and declined, consistent with D13's
+   renumber having broken `main` once already.
+2. **`pdb` extends ch6** (Daily Driver Workflow), which already owns dev mode, log
+   levels and the shell, so the debugger is the natural escalation from "read the log".
+   No renumber, no new chapter.
+
+Written and verified for ch6 in the real container, not from memory:
+
+- `pdb.runcall(env["res.partner"].search, ...)` stops one line into core's `search` at
+  `odoo/orm/models.py:1378`; `l`, `p domain`, `p self._name`, `pp`, `s`, `w`, `b`, `c`,
+  `q` all captured from a genuine pty-driven session (the Bash tool cannot type into
+  pdb, so the transcript was driven through `pty.fork`).
+- `breakpoint()` works in reader-defined shell code, landing at `<console>`.
+- **`docker compose exec` allocates a TTY by default**, so the book's existing shell
+  command already works with pdb and needs no `-it`. The flag that breaks it is `-T`,
+  which this book uses precisely when piping scripts, so the two are mutually exclusive.
+  Written up as a Gotcha because it is a genuinely confusing interaction.
+- A stranded `breakpoint()` with no terminal raises **`bdb.BdbQuit`** and fails the
+  request. Verified, rather than the intuitive-but-wrong "it hangs forever", which is now
+  the long distractor in the new quiz question.
+- `debugpy` is **not** in the `odoo:19` image, so it is a pointer only, not a hands-on.
+  Teaching it would mean changing the image or the compose file, and §4's rule 2 makes
+  compose changes expensive (starter-repo mirror + drift check).
+
+`docker-compose.yml` deliberately untouched: attaching a debugger to the *running server*
+would need `stdin_open`/`tty`, and the honest workaround (call the method from
+`odoo shell`) costs nothing and is what practitioners do anyway.
+
 ### 2026-08-09 (review pass, ch1-10) — the renumber's unpaid debt, and the house style
 for Hands-on
 
