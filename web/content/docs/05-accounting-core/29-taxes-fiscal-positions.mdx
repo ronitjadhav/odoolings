@@ -35,7 +35,7 @@ The rate is the easy half. `account.tax` holds `amount` (15.0), `amount_type`
 (`percent`, `fixed`, `division`, or `group`) and `type_tax_use` (`sale`, `purchase` or
 `none`, which is what keeps purchase taxes out of the customer-invoice dropdown).
 
-The half people skip is the children: `account.tax.repartition.line`, labelled
+The half people skip is the children: a <Term k="repartition line (`account.tax.repartition.line`)">`account.tax.repartition.line`</Term>, labelled
 **Distribution** in the interface. Each one answers "where does a piece of this go", and
 each carries four things that matter:
 
@@ -56,6 +56,7 @@ nets to nothing: all of them are one `account.tax` with more than one **of tax**
 distribution line.
 
 <Mermaid
+  label="One tax with two of-tax distribution lines splits a single 15% charge into two separate journal lines, 60% to one account and 40% to another"
   chart={`flowchart LR
     T["account.tax<br/>15% Split, percent"]
     T --> B["invoice / base / 100%<br/>(no account)"]
@@ -86,7 +87,7 @@ Same rate, same typed number, different money. Excluded adds on top. Included tr
 you typed as the total and works backwards: `100 / 1.15`, which is 86.9565…, and the
 first thing you learn about tax-included pricing is that it almost never divides cleanly.
 
-In Odoo 19 the field you probably remember is no longer the field you set.
+In Odoo 19, <Term k="price-included tax (`price_include`)">`price_include`</Term> is no longer the field you set.
 `price_include` is **computed**, so writing it does nothing. What you set is
 `price_include_override`, a selection of `tax_included` / `tax_excluded` shown as
 **Included in Price** on the tax's Advanced Options tab, and if you leave it empty the
@@ -104,7 +105,7 @@ which means that on any database with history, the per-tax override is your only
 
 ### Tax groups group, and nothing else
 
-`account.tax.group` does not take part in the computation at all. It does two jobs: it
+A <Term k="tax group (`account.tax.group`)">`account.tax.group`</Term> does not take part in the computation at all. It does two jobs: it
 decides how taxes are aggregated in the totals block on an invoice (so that two 15% taxes
 show as one "Tax 15%" subtotal rather than two lines), and it carries the
 `tax_receivable_account_id` / `tax_payable_account_id` pair that the period-end tax
@@ -113,7 +114,7 @@ not.
 
 ### Fiscal positions, and the direction Odoo 19 reversed
 
-A fiscal position is the answer to "this customer is not taxed like the others". It maps
+A <Term k="fiscal position (`account.fiscal.position`)">fiscal position</Term> is the answer to "this customer is not taxed like the others". It maps
 taxes (and optionally accounts) for a given customer or country, and Odoo resolves it
 when a document is created.
 
@@ -124,6 +125,7 @@ lives on the tax, in the opposite direction: a replacement tax lists the domesti
 it stands in for.
 
 <Mermaid
+  label="Fiscal position tax mapping reversed direction in Odoo 19: the replacement tax now names the domestic tax it stands in for, instead of the position owning a source-to-destination mapping table"
   chart={`flowchart TB
     subgraph old["Odoo 18 and earlier"]
       FP1["fiscal position<br/>Foreign Trade"] -- "tax_ids: one2many" --> M["account.fiscal.position.tax<br/>src 15% / dest 0% Exports"]
@@ -172,7 +174,7 @@ are tax-included and a customer can check your arithmetic on the shelf label. Ro
 per tax keeps the tax exactly proportional to the base, which is what a tax authority
 wants.
 
-`res.company.tax_calculation_rounding_method` holds it, and two details about that field
+<Term k="tax rounding (`tax_calculation_rounding_method`)">`res.company.tax_calculation_rounding_method`</Term> holds it, and two details about that field
 catch people out. Its stored values are `round_per_line` and `round_globally`, but the
 Odoo 19 interface labels the second one **Round per Tax**, so grepping the interface for
 "globally" finds nothing. And the Odoo 19 default is `round_globally`, where Odoo 18's
@@ -260,6 +262,8 @@ Sets. Do not touch the tax column. Look at three things before saving:
 - the line's **Taxes** cell now reads **0% Exports**, not 15%
 - the **Other Info** tab's **Fiscal Position** reads **Foreign Trade**
 - the totals show no tax at all
+
+![The quotation for Nordwerk Fahrzeugtechnik GmbH in Bremen, Germany: the Brake Pad Set line carries the 0% Exports tax instead of 15%, and the totals read Tax 0%: $0.00, Total: $240.00](/screens/ch29-export-quotation-zero-tax.jpg)
 
 Nobody configured that. The demo's Foreign Trade position auto-applies on country alone,
 and the swap happened as the line was created.
