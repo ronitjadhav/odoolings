@@ -1,24 +1,505 @@
 ---
 title: "35. Cron, Server & Automated Actions"
-description: Not written yet, tracked in the roadmap.
+description: Build a maintenance-reminder feature three ways, on a schedule, on demand and on a trigger, and discover they are the same object underneath.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch35`
+**Goal:** build a real feature (nudge the workshop about vehicles overdue for
+service) using a scheduled action, a server action and an automated action, and see
+exactly how the three relate. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch35`
 
 ## Why this matters
 
+Every LibreFleet feature so far has run because a human clicked something. That is
+fine for a workshop where a technician opens the app every morning, but a real
+integrator's backlog is full of tickets that start "nobody remembered to..." A vehicle
+that has not been serviced in six months does not send itself a reminder. An order
+stuck in draft for a week does not escalate itself. A digest email does not compose
+itself at 7 a.m.
+
+Odoo answers this with three mechanisms that look separate from the UI but share one
+foundation. A **scheduled action** (cron) runs code on a timer. A **server action** is
+that code, stored as a record instead of a Python file, runnable from a menu, a
+button, or a cron. An **automated action** wires a server action to a *database event*
+instead of a clock: a field changing, a record being created, a date arriving. You
+already met the mechanism that ties two of these together in chapter 31:
+`_inherits`. `ir.cron` uses the exact same delegation trick against
+`ir.actions.server` that `librefleet.loaner` used against `librefleet.vehicle`. Once
+you see that, "a cron is a server action with a schedule bolted on" stops being a
+slogan and becomes something you can point at in the database.
+
 ## Concepts
+
+### A server action is code Odoo can point at from three places
+
+`ir.actions.server` is a model, not a script file. A record with `state = "code"`
+holds a Python string in its `code` field, run through `safe_eval` against a small,
+fixed set of names: `env`, `model` (the model class, e.g. `librefleet.vehicle`),
+`record` / `records` (whatever this run is bound to), and a few date/time helpers.
+Setting a return value works by assigning to a variable named `action` inside that
+code, which is how a server action can itself open a window.
+
+The eval context's `records` is the detail that trips people up: it is only
+populated when the action runs *bound to a selection*, something with specific ids in
+mind. Run the same action from a cron, which has no selection, no button clicked, no
+row checked, and `records` comes back empty. A server action meant to work both ways
+needs to handle that itself.
+
+### A cron is a server action wearing a schedule
+
+```mermaid
+flowchart LR
+    Manager["Manager clicks<br/>'LibreFleet: maintenance reminders'<br/>from the Vehicles list"] --> Row["one ir.actions.server row<br/>state = code"]
+    Scheduler["Scheduler<br/>(runs daily)"] --> CronRow["ir.cron row<br/>ir_actions_server_id"] --> Row
+    Row --> Method["Vehicle.action_send_maintenance_reminders()"]
+```
+
+<Mermaid label="A manager clicking the Vehicles list action and the daily scheduler both end up running the same ir.actions.server row, one directly and one through an ir.cron record that delegates to it." chart={`flowchart LR
+    Manager["Manager clicks<br/>'LibreFleet: maintenance reminders'<br/>from the Vehicles list"] --> Row["one ir.actions.server row<br/>state = code"]
+    Scheduler["Scheduler<br/>(runs daily)"] --> CronRow["ir.cron row<br/>ir_actions_server_id"] --> Row
+    Row --> Method["Vehicle.action_send_maintenance_reminders()"]
+`} />
+
+`ir.cron`'s model definition has one line that explains the whole relationship:
+
+```python
+_inherits = {'ir.actions.server': 'ir_actions_server_id'}
+```
+
+That is delegation inheritance, chapter 31's `librefleet.loaner` pattern, applied by
+core Odoo itself. A cron record does not *have* a server action the way an order
+*has* lines; it **is** one, plus `interval_number`, `interval_type`, `nextcall`, and
+the rest of the scheduling fields. Read or write `cron.code`, `cron.model_id`,
+`cron.state`, even `cron.name`, and you are reading or writing the exact same
+database row the linked `ir.actions.server` record points at. There is one row, two
+models looking at it.
+
+Binding an action to a menu works through two fields on the *action*, not the cron:
+`binding_model_id` (which model's views it should show up on) and
+`binding_view_types` (list, form, or both). Set those and the action appears in that
+model's Action menu, runnable on a selection, with no separate menu record to build.
+
+### An automated action is a server action with a trigger instead of a clock
+
+`base.automation` (module `base_automation`, a separate dependency from `base`)
+watches one model for an event and runs a linked server action when it fires. The
+trigger vocabulary is wide: `on_create`, `on_create_or_write`, `on_unlink`, `on_time`
+(a date field arriving), `on_stage_set` (a `stage_id` many2one reaching a specific
+value, built for kanban-pipeline models), and a few mail-specific ones. Two domain
+fields narrow it further: `filter_pre_domain` (must have matched *before* the write)
+and `filter_domain` (must match *after*). Both together is how you catch a
+*transition* rather than every write to an already-matching record.
+
+<Callout type="info" title="Official docs">
+  [Server & scheduled actions (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/actions.html#server-actions-ir-actions-server):
+  the full eval context, every `state` value beyond `code`, and how `ir.cron` runs and
+  logs its jobs. [Automation Rules (19.0)](https://www.odoo.com/documentation/19.0/applications/studio/automated_actions.html):
+  the functional side, "create an activity when a field is set to a specific value" is
+  close to word for word what this chapter builds.
+</Callout>
 
 ## Hands-on
 
+You will teach `librefleet.vehicle` to remind the workshop about overdue maintenance
+three ways: a daily cron, an on-demand button, and an automated action that retires
+the reminder once a service actually happens.
+
+<Steps>
+
+<Step>
+### Depend on Automated Actions
+
+Automated Actions live in their own module. Add it to `librefleet`'s dependencies:
+
+```python title="addons/librefleet/__manifest__.py"
+"version": "19.0.1.21.0",
+    ...
+    "depends": ["base", "product", "base_automation"],
+```
+
+Installing it pulls in `digest`, `resource` and `sms`, `base_automation`'s own
+dependencies. That is normal and not a sign you depended on the wrong thing;
+Automation Rules ship as part of the same functional area as digest emails and SMS
+reminders in core Odoo.
+</Step>
+
+<Step>
+### Give the vehicle both mail mixins
+
+A reminder is an activity, and clearing one when service happens needs to log that
+somewhere. Both need mixins from chapter 33:
+
+```python title="addons/librefleet/models/vehicle.py"
+from dateutil.relativedelta import relativedelta
+
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+
+DAYS_BETWEEN_SERVICES = 180
+
+
+class Vehicle(models.Model):
+    _name = "librefleet.vehicle"
+    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _description = "Workshop Vehicle"
+    _rec_name = "license_plate"
+```
+
+`mail.activity.mixin` alone looks like it should be enough, vehicles get reminder
+activities, not a discussion thread. It is not: `action_feedback()`, the method that
+marks an activity done, logs its completion note through `message_post_with_source()`,
+which lives on `mail.thread`. Ship with only `mail.activity.mixin` and marking a
+reminder done throws `AttributeError: 'librefleet.vehicle' object has no attribute
+'message_post_with_source'` the first time anyone tries. Both mixins, from the start.
+</Step>
+
+<Step>
+### Write the two methods
+
+One method schedules reminders, one clears them, and both live on the vehicle so the
+cron, the button and the automated action can all call the same code:
+
+```python title="addons/librefleet/models/vehicle.py"
+    def action_send_maintenance_reminders(self):
+        # The scheduled action and the "Send reminders now" server action both
+        # call this, so the two triggers can never drift into two different
+        # definitions of "overdue".
+        reminded = self.env["librefleet.vehicle"]
+        activity_type = self.env.ref("mail.mail_activity_data_todo")
+        # activity_schedule() leaves user_id empty unless told otherwise (the
+        # "Assigned to" default you see in the UI is a client-side fill-in, not
+        # something the ORM does), so an unassigned reminder is a real bug and
+        # not just a cosmetic one: nobody's activity list would ever show it.
+        manager = self.env.ref("librefleet.group_librefleet_manager").user_ids[:1]
+        assignee_id = manager.id if manager else self.env.user.id
+        cutoff = fields.Datetime.now() - relativedelta(days=DAYS_BETWEEN_SERVICES)
+        for vehicle in self:
+            done_orders = vehicle.service_order_ids.filtered(
+                lambda o: o.stage == "done")
+            last_service = max(done_orders.mapped("scheduled_end"), default=False)
+            if last_service and last_service >= cutoff:
+                continue
+            has_open_reminder = vehicle.activity_ids.filtered(
+                lambda a: a.activity_type_id == activity_type)
+            if has_open_reminder:
+                continue
+            vehicle.activity_schedule(
+                activity_type_id=activity_type.id,
+                summary="Schedule maintenance",
+                note="No completed service order in the last %d days."
+                     % DAYS_BETWEEN_SERVICES,
+                user_id=assignee_id)
+            reminded += vehicle
+        return reminded
+
+    def _clear_maintenance_reminder(self):
+        # The automated action's payload: retire the reminder once a service
+        # actually happened, instead of leaving it to rot on the activity list.
+        activity_type = self.env.ref("mail.mail_activity_data_todo")
+        for vehicle in self:
+            open_reminders = vehicle.activity_ids.filtered(
+                lambda a: a.activity_type_id == activity_type
+                and a.summary == "Schedule maintenance")
+            open_reminders.action_feedback(feedback="Service completed.")
+```
+
+The overdue check walks `service_order_ids` in Python rather than a clever domain.
+LibreFleet's dataset is small enough that this is the right call: a domain over a
+related field's aggregate would be harder to read for no real performance gain here.
+The duplicate check (`has_open_reminder`) matters more than it looks: without it, a
+daily cron creates a fresh "Schedule maintenance" activity every single day for the
+same vehicle, forever.
+</Step>
+
+<Step>
+### Register the server action and the cron, and hit the bug they share
+
+```xml title="addons/librefleet/data/maintenance_reminder_cron.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="action_send_maintenance_reminders" model="ir.actions.server">
+            <field name="name">LibreFleet: maintenance reminders</field>
+            <field name="model_id" ref="model_librefleet_vehicle"/>
+            <field name="binding_model_id" ref="model_librefleet_vehicle"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">action = records.action_send_maintenance_reminders()</field>
+        </record>
+
+        <record id="cron_send_maintenance_reminders" model="ir.cron">
+            <field name="ir_actions_server_id" ref="action_send_maintenance_reminders"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>
+```
+
+`noupdate="1"` for the same reason chapter 34 used it on `ir_sequence.xml`: a manager
+may retune the schedule or disable the cron, and an upgrade must not silently reset
+that.
+
+Notice the cron record sets no `name`. That is deliberate, not an oversight:
+`ir.cron` delegates `name` to the same row as the action, so setting it again here
+would silently rename the "LibreFleet: maintenance reminders" entry in the Vehicles
+list's Action menu too. One row, one name.
+
+Register the file, upgrade, and use Settings > Technical > Scheduled Actions >
+"LibreFleet: maintenance reminders" > **Run Manually** (the UI button for
+`method_direct_trigger()`) to test it without waiting a day:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+ERROR tutorial odoo.registry: Failed to load registry
+...
+ValueError: AttributeError("'NoneType' object has no attribute 'action_send_maintenance_reminders'") while evaluating
+'action = records.action_send_maintenance_reminders()'
+```
+
+This is the eval-context detail from Concepts, made concrete. Run Manually, like the
+real scheduler, passes no selection: `records` is `None`, and `None.anything` fails.
+The code needs to fall back to every vehicle when nothing specific was picked:
+
+```xml title="addons/librefleet/data/maintenance_reminder_cron.xml"
+            <field name="code">action = (records or model.search([])).action_send_maintenance_reminders()</field>
+```
+
+Upgrade again and Run Manually a second time:
+
+```text
+INFO tutorial odoo.addons.base.models.ir_cron: Job 'LibreFleet: maintenance reminders' (16) fully done (#loop 1; done 0; remaining 0; duration 0.16s)
+```
+
+No traceback this time. Every vehicle overdue for service now has a "Schedule
+maintenance" activity, assigned to a workshop manager.
+</Step>
+
+<Step>
+### Register the automated action
+
+```xml title="addons/librefleet/data/maintenance_reminder_automation.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="automation_clear_maintenance_reminder" model="base.automation">
+            <field name="name">Clear the maintenance reminder when a service order is done</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="trigger">on_create_or_write</field>
+            <field name="filter_pre_domain">[('stage', '!=', 'done')]</field>
+            <field name="filter_domain">[('stage', '=', 'done')]</field>
+        </record>
+
+        <record id="action_clear_maintenance_reminder" model="ir.actions.server">
+            <field name="name">Clear the vehicle's maintenance reminder</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="base_automation_id" ref="automation_clear_maintenance_reminder"/>
+            <field name="state">code</field>
+            <field name="code">records.mapped('vehicle_id')._clear_maintenance_reminder()</field>
+        </record>
+
+    </data>
+</odoo>
+```
+
+`trigger` is `on_create_or_write`, not the `on_stage_set` you'll see listed in the
+trigger dropdown. `on_stage_set` only applies to a `stage_id` many2one on a
+kanban-pipeline model; `librefleet.service.order.stage` is a plain `Selection`, the
+kind chapter 17 built. The `filter_pre_domain` / `filter_domain` pair is what makes
+this fire exactly once, on the transition into `done`, instead of on every save of an
+order that is already done: before the write it must **not** match `done`, after the
+write it must.
+
+Register the file in the manifest's `data` list and upgrade. Then take one order
+through the flow you built in chapter 20, the statusbar to `in_progress`, then Mark
+Done in the approve wizard, and watch its vehicle:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> order = env["librefleet.service.order"].search([("reference", "=", "SO/2026/0001")])
+>>> vehicle = order.vehicle_id
+>>> vehicle.activity_ids.mapped("summary")
+['Schedule maintenance']
+>>> order.write({"stage": "confirmed"})
+>>> order.write({"stage": "in_progress"})
+>>> wiz = env["librefleet.service.order.approve.wizard"].create({"order_id": order.id})
+>>> wiz.action_confirm()
+>>> vehicle.invalidate_recordset()
+>>> vehicle.activity_ids.mapped("summary")
+[]
+```
+
+The reminder is gone, and the vehicle's chatter carries the record of why: a "To-Do
+done" note with the feedback "Service completed." attached, because
+`action_feedback()` posts one automatically. Nothing in the wizard or the statusbar
+button knows the reminder exists; the automated action is what connects a business
+decision (this order is finished) to a completely different feature (retire a
+maintenance nudge) without either one importing the other.
+</Step>
+
+</Steps>
+
+Chapter 8's module tree, after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="data" defaultOpen>
+      <File name="ir_sequence.xml" />
+      <File name="mail_template.xml" />
+      <File name="service_type_master.xml" />
+      <File name="maintenance_reminder_cron.xml" />
+      <File name="maintenance_reminder_automation.xml" />
+    </Folder>
+    <Folder name="models">
+      <File name="vehicle.py" />
+      <File name="service_order.py" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch35
+✔ base_automation is installed
+✔ the maintenance-reminder cron exists
+✔ the reminder action is bound to the Vehicles list
+✔ running it reminded an overdue vehicle
+✔ finishing an order cleared its vehicle's reminder
+
+ch35 complete! On to the next chapter 🔧
+```
+
+In the UI: open a vehicle that still has an open reminder (Settings > Technical >
+Automation Rules if you want to see the rule's own form) and confirm its Activities
+tab shows "Schedule maintenance", assigned to a workshop manager, not blank.
 
 ## Gotchas
 
+- **`records` is empty when nothing triggered a selection.** A cron running on its
+  schedule, or Run Manually, passes no selection at all, so a server action meant to
+  work from both a menu and a cron needs `records or model.search([])`, not a bare
+  `records.whatever()`.
+- **`action_feedback()` needs `mail.thread`, not just `mail.activity.mixin`.** It
+  posts its completion note through `message_post_with_source()`, which only exists
+  on the chatter mixin. Marking an activity done on a model with only
+  `mail.activity.mixin` throws `AttributeError`.
+- **`ir.cron` and its `ir.actions.server` share one row.** Setting `name` (or
+  `model_id`, or `code`) on the cron record writes through to the exact same row the
+  action points at, `_inherits` delegation, not a copy. Set it in one place, not both.
+- **There is no `on_stage_set` for a plain `Selection` field.** That trigger is
+  wired to `stage_id` many2ones on kanban-pipeline models. A hand-rolled `Selection`
+  stage (chapter 17's kind) needs `on_create_or_write` with a `filter_pre_domain` /
+  `filter_domain` pair to catch a transition.
+- **`activity_schedule()` does not default `user_id`.** The "Assigned to" field you
+  always see filled in when creating an activity by hand in the UI is a client-side
+  convenience, not an ORM default. Skip `user_id` in code and the activity gets
+  created with nobody responsible for it, invisible on every user's activity list.
+- **Forgetting `binding_model_id` fails silently.** The action still saves, the cron
+  still runs it fine, it simply never appears in any Action menu, only under
+  Settings > Technical > Server Actions. No error tells you; you just never see the
+  button you expected.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A server action's code reads `records.write({...})` and works fine from the Vehicles list's Action menu. Run from a daily cron pointed at the same action, it raises AttributeError on None. Why?",
+    options: [
+      "records is only populated when the action runs bound to a selection; a scheduled run has none, so it is empty or None",
+      "cron jobs run with a different, more restricted eval context that excludes records entirely",
+      "ir.cron requires the action's code to use record (singular) instead of records",
+      "the cron's user has fewer access rights than whoever clicks the Action menu, so the read silently returns nothing",
+    ],
+    answer: 0,
+    why: "records is populated from the active_ids in the calling context. A menu click on selected rows supplies that context; a scheduled run does not, because there is no selection to speak of. The fix is a fallback, records or model.search([]), not a permissions change.",
+  },
+  {
+    q: "An automated action uses trigger on_create_or_write with filter_domain [('stage','=','done')] but no filter_pre_domain. What actually happens?",
+    options: [
+      "It fires once when stage first becomes 'done', identical to adding filter_pre_domain",
+      "It fires on every single write to a record already at stage 'done', not just the transition into it",
+      "It never fires, because filter_domain alone is not a valid configuration",
+      "It fires only on record creation, ignoring subsequent writes entirely",
+    ],
+    answer: 1,
+    why: "filter_domain alone only checks the state after the write. Save a done order again for an unrelated reason (a note, a tag) and it still matches, and fires again. filter_pre_domain adds the before-state check, so only the actual transition qualifies.",
+  },
+  {
+    q: "Why does ir.cron delegate model_id, code and state to ir.actions.server instead of ir.cron simply having its own similarly-named fields?",
+    options: [
+      "Historical accident carried forward for backward compatibility with modules written for far older Odoo versions",
+      "So the cron and its menu-triggered action are one shared record, not two kept in sync by hand",
+      "Because ir.actions.server enforces access rights that ir.cron has no independent way to implement",
+      "Purely a query-time performance optimization that avoids an extra join on every scheduled run",
+    ],
+    answer: 1,
+    why: "_inherits is composition: a cron IS a server action plus scheduling fields, sharing one row. That is exactly the pattern chapter 31 built between librefleet.loaner and librefleet.vehicle. It is why setting a cron's name also renames its action, they are not two records that happen to agree.",
+  },
+  {
+    q: "vehicle.activity_schedule(activity_type_id=..., summary=\"Schedule maintenance\") is called with no user_id. Who ends up assigned to the resulting activity?",
+    options: [
+      "The vehicle's owner, res.partner owner_id",
+      "Nobody: user_id is left empty unless the caller supplies it explicitly",
+      "The person currently logged into the web client viewing the vehicle",
+      "The activity_type's default responsible user, always populated on Odoo's built-in To-Do type",
+    ],
+    answer: 1,
+    why: "activity_schedule() only fills user_id from the activity type's own default_user_id if that is set, which mail.mail_activity_data_todo is not. The UI's visible default when you create an activity by hand is a client-side convenience the ORM does not replicate, so code has to pass user_id itself.",
+  },
+  {
+    q: "A vehicle model inherits only mail.activity.mixin (not mail.thread) and everything works until the first time an activity is marked done via action_feedback(). What breaks?",
+    options: [
+      "Nothing breaks; mail.activity.mixin is fully self-contained for scheduling and completing activities",
+      "AttributeError, because action_feedback() logs its completion note through message_post_with_source(), which only mail.thread provides",
+      "The activity silently stays open forever, with no error at all",
+      "A ValidationError naming the missing mixin explicitly, since Odoo checks for it before running",
+    ],
+    answer: 1,
+    why: "mail.activity.mixin handles scheduling and the activity records themselves, but marking one done tries to write a chatter note about it, and chatter is mail.thread's job. Skipping mail.thread looks fine right up until the first action_feedback() call.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a second cron, "LibreFleet: idle vehicle check", that reminds about vehicles
+   with zero service orders at all (not just ones overdue by date), on a weekly
+   schedule. Reuse `action_send_maintenance_reminders`'s duplicate-check pattern so it
+   does not spam.
+2. ⭐⭐ Chapter 28 posted customer invoices. Design (no steps given) an automated
+   action that logs a chatter note on an order when its invoice's `payment_state`
+   reaches `paid`. Which model does the automated action need to watch, the order or
+   the invoice, and how does the server action reach across to the other one?
+3. ⭐⭐ Change `DAYS_BETWEEN_SERVICES` to 0 temporarily, run the reminder action, then
+   put it back to 180. Explain, from what you saw, why every vehicle got a second
+   "Schedule maintenance" activity instead of the duplicate check catching it. (Hint:
+   read the duplicate check's domain again, closely.)
+4. ⭐⭐⭐ Break-it lab: delete the `binding_model_id` line from
+   `maintenance_reminder_cron.xml`, upgrade, and go looking for the "LibreFleet:
+   maintenance reminders" action in the Vehicles list's Action menu. It is not an
+   error, that is the point: find where it still exists, explain why the UI gives you
+   no signal that anything is wrong, then restore the line.
+5. ⭐⭐⭐ Read the [Automation Rules docs](https://www.odoo.com/documentation/19.0/applications/studio/automated_actions.html)'s
+   "Timing Conditions" trigger (`on_time`) and design, on paper, an automated action
+   that would remind a customer about an unpaid invoice 7 days after its due date.
+   Which field would `trg_date_id` point at, and what should `trg_date_range` and
+   `trg_date_range_mode` be?
+
 ## Further reading
+
+- <Icon name="docs" /> [Server & scheduled actions (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/actions.html#server-actions-ir-actions-server):
+  every `state` value beyond `code`, the full eval context, and how `ir.cron` logs and
+  retries its jobs.
+- <Icon name="docs" /> [Automation Rules (19.0)](https://www.odoo.com/documentation/19.0/applications/studio/automated_actions.html):
+  the functional side of `base.automation`, written for admins configuring rules
+  through the UI rather than through XML.
+- <Icon name="source" /> [`base_automation/models/base_automation.py`](https://github.com/odoo/odoo/blob/19.0/addons/base_automation/models/base_automation.py):
+  the trigger vocabulary and the `filter_pre_domain` / `filter_domain` compute logic,
+  straight from the module this chapter depends on.

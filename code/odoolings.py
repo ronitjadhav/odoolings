@@ -1153,6 +1153,84 @@ def tire_rotation_reads_in_french(env):
         % fr[0]["name"])
 
 
+def base_automation_is_installed(env):
+    """Automated Actions live in their own module, not in base."""
+    mod = env.call("ir.module.module", "search_read",
+                    [("name", "=", "base_automation")], fields=["state"])
+    assert mod and mod[0]["state"] == "installed", (
+        "base_automation is not installed. Add it to librefleet's depends and "
+        "upgrade: Automated Actions are their own module, base does not carry them.")
+
+
+def maintenance_reminder_cron_exists(env):
+    """A cron is an ir.actions.server with a schedule bolted on: ir.cron inherits it."""
+    rows = env.call("ir.cron", "search_read",
+                     [("code", "like", "action_send_maintenance_reminders")],
+                     fields=["active", "interval_number", "interval_type"])
+    assert rows, (
+        "no ir.cron calls action_send_maintenance_reminders(). ir.cron inherits "
+        "ir.actions.server through ir_actions_server_id, so point a cron's "
+        "ir_actions_server_id at that action rather than duplicating its code.")
+    cron = rows[0]
+    assert cron["active"], "the cron exists but is inactive"
+    assert cron["interval_type"] == "days" and cron["interval_number"] == 1, (
+        "expected a daily cron (interval_number=1, interval_type='days'), got %s %s"
+        % (cron["interval_number"], cron["interval_type"]))
+
+
+def reminder_action_is_bound_to_the_vehicle_list(env):
+    """binding_model_id + binding_view_types is what puts an action in the list's Action menu."""
+    rows = env.call("ir.actions.server", "search_read",
+                     [("name", "=", "LibreFleet: maintenance reminders")],
+                     fields=["binding_model_id", "binding_view_types", "state"])
+    assert rows, "no server action named 'LibreFleet: maintenance reminders' found"
+    action = rows[0]
+    assert action["binding_model_id"], (
+        "the action has no binding_model_id, so it never appears in the "
+        "Vehicles list's Action menu, only under Settings > Technical > "
+        "Server Actions")
+    assert "list" in (action["binding_view_types"] or ""), (
+        "binding_view_types does not include 'list'")
+    assert action["state"] == "code", "the action's state should be 'code'"
+
+
+def running_it_reminded_an_overdue_vehicle(env):
+    """Proves the method actually ran, not just that the XML parsed cleanly."""
+    rows = env.call("mail.activity", "search_read",
+                     [("res_model", "=", "librefleet.vehicle"),
+                      ("summary", "=", "Schedule maintenance")],
+                     fields=["res_id", "user_id"])
+    assert rows, (
+        "no 'Schedule maintenance' activity exists on any vehicle. Run the cron "
+        "by hand once: Settings > Technical > Scheduled Actions > 'LibreFleet: "
+        "maintenance reminders' > Run Manually.")
+    assert all(r["user_id"] for r in rows), (
+        "a reminder activity has no user_id (Assigned to). activity_schedule() "
+        "leaves that field empty unless you pass user_id explicitly, it does "
+        "not default to whoever ran it.")
+
+
+def finishing_an_order_cleared_its_vehicle_reminder(env):
+    """The automated action's whole point: a finished service should retire its own reminder."""
+    done_orders = env.call("librefleet.service.order", "search_read",
+                            [("stage", "=", "done")], fields=["vehicle_id"])
+    assert done_orders, (
+        "no service order is stage='done' yet. Take one through the approve "
+        "wizard (chapter 20's flow) so there is something for the automated "
+        "action to react to.")
+    vehicle_ids = [o["vehicle_id"][0] for o in done_orders]
+    leftover = env.call("mail.activity", "search_count",
+                         [("res_model", "=", "librefleet.vehicle"),
+                          ("res_id", "in", vehicle_ids),
+                          ("summary", "=", "Schedule maintenance")])
+    assert leftover == 0, (
+        "a vehicle with a done service order still has an open 'Schedule "
+        "maintenance' activity. Check the base.automation's trigger: it should "
+        "fire on_create_or_write with filter_pre_domain stage != 'done' and "
+        "filter_domain stage = 'done', calling _clear_maintenance_reminder() "
+        "on records.mapped('vehicle_id')")
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2437,6 +2515,28 @@ CHAPTERS = {
          "Export the template (i18n export ... librefleet -l pot -o -), write "
          "i18n/fr.po with msgstr \"Rotation des pneus\", then import it with "
          "i18n import -l fr. Both languages then live in the same jsonb column."),
+    ],
+    "ch35": [
+        ("base_automation is installed", base_automation_is_installed,
+         "Add \"base_automation\" to librefleet's depends in __manifest__.py, "
+         "then upgrade. It pulls in digest, resource and sms as its own "
+         "dependencies, that is normal."),
+        ("the maintenance-reminder cron exists", maintenance_reminder_cron_exists,
+         "An <record model=\"ir.cron\"> with ir_actions_server_id pointing at "
+         "the server action below, interval_number 1, interval_type 'days'."),
+        ("the reminder action is bound to the Vehicles list",
+         reminder_action_is_bound_to_the_vehicle_list,
+         "On the ir.actions.server record: binding_model_id ref to "
+         "model_librefleet_vehicle, binding_view_types \"list\", state \"code\"."),
+        ("running it reminded an overdue vehicle", running_it_reminded_an_overdue_vehicle,
+         "Settings > Technical > Scheduled Actions > 'LibreFleet: maintenance "
+         "reminders' > Run Manually. Pass user_id explicitly in "
+         "activity_schedule(), it is not defaulted."),
+        ("finishing an order cleared its vehicle's reminder",
+         finishing_an_order_cleared_its_vehicle_reminder,
+         "Take a service order to 'done' through the approve wizard, then check "
+         "the base.automation fired: on_create_or_write, filter_pre_domain "
+         "stage != 'done', filter_domain stage = 'done'."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
