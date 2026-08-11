@@ -1057,6 +1057,62 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (last of the day) — ch39 written: OWL fundamentals, Part 7 opens
+
+First frontend chapter, and the first where the thing being taught cannot be verified
+from the terminal at all. Built a systray component (`WorkshopClock`): an open-order
+count fetched in `onWillStart` via `useService("orm")`, a clock ticking on a
+`setInterval` cleaned up in `onWillUnmount`, and a refresh button.
+
+**Verified in a real browser, which finally worked after six chapters of flakiness.**
+The clock advancing between two screenshots proved `useState` reactivity for real;
+creating an order from the shell and then clicking refresh moved the badge 1 → 2 with
+no page reload, proving the ORM service round trip. First screenshot captured since
+ch27: `ch39-workshop-clock-systray.jpg`.
+
+**A genuinely hard problem, and the reason this chapter took real investigation:
+how do you odoolings-check code that only runs in a browser?** Three approaches were
+tried and two were wrong:
+
+1. Read the compiled bundle from its `ir.attachment`. **Wrong, and dangerously so.**
+   Assets rebuild only when the web client requests a hash Odoo has not cached, so the
+   attachment can be stale, and worse, the browser may be running a *correct* cached
+   bundle while the database holds a broken one. Caught this live: the check passed on
+   a manifest that was missing the `.xml`, because it was grading a bundle nobody was
+   running. A check that lies is worse than no check.
+2. Add a staleness guard comparing the module's `write_date` to the attachment's
+   `create_date`. Honest, but it just converted a false pass into a false failure the
+   reader could not clear without knowing to reload the browser.
+3. **Right answer: `/web/assets/debug/web.assets_web.js`.** Reading
+   `web/controllers/binary.py` showed the `debug` unique token skips the attachment
+   lookup entirely and rebuilds from the manifest on every request. Deterministic,
+   always current, no cache to defeat. (Note `debug` serves the non-minified bundle, so
+   the filename drops `.min`; `/web/assets/any/...` does NOT work, `any` matches any
+   stored version including stale ones.)
+
+All three checks were then run **red for real**, each against the specific mistake it
+claims to catch: no `assets` key at all, the `*.xml` line missing, and a `t-name` typo.
+The typo run also produced the genuine `OwlError: Missing template` from the browser
+console, now quoted in the chapter's break-it lab.
+
+**One more real find:** the first bundle request after editing a source file reliably
+fails with a connection reset, because Odoo's file watcher restarts the server
+mid-request. The check now retries up to three times rather than shipping a flaky
+check and blaming the reader.
+
+**Two things the chapter teaches that were only discovered by looking:**
+- `text-bg-primary` on a badge renders as invisible-background plain text, because
+  Odoo's brand purple *is* the Bootstrap primary and the navbar is that same purple.
+  Switched to `text-bg-warning`. Only findable by looking at the screen.
+- `t-esc` is **not** deprecated in OWL, unlike server-side QWeb where Odoo 19 logs a
+  warning for it (`t-raw` is OWL's deprecated one). Core's client-side templates still
+  use `t-esc` in 126 files. The chapter uses `t-out` anyway, for one habit across both
+  engines, but the asymmetry is worth knowing before "fixing" core code.
+
+3 odoolings checks (all red-tested), glossary gained `assets bundle` and `useState` and
+the `OWL` entry grew. ch38's test suite re-run clean on a fresh `--without-demo`
+database with the new assets present, and all 21 odoolings suites re-run green.
+
 ### 2026-08-11 (yet later, once more) — ch38 written: testing, M5 (chapters 31-38) done
 
 Fifth and final write-chapter of Part 6. §5.3: `TransactionCase`, `HttpCase`/tours

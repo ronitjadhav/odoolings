@@ -1,24 +1,466 @@
 ---
 title: "39. OWL Fundamentals"
-description: Not written yet, tracked in the roadmap.
+description: Write your first real OWL component, a live systray counter, and learn how assets bundles get your JavaScript in front of the browser at all.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch39`
+**Goal:** build a systray component that shows how many service orders are open, keeps
+a clock ticking, and refetches on demand, then understand exactly how the code got from
+your addon into the browser. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch39`
 
 ## Why this matters
 
+Everything you have built so far runs on the server. Views are XML the server sends,
+reports are HTML the server renders, controllers are Python the server executes. But
+the thing your users actually stare at all day, the Odoo web client, is a JavaScript
+application, and when a ticket says "this list needs a button that does X without
+reloading", no amount of Python will get you there.
+
+Odoo's frontend framework is **OWL** (the Odoo Web Library), and it is small on
+purpose: components, a reactive state object, a handful of lifecycle hooks, and QWeb
+templates written in XML rather than JSX. If you have used React or Vue, you will
+recognise the shape immediately; if you have not, there is genuinely less to learn
+here than in either.
+
+The part that surprises people is not OWL itself. It is the delivery: writing a
+perfect component does nothing at all until it is listed in an **assets bundle**, and
+the failure mode when you get that wrong is silence, not an error. So this chapter
+spends as much time on the manifest as on the JavaScript.
+
 ## Concepts
+
+### A component is a class, a template, and a setup method
+
+```js
+import { Component, useState } from "@odoo/owl";
+
+export class WorkshopClock extends Component {
+    static template = "librefleet.WorkshopClock";
+    static props = {};
+
+    setup() {
+        this.state = useState({ openOrders: 0 });
+    }
+}
+```
+
+Three things carry the weight:
+
+- **`static template`** names a QWeb template by string. It is *not* a file path, and
+  nothing checks it at build time. The template must be registered under exactly that
+  name, or the component throws at render time.
+- **`static props = {}`** declares this component takes no props. OWL validates props
+  in dev mode, and an empty declaration is how you say "none on purpose" rather than
+  "I forgot".
+- **`setup()`** replaces the constructor. It runs once per component instance and is
+  the only place hooks may be called.
+
+### `useState` is the whole reactivity story
+
+`useState(obj)` returns a Proxy around `obj`. Reading a key inside a template
+subscribes that render to the key; assigning to the key marks the component dirty and
+schedules a re-render. That is the entire mechanism, and it explains the single most
+common beginner bug in OWL:
+
+```js
+this.count = 0;              // a plain property, invisible to rendering
+this.state = useState({ count: 0 });   // reactive
+```
+
+Assigning `this.count = 5` updates the value and changes nothing on screen, with no
+error, because nothing was ever watching it.
+
+### Lifecycle hooks: the two that matter today
+
+<Mermaid label="An OWL component's lifecycle: setup runs first and registers hooks, onWillStart runs async before the first render, then the component renders and mounts, and onWillUnmount runs cleanup when it is destroyed." chart={`flowchart TD
+    Setup["setup()<br/>register hooks, build state"] --> WillStart["onWillStart<br/>(async, before first render)"]
+    WillStart --> Render["first render"]
+    Render --> Mounted["onMounted<br/>(DOM exists now)"]
+    Mounted --> Live["component is live,<br/>state changes re-render"]
+    Live --> Unmount["onWillUnmount<br/>(clean up timers, listeners)"]
+`} />
+
+`onWillStart` takes an async callback and OWL waits for it before the first render.
+That is how you fetch data without the component flashing a wrong value first.
+`onWillUnmount` is where anything you started has to be stopped, most obviously
+timers: a `setInterval` outlives its component unless you clear it.
+
+### Assets bundles: the manifest key that makes any of this load
+
+Your JavaScript reaches the browser because the manifest says so:
+
+```python
+"assets": {
+    "web.assets_backend": [
+        "librefleet/static/src/**/*.js",
+        "librefleet/static/src/**/*.xml",
+    ],
+},
+```
+
+`"assets"` is a **top-level manifest key, a sibling of `"data"`**, never a member of
+it. Files listed there are concatenated into a named bundle, minified, and served as
+one big file. The bundle name decides *where* the code loads: `web.assets_backend` is
+the web client, `web.assets_frontend` is the public website (chapter 37's portal
+pages).
+
+One wrinkle worth knowing before you go looking for your bundle in devtools: you
+declare into `web.assets_backend`, but the file the browser actually downloads is
+`web.assets_web`, because `web.assets_web` is defined in core as
+`('include', 'web.assets_backend')` plus a couple of entry points.
+
+<Callout type="info" title="Official docs">
+  [JavaScript reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html)
+  for the framework and the registries; [assets bundles (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/assets.html)
+  for the manifest key and every bundle name. OWL's own docs live in the
+  [OWL repository](https://github.com/odoo/owl), which ships as version 2.8.2 in Odoo 19.
+</Callout>
+
+### Registries: how Odoo finds your component
+
+Odoo does not scan for components. You add yours to a **registry**, a global keyed
+map the web client reads at startup:
+
+```js
+registry.category("systray").add("librefleet.WorkshopClock", workshopClockItem, {
+    sequence: 1,
+});
+```
+
+The `systray` category is the cluster of icons at the top right of the web client.
+`sequence` orders items within it. Other categories exist for view types, field
+widgets (chapter 40's subject), client actions (chapter 41's), and more.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Create the component
+
+Odoo's convention is `static/src/<feature>/`, one folder per feature, JS and XML side
+by side:
+
+```console
+$ mkdir -p addons/librefleet/static/src/workshop_clock
+```
+
+```js title="addons/librefleet/static/src/workshop_clock/workshop_clock.js"
+import { Component, onWillStart, onWillUnmount, useState } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
+
+export class WorkshopClock extends Component {
+    static template = "librefleet.WorkshopClock";
+    static props = {};
+
+    setup() {
+        // useState wraps the object in a Proxy: assigning to any key on
+        // this.state re-renders the component. A plain `this.count = 0`
+        // would update the value and change nothing on screen.
+        this.state = useState({ openOrders: 0, now: this.formatNow() });
+        this.orm = useService("orm");
+
+        // onWillStart is async and runs BEFORE the first render, so the
+        // component never flashes a wrong number on its way to the right one.
+        onWillStart(async () => {
+            this.state.openOrders = await this.countOpenOrders();
+        });
+
+        this.timer = setInterval(() => {
+            this.state.now = this.formatNow();
+        }, 1000);
+        // Without this the interval keeps firing after the component is gone,
+        // writing to a dead state object forever. Every setInterval in a
+        // component needs its matching onWillUnmount.
+        onWillUnmount(() => clearInterval(this.timer));
+    }
+
+    formatNow() {
+        return new Date().toLocaleTimeString();
+    }
+
+    countOpenOrders() {
+        return this.orm.searchCount("librefleet.service.order", [
+            ["stage", "not in", ["done", "cancelled"]],
+        ]);
+    }
+
+    async onRefresh() {
+        this.state.openOrders = await this.countOpenOrders();
+    }
+}
+
+export const workshopClockItem = { Component: WorkshopClock };
+
+registry.category("systray").add("librefleet.WorkshopClock", workshopClockItem, {
+    sequence: 1,
+});
+```
+
+`useService("orm")` is how a component talks to the ORM. It goes through the user's
+session, so **access rights and record rules still apply**: this is not a back door
+around chapter 10's security, it is the same server-side check reached from a
+different direction.
+
+Note the import paths. `@odoo/owl` is the framework itself; `@web/...` is Odoo's own
+web module. Neither is a relative path, both are resolved by Odoo's module system at
+bundle time.
+</Step>
+
+<Step>
+### Write the template
+
+```xml title="addons/librefleet/static/src/workshop_clock/workshop_clock.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.WorkshopClock">
+        <div class="o_librefleet_clock d-flex align-items-center gap-2 px-2">
+            <span class="badge text-bg-warning" t-out="state.openOrders"/>
+            <span class="d-none d-md-inline" t-out="state.now"/>
+            <button class="btn btn-link p-0" t-on-click="onRefresh" title="Refresh open order count">
+                <i class="fa fa-refresh"/>
+            </button>
+        </div>
+    </t>
+
+</templates>
+```
+
+The `t-name` **must match `static template` exactly**. This is the single most common
+OWL mistake and the break-it lab at the end makes you feel it.
+
+Everything inside the template reads from the component instance directly, so
+`state.openOrders` is `this.state.openOrders` and `t-on-click="onRefresh"` binds
+`this.onRefresh`. `t-out` is the same directive chapter 36 used in a PDF report,
+doing the same job here.
+
+<Callout type="warn" title="Gotcha">
+  `text-bg-warning`, not `text-bg-primary`. Odoo's brand purple *is* the Bootstrap
+  primary colour, so a primary badge sitting on the purple navbar renders as
+  invisible-background plain text. Verified by looking at it, which is the only way
+  this class of bug ever gets caught.
+</Callout>
+</Step>
+
+<Step>
+### Declare the assets, then upgrade
+
+```python title="addons/librefleet/__manifest__.py"
+    "demo": [
+        "data/res.partner-demo.csv",
+        "data/librefleet.vehicle-demo.csv",
+        "data/service_order_demo.xml",
+    ],
+    # ch39: assets are their own manifest key, NOT part of "data". The bundle
+    # name decides where the code loads: assets_backend is the web client only.
+    "assets": {
+        "web.assets_backend": [
+            "librefleet/static/src/**/*.js",
+            "librefleet/static/src/**/*.xml",
+        ],
+    },
+```
+
+Bump the version to `19.0.1.25.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.60s, 640 queries (+640 other)
+INFO tutorial odoo.registry: Registry loaded in 2.405s
+```
+
+Notice what the log does **not** say: nothing about assets at all. A missing or
+misplaced `"assets"` key produces exactly this same clean output, which is why the
+next step matters.
+</Step>
+
+<Step>
+### Look at it
+
+Reload `http://localhost:8069/odoo` and look at the top right of the navbar:
+
+![The Odoo systray showing, left to right, the Discuss and activity icons, then LibreFleet's amber badge reading 2, a live clock reading 9:50:30 PM, and a refresh icon](/screens/ch39-workshop-clock-systray.jpg)
+
+The amber badge is the open-order count, the clock ticks once a second (proving
+`useState` re-renders on every assignment), and the refresh icon refetches.
+
+To prove the count is genuinely live rather than baked in at page load, create an
+order from the shell *without touching the browser*, then click refresh:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> v = env["librefleet.vehicle"].search([("license_plate", "=", "SHELL-001")], limit=1)
+>>> st = env["librefleet.service.type"].search([], limit=1)
+>>> o = env["librefleet.service.order"].create({
+...     "vehicle_id": v.id, "service_type_id": st.id,
+...     "scheduled_start": "2026-12-01 09:00:00",
+...     "scheduled_end": "2026-12-01 10:00:00"})
+>>> env.cr.commit()
+>>> env["librefleet.service.order"].search_count([("stage", "not in", ["done", "cancelled"])])
+2
+```
+
+The badge still reads 1. Click the refresh icon and it becomes 2, with no page reload:
+that is `onRefresh` awaiting `orm.searchCount` and assigning to `this.state`, and the
+Proxy doing the rest.
+</Step>
+
+<Step>
+### Break-it lab: the template name typo
+
+Change the `t-name` in the XML to something slightly wrong, `librefleet.WorkshopClok`,
+and reload the browser. The systray item vanishes. There is no server error, no
+failed upgrade, nothing in the Odoo log. Open the browser console (F12):
+
+```text
+OwlError: Missing template: "librefleet.WorkshopClock" (for component "WorkshopClock")
+    at App.getTemplate (.../web.assets_web.min.js:1008:7)
+    at new ComponentNode (.../web.assets_web.min.js:851:133)
+```
+
+This is the chapter's real lesson about where frontend errors live. Every failure you
+have debugged since chapter 8 announced itself in the terminal; this one only exists in
+the browser. **The console is now part of your debugging loop.** Put the `t-name` back
+before moving on.
+</Step>
+
+</Steps>
+
+The module tree after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="static" defaultOpen>
+      <Folder name="src/workshop_clock" defaultOpen>
+        <File name="workshop_clock.js" />
+        <File name="workshop_clock.xml" />
+      </Folder>
+      <Folder name="description">
+        <File name="icon.png" />
+      </Folder>
+    </Folder>
+    <Folder name="tests">
+      <File name="test_service_order.py" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch39
+✔ the WorkshopClock component is in the backend bundle
+✔ its template is registered under the matching name
+✔ it reads open orders through the ORM service
+
+ch39 complete! On to the next chapter 🔧
+```
+
+These checks read the compiled asset bundle rather than your files, because that is
+the only thing that proves the manifest actually worked. They cannot run your
+component (odoolings has no browser), so the UI check above is the other half: the
+badge is visible, and clicking refresh changes it.
 
 ## Gotchas
 
+- **`"assets"` is a sibling of `"data"`, not an entry inside it.** Putting asset paths
+  in the `"data"` list makes Odoo try to load your `.js` as an XML data file. Putting
+  the `"assets"` dict inside `"data"` is worse: the module upgrades cleanly and
+  nothing whatsoever loads.
+- **The template name is a string with no compile-time check.** A typo in either
+  `static template` or `t-name` produces `OwlError: Missing template` in the browser
+  console and total silence everywhere else.
+- **Assets do not rebuild on module upgrade.** They rebuild when the web client next
+  asks for a bundle hash Odoo has not cached. If your change is not showing up, reload
+  the browser (and check the network tab is not serving you a cached bundle) before
+  suspecting your code.
+- **`this.foo = x` is not reactive; `this.state.foo = x` is.** Only values reached
+  through the `useState` Proxy trigger re-renders, and getting this wrong fails
+  silently rather than loudly.
+- **Every `setInterval` needs an `onWillUnmount`.** A timer that outlives its
+  component keeps firing forever, writing into a state object nothing is rendering,
+  and on a long-lived page they accumulate.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A component sets this.orderCount = 5 inside a click handler, and its template renders orderCount. The click runs (a console.log in the same handler fires), but the number on screen never changes. Why?",
+    options: [
+      "The template caches its first render and needs an explicit this.render() call to refresh it",
+      "Click handlers run outside OWL's rendering cycle, so any assignment made inside one is deferred until the next unrelated render",
+      "Only values reached through the useState Proxy are tracked, and a plain instance property was never being watched",
+      "The property was assigned before onMounted completed, so OWL discarded the write as belonging to an earlier lifecycle phase",
+    ],
+    answer: 2,
+    why: "useState returns a Proxy; reads inside a render subscribe to a key and writes to that key schedule a re-render. A plain property assignment bypasses the Proxy entirely, so the value genuinely changes but nothing is watching it. This fails silently, which is what makes it the classic OWL beginner bug.",
+  },
+  {
+    q: "A module's manifest lists its JavaScript under a top-level \"assets\" key pointing at web.assets_backend. The reader opens devtools and searches the Network tab for a file named web.assets_backend.min.js, and cannot find one. What is going on?",
+    options: [
+      "The bundle failed to build, which is why no file with that name is being served",
+      "web.assets_backend is included into web.assets_web, and that larger bundle is what the browser actually downloads",
+      "Backend assets are streamed per-component on demand rather than served as any single file",
+      "The file exists but devtools hides bundles above a size threshold unless the debug filter is enabled",
+    ],
+    answer: 1,
+    why: "Core's web manifest defines web.assets_web as ('include', 'web.assets_backend') plus a couple of entry points, so assets_backend is a semantic grouping you declare into, while assets_web is the concrete bundle served. Searching devtools for the name you wrote in your own manifest will always come up empty.",
+  },
+  {
+    q: "Comparing onWillStart to onMounted for fetching a count to display: what does onWillStart give you that onMounted does not?",
+    options: [
+      "Access to the component's DOM nodes, which are only queryable once the hook's promise settles",
+      "Automatic retry of the fetch if it rejects, whereas a rejection in onMounted is silently swallowed",
+      "OWL awaits it before the first render, so the value is correct on screen from the very first paint",
+      "Guaranteed execution on the server during SSR, avoiding an extra client-side round trip entirely",
+    ],
+    answer: 2,
+    why: "onWillStart is awaited before the first render, so the component never paints a placeholder value and then correct itself. onMounted runs after the DOM exists, which is right for measuring or attaching to elements, but fetching there means rendering once with the initial state and again after the data lands.",
+  },
+  {
+    q: "A systray component works, but after navigating around the web client for a while the browser tab slows down noticeably. The component calls setInterval in setup(). What is the most likely cause?",
+    options: [
+      "The interval was never cleared in onWillUnmount, so each destroyed instance leaves a timer running forever",
+      "setInterval is not permitted inside setup() and must be moved into onMounted to be scheduled correctly",
+      "Each re-render re-executes setup(), stacking a fresh interval on top of the existing ones every time",
+      "The ORM service keeps every response in an unbounded cache, and the interval grows it on every tick",
+    ],
+    answer: 0,
+    why: "setup() runs once per instance, not per render, so the interval is not stacking there. The leak is that destroying the component does not stop its timer: without clearInterval in onWillUnmount, every instance ever created keeps firing, writing into state nothing renders anymore.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a second badge to the clock showing how many vehicles exist, using a second
+   `orm.searchCount` call on `librefleet.vehicle` in the same `onWillStart`.
+2. ⭐⭐ The clock currently refetches only when clicked. Make it refetch automatically
+   every 30 seconds, reusing the existing interval rather than adding a second one,
+   and make sure it is still cleaned up on unmount.
+3. ⭐⭐ Chapter 35 built a maintenance-reminder cron. Add a third badge counting
+   vehicles that currently have an open "Schedule maintenance" activity. You will need
+   a domain over `mail.activity`, and the answer to "which model do I count?" is the
+   interesting part.
+4. ⭐⭐⭐ Break-it lab: move the `"assets"` dict *inside* the `"data"` list in the
+   manifest, upgrade, and reload. Explain precisely why the upgrade succeeds without a
+   single warning while nothing loads, then put it back.
+5. ⭐⭐⭐ Read [`web/static/src/webclient/switch_company_menu/switch_company_menu.js`](https://github.com/odoo/odoo/blob/19.0/addons/web/static/src/webclient/switch_company_menu/switch_company_menu.js)
+   in core and identify three hooks it uses that this chapter did not. For each, say in
+   one sentence what it does and why a systray dropdown needs it.
+
 ## Further reading
+
+- <Icon name="docs" /> [JavaScript reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html):
+  services, registries, and the web client's own architecture.
+- <Icon name="docs" /> [Assets bundles (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/assets.html):
+  every bundle name and what belongs in each.
+- <Icon name="source" /> [The OWL repository](https://github.com/odoo/owl):
+  the framework itself, shipped as 2.8.2 in Odoo 19. Its `doc/` folder is the
+  authoritative reference for hooks and template directives.
+- <Icon name="source" /> [`web/static/src/webclient/`](https://github.com/odoo/odoo/tree/19.0/addons/web/static/src/webclient):
+  real components of every size, from a two-line systray item to the navbar.

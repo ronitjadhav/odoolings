@@ -42,6 +42,14 @@ against the model at load time: a field typo in an arch fails the upgrade.
 and relations but are hidden from `search()` unless the `active_test=False` context
 asks for them. Odoo's "soft delete" (chapter 9).
 
+**assets bundle**: a named list of JS/CSS/XML files, declared under the manifest's
+top-level `"assets"` key (a **sibling** of `"data"`, never inside it), concatenated and
+served as one file. The bundle name decides where code loads: `web.assets_backend` for
+the web client, `web.assets_frontend` for public pages. You declare into
+`web.assets_backend` but the browser downloads `web.assets_web`, which includes it.
+Bundles rebuild when the web client requests an uncached hash, **not** on module
+upgrade (chapter 39).
+
 **automated action (`base.automation`)**: a rule that runs a server action when a
 trigger fires: on create, on write, on a field reaching a value, on a date field
 arriving. Lives in its own module (`base_automation`, not `base`). Under the hood it
@@ -380,7 +388,10 @@ or made non-stored). Odoo adds columns but never drops them, so these accumulate
 silently; clearing them is explicit migration work.
 
 **OWL**: Odoo Web Library, the in-house JavaScript component framework used by the web
-client since Odoo 14.
+client since Odoo 14, shipped as version 2.8.2 in Odoo 19. A component is a class with
+a `static template` naming a QWeb template, a `setup()` method (hooks go here, not in a
+constructor), and reactive state from `useState` (chapter 39).
+
 
 **pinning**: fixing every external dependency (OCA repos, Odoo itself) to an exact
 commit or package version so a production build is reproducible from the project repo
@@ -620,6 +631,13 @@ appears inside a domain or context string written in XML. Not a Python variable.
 unit declares `relative_factor` against a `relative_uom_id` (Dozens is 12 Units),
 forming a tree whose absolute `factor` is computed recursively. The pre-19 model of unit
 *categories* with a reference unit and a `uom_type` is gone (chapter 21).
+
+**useState**: the OWL hook that makes a component's data reactive. It returns a Proxy
+around the object you pass: reading a key during a render subscribes that render to the
+key, and assigning to the key schedules a re-render. Assigning to a plain instance
+property instead (`this.count = 5` rather than `this.state.count = 5`) updates the value
+and changes nothing on screen, with no error, which is OWL's classic beginner bug
+(chapter 39).
 
 **valued move (`is_valued`)**: whether a `stock.move` changes what the company owns.
 True only when the goods cross the company boundary, since locations with a `usage` of
