@@ -1057,6 +1057,48 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 — ch41 written: the dashboard client action, and a counting trap worth the chapter
+
+§5.3's "client action with an OWL component pulling data via ORM RPC", built as §5.5's
+blueprint specifies (jobs per technician). Third registry pattern in three chapters
+(systray → fields → actions), which is now an explicit throughline: the same
+string-keyed lookup, failing the same unvalidated way each time.
+
+**The chapter's real subject turned out to be where the arithmetic happens.** The
+component uses `orm.formattedReadGroup` so Postgres does one `GROUP BY`, rather than
+fetching every order and counting in JavaScript. Two odoolings checks exist purely to
+catch the version that *looks* fine on two demo records: one fails if the code reaches
+for `searchRead`, one fails if the drill-down rebuilds a domain by hand instead of
+reusing each group's `__domain`.
+
+**A genuinely valuable trap, found by testing rather than by planning.** Grouping by a
+many2many double-counts: an order with two technicians belongs to both groups. Seeded
+the workshop so this is *visible on the finished dashboard*, which reads "3 open
+order(s)" above a column of 2 and 2. Verified from the shell (`search_count` 3, sum of
+group counts 4) and quoted that transcript verbatim after re-running it to confirm the
+exact repr. Anyone building a "total jobs" figure by summing that column ships a wrong
+number and nothing warns them.
+
+**Version fact, callout-worthy:** Odoo 19 replaced `read_group` with
+`formatted_read_group` (`orm.readGroup` is simply gone) and changed the signature so
+aggregates are their own argument. Older tutorials and Stack Overflow answers do not run
+as written, so this got an "On Odoo 18 this differs" box rather than a footnote.
+
+**A debugging fact worth more than the bug that revealed it:** while red-testing a
+tag mismatch, the dashboard kept rendering perfectly in the tab that already had it
+open, because the web client caches action definitions per tab. Only a fresh tab
+produced the real failure (an Oops dialog plus `KeyNotFoundError: Cannot find key
+"librefleet_dashbord" in the "actions" registry`). Nearly wrote the break-it lab from
+the stale tab's behaviour; the chapter now teaches "open a fresh tab before you believe
+anything" as its own lesson, because that state (live in the DB, broken in one tab, fine
+in another, silent in the server log) is exactly where an afternoon disappears.
+
+Reused ch40's slice-before-you-grep rule via `_dashboard_component_source()`. 5 checks,
+three red-tested against their specific mistake (tag typo, `searchRead` instead of
+grouping, hand-built drill-down domain). One screenshot. Glossary gained
+`client action` and `read_group / formatted_read_group`. All 23 odoolings suites green,
+including ch35 and ch37, whose state the seeding step touched.
+
 ### 2026-08-11 (really the last) — ch40 written: field widgets and patching
 
 §5.3's two topics, "a custom field widget, patching existing components", written as

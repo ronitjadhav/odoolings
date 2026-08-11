@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate="1": a template is master data an admin is expected to edit in the
+         UI, so an upgrade must not overwrite their wording (ch24 goes deeper). -->
+    <data noupdate="1">
+        <record id="mail_template_service_done" model="mail.template">
+            <field name="name">Service Order: ready for collection</field>
+            <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
+            <field name="subject">Your vehicle is ready ({{ object.reference }})</field>
+            <field name="email_from">{{ user.email_formatted }}</field>
+            <field name="partner_to">{{ object.customer_id.id }}</field>
+            <field name="body_html" type="html">
+                <div>
+                    <p>Hello <t t-out="object.customer_id.name or ''">Customer</t>,</p>
+                    <p>
+                        The work on <t t-out="object.vehicle_id.license_plate or ''">plate</t>
+                        is finished and the vehicle is ready for collection.
+                    </p>
+                    <p>
+                        Reference: <t t-out="object.reference or ''">SO/0000</t><br/>
+                        Parts: <t t-out="object.parts_total or 0">0.00</t><br/>
+                        Labour: <t t-out="object.labor_total or 0">0.00</t>
+                    </p>
+                    <p>Thank you for choosing LibreFleet.</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+    </data>
+</odoo>

@@ -1527,6 +1527,85 @@ def form_controller_patch_is_scoped(env):
         "must check which model it is looking at before doing anything")
 
 
+def _dashboard_component_source(bundle):
+    """Slice out just the dashboard module's own source.
+
+    Same lesson as chapter 40's descriptor slice: the bundle carries all of
+    core, so a bare substring check proves nothing about the reader's file.
+    """
+    start = bundle.find("class LibreFleetDashboard")
+    assert start != -1, (
+        "no LibreFleetDashboard component found in the backend bundle. Check "
+        "static/src/dashboard/dashboard.js exists and the manifest's assets "
+        "glob picks it up")
+    end = bundle.find('registry.category("actions")', start)
+    return bundle[start:end if end != -1 else start + 4000]
+
+
+def dashboard_client_action_exists(env):
+    """ir.actions.client is the database half; its tag names the JS half."""
+    res = env.call("ir.model.data", "check_object_reference",
+                    "librefleet", "action_librefleet_dashboard")
+    assert res and res[0] == "ir.actions.client", (
+        "librefleet.action_librefleet_dashboard does not resolve to an "
+        "ir.actions.client record")
+    action = env.call("ir.actions.client", "read", [res[1]], fields=["tag", "name"])[0]
+    assert action["tag"] == "librefleet_dashboard", (
+        "the action's tag is %r, expected 'librefleet_dashboard'. The tag is "
+        "the only link to the JavaScript: it is looked up in the \"actions\" "
+        "registry" % action["tag"])
+
+
+def dashboard_component_is_registered(env):
+    """The tag has to exist on the JS side too, or the menu opens a blank screen."""
+    bundle = _backend_bundle(env)
+    assert 'registry.category("actions").add("librefleet_dashboard"' in bundle, (
+        "no component registered in the \"actions\" registry under "
+        "\"librefleet_dashboard\". The string here must match the tag on the "
+        "ir.actions.client record exactly; a mismatch renders nothing and says "
+        "nothing, in the server log or the browser console")
+
+
+def dashboard_aggregates_server_side(env):
+    """The point of the chapter: group in Postgres, not by fetching every record."""
+    source = _dashboard_component_source(_backend_bundle(env))
+    assert "formattedReadGroup" in source, (
+        "the dashboard does not call orm.formattedReadGroup. Fetching every "
+        "order with searchRead and counting them in JavaScript works on your "
+        "two demo orders and falls over on a real fleet; grouping belongs in "
+        "the database. (Odoo 19 renamed read_group to formatted_read_group, "
+        "so there is no orm.readGroup to reach for.)")
+    assert "technician_ids" in source, (
+        "the dashboard does not group by technician_ids, which is what makes "
+        "it a jobs-per-technician dashboard")
+
+
+def dashboard_reuses_the_group_domain(env):
+    """__domain comes back with each group; rebuilding it by hand is how counts drift."""
+    source = _dashboard_component_source(_backend_bundle(env))
+    assert "__domain" in source, (
+        "the dashboard does not use each group's __domain. formattedReadGroup "
+        "returns the exact domain that produced every group, so a drill-down "
+        "can reuse it instead of rebuilding a domain by hand and risking a "
+        "list that disagrees with the number the user just clicked")
+
+
+def dashboard_open_orders_group_correctly(env):
+    """Runs the component's own query here, so a wrong domain or groupby fails loudly."""
+    domain = [("stage", "in", ["draft", "confirmed", "in_progress"])]
+    groups = env.call("librefleet.service.order", "formatted_read_group",
+                       domain=domain, groupby=["technician_ids"],
+                       aggregates=["__count", "margin:sum"])
+    assert groups, (
+        "grouping open service orders by technician returned nothing. Assign "
+        "at least one technician to an open order so the dashboard has "
+        "something to show")
+    named = [g for g in groups if g["technician_ids"]]
+    assert named, (
+        "every open order is unassigned, so the dashboard has no technician "
+        "rows. Put a technician on at least one open order")
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2907,6 +2986,31 @@ CHAPTERS = {
          "patch(FormController.prototype, { async onWillSaveRecord(record) "
          "{...} }) with a record.resModel check inside. A patch applies to "
          "every form view in the client, so the guard is mandatory."),
+    ],
+    "ch41": [
+        ("the client action record exists", dashboard_client_action_exists,
+         "<record model=\"ir.actions.client\"> with tag "
+         "\"librefleet_dashboard\", plus a menuitem pointing at it. Register "
+         "the file AFTER librefleet_menus.xml, the parent menu lives there."),
+        ("a component is registered under the same tag",
+         dashboard_component_is_registered,
+         "registry.category(\"actions\").add(\"librefleet_dashboard\", "
+         "LibreFleetDashboard). The tag string is the only link between the "
+         "database record and the JavaScript."),
+        ("it aggregates in the database, not in JavaScript",
+         dashboard_aggregates_server_side,
+         "orm.formattedReadGroup(model, domain, [\"technician_ids\"], "
+         "[\"__count\", \"margin:sum\"]). Odoo 19 renamed read_group, so "
+         "there is no orm.readGroup."),
+        ("the drill-down reuses each group's own domain",
+         dashboard_reuses_the_group_domain,
+         "formattedReadGroup returns __domain per group. Pass it straight to "
+         "doAction rather than rebuilding a domain that can drift from the "
+         "number the user clicked."),
+        ("open orders actually group by technician",
+         dashboard_open_orders_group_correctly,
+         "Assign technicians to some open (draft/confirmed/in_progress) "
+         "orders, or the dashboard renders an empty table."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
