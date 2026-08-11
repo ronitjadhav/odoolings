@@ -262,8 +262,17 @@ def technician_rule_enforced(env):
                            [("technician_ids", "not in", [uid])])
     assert mine, "no service order assigned to tina; create the ch12 demo orders"
     assert others, "no service order WITHOUT tina; create the ch12 demo orders"
-    tina_env.call("librefleet.service.order", "write", mine[:1], {"stage": "confirmed"})
-    tina_env.call("librefleet.service.order", "write", mine[:1], {"stage": "draft"})
+    # Round-trips through a real write to prove tina has it, restoring the
+    # original stage afterward: this check must never leave a side effect on
+    # state later chapters (ch35 on) depend on being in a specific stage.
+    target = mine[:1]
+    original_stage = tina_env.call(
+        "librefleet.service.order", "read", target, fields=["stage"])[0]["stage"]
+    probe_stage = "draft" if original_stage != "draft" else "confirmed"
+    try:
+        tina_env.call("librefleet.service.order", "write", target, {"stage": probe_stage})
+    finally:
+        tina_env.call("librefleet.service.order", "write", target, {"stage": original_stage})
     try:
         tina_env.call("librefleet.service.order", "write", others[:1], {"stage": "confirmed"})
     except xmlrpc.client.Fault:
