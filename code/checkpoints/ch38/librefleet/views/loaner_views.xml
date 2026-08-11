@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_librefleet_loaner_list" model="ir.ui.view">
+        <field name="name">librefleet.loaner.list</field>
+        <field name="model">librefleet.loaner</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="model_name"/>
+                <field name="daily_rate"/>
+                <field name="available"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_librefleet_loaner_form" model="ir.ui.view">
+        <field name="name">librefleet.loaner.form</field>
+        <field name="model">librefleet.loaner</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Vehicle">
+                            <!-- these three live on librefleet.vehicle and are
+                                 reachable here only because of _inherits -->
+                            <field name="license_plate"/>
+                            <field name="model_name"/>
+                            <field name="year"/>
+                        </group>
+                        <group string="Loan terms">
+                            <field name="daily_rate"/>
+                            <field name="available"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_librefleet_loaner" model="ir.actions.act_window">
+        <field name="name">Loaner Cars</field>
+        <field name="res_model">librefleet.loaner</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

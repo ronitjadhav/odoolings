@@ -605,6 +605,14 @@ the old and new value whenever an ORM write changes it, no method required. Fire
 only on a real database write, and only becomes visible after the transaction
 commits, since the message itself is built by a precommit hook (chapter 33).
 
+**TransactionCase / HttpCase**: Odoo's base test classes. `TransactionCase` wraps
+each test method in a database transaction rolled back at the end, no cleanup code
+needed; `HttpCase` (itself a `TransactionCase`) additionally starts a real HTTP
+client, so `self.url_open(path)` genuinely round-trips through `@http.route`'s own
+auth and routing, not a mocked call. `@tagged("post_install", "-at_install")` is the
+usual pairing, `-` removes the default `at_install` tag rather than adding a second
+one (chapter 38).
+
 **uid**: the current logged-in user's id, substituted by the web client wherever it
 appears inside a domain or context string written in XML. Not a Python variable.
 

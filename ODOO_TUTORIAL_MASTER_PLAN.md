@@ -1057,6 +1057,58 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (yet later, once more) — ch38 written: testing, M5 (chapters 31-38) done
+
+Fifth and final write-chapter of Part 6. §5.3: `TransactionCase`, `HttpCase`/tours
+intro, `--test-tags`, demo-data pitfalls, writing tests for everything built so far.
+
+**Deliberate scope call, logged as a decision**: this chapter ships no
+`CHAPTERS["ch38"]` entry in `odoolings.py`, the first hands-on chapter to do so.
+odoolings verifies the reader's own already-running instance over RPC; this
+chapter's whole subject is tests that build their own database state and run in a
+throwaway transaction, the opposite kind of check. Forcing an RPC check here would
+either be redundant with chapters 13/14/20/35's own checks or would have to
+duplicate what `--test-tags` already proves better. The chapter's Verify section
+runs the actual test suite instead and says so explicitly.
+
+**Wrote four `TransactionCase` tests and one `HttpCase` test**, deliberately
+covering earlier chapters rather than new functionality: chapter 14's overlap
+constraint, chapter 13's margin computation, chapter 20's wizard guard, chapter 35's
+reminder idempotency, and chapter 37's public controller. All fixtures are built in
+`setUpClass`, no demo data referenced.
+
+**The demo-data pitfall was reproduced for real, not described**: wrote a
+throwaway test using `self.env.ref()` on a genuinely real demo xmlid
+(`librefleet.vehicle_demo_ag_12_345`, confirmed to exist in
+`data/librefleet.vehicle-demo.csv`), ran it against a database installed
+`--without-demo`, and captured the actual `ValueError: External ID not found`
+before deleting the test. This tutorial's own standing rule (chapter 4,
+`--without-demo` by default) turned out to be exactly the same discipline a real
+CI pipeline needs, not just an artifact of this tutorial's own setup.
+
+**One test bug found writing this chapter, kept as a worked example**: the first
+draft of the wizard-guard test picked a fixture that happened to pass
+`assertLess(margin, 0)` by luck rather than by design (a flat labor fee dominating a
+small parts loss). Fixed by choosing a fixture that unambiguously loses money and
+keeping the `assertLess` as an explicit guard, illustrating a fixture-correctness
+bug distinct from a code bug, both real, both worth showing.
+
+**A version fact**: `--without-demo=all` (the pre-19 idiom) is deprecated, Odoo 19
+wants a boolean and logs a warning + falls back to `True` when given `all`.
+
+All ch08-ch20 and ch31-ch37 suites re-run clean via `python3 odoolings.py check`
+after `librefleet` upgraded with the new `tests/` package present (tests do not run
+automatically without `--test-tags`, so this only proves nothing else regressed).
+Glossary gained one entry: `TransactionCase / HttpCase`.
+
+**M5 (chapters 31-38, "Business Logic Like a Pro") is now fully written.** Next:
+M6, chapters 39-42 (OWL and the web client), a new subject area rather than more of
+the same, worth flagging to the author for a possible model-switch checkpoint.
+
+No screenshot: same browser flakiness as ch28, ch30, ch35, ch36, ch37 (six chapters
+now); also not obviously applicable here, this chapter's hands-on is entirely
+terminal output, no UI claims to screenshot.
+
 ### 2026-08-11 (yet later, yet again) — ch37 written: controllers & portal, and the ch35/36 mystery solved
 
 Fourth write-chapter of the walkthrough phase. §5.3's line: "HTTP routes, type='http'
