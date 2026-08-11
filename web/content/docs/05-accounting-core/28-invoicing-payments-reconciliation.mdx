@@ -61,11 +61,12 @@ has to declare that they cancel out.
 
 ### Reconciliation is that declaration
 
-`account.partial.reconcile` is a record saying "this much of that debit is matched by
+<Term k="reconciliation (`account.partial.reconcile`)">`account.partial.reconcile`</Term> is a record saying "this much of that debit is matched by
 this much of that credit". One payment against one invoice creates one of them. Two
 instalments create two, and their amounts sum to the invoice total.
 
 <Mermaid
+  label="Two partial reconciliation records, 200.00 and 163.40, match the invoice's single receivable debit until the residual reaches zero and payment_state computes to paid"
   chart={`flowchart LR
     subgraph inv["invoice INV/2026/00010"]
       R["Account Receivable<br/>debit 363.40"]
@@ -85,7 +86,7 @@ Two fields describe the result, and the difference between them is worth holding
 
 - **`amount_residual`** on the move: how much is still unmatched, in currency.
 - **`reconciled`** on the line: a boolean, true once that line is fully matched.
-- **`payment_state`** on the move: the computed summary, one of `not_paid`,
+- **<Term k="payment_state">`payment_state`</Term>** on the move: the computed summary, one of `not_paid`,
   `partial`, `in_payment`, `paid`, `reversed`, `blocked` (plus a legacy value).
 
 `payment_state` is derived from the first two. That is the direction of causation, and
@@ -93,7 +94,7 @@ getting it backwards is the bug this chapter is trying to prevent.
 
 ### Payment terms decide *when*, not *whether*
 
-An `account.payment.term` (the demo ships Immediate Payment, 15 Days, 30 Days, End of
+An <Term k="payment term (`account.payment.term`)">`account.payment.term`</Term> (the demo ships Immediate Payment, 15 Days, 30 Days, End of
 Following Month and others) sets the due date and can split one invoice into several
 instalments with their own dates. It changes nothing about the accounts used. Overdue is
 a question about dates; unpaid is a question about reconciliation.
