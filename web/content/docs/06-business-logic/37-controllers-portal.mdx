@@ -1,24 +1,603 @@
 ---
 title: "37. Controllers & Portal"
-description: Not written yet, tracked in the roadmap.
+description: Write raw HTTP routes, then use the same pattern core Odoo uses to give a customer a shareable page of their own service history.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch37`
+**Goal:** build a public controller, a JSON-RPC endpoint, and a customer portal page
+that lists a customer's service orders and shares one by link. · **Time:** ~2 h ·
+**Checkpoint:** `code/checkpoints/ch37`
 
 ## Why this matters
 
+Every chapter so far has been a conversation between a logged-in user and the web
+client: Odoo's own JavaScript talking to the ORM over RPC. That conversation is not
+the only door into your data. Chapter 27's invoice landed as a PDF; chapter 22's sale
+order got paid; somewhere, a customer who never opens the backend needs to see their
+own history without becoming a Workshop user. That is what controllers are for: raw
+HTTP routes you write yourself, with their own auth rules, sitting next to (not
+instead of) the web client's usual RPC traffic.
+
+The customer portal, `/my/...`, is the specific, well-worn shape Odoo gives this
+problem, and you have been a portal user's *audience* since chapter 28's invoice
+payment flow without building one yourself. This chapter builds the other side: a
+`/my/service-orders` page a real customer can log into, see only their own orders on,
+and share a link to without sharing their password.
+
 ## Concepts
+
+### A route is a function with an address and a permission
+
+`@http.route(path, type=..., auth=...)` on a method is the whole mechanism. Three
+things about the decorator matter more than the rest:
+
+- **`type`** decides the shape of the request and response. `type="http"` is a normal
+  page: a `GET` or `POST`, your method returns HTML (or a redirect, or a file).
+  `type="jsonrpc"` is for programmatic callers: the body is a JSON-RPC envelope, your
+  method's return value is JSON-encoded automatically, no template involved.
+- **`auth`** decides who can even reach the method, checked *before* your code runs.
+  `"public"` means anyone, logged in or not. `"user"` means Odoo redirects to the
+  login page first if there is no session. `"none"` skips authentication entirely,
+  no `request.env.user`, used for things like webhooks.
+- **`website=True`** wraps the response in the website builder's chrome (header, footer,
+  the page you'd customize with the site editor). This chapter only takes a taste of
+  that: the public page below skips it on purpose, and the portal pages use it because
+  `/my/...` genuinely is part of the website layer.
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  `type="json"` is what you would write on 18 and earlier. Odoo 19 renamed it to
+  `type="jsonrpc"` and kept `"json"` as a deprecated alias: it still works, but every
+  call logs `DeprecationWarning: Since 19.0, @route(type='json') is a deprecated alias
+  to @route(type='jsonrpc')`. Reproduced for real in this chapter's first hands-on step.
+</Callout>
+
+### The portal pattern: one mixin, one controller class, one convention
+
+Odoo's customer portal is not a special framework, it is three ordinary pieces used
+consistently everywhere from `/my/orders` (chapter 22's sales) to `/my/invoices`
+(chapter 27's accounting):
+
+<Mermaid label="A portal page checks access one of two ways: a logged-in session with the right record rule, or a share-link access token, both funnelled through the same _document_check_access helper." chart={`flowchart TD
+    Request["GET /my/service-orders/42"] --> Check["_document_check_access()"]
+    Check -->|"logged in, record rule matches"| Ok["record returned, sudo'd"]
+    Check -->|"no session, but access_token matches"| Ok
+    Check -->|"neither"| Deny["AccessError / MissingError"]
+`} />
+
+1. **`portal.mixin`** on your model adds `access_token` and `access_url`. The token is
+   a random UUID generated on demand (`_portal_ensure_token()`), the thing a share
+   link's `?access_token=...` query string carries. `access_url` defaults to the
+   literal string `'#'`, every model using the mixin has to override
+   `_compute_access_url` and point it somewhere real.
+2. **`CustomerPortal`** (module `portal`) is the controller class every portal
+   extension inherits from. Override `_prepare_home_portal_values` to add a tile and
+   a counter to `/my`, the same extension pattern chapter 32 used on `res.partner`'s
+   form view, just aimed at a controller method instead of an XML view.
+3. **`_document_check_access(model, id, access_token)`** is the one helper that makes
+   both access paths, logged-in and shared-link, work through the same code. It tries
+   a normal `check_access('read')` first (which means a record rule has to actually
+   grant it), and only falls back to comparing the token if that fails. This is why a
+   portal route binds `auth="public"`, not `"user"`: an anonymous visitor with a valid
+   token has to reach the method at all before the token check can run.
+
+### ACL and record rule are still the two-layer system from chapter 10
+
+Granting a portal group read access to a model is the ACL layer: it says portal users
+*can* read `librefleet.service.order` at all. It says nothing about *which* orders. A
+record rule scoped to `customer_id = user.partner_id.id` is what stops one customer
+from reading another's history, the identical two-layer split chapter 10 built for
+technicians versus managers, just with a third group added to the same model.
+
+<Callout type="info" title="Official docs">
+  [Controllers & routing (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/http.html):
+  the full `auth` enum, `type` values beyond the two used here, CSRF, and session
+  handling. [Website builder overview (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website.html):
+  the taste this chapter takes, chapter 42 is where a real site gets built on it.
+</Callout>
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### A public controller, and the type="json" deprecation for real
+
+```python title="addons/librefleet/controllers/main.py"
+from odoo import http
+from odoo.http import request
+
+
+class LibreFleetPublic(http.Controller):
+
+    @http.route("/librefleet/services", type="http", auth="public", website=False)
+    def services_page(self, **kwargs):
+        service_types = request.env["librefleet.service.type"].sudo().search([])
+        return request.render("librefleet.services_page", {"service_types": service_types})
+
+    @http.route("/librefleet/vehicles/lookup", type="jsonrpc", auth="public")
+    def vehicle_lookup(self, license_plate, **kwargs):
+        vehicle = request.env["librefleet.vehicle"].sudo().search(
+            [("license_plate", "=", license_plate)], limit=1)
+        if not vehicle:
+            return {"found": False}
+        return {
+            "found": True,
+            "model_name": vehicle.model_name,
+            "service_count": vehicle.service_count,
+        }
+```
+
+Both routes use `sudo()`: `auth="public"` means there is no logged-in user with any
+access rights at all, so without it every read would fail with an `AccessError`
+before your code got anywhere.
+
+`controllers/__init__.py` needs both files imported, and the module's own
+`__init__.py` needs the package:
+
+```python title="addons/librefleet/controllers/__init__.py"
+from . import main
+from . import portal
+```
+
+```python title="addons/librefleet/__init__.py"
+from . import controllers
+from . import models
+from . import wizards
+```
+
+Write `vehicle_lookup`'s route as `type="json"` first, on purpose, and watch what
+Odoo 19 actually does with it:
+
+```console
+$ curl -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","method":"call","params":{"license_plate":"ZH 468 202"}}' \
+    http://localhost:8069/librefleet/vehicles/lookup
+{"jsonrpc": "2.0", "id": null, "result": {"found": true, "model_name": "Fiat Ducato", "service_count": 1}}
+```
+
+The call succeeds, silently. The warning is server-side only:
+
+```text
+WARNING ? py.warnings: /mnt/extra-addons/librefleet/controllers/main.py:12: DeprecationWarning: Since 19.0, @route(type='json') is a deprecated alias to @route(type='jsonrpc')
+```
+
+Change it to `type="jsonrpc"` (the version already shown above) before moving on;
+the response is identical, only the log noise goes away.
+</Step>
+
+<Step>
+### The services template, and testing a route with two databases running
+
+```xml title="addons/librefleet/views/website_templates.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Deliberately not built on web.layout or website.layout: this is a
+         standalone type='http', auth='public' page, no website module
+         installed. A real marketing page would extend website.layout
+         instead, chapter 42 is where that gets built properly. -->
+    <template id="services_page" name="LibreFleet Services">
+        <html>
+            <head><title>LibreFleet Services</title></head>
+            <body>
+                <h1>What we service</h1>
+                <ul>
+                    <li t-foreach="service_types" t-as="service_type">
+                        <span t-field="service_type.name"/>
+                        (<span t-field="service_type.flat_fee"/>)
+                    </li>
+                </ul>
+            </body>
+        </html>
+    </template>
+
+</odoo>
+```
+
+Register both files in the manifest, bump the version, and upgrade:
+
+```python title="addons/librefleet/__manifest__.py"
+"version": "19.0.1.23.0",
+    ...
+    "depends": ["base", "product", "base_automation", "web", "portal"],
+    "data": [
+        ...
+        "views/website_templates.xml",
+        "views/portal_templates.xml",
+```
+
+```console
+$ curl http://localhost:8069/librefleet/services
+<!DOCTYPE html><title>404 Not Found</title>...
+No database is selected and the requested URL was not found in the server-wide controllers.
+```
+
+A 404, on a route that definitely exists. This tutorial's Docker environment runs
+three databases (`tour`, `tutorial`, `functional`) with no `dbfilter` configured, so
+an anonymous request has no way to guess which one you mean; a browser sidesteps this
+because logging in sets a session cookie that pins the database for every later
+request, but a bare `curl` has no session yet. Your own reader environment has one
+database, so this specific 404 will not happen to you; it's worth knowing why in case
+it ever does. Fixed here with an explicit header:
+
+```console
+$ curl -H "X-Odoo-Database: tutorial" http://localhost:8069/librefleet/services
+<html><head><title>LibreFleet Services</title></head><body><h1>What we service</h1>
+<ul><li><span>Brake inspection</span> (<span>120.0</span>)</li>
+<li><span>Full service</span> (<span>349.0</span>)</li>
+...
+```
+</Step>
+
+<Step>
+### portal.mixin on the service order
+
+```python title="addons/librefleet/models/service_order.py"
+    # ch37 adds portal.mixin: access_token/access_url, for the customer portal's
+    # share-link fallback when a portal user's own record rule is not enough.
+    _inherit = ["mail.thread", "mail.activity.mixin", "portal.mixin"]
+```
+
+```python title="addons/librefleet/models/service_order.py"
+    def _compute_access_url(self):
+        # portal.mixin's default is the literal string '#'; every model that
+        # uses the mixin has to point it at its own portal route.
+        super()._compute_access_url()
+        for order in self:
+            order.access_url = "/my/service-orders/%s" % order.id
+```
+
+Upgrade, then check the field directly:
+
+```console
+>>> env["librefleet.service.order"].search([], limit=1).access_url
+'/my/service-orders/1'
+```
+</Step>
+
+<Step>
+### ACL and record rule for the portal group
+
+```text title="addons/librefleet/security/ir.model.access.csv"
+access_librefleet_service_order_portal,librefleet.service.order portal,model_librefleet_service_order,base.group_portal,1,0,0,0
+access_librefleet_service_order_line_portal,librefleet.service.order.line portal,model_librefleet_service_order_line,base.group_portal,1,0,0,0
+```
+
+```xml title="addons/librefleet/security/librefleet_security.xml"
+        <!-- ch37: the portal ACL above grants read on the model, this rule is
+             what actually keeps one customer from reading another's orders.
+             Without it every portal user could read every service order. -->
+        <record id="rule_service_order_portal" model="ir.rule">
+            <field name="name">Service orders: portal users see their own</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="domain_force">[('customer_id', '=', user.partner_id.id)]</field>
+        </record>
+
+        <record id="rule_service_order_line_portal" model="ir.rule">
+            <field name="name">Service order lines: portal users see their own order's lines</field>
+            <field name="model_id" ref="model_librefleet_service_order_line"/>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="domain_force">[('order_id.customer_id', '=', user.partner_id.id)]</field>
+        </record>
+```
+</Step>
+
+<Step>
+### The portal controller: home tile, list, detail, and the report from chapter 36
+
+```python title="addons/librefleet/controllers/portal.py"
+from odoo.addons.portal.controllers.portal import CustomerPortal, pager as portal_pager
+from odoo.http import request, route
+
+
+class LibreFleetPortal(CustomerPortal):
+
+    def _prepare_home_portal_values(self, counters):
+        values = super()._prepare_home_portal_values(counters)
+        if "service_order_count" in counters:
+            partner = request.env.user.partner_id
+            values["service_order_count"] = request.env["librefleet.service.order"].search_count(
+                [("customer_id", "=", partner.id)])
+        return values
+
+    @route(["/my/service-orders", "/my/service-orders/page/<int:page>"],
+           type="http", auth="user", website=True)
+    def portal_my_service_orders(self, page=1, **kwargs):
+        partner = request.env.user.partner_id
+        ServiceOrder = request.env["librefleet.service.order"]
+        domain = [("customer_id", "=", partner.id)]
+
+        order_count = ServiceOrder.search_count(domain)
+        pager = portal_pager(
+            url="/my/service-orders",
+            total=order_count,
+            page=page,
+            step=self._items_per_page,
+        )
+        orders = ServiceOrder.search(
+            domain, limit=self._items_per_page, offset=pager["offset"],
+            order="scheduled_start desc")
+
+        values = self._prepare_portal_layout_values()
+        values.update({
+            "orders": orders,
+            "page_name": "service_order",
+            "pager": pager,
+            "default_url": "/my/service-orders",
+        })
+        return request.render("librefleet.portal_my_service_orders", values)
+
+    @route(["/my/service-orders/<int:order_id>"], type="http", auth="public", website=True)
+    def portal_service_order_page(self, order_id, access_token=None, **kwargs):
+        # auth="public", not "user": a share link (?access_token=...) has to
+        # work for someone who isn't logged in at all. _document_check_access
+        # is what actually decides, session-based read access first, the
+        # token as a fallback only if that fails.
+        try:
+            order_sudo = self._document_check_access(
+                "librefleet.service.order", order_id, access_token=access_token)
+        except Exception:
+            return request.redirect("/my")
+
+        values = self._prepare_portal_layout_values()
+        values.update({
+            "order": order_sudo,
+            "page_name": "service_order",
+        })
+        return request.render("librefleet.portal_service_order_page", values)
+
+    @route(["/my/service-orders/<int:order_id>/report"], type="http", auth="public")
+    def portal_service_order_report(self, order_id, access_token=None, **kwargs):
+        order_sudo = self._document_check_access(
+            "librefleet.service.order", order_id, access_token=access_token)
+        report = request.env["ir.actions.report"].sudo()._get_report(
+            "librefleet.report_service_order")
+        pdf_content, _report_type = report._render_qweb_pdf(
+            "librefleet.report_service_order", order_sudo.ids)
+        # reference is "SO/2026/0001": a bare slash in Content-Disposition's
+        # filename breaks the header (and some browsers read it as a path).
+        filename = order_sudo.reference.replace("/", "_")
+        return request.make_response(
+            pdf_content,
+            headers=[
+                ("Content-Type", "application/pdf"),
+                ("Content-Disposition", "attachment; filename=%s.pdf" % filename),
+            ],
+        )
+```
+
+That `filename = order_sudo.reference.replace("/", "_")` line exists because the
+first version did not have it. Chapter 14's sequence gives orders references like
+`SO/2026/0001`, and a bare slash in a `Content-Disposition` filename is exactly the
+kind of thing that looks fine in a curl transcript and breaks quietly in a real
+browser (some read it as a path separator). Caught by actually downloading the file
+and inspecting the header, not by reading the code twice.
+
+The templates (`views/portal_templates.xml`) follow the exact shape core's own
+`sale`, `project` and `account` portal extensions use: a breadcrumb entry inherited
+from `portal.portal_breadcrumbs`, a home tile inherited from `portal.portal_my_home`
+(behind a `portal_client_category_enable` flag every contributing module has to set
+to `True`, it defaults `False`), a list built on `portal.portal_table` with the
+standard pager, and a detail page. The full templates are in the checkpoint.
+</Step>
+
+<Step>
+### Grant a customer portal access, and test both access paths
+
+A real customer gets a portal account by an admin clicking "Grant Portal Access" on
+their contact form (Settings > Users > Portal Access Management, or the button on the
+partner form itself), which sends a signup email. This dev environment has no outgoing
+mail server, so drive the same wizard from the shell and set a password directly
+instead of following an email link, a shortcut you would never take in production:
+
+```console
+>>> anna = env["res.partner"].browse(8)  # Anna Keller, owns ZH 468 202
+>>> anna.email = "anna.keller@example.com"
+>>> wiz = env["portal.wizard"].with_context(active_ids=[anna.id]).create({})
+>>> pwu = wiz.user_ids.filtered(lambda u: u.partner_id == anna)
+>>> pwu.action_grant_access()
+>>> anna.user_ids.sudo().write({"password": "portal123"})
+```
+
+Log in as her and confirm the record rule actually scopes what she sees:
+
+```console
+$ curl -c cookies.txt -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","method":"call","params":{"db":"tutorial","login":"anna.keller@example.com","password":"portal123"}}' \
+    http://localhost:8069/web/session/authenticate
+
+$ curl -b cookies.txt http://localhost:8069/my/service-orders | grep -o "SO/2026/[0-9]*"
+SO/2026/0001
+```
+
+Only her own order, `SO/2026/0001`, comes back, not `SO/2026/0002` (Beat Muster's).
+Confirm the flip side too: her own order works, someone else's does not, and neither
+error looks like a crash to the visitor:
+
+```console
+$ curl -b cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:8069/my/service-orders/1
+200
+$ curl -b cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:8069/my/service-orders/2
+303
+```
+
+`303` is a redirect back to `/my`, from the `except Exception: return
+request.redirect("/my")` in the controller, not a raw `AccessError` traceback.
+
+Now test the share-link path with no session at all, using the token from step 3:
+
+```console
+>>> order = env["librefleet.service.order"].browse(1)
+>>> order._portal_ensure_token()
+'2eeaf5ec-506a-43a8-808b-90fea5b6de9b'
+```
+
+```console
+$ curl -o /dev/null -w '%{http_code}\n' \
+    "http://localhost:8069/my/service-orders/1?access_token=2eeaf5ec-506a-43a8-808b-90fea5b6de9b"
+200
+$ curl -o /dev/null -w '%{http_code}\n' \
+    "http://localhost:8069/my/service-orders/1?access_token=wrong-token"
+303
+```
+
+No cookie, no login, correct token, `200`. Wrong token, `303`, same redirect a
+session-less request with no token at all would get. Finally, the download route
+from chapter 36:
+
+```console
+$ curl -o report.pdf \
+    "http://localhost:8069/my/service-orders/1/report?access_token=2eeaf5ec-506a-43a8-808b-90fea5b6de9b"
+$ pdfinfo report.pdf | grep Pages
+Pages:           1
+```
+</Step>
+
+</Steps>
+
+Chapter 8's module tree, after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="controllers" defaultOpen>
+      <File name="__init__.py" />
+      <File name="main.py" />
+      <File name="portal.py" />
+    </Folder>
+    <Folder name="views" defaultOpen>
+      <File name="website_templates.xml" />
+      <File name="portal_templates.xml" />
+      <File name="..." />
+    </Folder>
+    <Folder name="models">
+      <File name="service_order.py" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch37
+✔ the public services page renders
+✔ the vehicle lookup endpoint works
+✔ the service order has portal.mixin
+✔ the portal ACL is read-only
+✔ a record rule scopes it to the customer
+
+ch37 complete! On to the next chapter 🔧
+```
+
+In the UI: log in as `anna.keller@example.com` / `portal123` (or your own portal
+test user) and confirm `/my` shows a "Service Orders" tile with a count, clicking it
+lands on `/my/service-orders` with only her own orders listed, and opening one shows
+the "Download Service Report" button producing the PDF from chapter 36.
 
 ## Gotchas
 
+- **`type="json"` still runs, deprecated, in Odoo 19.** No error, a `DeprecationWarning`
+  in the server log only. Write new routes as `type="jsonrpc"`.
+- **A multi-database dev environment needs a database hint on every unauthenticated
+  request.** A browser gets this for free from its session cookie once you have
+  logged in once; a bare `curl` (or any script) needs `X-Odoo-Database: <db>` or it
+  gets a 404 that has nothing to do with your route. A reader's own single-database
+  container never sees this.
+- **`portal_client_category_enable` defaults to `False`.** Inheriting
+  `portal.portal_my_home` and adding content inside `#portal_client_category` renders
+  nothing until you also set that flag `True` via an xpath positioned `before` the
+  `o_portal_docs` div, the same two-step every core module (`sale`, `project`,
+  `account`) does for its own tile.
+- **A slash in a filename breaks `Content-Disposition`.** `librefleet.service.order`'s
+  `reference` field (chapter 14) contains `/`, exactly the character that field is
+  not safe to put raw into an HTTP header meant to name a file. Sanitize it.
+- **`auth="user"` and `access_token` do not mix.** A route meant to work for an
+  anonymous visitor with a share link must be `auth="public"`; `auth="user"` redirects
+  to login before your code, token or no token, ever runs. `_document_check_access`
+  is what does the real authorization either way.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A route is written as @http.route(\"/my/service-orders/<int:order_id>\", type=\"http\", auth=\"user\"), and the controller checks access_token as a fallback for shared links. A visitor with no session but a correct token gets what?",
+    options: [
+      "The record, since _document_check_access accepts a valid token regardless of the route's auth level",
+      "A redirect to the login page, because auth=\"user\" rejects the request before the controller's own code, token or no token, ever runs",
+      "A 500 error, since access_token without an active session is treated as malformed input",
+      "The record, but stripped of any field not explicitly marked as public",
+    ],
+    answer: 1,
+    why: "auth is enforced at the routing layer, before your method executes. auth=\"user\" means Odoo redirects an anonymous request to /web/login immediately; the controller's token-checking logic, however correct, never gets a chance to run. Share links need auth=\"public\" so the request reaches the code that actually decides.",
+  },
+  {
+    q: "librefleet.service.order gets portal.mixin added to its _inherit list, but no override for _compute_access_url is written. What does order.access_url read as?",
+    options: [
+      "It computes correctly on its own, portal.mixin infers the URL from the model's own portal controller routes",
+      "The literal string '#', portal.mixin's own default, since nothing told it what URL to use for this specific model",
+      "None, since the field has no value until a record rule is also added",
+      "/my/librefleet.service.order/<id>, a generic URL built from the model's technical name",
+    ],
+    answer: 1,
+    why: "portal.mixin's base _compute_access_url method sets access_url to '#' unconditionally, on purpose: it is a hook every model using the mixin is expected to override with its own real route. Nothing infers it automatically from routes you happen to have registered elsewhere.",
+  },
+  {
+    q: "An ACL grants base.group_portal read access to librefleet.service.order, but no ir.rule is added for that group. What can a logged-in portal customer actually read?",
+    options: [
+      "Nothing; an ACL alone, without a matching record rule, denies all access by default",
+      "Only orders where they are listed as a technician, the same rule chapter 10 built for the internal Workshop group",
+      "Every service order in the database belonging to every customer, since the ACL alone does not scope by record",
+      "Only their own most recent order, portal groups get an implicit 'latest record only' rule",
+    ],
+    answer: 2,
+    why: "ACLs (ir.model.access) are model-wide, they say whether a group can read the model at all, not which rows. Without a record rule to narrow it, every portal user with read access can read every row, exactly the two-layer gap chapter 10 already covered for internal groups; the portal group is not a special case.",
+  },
+  {
+    q: "reference on librefleet.service.order looks like \"SO/2026/0001\" (chapter 14's sequence). Used raw as a filename in a Content-Disposition header, what actually goes wrong?",
+    options: [
+      "Nothing in practice; HTTP headers treat forward slashes as ordinary characters with no special meaning",
+      "The character set is invalid for HTTP headers entirely, and the server refuses to send the response",
+      "Some browsers interpret the slash as a path separator, so the file may not save with the intended single filename",
+      "Odoo's report engine automatically escapes it, so the raw reference is actually safe to use as-is",
+    ],
+    answer: 2,
+    why: "Content-Disposition's filename is meant to be a bare filename, and a slash inside it is exactly the kind of thing that behaves inconsistently across clients: some browsers read it as a directory separator. It rarely shows up in a quick curl transcript, only when a real browser tries to save the file, which is why it is easy to ship unnoticed.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a third public route, `/librefleet/services/<int:service_type_id>`, `type="http"`,
+   `auth="public"`, showing one service type's name and fee. Reuse the existing
+   `services_page` template's structure rather than writing a second one.
+2. ⭐⭐ Chapter 33 gave `librefleet.service.order` chatter. Add a `<t
+   t-call="portal.message_thread"/>` to the portal detail page template so a
+   logged-in customer can post a message on their own order, and confirm (from the
+   record rule) that they cannot see internal-only notes technicians left there.
+3. ⭐⭐ Design (no steps given) a `/my/vehicles` portal page listing a customer's
+   vehicles, separate from their service orders. Which model needs `portal.mixin`
+   this time, and does it need its own record rule, or can it reuse the existing
+   `owner_id` relation some other way?
+4. ⭐⭐⭐ Break-it lab: remove the `xpath` that sets `portal_client_category_enable`
+   from `portal_my_home_service_order`, upgrade, and visit `/my` as a portal user.
+   Nothing errors and nothing looks obviously broken, the tile is simply gone. Read
+   `portal.portal_my_home`'s source to explain exactly why, then restore the fix.
+5. ⭐⭐⭐ Read the [webhook section of the controllers reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/http.html)
+   and sketch (no steps given) a `type="jsonrpc"`, `auth="none"` route that a
+   third-party service could call to mark a service order's parts as delivered.
+   What would you need to verify inside the method itself, now that auth is not
+   checking anything for you?
+
 ## Further reading
+
+- <Icon name="docs" /> [Controllers & routing (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/http.html):
+  the full `@http.route` reference, every `auth` and `type` value, CSRF and sessions.
+- <Icon name="source" /> [`portal/controllers/portal.py`](https://github.com/odoo/odoo/blob/19.0/addons/portal/controllers/portal.py):
+  `CustomerPortal` itself, `_document_check_access`, and the pager helper this
+  chapter's list route calls directly.
+- <Icon name="source" /> [`sale/controllers/portal.py`](https://github.com/odoo/odoo/blob/19.0/addons/sale/controllers/portal.py):
+  the real extension this chapter's shape was built to match, `/my/orders` end to end.
+- <Icon name="docs" /> [Website builder overview (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website.html):
+  where the taste this chapter took (`website=True`, `website.layout`) goes next.

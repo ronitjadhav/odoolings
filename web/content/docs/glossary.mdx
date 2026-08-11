@@ -107,6 +107,13 @@ commit messages: `[FIX]` bugfix, `[IMP]` improvement, `[ADD]` new feature/module
 recompute triggers). Non-stored by default (no column, computed on read);
 `store=True` adds a real column recomputed when dependencies change.
 
+**controller**: a Python class decorated `@http.route` per method, the raw HTTP
+door into Odoo, separate from the ORM-over-RPC traffic the web client normally uses.
+`type` picks the request/response shape (`"http"` for pages, `"jsonrpc"` for
+programmatic JSON calls, `type="json"` is a deprecated alias since 19.0), `auth`
+picks who can reach it at all (`"public"`, `"user"`, `"none"`), checked before the
+method runs (chapter 37).
+
 **constraint (Python)**: a validation method decorated `@api.constrains(*fields)`
 that raises `ValidationError` when a rule is broken. Runs in the ORM on every write
 path (form, import, RPC, shell, code) but never on raw SQL, and only re-runs when a
@@ -399,6 +406,15 @@ at once.
 
 **pivot view**: a view type describing a table of aggregated data: `row`/`col`
 fields group records, `measure` fields are summed per group, via `read_group`.
+
+**portal (customer portal, `portal.mixin`)**: the `/my/...` pages a non-employee
+customer logs into to see their own records, `/my/orders`, `/my/invoices`, and
+whatever a module adds (chapter 37's `/my/service-orders`). `portal.mixin` gives a
+model `access_token` (a random UUID for share links) and `access_url` (which every
+model using the mixin must override, the default is the literal string `'#'`).
+`CustomerPortal._document_check_access()` is what actually authorizes a request: a
+normal record-rule read first, an `access_token` match as the fallback for a
+logged-out visitor with a share link.
 
 **price-included tax (`price_include`)**: a tax treated as already inside the price you
 type, so 100.00 at 15% is 86.96 of revenue plus 13.04 of tax rather than 115.00. In Odoo
