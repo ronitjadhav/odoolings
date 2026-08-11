@@ -178,9 +178,13 @@ worked, move on.
 ## Exercises
 
 1. ⭐ In the `odoo/` framework directory on GitHub, locate the file that implements the
-   ORM's `Model` class (hint: `odoo/models.py`, scroll its docstring).
-2. ⭐⭐ Find where the `base` module lives in the source tree (hint: it's *not* under
-   `addons/`) and explain to yourself why it's called the module everything depends on.
+   ORM's `Model` class (hint: `odoo/orm/models.py`, `BaseModel` and `Model` are both
+   defined there; scroll to `class Model` and read the docstrings above it).
+2. ⭐⭐ Find where the `base` module lives in the source tree (hint: there are *two*
+   `addons` directories in the repo, the top-level one holding `sale`, `account`,
+   `web` and friends, and a second one nested inside `odoo/` itself, `odoo/addons/`;
+   `base` is in the second one) and explain to yourself why it's called the module
+   everything depends on.
 
 ## Further reading
 
