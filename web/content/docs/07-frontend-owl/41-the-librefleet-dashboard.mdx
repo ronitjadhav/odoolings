@@ -1,24 +1,505 @@
 ---
 title: "41. The LibreFleet Dashboard"
-description: Not written yet, tracked in the roadmap.
+description: Build a client action that aggregates in the database instead of the browser, and meet the many2many counting trap every dashboard walks into.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch41`
+**Goal:** build a Workshop Load dashboard as a client action, grouping open service
+orders per technician with `formattedReadGroup`, and make each number click through to
+the records behind it. · **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch41`
 
 ## Why this matters
 
+Chapter 39 put a component in the systray and chapter 40 changed how an existing screen
+behaves. Both were decorations on screens Odoo already provided. A dashboard is the
+first time you own the whole screen: no list, no form, no view engine, just a menu item
+that opens your component and whatever you decide to draw.
+
+That freedom comes with the question every dashboard eventually gets wrong, which is
+not "how do I draw a table" but **where the arithmetic happens**. Fetching every record
+and counting in JavaScript works beautifully on your two demo orders and collapses on a
+client with forty thousand. The database already knows how to group and sum; the job is
+to ask it once and render the answer.
+
+This chapter also walks straight into a counting trap that is genuinely easy to ship,
+and the finished dashboard displays the contradiction on its own face.
+
 ## Concepts
+
+### A client action is a database record plus a registry entry
+
+```xml
+<record id="action_librefleet_dashboard" model="ir.actions.client">
+    <field name="name">Workshop Load</field>
+    <field name="tag">librefleet_dashboard</field>
+</record>
+```
+
+```js
+registry.category("actions").add("librefleet_dashboard", LibreFleetDashboard);
+```
+
+The `tag` is the *only* connection between those two halves. A menu item points at the
+`ir.actions.client` record, the web client reads its tag, and looks that string up in
+the `actions` registry. This is the same shape as chapter 40's field widget
+(`widget="..."` looking up the `fields` registry), and it fails the same way: a typo in
+either half is a string mismatch nothing validates at install time.
+
+<Mermaid label="A menu item opens an ir.actions.client record, whose tag string is looked up in the actions registry to find the OWL component that renders the screen." chart={`flowchart LR
+    Menu["menuitem"] --> Action["ir.actions.client<br/>tag = librefleet_dashboard"]
+    Action -->|"tag looked up in"| Reg["actions registry"]
+    Reg --> Comp["LibreFleetDashboard<br/>(OWL component)"]
+    Comp -->|"orm.formattedReadGroup"| DB[("Postgres<br/>GROUP BY")]
+`} />
+
+Your component gets the action record itself as a prop, so spreading
+`standardActionServiceProps` is required for the same reason chapter 40 spread
+`standardFieldProps`: OWL rejects props the component never declared.
+
+### `formattedReadGroup`: let Postgres do the counting
+
+```js
+const groups = await this.orm.formattedReadGroup(
+    "librefleet.service.order",
+    [["stage", "in", OPEN_STAGES]],   // domain
+    ["technician_ids"],               // groupby
+    ["__count", "margin:sum"]         // aggregates
+);
+```
+
+One round trip, one `GROUP BY` in the database, and back comes one object per group:
+
+```text
+{'technician_ids': (5, 'Tina Technician'), '__extra_domain': [('technician_ids', '=', 5)], '__count': 1, 'margin:sum': 139.1}
+{'technician_ids': False, '__extra_domain': [('technician_ids', 'not any', [])], '__count': 1, 'margin:sum': 120.0}
+```
+
+Three things to read off that output. Aggregates come back keyed by the exact string
+you asked for, so `group["margin:sum"]`, not `group.margin`. A grouped many2many yields
+an `[id, name]` pair, exactly like a many2one. And records with nobody assigned group
+under `False`, which is why the component maps that to a readable "Unassigned" rather
+than printing `false` at a workshop manager.
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  This method was `read_group` (and `orm.readGroup` in JavaScript) up to Odoo 18. Odoo
+  19 replaced it with `formatted_read_group` / `formattedReadGroup`, with a different
+  signature: aggregates are their own argument (`["__count", "margin:sum"]`) rather
+  than being mixed into the fields list. There is no `orm.readGroup` to fall back on,
+  so older tutorials and Stack Overflow answers will not run as written.
+</Callout>
+
+### Every group carries the domain that produced it
+
+`__domain` comes back on each group: the exact domain that selected those records.
+That matters for drill-down. The tempting move is to rebuild the filter by hand:
+
+```js
+domain: [["technician_ids", "=", group.technician_ids[0]]],   // don't
+```
+
+That happens to work here and quietly breaks the moment the dashboard's own domain
+grows a condition, or the group is the `False` one (whose real domain is
+`[("technician_ids", "not any", [])]`, not anything you would have guessed). Passing
+`group.__domain` straight through means the list a user opens can never disagree with
+the number they clicked.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Give the workshop some load to look at
+
+A dashboard with one row teaches nothing, so put a few open orders in front of real
+technicians first. One order deliberately gets **two** technicians, which matters in a
+moment:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> Order = env["librefleet.service.order"]
+>>> tina = env["res.users"].search([("login", "=", "tina")])
+>>> admin = env.ref("base.user_admin")
+>>> Order.search([("reference", "=", "SO/2026/0002")]).technician_ids = [(6, 0, [tina.id])]
+>>> zh = env["librefleet.vehicle"].search([("license_plate", "=", "ZH 468 202")])
+>>> shell = env["librefleet.vehicle"].search([("license_plate", "=", "SHELL-001")])
+>>> full = env["librefleet.service.type"].search([("name", "=", "Full service")])
+>>> tires = env["librefleet.service.type"].search([("name", "=", "Tire Rotation")])
+>>> Order.create({
+...     "vehicle_id": zh.id, "service_type_id": full.id,
+...     "scheduled_start": "2026-09-10 08:00:00", "scheduled_end": "2026-09-10 12:00:00",
+...     "stage": "confirmed", "technician_ids": [(6, 0, [tina.id, admin.id])]})
+>>> Order.create({
+...     "vehicle_id": shell.id, "service_type_id": tires.id,
+...     "scheduled_start": "2026-09-11 09:00:00", "scheduled_end": "2026-09-11 10:00:00",
+...     "stage": "in_progress", "technician_ids": [(6, 0, [admin.id])]})
+>>> env.cr.commit()
+```
+
+Your reference numbers will not match any printed here: `ir.sequence` (chapter 14) has
+been counting your experiments, not ours.
+</Step>
+
+<Step>
+### Write the component
+
+```js title="addons/librefleet/static/src/dashboard/dashboard.js"
+import { Component, onWillStart, useState } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { standardActionServiceProps } from "@web/webclient/actions/action_service";
+import { useService } from "@web/core/utils/hooks";
+
+const OPEN_STAGES = ["draft", "confirmed", "in_progress"];
+
+export class LibreFleetDashboard extends Component {
+    static template = "librefleet.Dashboard";
+    // A client action receives the action record itself as a prop, plus a few
+    // the action service adds. Spread these or OWL rejects the render.
+    static props = { ...standardActionServiceProps };
+
+    setup() {
+        this.orm = useService("orm");
+        this.action = useService("action");
+        this.state = useState({ technicians: [], openCount: 0, loading: true });
+        onWillStart(async () => {
+            await this.load();
+        });
+    }
+
+    async load() {
+        const domain = [["stage", "in", OPEN_STAGES]];
+        // One round trip that groups and aggregates in Postgres, instead of
+        // fetching every order and counting in JavaScript. On a real fleet
+        // that difference is the whole chapter.
+        const groups = await this.orm.formattedReadGroup(
+            "librefleet.service.order",
+            domain,
+            ["technician_ids"],
+            ["__count", "margin:sum"]
+        );
+        this.state.technicians = groups.map((group) => ({
+            // Grouping by a many2many yields [id, name] per group, or false
+            // for the records that have nobody assigned.
+            id: group.technician_ids ? group.technician_ids[0] : false,
+            name: group.technician_ids ? group.technician_ids[1] : "Unassigned",
+            count: group.__count,
+            margin: group["margin:sum"] || 0,
+            domain: group.__domain,
+        }));
+        this.state.openCount = await this.orm.searchCount(
+            "librefleet.service.order", domain);
+        this.state.loading = false;
+    }
+
+    // Every group carries the domain that produced it, so "show me these
+    // records" needs no domain rebuilt by hand and cannot drift from the
+    // number the reader just clicked.
+    openGroup(technician) {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: `Open orders: ${technician.name}`,
+            res_model: "librefleet.service.order",
+            domain: technician.domain,
+            views: [[false, "list"], [false, "form"]],
+        });
+    }
+}
+
+registry.category("actions").add("librefleet_dashboard", LibreFleetDashboard);
+```
+
+`useService("action")` is the counterpart to `useService("orm")`: where the ORM service
+reads data, the action service opens things. `doAction` takes an action *description*
+here rather than a database record, which is how a component opens a filtered list
+without an `ir.actions.act_window` record existing for it.
+</Step>
+
+<Step>
+### Write the template
+
+```xml title="addons/librefleet/static/src/dashboard/dashboard.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.Dashboard">
+        <div class="o_librefleet_dashboard p-4">
+            <h2>Workshop load</h2>
+
+            <div t-if="state.loading" class="text-muted">Loading...</div>
+
+            <div t-else="">
+                <p class="text-muted">
+                    <span t-out="state.openCount"/> open order(s) across
+                    <span t-out="state.technicians.length"/> group(s).
+                </p>
+
+                <table class="table table-sm w-auto">
+                    <thead>
+                        <tr>
+                            <th>Technician</th>
+                            <th class="text-end">Open orders</th>
+                            <th class="text-end">Margin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="state.technicians" t-as="tech" t-key="tech.id">
+                            <td t-out="tech.name"/>
+                            <td class="text-end">
+                                <button class="btn btn-link p-0"
+                                        t-on-click="() => this.openGroup(tech)">
+                                    <span t-out="tech.count"/>
+                                </button>
+                            </td>
+                            <td class="text-end" t-out="tech.margin.toFixed(2)"/>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </t>
+
+</templates>
+```
+
+`t-key` on a `t-foreach` is not optional in OWL: it tells the renderer which DOM node
+belongs to which item so a re-render patches rather than rebuilds. The arrow function in
+`t-on-click` is how you pass an argument to a handler, since `t-on-click="openGroup"`
+would call it with the DOM event instead.
+</Step>
+
+<Step>
+### Register the action and the menu
+
+```xml title="addons/librefleet/views/dashboard_views.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- The "tag" is the only link between this database record and the
+         JavaScript: it is looked up in the "actions" registry, where
+         dashboard.js registered a component under the same string. Change one
+         without the other and the menu opens a blank screen. -->
+    <record id="action_librefleet_dashboard" model="ir.actions.client">
+        <field name="name">Workshop Load</field>
+        <field name="tag">librefleet_dashboard</field>
+    </record>
+
+    <menuitem id="menu_librefleet_dashboard"
+              name="Dashboard"
+              parent="menu_librefleet_root"
+              action="action_librefleet_dashboard"
+              sequence="5"/>
+
+</odoo>
+```
+
+The manifest entry has to come **after** `views/librefleet_menus.xml`, because
+`menu_librefleet_root` is defined there and XML data files load in listed order:
+
+```python title="addons/librefleet/__manifest__.py"
+        "views/librefleet_menus.xml",
+        # after the menus file: the dashboard menu's parent lives there
+        "views/dashboard_views.xml",
+```
+
+Bump to `19.0.1.27.0` and upgrade. A new Dashboard entry appears in the LibreFleet menu.
+</Step>
+
+<Step>
+### Read the numbers, then distrust them
+
+![The Workshop load dashboard: a line reading 3 open order(s) across 2 group(s), above a table with Administrator at 2 open orders and 408.00 margin, and Tina Technician at 2 open orders and 469.00 margin](/screens/ch41-dashboard-workshop-load.jpg)
+
+Look at that screen closely. It says **3 open orders**, and the Open orders column reads
+2 and 2. Two plus two is four.
+
+Neither number is wrong. `searchCount` counted three distinct orders, and each group
+genuinely contains two, because the order you gave two technicians is a member of both
+groups. **Grouping by a many2many double-counts by design**, and any "total" you compute
+by summing the groups will overstate reality by exactly the amount of shared work.
+
+Confirm it from the shell rather than taking the screen's word for it:
+
+```console
+>>> domain = [("stage", "in", ["draft", "confirmed", "in_progress"])]
+>>> Order.search_count(domain)
+3
+>>> res = Order.formatted_read_group(domain=domain, groupby=["technician_ids"], aggregates=["__count", "margin:sum"])
+>>> [(r["technician_ids"], r["__count"]) for r in res]
+[((2, 'Administrator'), 2), ((5, 'Tina Technician'), 2)]
+>>> sum(r["__count"] for r in res)
+4
+```
+
+This is worth internalising before you build a dashboard anyone makes decisions from. A
+"jobs per technician" table is a legitimate answer to "who is busy". A "total jobs"
+figure derived by adding that column up is simply wrong, and nothing in the framework
+will warn you.
+
+Now click one of the counts. The breadcrumb becomes "Workshop Load / Open orders: Tina
+Technician" and the list holds exactly two records, one of which visibly carries both
+technicians as tags. The count and the list agree because both came from the same
+`__domain`.
+</Step>
+
+<Step>
+### Break-it lab: mistype the tag
+
+Change the tag on the `ir.actions.client` record to `librefleet_dashbord`, upgrade, and
+open the Dashboard menu **in a new browser tab**. You get an "Oops!" dialog, and the
+console carries the real reason:
+
+```text
+KeyNotFoundError: Cannot find key "librefleet_dashbord" in the "actions" registry
+    at Registry.get (.../web.assets_web.min.js:3754:76)
+    at _executeClientAction (.../web.assets_web.min.js:10698:87)
+    at doAction (.../web.assets_web.min.js:10715:192)
+```
+
+The new tab matters. A tab that already had the dashboard open keeps rendering it
+perfectly, because the web client caches action definitions it has already loaded, so
+the stale tab is running the old tag against a component that still exists. That is a
+genuinely confusing debugging situation: the change is live in the database, one tab is
+broken, another is fine, and neither the server log nor the upgrade said anything. When
+a client action misbehaves, open a fresh tab before you believe anything.
+
+Put the tag back and upgrade.
+</Step>
+
+</Steps>
+
+The module tree after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__manifest__.py" />
+    <Folder name="static/src" defaultOpen>
+      <Folder name="dashboard" defaultOpen>
+        <File name="dashboard.js" />
+        <File name="dashboard.xml" />
+      </Folder>
+      <Folder name="margin_field">
+        <File name="margin_field.js" />
+        <File name="margin_field.xml" />
+      </Folder>
+      <Folder name="workshop_clock">
+        <File name="workshop_clock.js" />
+        <File name="workshop_clock.xml" />
+      </Folder>
+    </Folder>
+    <Folder name="views" defaultOpen>
+      <File name="dashboard_views.xml" />
+      <File name="librefleet_menus.xml" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch41
+✔ the client action record exists
+✔ a component is registered under the same tag
+✔ it aggregates in the database, not in JavaScript
+✔ the drill-down reuses each group's own domain
+✔ open orders actually group by technician
+
+ch41 complete! On to the next chapter 🔧
+```
+
+The third and fourth checks read your component out of the compiled bundle, so they
+catch the two mistakes that still produce a working-looking dashboard: counting in
+JavaScript, and rebuilding a drill-down domain by hand.
 
 ## Gotchas
 
+- **Grouping by a many2many double-counts.** An order with two technicians is in both
+  groups, so the column never sums to the number of records. Get your totals from a
+  separate `searchCount`, never by adding the groups up.
+- **Aggregates are keyed by the string you asked for.** `group["margin:sum"]`, not
+  `group.margin`. Reading the wrong key gives `undefined`, which renders as blank rather
+  than erroring.
+- **The `tag` is an unvalidated string in two places.** A mismatch between the
+  `ir.actions.client` record and the `actions` registry throws `KeyNotFoundError` in the
+  browser and nothing anywhere else.
+- **The web client caches actions per tab.** After changing an action record, an open
+  tab may keep showing the old behaviour indefinitely. Test client actions in a fresh
+  tab.
+- **Data file order is load order.** A `menuitem` whose `parent` is defined in another
+  file needs that file listed first in the manifest, or the upgrade fails on a missing
+  external id.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A dashboard groups open orders by technician_ids (a many2many) and shows 2 and 2 in its column, while a separate searchCount for the same domain returns 3. Which is wrong?",
+    options: [
+      "The searchCount, since it silently de-duplicates records that appear in more than one group",
+      "Neither: an order assigned to two technicians is counted in both groups, so the column sums higher than the record count",
+      "The grouped counts, because formattedReadGroup double-counts only when an aggregate other than __count is also requested",
+      "Both, since mixing a grouped query and a plain count in one screen is never a supported combination",
+    ],
+    answer: 1,
+    why: "Grouping by a many2many puts one record in every group it belongs to, which is exactly what a jobs-per-technician view should do. The trap is only in treating the column as something that adds up to a total; for that you need a separate count of distinct records.",
+  },
+  {
+    q: "An ir.actions.client record has tag \"librefleet_dashbord\" while the JavaScript registers \"librefleet_dashboard\". Where does this show up?",
+    options: [
+      "The module upgrade fails with an external id error, since the tag is resolved against the registry at install time",
+      "A validation warning in the server log at load, listing every action tag with no matching registry entry",
+      "Nowhere until someone opens the menu, then an Oops dialog and a KeyNotFoundError in the browser console",
+      "The menu item is silently hidden from the navbar, because the web client filters out actions it cannot resolve",
+    ],
+    answer: 2,
+    why: "The tag is just a string in a database field; nothing on the server knows or checks which strings the JavaScript registered. The mismatch only surfaces when the action service tries the registry lookup at click time, which is why frontend errors live in the browser console.",
+  },
+  {
+    q: "Why does the dashboard pass group.__domain to doAction rather than building [[\"technician_ids\", \"=\", id]] itself?",
+    options: [
+      "Because a hand-built domain is evaluated in the browser, while __domain is evaluated on the server and so runs faster",
+      "Because __domain is already the exact domain that produced the group, so the drill-down cannot disagree with the count",
+      "Because doAction rejects any domain that was not returned by a previous ORM call, as a security measure",
+      "Because a hand-built domain would ignore record rules, showing the user records they are not permitted to read",
+    ],
+    answer: 1,
+    why: "__domain combines the dashboard's own domain with the group's condition, so it stays correct when either changes, and it handles cases a hand-written filter would get wrong (the unassigned group's real domain uses 'not any', not equality). Both domains run server-side and both respect record rules; the difference is drift, not speed or security.",
+  },
+  {
+    q: "A client action's component declares static props = {} and renders nothing, with a props error in the console. What is missing?",
+    options: [
+      "The action service passes the action record and related props, which must be declared by spreading standardActionServiceProps",
+      "Client actions must declare props: { action: Object } specifically; no other prop is passed to them",
+      "static props must be omitted entirely for client actions, since the action service supplies props dynamically at runtime",
+      "The component needs a static template naming a registered QWeb template before OWL will validate any props at all",
+    ],
+    answer: 0,
+    why: "The action service always passes the action record plus several optional props, and OWL's validation rejects any prop the component did not declare. Spreading standardActionServiceProps declares that set, the same pattern chapter 40's field widget used with standardFieldProps.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a fourth column showing each group's average margin per order (its
+   `margin:sum` divided by its `__count`).
+2. ⭐⭐ The dashboard reloads only on a fresh visit. Add a Refresh button that calls
+   `this.load()` again, and confirm a change made in another tab shows up after clicking
+   it.
+3. ⭐⭐ Group by `stage` instead of `technician_ids` and explain, from what you saw in
+   this chapter, why the counts in *that* version do sum to the total number of open
+   orders.
+4. ⭐⭐⭐ Add a second `formattedReadGroup` call grouping by `vehicle_id`, and render
+   the two tables side by side from a single `onWillStart`. Make both calls concurrent
+   with `Promise.all` and explain what you saved.
+5. ⭐⭐⭐ Break-it lab: remove `t-key` from the `t-foreach` in the template, then add a
+   Refresh button (exercise 2) and click it repeatedly while the data changes underneath.
+   Read the OWL docs on keys and describe the class of bug `t-key` prevents.
+
 ## Further reading
+
+- <Icon name="docs" /> [Client actions (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/actions.html#client-actions-ir-actions-client):
+  the `ir.actions.client` field reference, alongside the other action types chapters 35
+  and 36 used.
+- <Icon name="source" /> [`web/static/src/core/orm_service.js`](https://github.com/odoo/odoo/blob/19.0/addons/web/static/src/core/orm_service.js):
+  every method the ORM service exposes, including the `formattedReadGroup` signature
+  this chapter leans on.
+- <Icon name="source" /> [`web/static/src/webclient/actions/action_service.js`](https://github.com/odoo/odoo/blob/19.0/addons/web/static/src/webclient/actions/action_service.js):
+  `standardActionServiceProps` and how a tag becomes a rendered component.

@@ -85,6 +85,13 @@ emails, notes, followers, scheduled activities. Models opt in via `mail.thread` 
 model: fields land on the same model and the same table. The mechanism behind
 almost all real extension work.
 
+**client action (`ir.actions.client`)**: an action that hands a whole screen to an OWL
+component instead of to the view engine. The record's `tag` is an unvalidated string
+looked up in the `actions` registry, where the JavaScript registered a component under
+the same name; a mismatch throws `KeyNotFoundError` in the browser console and nothing
+anywhere else. The component receives the action record as a prop, so it must spread
+`standardActionServiceProps` (chapter 41).
+
 **cron (scheduled action, `ir.cron`)**: a server action plus a schedule. `ir.cron`
 `_inherits` `ir.actions.server` through `ir_actions_server_id`, sharing that record's
 row rather than copying it, so a cron and the action it runs are, structurally, the
@@ -489,6 +496,15 @@ content in `web.external_layout` for the header and footer and in
 a model's Print menu the same way chapter 35's server action bound to an Action
 menu, `binding_model_id` plus `binding_type = "report"` (chapter 36). Rendered
 through `report.paperformat` (margins, paper size) and `wkhtmltopdf`.
+
+**read_group / formatted_read_group**: the ORM's aggregation call, one `GROUP BY` in
+Postgres instead of fetching every record and counting in Python or JavaScript. Odoo 19
+renamed `read_group` to `formatted_read_group` (`orm.formattedReadGroup` in JS) and made
+aggregates their own argument: `(domain, groupby, ["__count", "margin:sum"])`. Results
+are keyed by the exact aggregate string you asked for, and each group carries a
+`__domain` reproducing it. **Grouping by a many2many double-counts on purpose**, since a
+record belongs to every group it is a member of, so the groups never sum to the record
+count (chapter 41).
 
 **rank (`customer_rank` / `supplier_rank`)**: integer counters on `res.partner` that
 rise as a partner appears on sales or purchase documents. Odoo has no customer *type*
