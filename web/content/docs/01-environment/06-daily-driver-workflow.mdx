@@ -1,11 +1,11 @@
 ---
 title: "6. Daily Driver Workflow"
-description: The odoo-bin flags that matter, log reading, database lifecycle from the CLI, and the Odoo shell.
+description: The odoo-bin flags that matter, log reading, pdb, database lifecycle from the CLI, and the Odoo shell.
 ---
 
 **Goal:** master the handful of commands and habits that make up 90% of an Odoo
-developer's day. · **Time:** ~2 h · **Checkpoint:** none, but `odoolings check ch06`
-must pass.
+developer's day, including stopping inside core with a debugger. · **Time:** ~2.5 h ·
+**Checkpoint:** none, but `odoolings check ch06` must pass.
 
 ## Why this matters
 
@@ -128,6 +128,67 @@ one and you can ignore it. Habits that pay off:
 - `WARNING` lines are not decoration. Odoo warns about real problems (missing access
   rules, deprecated APIs) that will bite later. Read them.
 
+### When the log isn't enough: pdb
+
+The log tells you what happened. Sometimes you need to stop time and look around
+instead, and Python ships the tool for that: <Term k="pdb">`pdb`</Term>, the interactive
+debugger. Two ways in, and the second is the one that feels like a superpower.
+
+**In your own code**, call the `breakpoint()` builtin. Execution stops on that line and
+hands you a prompt with every local variable in scope:
+
+```python
+def owner_count(env):
+    partners = env["res.partner"].search([])
+    breakpoint()
+    return len(partners)
+```
+
+**In code you don't want to edit**, which mostly means core, use `pdb.runcall`. It calls
+the function for you and stops on its first line, so you can read core's own source
+without touching a file you'd only have to revert:
+
+```python
+>>> import pdb
+>>> pdb.runcall(env["res.partner"].search, [("name", "like", "Ada")])
+```
+
+Either way you land at a `(Pdb)` prompt, and these eight commands cover almost everything:
+
+| Command | What it does |
+|---|---|
+| `l` | list source around the current line |
+| `p expr` / `pp expr` | print (or pretty-print) any Python expression |
+| `w` | where am I: the call stack, current frame marked `>` |
+| `n` | next line, stepping *over* calls |
+| `s` | step *into* the call on this line |
+| `c` | continue until the next breakpoint or the end |
+| `b file:line` | set another breakpoint |
+| `q` | quit the debugger |
+
+The prompt is a full Python REPL, so `p` takes any expression: `p self._name`,
+`p domain`, `pp self.env.context`. That is the real reason pdb beats adding print
+statements, because you decide what to look at *after* you have stopped.
+
+<Callout type="warn" title="pdb needs a terminal, and one flag takes it away">
+  pdb reads its commands from standard input, so it only works where you have a real
+  terminal. `docker compose exec` allocates one **by default**, which is why the shell
+  commands in this book drop you into a working prompt with no extra flags. The flag that
+  breaks it is `-T` (`--no-tty`), which this book uses when *piping* a script in. Add
+  `-T` and pdb has nothing to read from: it gives up immediately with `bdb.BdbQuit` and
+  takes your script down with it.
+
+  The same reasoning explains why you cannot put `breakpoint()` in a model method and
+  catch it from a browser click. The server process inside the container has no terminal
+  attached, so the request dies instead of pausing. Call the method from `odoo shell`
+  instead, which is what the hands-on does.
+</Callout>
+
+`debugpy`, which lets an editor attach to a running server over a socket and is the
+answer when you truly must debug a live request, is not in the `odoo:19` image. Installing
+it is a legitimate step on a real project; this book stays with `pdb` because it is always
+already there.
+
 ### The database lifecycle, without the browser
 
 Chapter 5 used the database-manager screen. The CLI equivalent is the `odoo db`
@@ -229,6 +290,87 @@ toolkit from now on.
 </Step>
 
 <Step>
+### Stop inside core with pdb
+
+Ada gives you something real to search for, so use her to stop inside Odoo's own
+`search()` and look around. Same shell, no extra flags:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> import pdb
+>>> pdb.runcall(env["res.partner"].search, [("name", "like", "Ada")])
+> /usr/lib/python3/dist-packages/odoo/orm/models.py(1378)search()
+-> return self.search_fetch(domain, [], offset=offset, limit=limit, order=order)
+(Pdb) p domain
+[('name', 'like', 'Ada')]
+(Pdb) p self._name
+'res.partner'
+```
+
+You are standing inside core, one line into `search`, holding the domain you passed and
+the model it is about to run against. Now read the source you are stopped on, then step
+into the call it is about to make:
+
+```console
+(Pdb) l
+1373 	        :raise AccessError: if user is not allowed to access requested information
+1374 	
+1375 	        This is a high-level method, which should not be overridden. Its actual
+1376 	        implementation is done by method :meth:`_search`.
+1377 	        """
+1378 ->	        return self.search_fetch(domain, [], offset=offset, limit=limit, order=order)
+1379 	
+1380 	    @api.model
+(Pdb) s
+--Call--
+> /usr/lib/python3/dist-packages/odoo/orm/models.py(1380)search_fetch()
+-> @api.model
+(Pdb) w
+  /usr/lib/python3.12/bdb.py(643)runcall()
+-> res = func(*args, **kwds)
+  /usr/lib/python3/dist-packages/odoo/orm/models.py(1378)search()
+-> return self.search_fetch(domain, [], offset=offset, limit=limit, order=order)
+> /usr/lib/python3/dist-packages/odoo/orm/models.py(1380)search_fetch()
+-> @api.model
+(Pdb) c
+res.partner(6,)
+```
+
+`w` is the payoff: three frames showing exactly how you got here, with `>` on the one you
+are in. `c` runs to the end and hands back the recordset, Ada at id 6 (yours may differ,
+as in the previous step). Line numbers will drift between Odoo releases; the shape will
+not.
+
+<Callout type="info" title="Reading older tutorials">
+  Try `p args` at that first prompt and you get `*** NameError: name 'args' is not
+  defined`. Odoo 19 calls that parameter `domain`. Blog posts and answers written for
+  older versions say `args`, and pdb is a quick way to settle which is true in *your*
+  version: stop in the method and look.
+</Callout>
+
+Now the other direction, a breakpoint in code you wrote. Paste this into the same shell:
+
+```console
+>>> def owner_count(env):
+...     partners = env["res.partner"].search([])
+...     breakpoint()
+...     return len(partners)
+...
+>>> owner_count(env)
+> <console>(4)owner_count()
+(Pdb) p len(partners)
+6
+(Pdb) p partners[:3].mapped("name")
+['Ada Lovelace', 'Administrator', 'Anna Keller']
+(Pdb) c
+6
+```
+
+One habit to build now: when you are done debugging, delete the `breakpoint()` line.
+Committing one is a genuine outage in the making, and the next Gotcha explains why.
+</Step>
+
+<Step>
 ### Watch a request happen
 
 Keep `docker compose logs -f odoo` running in a second terminal, click around the UI,
@@ -267,6 +409,16 @@ that's the lesson.
 - **The log level is configurable, not fixed.** `--log-level=debug_sql` (or
   `log_level` in the config) shows every SQL statement, which chapter 48 uses to hunt
   performance problems.
+- **A committed `breakpoint()` is an outage.** In the container the server has no
+  terminal, so pdb cannot prompt anyone: the call raises `bdb.BdbQuit` and takes the
+  request with it. It will pass review looking like one harmless line. If you need a
+  safety net, `PYTHONBREAKPOINT=0` in the environment turns every `breakpoint()` into a
+  no-op without editing code, which is worth knowing for the day you inherit somebody
+  else's.
+- **`exec -T` and pdb are mutually exclusive.** `-T` disables the pseudo-terminal, which
+  is exactly what you want when piping a script in and exactly what pdb cannot survive.
+  If a breakpoint seems to be ignored in a scripted run, check for `-T` before you
+  suspect the breakpoint.
 
 ## Quick check
 
@@ -302,6 +454,16 @@ that's the lesson.
       answer: 1,
       why: 'Attachments live on disk in the filestore, not in PostgreSQL. The odoo db commands move both together; raw SQL copies quietly lose the files.',
     },
+    {
+      q: 'A breakpoint() gets committed inside a model method. A user triggers that method from the browser. What happens?',
+      options: [
+        'The request hangs indefinitely, holding its worker hostage until somebody restarts the server',
+        'pdb raises bdb.BdbQuit and the request fails',
+        'Nothing at all: pdb notices it is not interactive and skips the breakpoint silently',
+      ],
+      answer: 1,
+      why: 'pdb reads its commands from a terminal, and the containerised server process has none, so it cannot prompt anyone. Rather than waiting, it gives up immediately and the exception propagates, so the user gets an error. That is the good news: it fails loudly instead of wedging a worker. PYTHONBREAKPOINT=0 neutralises every breakpoint() without editing code, which is the fix when you inherit a stray one from somebody else.',
+    },
   ]}
 />
 
@@ -329,3 +491,6 @@ that's the lesson.
   handlers and levels, useful long before deployment.
 - <Icon name="docs" /> `psql` basics: the [official PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial-sql.html)
   if raw SQL feels rusty. Chapter 9 assumes you can read a `select`.
+- <Icon name="docs" /> [The `pdb` command reference](https://docs.python.org/3/library/pdb.html#debugger-commands):
+  the full command list, including `until`, `display` and post-mortem debugging, once the
+  eight in this chapter stop being enough.
