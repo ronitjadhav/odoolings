@@ -29,7 +29,7 @@ at the invoice chapter 22 produced, and find it is built from exactly the same p
 
 ### Double-entry, in the only two sentences you need
 
-Every transaction is recorded at least twice: once as a **debit**, once as a **credit**,
+Every transaction is recorded at least twice: once as a <Term k="debit / credit">**debit**</Term>, once as a **credit**,
 and the two totals must be equal. That is the whole rule.
 
 What debits and credits *mean* depends on the account, and the mnemonic that actually
@@ -51,6 +51,7 @@ unbalanced entry**, which you will see for yourself.
 ### The three models
 
 <Mermaid
+  label="The three accounting models: a journal owns a move, a move holds balanced debit and credit lines, and each line points at an account in the chart of accounts"
   chart={`flowchart TD
     J["account.journal<br/>Sales, Purchases, Bank, Misc"]
     M["account.move<br/>one document<br/>(move_type says which kind)"]
@@ -64,13 +65,13 @@ unbalanced entry**, which you will see for yourself.
     L2 -.-> A`}
 />
 
-- **`account.account`** is the chart of accounts: the list of buckets value can sit in.
+- The <Term k="chart of accounts (`account.account`)">`account.account`</Term> is the chart of accounts: the list of buckets value can sit in.
   Each carries an `account_type` (`asset_receivable`, `asset_cash`, `expense`, `income`,
   `equity`, and so on) which is what reports group by. The demo database installs a
   generic chart of 157 accounts.
-- **`account.journal`** is the book an entry is written in, and it owns the numbering
+- A <Term k="journal (`account.journal`)">`account.journal`</Term> is the book an entry is written in, and it owns the numbering
   sequence. Sales, Purchases, Bank and Miscellaneous are the ones you will meet first.
-- **`account.move`** is one accounting document, and **`account.move.line`** are its
+- **<Term k="account.move / account.move.line">`account.move`</Term>** is one accounting document, and **`account.move.line`** are its
   debit and credit lines. The lines are where the money actually is.
 
 ### The duality, stated plainly
