@@ -48,7 +48,6 @@ const MERMAID = /<Mermaid\b([\s\S]*?)chart=/g;
 // its chapter gets its walkthrough pass, and never add one: a new unlabelled diagram
 // is the failure this test exists to catch.
 const UNLABELLED_BASELINE = new Set([
-  '05-accounting-core/29-taxes-fiscal-positions.mdx',
   '06-business-logic/31-the-three-inheritance-types.mdx',
   '06-business-logic/32-extending-core-apps.mdx',
   '06-business-logic/33-mail-chatter.mdx',
