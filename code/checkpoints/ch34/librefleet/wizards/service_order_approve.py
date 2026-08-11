@@ -1,4 +1,4 @@
-from odoo import fields, models
+from odoo import _, fields, models
 from odoo.exceptions import UserError
 
 
@@ -18,11 +18,11 @@ class ServiceOrderApproveWizard(models.TransientModel):
         order = self.order_id
         if order.stage != "in_progress":
             raise UserError(
-                "Only an order that is in progress can be marked done.")
+                _("Only an order that is in progress can be marked done."))
         if order.margin < 0 and not self.override_negative_margin:
             raise UserError(
-                "This order loses money (margin %.2f). A manager must tick "
-                "the override to complete it anyway." % order.margin)
+                _("This order loses money (margin %(margin).2f). A manager must "
+                  "tick the override to complete it anyway.", margin=order.margin))
         if self.note:
             order.notes = "%s\n\nCompletion note: %s" % (order.notes or "", self.note)
         order.stage = "done"

@@ -1,12 +1,12 @@
 ---
 title: "34. Data Files"
-description: Ship config as XML and CSV instead of clicking it into existence, and learn exactly what noupdate protects and what it does not.
+description: Ship config as XML and CSV instead of clicking it into existence, learn exactly what noupdate protects, and translate the module into French.
 ---
 
 **Goal:** ship a service type as proper master data instead of a UI click, build a
-small self-contained demo dataset with `ref()` across files, and find out exactly
-what `noupdate` does and does not protect. · **Time:** ~1.5 h ·
-**Checkpoint:** `code/checkpoints/ch34`
+small self-contained demo dataset with `ref()` across files, find out exactly
+what `noupdate` does and does not protect, and translate both halves of the module into
+French. · **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch34`
 
 ## Why this matters
 
@@ -154,6 +154,48 @@ module, bare id (`vehicle_demo_ag_12_345`); another module, dotted
 chapter 10). The demo data below chains all three: a CSV row references another
 CSV row's id, and an XML record references both a CSV row's id and a master-data
 XML record's id, four files deep, one shared namespace.
+
+### Translations are data files too, in two very different places
+
+A `.po` file is a data file, which is why it belongs in this chapter. But translations
+split into two halves that are stored nothing alike, and knowing which half you are
+looking at saves a lot of confusion.
+
+| | What it covers | Marked with | Stored in |
+|---|---|---|---|
+| **Code strings** | literals in Python and XML: error messages, button labels | `_("...")` | the module's `i18n/*.po` on disk, cached in memory |
+| **Field values** | data a user typed or you shipped: a service type's name | `translate=True` on the field | the database, as a `jsonb` column |
+
+Read the right-hand column again, because it is the part that surprises people:
+**code translations never enter the database at all.** They are read from your module's
+`.po` files and held in memory. Field translations are the opposite: they live in
+Postgres, one JSON key per language, in the very same column as the original.
+
+<Callout type="warn" title="ir.translation is gone">
+  If you have read older Odoo tutorials, you know a model called `ir.translation` that
+  held every translated term in one big table. It does not exist in Odoo 19:
+  `"ir.translation" in env` is `False`. Field values moved into `jsonb` columns and code
+  strings moved into the in-memory catalog above. Any answer that tells you to query or
+  write `ir.translation` was written for Odoo 15 or earlier.
+</Callout>
+
+`translate=True` is the interesting one for a data-files chapter, because turning it on
+**changes the column type**. Chapter 21 warned you that a translatable field is JSON in
+Postgres, using a core product as the example. Below you do it to your own model and
+watch the migration happen.
+
+### The i18n CLI, which moved in Odoo 19
+
+Translations get their own subcommand, alongside `db` and `shell` from chapter 6:
+
+```console
+$ docker compose exec odoo odoo i18n --help
+usage: odoo [--addons-path=PATH,...] i18n [-h] {import,export,loadlang} ...
+```
+
+Three verbs: `loadlang` installs a language, `export` writes a `.po`/`.pot` of your
+module's terms, `import` reads one back in. Older tutorials use server flags instead
+(`--load-language`, `--i18n-export`, `--i18n-import`); on 19 the subcommand is the way in.
 
 ## Hands-on
 
@@ -405,12 +447,289 @@ job.
 $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
 ```
 
+### 6. Make a field translatable, and watch its column change type
+
+Service type names are shown to users, so a workshop with French staff wants them
+translated. That is one keyword in `models/service_type.py`:
+
+```python title="addons/librefleet/models/service_type.py"
+    name = fields.Char(required=True, translate=True)
+```
+
+Before you upgrade, note what the column is today:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select data_type from information_schema.columns where table_name='librefleet_service_type' and column_name='name';"
+```
+
+```text
+     data_type
+-------------------
+ character varying
+```
+
+Bump the manifest to `19.0.1.20.0`, upgrade, and look again:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose exec db psql -U odoo -d tutorial -c "select data_type from information_schema.columns where table_name='librefleet_service_type' and column_name='name';"
+```
+
+```text
+ data_type
+-----------
+ jsonb
+```
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from librefleet_service_type order by id;"
+```
+
+```text
+             name              | flat_fee
+-------------------------------+----------
+ {"en_US": "Oil change"}       |       89
+ {"en_US": "Brake inspection"} |      120
+ {"en_US": "Full service"}     |      349
+ {"en_US": "Tire Rotation"}    |       59
+ {"en_US": "Wheel Alignment"}  |       45
+```
+
+Odoo rewrote the column *and* moved every existing value under an `en_US` key, including
+the three you hand-clicked back in chapter 11. No migration script, no data loss. This is
+the single best demonstration in the book of what an upgrade will do for you when a field
+definition changes underneath existing rows.
+
+It also means every psql query earlier in this chapter that touched that column reads
+differently from here on. Step 5's join now shows `{"en_US": "Tire Rotation"}` where it
+used to show `Tire Rotation`, and step 1's filter stops working outright, which is worth
+seeing rather than reading:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from librefleet_service_type where name = 'Tire Rotation';"
+```
+
+```text
+ERROR:  invalid input syntax for type json
+LINE 1: ...lat_fee from librefleet_service_type where name = 'Tire Rota...
+DETAIL:  Token "Tire" is invalid.
+```
+
+Postgres is trying to parse `Tire Rotation` as JSON. Reach into the key instead:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name->>'en_US' as name, flat_fee from librefleet_service_type where name->>'en_US' = 'Tire Rotation';"
+```
+
+```text
+     name      | flat_fee
+---------------+----------
+ Tire Rotation |       59
+```
+
+The ORM needs none of this: a domain like `[("name", "=", "Tire Rotation")]` keeps working
+untouched, which is why this chapter's own checks did not change. Only raw SQL has to know.
+
+### 7. Mark your code strings for translation
+
+`translate=True` covers data. Literals in your Python are the other half, and they need
+wrapping in `_()`. The wizard from chapter 20 has two user-facing messages, so open
+`wizards/service_order_approve.py` and wrap both:
+
+```python title="addons/librefleet/wizards/service_order_approve.py"
+from odoo import _, fields, models
+```
+
+```python
+        if order.stage != "in_progress":
+            raise UserError(
+                _("Only an order that is in progress can be marked done."))
+        if order.margin < 0 and not self.override_negative_margin:
+            raise UserError(
+                _("This order loses money (margin %(margin).2f). A manager must "
+                  "tick the override to complete it anyway.", margin=order.margin))
+```
+
+Two things about that second one. The interpolation moved *inside* `_()` and became a
+**named** placeholder, `%(margin).2f` with `margin=` passed as a keyword. Formatting
+outside the call (`_("...") % value`) would hand translators a string with a bare `%.2f`
+in it and no clue what it holds; a named placeholder survives translation and can even be
+reordered by the translator. The output is identical, `-210.90` either way, so chapter
+20's transcript still reads exactly as it did.
+
+<Callout type="info" title="Two spellings of the same helper">
+  `from odoo import _` is what you will meet almost everywhere: 990 files under
+  `addons/*/models/` use it in Odoo 19, against 238 for the newer `self.env._("...")`.
+  Both work and mean the same thing. This book uses the import form because that is what
+  core mostly still looks like.
+</Callout>
+
+### 8. Install a language, then export what you just marked
+
+Install French. Pass the **iso_code**, `fr`, not the locale code `fr_FR`:
+
+```console
+$ docker compose exec odoo odoo i18n loadlang -c /etc/odoo/odoo.conf -d tutorial -l fr
+```
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select code, iso_code from res_lang where active order by code;"
+```
+
+```text
+ code  | iso_code
+-------+----------
+ en_US | en
+ fr_FR | fr
+```
+
+Loading a language also fills in every translation Odoo already ships, which you can see
+in any core translatable column, both languages in one row:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name from res_country where id=1;"
+```
+
+```text
+                   name
+------------------------------------------
+ {"en_US": "Andorra", "fr_FR": "Andorre"}
+```
+
+Now export your own module's terms as a template. The `.pot` is the untranslated master
+list a translator works from:
+
+```console
+$ docker compose exec -T odoo odoo i18n export -c /etc/odoo/odoo.conf -d tutorial librefleet -l pot -o - > addons/librefleet/i18n/librefleet.pot
+$ wc -l addons/librefleet/i18n/librefleet.pot
+```
+
+```text
+869 addons/librefleet/i18n/librefleet.pot
+```
+
+146 terms, and the interesting part is *where they came from*. Three different kinds of
+entry, each with a comment saying its source:
+
+```console
+$ grep -B2 -A1 "Only an order that is in progress" addons/librefleet/i18n/librefleet.pot
+```
+
+```text
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid "Only an order that is in progress can be marked done."
+msgstr ""
+```
+
+That one is there **because you wrapped it in `_()` in step 7**, and it points back at the
+exact file. The second kind needs no marking at all, because Odoo knows your field labels
+already:
+
+```text
+#. module: librefleet
+#: model:ir.model.fields,field_description:librefleet.field_librefleet_service_type__default_duration_h
+msgid "Default Duration (h)"
+msgstr ""
+```
+
+And the third kind is the payoff for the two halves of this chapter meeting:
+
+```text
+#. module: librefleet
+#: model:librefleet.service.type,name:librefleet.service_type_tire_rotation
+msgid "Tire Rotation"
+msgstr ""
+```
+
+That is the *value* of a record, exportable only because the field became `translate=True`
+in step 6 **and** the record has a stable xml id from the master data you shipped in step
+1. Data with no xml id has nothing for a `.po` to point at.
+
+### 9. Translate it, import it, prove it
+
+Write `i18n/fr.po` with three translations, keeping each `msgid` byte-identical to the
+template (that string *is* the lookup key) and the named placeholder intact:
+
+```text title="addons/librefleet/i18n/fr.po"
+#. module: librefleet
+#: model:librefleet.service.type,name:librefleet.service_type_tire_rotation
+msgid "Tire Rotation"
+msgstr "Rotation des pneus"
+
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid "Only an order that is in progress can be marked done."
+msgstr "Seul un ordre en cours peut être marqué comme terminé."
+```
+
+(The checkpoint has the full file, including the gettext header and the third,
+placeholder-carrying message.) Import it:
+
+```console
+$ docker compose exec odoo odoo i18n import -c /etc/odoo/odoo.conf -d tutorial -l fr /mnt/extra-addons/librefleet/i18n/fr.po
+...
+INFO ? odoo.tools.translate: translations are loaded successfully
+```
+
+The field value went into the database, next to the English one:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name from librefleet_service_type where name->>'en_US'='Tire Rotation';"
+```
+
+```text
+                           name
+-----------------------------------------------------------
+ {"en_US": "Tire Rotation", "fr_FR": "Rotation des pneus"}
+```
+
+And the code string translates when the wizard actually raises it. Build the smallest
+thing that trips the first message, in both languages:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> v = env["librefleet.vehicle"].create({"license_plate": "I18N-1"})
+>>> o = env["librefleet.service.order"].create({"vehicle_id": v.id})
+>>> W = env["librefleet.service.order.approve.wizard"]
+>>> for lang in ("en_US", "fr_FR"):
+...     try:
+...         W.with_context(lang=lang).create({"order_id": o.id}).action_confirm()
+...     except Exception as e:
+...         print(f"{lang}: {e}")
+...
+en_US: Only an order that is in progress can be marked done.
+fr_FR: Seul un ordre en cours peut être marqué comme terminé.
+>>> env.cr.rollback()
+```
+
+One `_()` call, two languages, and the rollback throws away the throwaway records.
+
+<Callout type="warn" title="Why the same string looks untranslated in the shell">
+  Try that message on its own at the shell prompt and it comes back in English even though
+  the translation is loaded:
+
+  ```console
+  >>> env(context={"lang": "fr_FR"})._("Only an order that is in progress can be marked done.")
+  'Only an order that is in progress can be marked done.'
+  ```
+
+  Not a bug. `_()` works out *which module's* catalog to search from the file its caller
+  lives in, and shell input belongs to no module, so there is nothing to search. Inside
+  `wizards/service_order_approve.py` it resolves to `librefleet` and translates, which is
+  exactly what the wizard call above proves. Test code translations by triggering the real
+  code path, never by calling `_()` from the shell.
+</Callout>
+
 ## Verify
 
 ```console
 $ python3 odoolings.py check ch34
 ✔ Tire Rotation shipped as noupdate master data
 ✔ a second noupdate record was added on a later upgrade
+✔ the service type name is a translatable field
+✔ French is installed
+✔ Tire Rotation reads in French
 
 ch34 complete! On to the next chapter 🔧
 ```
@@ -453,6 +772,26 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
 - **Odoo 19 defaults to `--without-demo`.** If you expected demo data to just show
   up the way an older memory says it should, that default, not a bug in your
   files, is why it didn't.
+- **`translate=True` changes the column type, so raw SQL has to change with it.**
+  `where name = 'Tire Rotation'` stops working the moment the field becomes
+  translatable, with `invalid input syntax for type json` rather than anything
+  mentioning translations. Use `name->>'en_US'`. ORM domains are unaffected.
+- **`-l` on the i18n commands is greedy.** It takes a list, so
+  `i18n export -l pot librefleet` reads *both* `pot` and `librefleet` as language codes
+  and then complains `the following arguments are required: MODULE`. Put the module name
+  before the flag: `i18n export ... librefleet -l pot`.
+- **Exporting without `-o` writes into the module folder, which fails in this setup.**
+  The container runs as uid 100 and your bind-mounted `addons/` belongs to your host user,
+  so the in-place write dies with `PermissionError`. Export to stdout with `-o -` and let
+  your own shell create the file, which is the recipe used above.
+- **Pass the iso_code to the i18n commands, not the locale code.** `-l fr_FR` works but
+  logs `Ignoring not found languages: fr_FR` first, which reads like a failure and is not
+  one: the lookup matches on either `code` or `iso_code`, then reports what is missing by
+  comparing against `iso_code` only, and French is `code=fr_FR`, `iso_code=fr`. Passing
+  `-l fr` does the same work without the scare.
+- **Code translations are not in the database.** There is no table to inspect and nothing
+  for a database backup to carry: they are read from your module's `i18n/*.po` files. Ship
+  the `.po`, or the translation does not exist on the next machine.
 
 ## Quick check
 
@@ -498,6 +837,26 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
       answer: 0,
       why: 'CSV can reference other records too, through a field_name:id column, which the vehicle demo file already does for owner_id. But a service order needing two separate refs (vehicle_id and service_type_id) to records in two different files is exactly the "shape varies, and there is only one of them" case Concepts describes as XML\'s territory, not a hard CSV limitation on ref count.',
     },
+    {
+      q: 'You restore a database backup onto a fresh machine, without the module source. Which translations survive?',
+      options: [
+        'Both kinds, since a database dump carries every translated term the system knows about',
+        'The field values, but not the code strings',
+        'Neither, because translations are rebuilt from the .po files on the next module upgrade anyway',
+      ],
+      answer: 1,
+      why: 'The two halves live in different places, which is the whole point of the Concepts table. translate=True field values are jsonb columns, so they are inside the dump. Code strings marked with _() are read from the module i18n/*.po files on disk and cached in memory, never written to a table, so a database alone cannot carry them. This is also why ir.translation being gone matters: there is no table left for a backup to sweep up.',
+    },
+    {
+      q: 'A field becomes translate=True and an existing psql query filtering on it starts failing. What does the error say, and why?',
+      options: [
+        'operator does not exist, because comparing jsonb against text needs an explicit cast that the query is missing',
+        'invalid input syntax for type json, because Postgres tries to parse the compared text as JSON',
+        'column does not exist, because Odoo renames the column when it becomes translatable',
+      ],
+      answer: 1,
+      why: 'Verified by running it: the column is now jsonb, so Postgres attempts to read Tire Rotation as a JSON document and reports Token "Tire" is invalid. The fix is to reach into the language key, name->>\'en_US\'. Nothing is renamed, and the error never mentions translations, which is what makes it puzzling the first time. ORM domains keep working untouched, so only raw SQL is affected.',
+    },
   ]}
 />
 
@@ -514,7 +873,15 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
    an existing noupdate xml id in your XML (keeping everything else the same) is
    effectively the same as creating a brand-new record on the next upgrade, rather
    than renaming the old one in place.
-4. ⭐⭐⭐ Break-it lab: rename `data/res.partner-demo.csv` to
+4. ⭐⭐ Translate the two remaining wizard strings (the field labels
+   `Complete anyway (negative margin)` and `Completion Note`) into French. Neither needs
+   `_()`, so work out from step 8's three entry kinds which comment each one carries in the
+   `.pot`, add them to `fr.po`, re-import, and confirm in the UI with French selected.
+5. ⭐⭐ Add a second language of your choice with `i18n loadlang`, then read
+   `librefleet_service_type.name` in psql. Explain why one column can now serve three
+   languages without a schema change, and what that costs compared with a separate
+   translations table.
+6. ⭐⭐⭐ Break-it lab: rename `data/res.partner-demo.csv` to
    `data/res_partner-demo.csv` (an underscore instead of a dot before the dash),
    updating the manifest's `"demo"` entry to match so Odoo still finds the file.
    Install into a fresh scratch database with `--with-demo` and read the actual
@@ -525,6 +892,9 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
 
 ## Further reading
 
+- [Translating modules (19.0)](https://www.odoo.com/documentation/19.0/developer/howtos/translations.html):
+  the export/translate/import loop from the official side, including the web editor route
+  this chapter skipped in favour of the CLI.
 - [Data files reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/data.html):
   the full `<record>`/`<field>` grammar, `eval`, `search`, and function-call records
   this chapter only used a slice of.

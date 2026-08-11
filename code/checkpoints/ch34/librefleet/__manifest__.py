@@ -3,7 +3,7 @@
 {
     "name": "LibreFleet",
     "summary": "Vehicle workshop & service booking management",
-    "version": "19.0.1.19.0",
+    "version": "19.0.1.20.0",
     "category": "Services",
     "author": "Odoolings readers",
     "website": "https://odoolings.ronit.io/",
