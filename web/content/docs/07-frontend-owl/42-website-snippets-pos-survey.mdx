@@ -1,24 +1,332 @@
 ---
 title: "42. Website, Snippets & POS (Survey)"
-description: Not written yet, tracked in the roadmap.
+description: A lighter chapter, a real bakery till opened and closed for real, and a look at the drag-and-drop builder behind every Odoo website.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch42`
+**Goal:** open a real POS session, ring up two sales, close the till, and read the
+journal entries it posts; then survey the website builder's snippet library, what it
+is, and when reaching for it beats writing an OWL component. ·
+**Time:** ~1 h · **Checkpoint:** none, this chapter runs entirely on the `functional`
+database with core Odoo apps, no `librefleet` code changes.
 
 ## Why this matters
 
+Chapters 39 to 41 built OWL components by hand: a systray widget, a field, a client
+action. That is the right tool when the behaviour is genuinely custom. Most of what a
+business needs from its public-facing pages is not custom at all, it is a hero image,
+a pricing table, a contact form, arranged and restyled, and Odoo ships that entire job
+as a drag-and-drop **snippet** library so nobody has to write a component for it. Knowing
+the builder exists, and what it is actually built from, is worth more than a chapter
+building yet another widget.
+
+**Point of Sale** earns its place here for a sharper reason: it is Odoo's largest OWL
+application by far, and it is offline-first, meaning the till itself is a separate
+bootstrap that has to keep ringing up sales through a dropped connection and sync
+later. That combination, a real OWL SPA plus a completely different reliability model
+from the backend web client, makes it the natural case study to close Part 7 on. It
+also finally closes the loop Parts 4 and 5 opened: sale, purchase, stock, manufacturing
+and accounting all met a customer who placed an order through a screen; POS is the
+screen for a customer standing at a counter, and its session close is where cash and
+card sales become the same kind of journal entry chapter 27 taught you to read.
+
 ## Concepts
+
+### A website page is an `ir.ui.view`, nothing more exotic
+
+```console
+>>> page = env["website.page"].search([("url", "=", "/")])
+>>> page.view_id.key
+'website.homepage'
+>>> page.view_id.arch_db[:60]
+'<t name="Homepage" t-name="website.homepage">\n    <t t-call...'
+```
+
+A page is a `website.page` record pointing at an `ir.ui.view`, and `arch_db` is the
+same QWeb you have been reading since chapter 16. There is no second templating
+system for the website; it is server-side QWeb, exactly like chapter 36's PDF
+reports, rendered as HTML instead of piped through wkhtmltopdf.
+
+### Snippets are QWeb templates with a name registered for the builder
+
+```console
+>>> len(env["ir.ui.view"].search([("key", "like", "website.s_")]))
+191
+```
+
+Every draggable block in the editor is one more `ir.ui.view` under the `website.s_*`
+naming convention, the same registration idea chapters 39 to 41 used for the
+`fields`, `actions` and `systray` registries, just expressed as a naming convention in
+`ir.ui.view` rather than a JS `registry.category(...).add(...)` call. Dragging a
+snippet onto a page copies its arch into the page's own `arch_db`; editing it
+afterward edits that copy, not the shared template, which is why customizing one
+page's hero section never touches any other page using the same snippet.
+
+<Mermaid label="A website page is one ir.ui.view record whose arch is built by copying snippet templates into it; the backend web client and the public website load through two different asset bundles of the same OWL framework." chart={`flowchart LR
+    Snippet["ir.ui.view<br/>key: website.s_*"] -->|"dragged onto a page,<br/>arch copied in"| Page["website.page<br/>-> ir.ui.view (the page)"]
+    Page --> Render["Rendered as HTML,<br/>same QWeb engine as ch16's views"]
+    Backend["Backend web client<br/>web.assets_backend"] -.->|"same OWL framework,<br/>different bundle"| Frontend["Public website<br/>web.assets_frontend"]
+`} />
+
+This matters for a detail chapters 39 to 41 did not have to think about: **your OWL
+components do not automatically run on the website.** They loaded into
+`web.assets_backend`, and the public site boots a different bundle,
+`web.assets_frontend`. A systray widget or a field widget has no meaning outside the
+backend it was built for.
+
+### A POS session is a normal Odoo record with an offline app in front of it
+
+`pos.session` is a plain model: `state` moves through `opening_control` → `opened` →
+`closing_control` → `closed`, and it links to `pos.order` records the same way any
+parent links to its children. What makes POS different is what happens between
+"opened" and "closing control": the actual selling runs in a separate SPA
+(`/pos/ui/...`), backed by an in-browser database (IndexedDB) so a dropped Wi-Fi
+connection does not stop a cashier from ringing up the next customer. Orders queue
+locally and sync to the server as connectivity allows, which is the offline-first part
+the plan calls out, and the reason POS cannot simply be "one more client action" like
+chapter 41's dashboard.
+
+<Callout type="info" title="Official docs">
+  [Website overview (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website.html)
+  and [building blocks (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website/web_design/building_blocks.html)
+  for the snippet system; [Point of Sale (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale.html)
+  for the functional side of what this chapter's hands-on just walked through.
+</Callout>
 
 ## Hands-on
 
+This chapter runs on `functional` (Parts 4-5's database), not `tutorial`: Point of
+Sale and the website builder are core apps you are installing and using directly,
+with no `librefleet` code to write.
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional -i point_of_sale --stop-after-init
+```
+
+<Steps>
+
+<Step>
+### Open a till and sell something
+
+Point of Sale > pick a shop (the demo data ships Furniture, Clothes and Bakery) >
+**New Session**. The Opening Control screen asks for a starting cash float:
+
+- **Opening cash:** `150.00`
+
+Click **Open Register**. This lands you in the actual POS terminal, the offline SPA:
+
+![The POS terminal for Bakery Shop with an Apple Pie and a Wholemeal loaf in the cart, tax 2.25, total 17.24, and a numeric keypad plus Payment button below](/screens/ch42-pos-terminal-cart.jpg)
+
+Tap two products, then **Payment**, choose **Cash**, and **Validate**. The receipt
+that comes back is a real one, not a mockup:
+
+```text
+Ticket 261-3-000001
+1  Apple Pie                              $ 13.80
+1  Wholemeal loaf                         $  3.44
+Subtotal                                  $ 14.99
+Tax 15%                                   $  2.25
+Total                                     $ 17.24
+Cash                                      $ 17.24
+```
+
+Start a **New Order**, ring up something else, and pay by **Card** this time instead
+of Cash. Two orders, two different payment methods, is what makes the next part
+worth doing.
+</Step>
+
+<Step>
+### Close the register, and hit the gotcha on purpose
+
+Open the hamburger menu (top right) and choose **Close Register**. The Closing
+Register screen shows what each payment method expects against what you told it you
+counted:
+
+![The Closing Register screen showing Cash expected 167.24, opening 150.00, payments in cash 17.24, but Counted 0.00 and Difference -167.24 in red](/screens/ch42-pos-closing-discrepancy.jpg)
+
+**Counted reads $0.00 and Difference reads -$167.24, in red.** Nobody stole anything;
+the Cash Count field simply defaults to `0`, not to the amount the drawer should
+hold, and the screen takes that literally. This is worth doing once with real numbers
+in front of you: leave a self-service closing screen at its default and you generate
+a shortfall report for the full opening float plus every cash sale of the day, for a
+till that is not actually short a cent.
+
+Type the real total into **Cash Count** (`167.24`, the opening float plus your one
+cash sale) and the **Card Count** already shows `16.10` from the card payment. Every
+Difference line reads `$0.00`. Click **Close Register**.
+</Step>
+
+<Step>
+### Read the journal entries it posted
+
+Closing the session did not create one journal entry per order. It created three,
+each doing one job:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+>>> s = env["pos.session"].search([("config_id.name", "=", "Bakery Shop")], order="id desc", limit=1)
+>>> s.move_id.name
+'POSS/2026/08/0003'
+>>> for l in s.move_id.line_ids:
+...     print(l.account_id.code, l.account_id.name, l.debit, l.credit)
+251000 Tax Received 0.0 4.35
+400000 Product Sales 0.0 28.99
+101300 Account Receivable (PoS) 16.1 0.0
+101300 Account Receivable (PoS) 17.24 0.0
+```
+
+That first entry, `POSS/...`, is the session's sales summary: total revenue, total
+tax, and one receivable line per order, all of it consolidated across every order in
+the session rather than posted order by order. Then, one move per payment method,
+clearing that receivable into the account each method actually settles to:
+
+```console
+>>> env["account.move"].search([("ref", "like", "Bakery Shop/00001")]).mapped("name")
+['POSS/2026/08/0003', 'PBNK1/2026/00003', 'CSH3/2026/00001']
+```
+
+`PBNK1/...` ("Combine Card POS payments") moves the card receivable into an
+Outstanding Receipts account, the same holding account chapter 28's invoice payments
+used before bank reconciliation. `CSH3/...` moves the cash receivable straight into
+the shop's own cash account, because a physical drawer needs no bank statement to
+reconcile against; you just counted it. Three small, single-purpose entries instead
+of one large one is the same "smallest correct unit" instinct chapter 27's manual
+journal entries taught, applied by the framework itself this time.
+</Step>
+
+<Step>
+### A look at the snippet library
+
+Any website page, **Edit** in the top right, opens the same builder every Odoo site
+uses:
+
+![The website editor's Blocks panel: categories Intro, Columns, Content, Images, People, Text, Contact & Forms, Social, Catalog, Blogs, Events, and an Inner Content section with Text, Button, Image, Video, Separator, Accordion, Alert, Rating and Card entries](/screens/ch42-website-snippet-panel.jpg)
+
+Each tile in that panel is one of the 191 `website.s_*` templates from Concepts.
+Dragging one onto a page and editing its text or image is the entire mechanism; there
+is no code to write for the large majority of a marketing site. Reach for an OWL
+component (chapters 39-41's territory) only when a page needs actual behaviour a
+snippet's static HTML cannot express: live data from your own models, a stateful
+widget, anything beyond arranging and restyling content. Try dragging one yourself,
+this chapter's screenshot stops at showing you the panel; the drag-and-drop itself is
+exercise 4 below.
+</Step>
+
+</Steps>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch42 --db functional
+✔ point_of_sale is installed
+✔ a POS session was opened and closed
+✔ the session's journal entry is posted and balanced
+✔ the counted cash matches what the till should hold
+
+ch42 complete! On to the next chapter 🔧
+```
+
+The last check reads `cash_register_difference` off your most recently closed
+session and fails if it is anything but zero, which is exactly what the Closing
+Register screen's default would produce if you clicked through without counting.
 
 ## Gotchas
 
+- **The Cash Count field defaults to `0`, not to the expected total.** Closing a
+  register without entering a real count reports a shortfall for the entire opening
+  float plus every cash sale, on a till that lost nothing.
+- **Backend OWL components do not run on the website.** `web.assets_backend` (chapters
+  39-41) and `web.assets_frontend` (the public site) are different bundles; nothing
+  you built in this part appears there automatically.
+- **A session posts one consolidated sales entry, not one per order.** Look for a
+  journal entry named after every individual sale and you will not find one; the
+  session itself is the unit of accounting.
+- **Cash and card payments settle through different accounts.** Cash lands directly in
+  the shop's cash account (you counted it yourself); card and other electronic
+  methods land in Outstanding Receipts pending bank reconciliation, chapter 28's
+  pattern again.
+- **A snippet's copied arch means editing one page never touches another.** This is a
+  feature, not a bug, but it also means a wording fix made on one page has to be
+  repeated on every other page that dragged in the same snippet, since there is no
+  shared instance to edit once.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A cashier closes a POS session without typing anything into the Cash Count field, and the Closing Register screen reports a $167.24 shortfall. What actually happened to the cash?",
+    options: [
+      "$167.24 in cash sales failed to record against the session, a real accounting gap that needs investigating",
+      "Nothing: the field defaults to 0 rather than the expected total, so the screen compares the real float against a count nobody entered",
+      "The opening float of $150.00 was double-counted somewhere in the session's cash calculation",
+      "A card payment was miscategorized as cash, inflating the expected cash total by the card sale's amount",
+    ],
+    answer: 1,
+    why: "Cash Count starts at 0 on the Closing Register screen, not at the opening float plus cash sales. Leaving it untouched compares the real expected total against a literal zero, manufacturing a shortfall equal to the whole float plus every cash sale, for a drawer that is not actually missing anything.",
+  },
+  {
+    q: "A POS session sells three orders. How many account.move records does closing the register create for the session's sales themselves (not counting the per-payment-method settlement entries)?",
+    options: [
+      "Three, one journal entry per order, matching each individual sale",
+      "One, consolidating every order in the session into a single sales entry",
+      "Zero, since POS orders post directly to account.move.line without a parent move",
+      "One per product sold across all three orders, grouped by product rather than by order",
+    ],
+    answer: 1,
+    why: "Closing a session posts one consolidated sales entry for the whole session, session.move_id, with one receivable line per order rather than one full journal entry per order. The per-payment-method entries (cash, card) are separate and additional, clearing that consolidated receivable into the accounts each method actually settles to.",
+  },
+  {
+    q: "An OWL component built and registered in chapter 39 (a systray widget) does not appear anywhere on the public website. Why not?",
+    options: [
+      "Systray components are backend-only by explicit design; no configuration can make one appear on a public page",
+      "The component's assets were declared under web.assets_backend, a different bundle from web.assets_frontend, which the public site actually loads",
+      "Website pages block all JavaScript from other apps by default as a security measure, requiring an explicit allowlist",
+      "The component needs a matching website.page record before it can render anywhere outside the backend",
+    ],
+    answer: 1,
+    why: "The backend web client and the public website load two different asset bundles of the same OWL framework, web.assets_backend and web.assets_frontend. A component declared into one is simply absent from the other; it is a matter of which bundle downloaded it, not a permissions or configuration question.",
+  },
+  {
+    q: "A snippet is dragged onto two different pages, then one page's copy is edited to change its heading text. What happens to the other page's copy of the same snippet?",
+    options: [
+      "It updates too, since both pages reference the same shared ir.ui.view template underneath",
+      "It stays unchanged, because dragging a snippet copies its arch into the page's own arch_db rather than linking to a shared template",
+      "It reverts to the snippet's original default the next time that page is viewed, discarding any prior edits",
+      "Both pages' copies update only after the website's asset bundle is next regenerated",
+    ],
+    answer: 1,
+    why: "Dragging a snippet copies its QWeb arch into the page's own arch_db; nothing links back to the shared website.s_* template afterward. That is what makes per-page customization safe, but it also means a change meant for every page has to be repeated manually on each one, there is no single shared instance to edit once.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Open a second POS session on a different shop (Clothes or Furniture), sell one
+   order, and correctly close the register on the first attempt, using the numbers the
+   Closing Register screen itself shows you rather than guessing.
+2. ⭐⭐ Read `POSS/.../0003`'s tax line, `251000 Tax Received`, against the two
+   orders' totals and confirm by hand that 15% of the untaxed subtotal produces the
+   exact tax figure posted.
+3. ⭐⭐ Find the `pos.payment.method` record backing the "Customer Account" payment
+   option and explain, from its `journal_id` (or lack of one), why paying by customer
+   account does not need a settlement entry the way Card does.
+4. ⭐⭐⭐ Actually drag a snippet onto a page in the website editor (Edit > any block
+   under Intro or Content), fill in real text and an image, and Save. Confirm from the
+   shell that the page's `ir.ui.view.arch_db` now contains your edited copy of the
+   snippet's markup, not a reference to the original template.
+5. ⭐⭐⭐ Break-it lab: open a POS session, ring up an order, and before paying, open
+   devtools and go offline (Network tab > Offline). Complete the sale anyway, then go
+   back online. Read what the POS SPA's IndexedDB-backed order queue does once
+   connectivity returns, and explain why this would have been meaningfully harder to
+   build as a normal client action like chapter 41's dashboard.
+
 ## Further reading
+
+- <Icon name="docs" /> [Website overview (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website.html):
+  the builder, pages, and where themes fit relative to snippets.
+- <Icon name="docs" /> [Building blocks (19.0)](https://www.odoo.com/documentation/19.0/applications/websites/website/web_design/building_blocks.html):
+  every snippet category from the panel this chapter photographed.
+- <Icon name="docs" /> [Point of Sale (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale.html):
+  the full functional reference, sessions, payment methods, and closing reports.
+- <Icon name="docs" /> [POS payment methods (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale/payment_methods.html):
+  how a payment method's journal decides where its settlement entry lands, the
+  mechanism behind this chapter's Cash-versus-Card gotcha.

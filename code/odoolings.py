@@ -1606,6 +1606,64 @@ def dashboard_open_orders_group_correctly(env):
         "rows. Put a technician on at least one open order")
 
 
+def point_of_sale_is_installed(env):
+    mod = env.call("ir.module.module", "search_read",
+                    [("name", "=", "point_of_sale")], fields=["state"])
+    assert mod and mod[0]["state"] == "installed", (
+        "point_of_sale is not installed. Settings > Apps > Point of Sale, "
+        "or -i point_of_sale from the CLI.")
+
+
+def a_pos_session_was_closed(env):
+    """The functional proof this chapter is really about: a real till, opened and closed."""
+    sessions = env.call("pos.session", "search_read",
+                         [("state", "=", "closed")],
+                         fields=["name", "order_ids"], limit=1, order="id desc")
+    assert sessions, (
+        "no closed pos.session found. Open a register (Point of Sale > New "
+        "Session), ring up at least one order, then close the register.")
+    assert sessions[0]["order_ids"], (
+        "the closed session has no orders. A session with nothing sold has "
+        "nothing for the next check to verify.")
+
+
+def session_move_is_posted_and_balanced(env):
+    """Closing a session posts one consolidated journal entry, not one per order."""
+    sessions = env.call("pos.session", "search_read",
+                         [("state", "=", "closed"), ("move_id", "!=", False)],
+                         fields=["move_id"], limit=1, order="id desc")
+    assert sessions, (
+        "no closed session has a move_id. Closing the register is what "
+        "posts the session's consolidated journal entry; a session stuck at "
+        "'closing control' has not finished that step.")
+    move_id = sessions[0]["move_id"][0]
+    move = env.call("account.move", "read", [move_id], fields=["state"])[0]
+    assert move["state"] == "posted", (
+        "the session's journal entry is %r, expected 'posted'" % move["state"])
+    lines = env.call("account.move.line", "search_read",
+                      [("move_id", "=", move_id)], fields=["debit", "credit"])
+    debit = sum(l["debit"] for l in lines)
+    credit = sum(l["credit"] for l in lines)
+    assert abs(debit - credit) < 0.01, (
+        "the session's journal entry does not balance: debit %.2f, credit "
+        "%.2f" % (debit, credit))
+
+
+def cash_count_matches_reality(env):
+    """The gotcha: leaving Cash Count at its 0 default reports a fake shortfall."""
+    sessions = env.call("pos.session", "search_read",
+                         [("state", "=", "closed")],
+                         fields=["cash_register_difference"], limit=1, order="id desc")
+    assert sessions, "no closed session to check"
+    diff = sessions[0]["cash_register_difference"]
+    assert abs(diff) < 0.01, (
+        "the most recently closed session has a cash difference of %.2f. "
+        "The Closing Register screen's Cash Count field defaults to 0, not "
+        "to what the drawer should hold, so leaving it untouched reports a "
+        "fake shortfall for the entire opening float plus every cash sale. "
+        "Count the drawer (or type the expected total) before closing." % diff)
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -3011,6 +3069,24 @@ CHAPTERS = {
          dashboard_open_orders_group_correctly,
          "Assign technicians to some open (draft/confirmed/in_progress) "
          "orders, or the dashboard renders an empty table."),
+    ],
+    "ch42": [
+        ("point_of_sale is installed", point_of_sale_is_installed,
+         "Settings > Apps > Point of Sale (or -i point_of_sale). Run this "
+         "chapter's checks with --db functional."),
+        ("a POS session was opened and closed", a_pos_session_was_closed,
+         "Point of Sale > New Session, ring up at least one order, then "
+         "close the register from the hamburger menu."),
+        ("the session's journal entry is posted and balanced",
+         session_move_is_posted_and_balanced,
+         "Closing the register is what posts the session's consolidated "
+         "account.move. If it is missing, the session is still stuck at "
+         "the Closing Register screen."),
+        ("the counted cash matches what the till should hold",
+         cash_count_matches_reality,
+         "The Closing Register screen's Cash Count field defaults to 0. "
+         "Enter the actual (or expected) drawer total before clicking "
+         "Close Register, or the session reports a fake shortfall."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
