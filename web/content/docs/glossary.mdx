@@ -445,6 +445,15 @@ every other stock transfer, applied to a transformation rather than a delivery
 **QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
 pages) and client-side (OWL component templates).
 
+**QWeb report (`ir.actions.report`)**: a printable document, built from two QWeb
+templates: a wrapper that calls `web.html_container` once and loops over the
+selected records, and a document template, called once per record, that wraps its
+content in `web.external_layout` for the header and footer and in
+`<div class="page">` so several records print as several pages in one PDF. Binds to
+a model's Print menu the same way chapter 35's server action bound to an Action
+menu, `binding_model_id` plus `binding_type = "report"` (chapter 36). Rendered
+through `report.paperformat` (margins, paper size) and `wkhtmltopdf`.
+
 **rank (`customer_rank` / `supplier_rank`)**: integer counters on `res.partner` that
 rise as a partner appears on sales or purchase documents. Odoo has no customer *type*
 and no supplier table: being both at once is just both counters above zero.

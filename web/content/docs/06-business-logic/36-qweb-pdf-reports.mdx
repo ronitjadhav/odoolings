@@ -1,24 +1,506 @@
 ---
 title: "36. QWeb PDF Reports"
-description: Not written yet, tracked in the roadmap.
+description: Build a real PDF report the same way core Odoo builds its invoice, header and footer included, and learn exactly what a customer-facing document should never show.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch36`
+**Goal:** give `librefleet.service.order` a printable PDF report with the company's
+header and footer, built on the same two-template pattern as the invoice you posted
+in chapter 27. · **Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/ch36`
 
 ## Why this matters
 
+Every business app eventually needs to hand someone a document: an invoice, a
+delivery slip, a service report a customer signs before driving off. You have
+printed exactly one of these already, chapter 27's and 28's invoice PDF, and never
+looked at how it is built. It is a QWeb template, the same rendering engine behind
+every view in this tutorial, run through `wkhtmltopdf` instead of a browser. Nothing
+about PDF generation is a separate skill from the templating you already know; it is
+the same `t-field`, `t-if`, `t-foreach` you have used since chapter 9's views, wrapped
+in two conventions that make it print correctly: a wrapper template Odoo calls once
+per selected record, and a document template that supplies the header and footer
+every company wants on every report without repeating the markup.
+
 ## Concepts
+
+### Two templates, not one
+
+Open any of Odoo's own printable reports and you will find the same shape twice: a
+short **wrapper** template that loops over the records you selected and calls a
+**document** template for each one. Core's invoice report is exactly this:
+
+```xml
+<template id="report_invoice">
+    <t t-call="web.html_container">
+        <t t-foreach="docs" t-as="o">
+            ...
+            <t t-call="account.report_invoice_document" t-lang="lang"/>
+        </t>
+    </t>
+</template>
+```
+
+`docs` is the recordset the report was called on, whatever you selected before
+clicking Print. `web.html_container` is what turns a plain HTML string into the
+document wkhtmltopdf will accept; you always call it once, at the top, never per
+record. The interesting content lives in the document template, called once per
+record inside the loop.
+
+### `web.external_layout`: header, footer, one call
+
+The document template's job is to wrap its own content in `web.external_layout`,
+which supplies the company logo, address, and footer from `res.company` without your
+template knowing anything about them:
+
+```xml
+<template id="report_invoice_document">
+    <t t-call="web.external_layout">
+        <div class="page">
+            <!-- your content -->
+        </div>
+    </t>
+</template>
+```
+
+`external_layout` looks for `o.company_id` on whatever record it is wrapping, and
+falls back to the current company if the model has no such field, which is exactly
+`librefleet.service.order`'s situation: no `company_id` anywhere on it, and the
+report still renders the right header because of that fallback.
+
+The `<div class="page">` matters for more than styling. Wrap each record's content in
+one and the wrapper template's loop produces one `<div class="page">` per record,
+which is what makes printing three selected orders come out as a three-page PDF
+instead of three orders squeezed onto whatever pages fit. You are not managing page
+breaks by hand; the class does it.
+
+<Mermaid label="A printable report is a wrapper template calling web.html_container once, looping over the selected records, and calling a document template that wraps each record's content in web.external_layout for the header and footer." chart={`flowchart TB
+    Print["User selects records,<br/>clicks Print"] --> Wrapper["wrapper template<br/>t-call web.html_container"]
+    Wrapper -->|"t-foreach docs"| Doc["document template,<br/>once per record"]
+    Doc --> Layout["t-call web.external_layout<br/>(header, footer, page div)"]
+    Layout --> PDF["wkhtmltopdf renders<br/>one page per record"]
+`} />
+
+### Binding a report to the Print menu works exactly like chapter 35's server action
+
+`ir.actions.report` is a model, the same family as `ir.actions.server`. It binds to a
+model's Print dropdown the same way chapter 35's server action bound to the Vehicles
+list's Action menu, `binding_model_id`, but with `binding_type = "report"` instead of
+`"action"`. No button XML, no menu record: set the two fields and the report shows up.
+
+<Callout type="info" title="Official docs">
+  [QWeb PDF reports (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/reports.html):
+  the full `ir.actions.report` field reference, `report.paperformat`, and exactly what
+  `t-call="web.html_container"` and `web.external_layout` do under the hood.
+</Callout>
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Write the report action and the wrapper template
+
+```xml title="addons/librefleet/report/service_order_report.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="action_report_service_order" model="ir.actions.report">
+            <field name="name">Service Report</field>
+            <field name="model">librefleet.service.order</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">librefleet.report_service_order</field>
+            <field name="report_file">librefleet.report_service_order</field>
+            <field name="print_report_name">'Service Report - %s' % (object.reference)</field>
+            <field name="binding_model_id" ref="model_librefleet_service_order"/>
+            <field name="binding_type">report</field>
+        </record>
+
+        <template id="report_service_order">
+            <t t-call="web.html_container">
+                <t t-foreach="docs" t-as="o">
+                    <t t-call="librefleet.report_service_order_document" t-lang="o.customer_id.lang"/>
+                </t>
+            </t>
+        </template>
+
+    </data>
+</odoo>
+```
+
+`report_name` is `module.template_id`, the same qualification every xml id needs
+outside its own module, chapter 9's rule again. Get it wrong (say, just
+`report_service_order` with no module prefix) and the action saves fine but printing
+fails with a template-not-found error the moment someone clicks it: nothing at
+install time catches it, because the action record and the template it names are
+validated independently.
+
+Depend on `web` explicitly in the manifest, even though it is always installed. Your
+templates `t-call` into `web.html_container` and `web.external_layout`, and an
+explicit dependency is what guarantees those templates are loaded before yours, not
+an accident of "web happens to already be there."
+
+```python title="addons/librefleet/__manifest__.py"
+"depends": ["base", "product", "base_automation", "web"],
+```
+</Step>
+
+<Step>
+### Write the document template
+
+```xml title="addons/librefleet/report/service_order_report.xml"
+        <template id="report_service_order_document">
+            <t t-call="web.external_layout">
+                <div class="page">
+                    <h2>
+                        Service Report
+                        <span t-field="o.reference"/>
+                    </h2>
+
+                    <div class="row mt-4">
+                        <div class="col-6">
+                            <strong>Vehicle</strong>
+                            <p>
+                                <span t-field="o.vehicle_id.license_plate"/><br/>
+                                <span t-field="o.vehicle_id.model_name"/>
+                            </p>
+                        </div>
+                        <div class="col-6">
+                            <strong>Customer</strong>
+                            <div t-field="o.customer_id"
+                                 t-options='{"widget": "contact", "fields": ["address", "name"], "no_marker": True}'/>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-6">
+                            <strong>Service type:</strong> <span t-field="o.service_type_id.name"/>
+                        </div>
+                        <div class="col-6">
+                            <strong>Technicians:</strong>
+                            <span t-field="o.technician_ids" t-options='{"widget": "many2many_tags"}'/>
+                        </div>
+                    </div>
+
+                    <table class="table table-sm mt-4">
+                        <thead>
+                            <tr>
+                                <th>Part</th>
+                                <th class="text-end">Qty</th>
+                                <th class="text-end">Unit price</th>
+                                <th class="text-end">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="o.line_ids" t-as="line">
+                                <td><span t-field="line.part_id.name"/></td>
+                                <td class="text-end"><span t-field="line.qty"/></td>
+                                <td class="text-end"><span t-field="line.price_unit"/></td>
+                                <td class="text-end"><span t-field="line.subtotal"/></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </template>
+```
+
+Register the file in the manifest's `data` list and upgrade, then render it once
+from the shell to see it for real:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> order = env["librefleet.service.order"].search([("reference", "=", "SO/2026/0001")])
+>>> report = env["ir.actions.report"]._get_report("librefleet.report_service_order")
+>>> pdf_content, report_type = report._render_qweb_pdf("librefleet.report_service_order", order.ids)
+>>> open("/tmp/service_report.pdf", "wb").write(pdf_content)
+```
+
+```console
+$ pdftotext /tmp/service_report.pdf -
+Service Report SO/2026/0001
+Vehicle
+ZH 468 202
+Fiat Ducato
+Customer
+Anna Keller
+Service type: Oil change
+Technicians: res.users(5,)
+Part
+Oil filter
+...
+```
+
+The layout is right, the header and footer are there. But "Technicians:
+res.users(5,)" is not a name, it is a recordset's `repr()`. `many2many_tags` is a
+**web client widget**, one of the little pills you see in a form view; it has no
+meaning to the QWeb report field converter, which silently falls back to printing
+whatever `str()` gives it instead of raising an error. Fix it with a plain `t-out`
+over the mapped names:
+
+```xml title="addons/librefleet/report/service_order_report.xml"
+                        <div class="col-6">
+                            <strong>Technicians:</strong>
+                            <span t-out="', '.join(o.technician_ids.mapped('name'))"/>
+                        </div>
+```
+
+While you're in there, give the money columns two decimal places, the same
+`widget: "float"` you would reach for on a form:
+
+```xml title="addons/librefleet/report/service_order_report.xml"
+                                <td class="text-end">
+                                    <span t-field="line.price_unit" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+```
+
+Do the same for `line.subtotal` and, in the totals row you'll add next, for
+`o.parts_total` and `o.labor_total`.
+</Step>
+
+<Step>
+### Add totals, and leave one number out on purpose
+
+```xml title="addons/librefleet/report/service_order_report.xml"
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" class="text-end"><strong>Parts total</strong></td>
+                                <td class="text-end">
+                                    <span t-field="o.parts_total" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td colspan="3" class="text-end"><strong>Labor</strong></td>
+                                <td class="text-end">
+                                    <span t-field="o.labor_total" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    <!-- margin is deliberately never printed here: it is what the
+                         workshop earns, not something a customer document shows. -->
+                </div>
+```
+
+`parts_total` and `labor_total` are what the customer paid for. `margin`, chapter
+13's computed field, is what the workshop keeps after paying for the parts, and it
+has no business on a document you hand to the person who booked the service. Nothing
+in Odoo stops you from adding `t-field="o.margin"` here; the only thing that catches
+it is knowing not to, which is exactly why this chapter's odoolings checks include one
+that fails if that field ever shows up in the template's arch.
+</Step>
+
+<Step>
+### Upgrade, print, and watch it handle more than one order
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: loading librefleet/report/service_order_report.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.56s, 558 queries (+558 other)
+```
+
+Render again and read the real output:
+
+```console
+$ pdftotext /tmp/service_report.pdf -
+Service Report SO/2026/0001
+Vehicle
+ZH 468 202
+Fiat Ducato
+Customer
+Anna Keller
+Service type: Oil change
+Technicians: Tina Technician
+Unit
+Part
+Qty
+price
+Oil filter
+Engine oil 5W30
+(1l)
+Parts total
+Labor
+
+Page 1 / 1
+
+Subtotal
+
+1.0 24.50
+
+24.50
+
+4.0 18.90
+
+75.60
+100.10
+89.00
+```
+
+A real technician's name this time, two decimal places on every price, and no
+margin anywhere. Select two orders and render both at once, the same call with two
+ids instead of one:
+
+```console
+>>> orders = env["librefleet.service.order"].search([], limit=2)
+>>> pdf_content, report_type = report._render_qweb_pdf("librefleet.report_service_order", orders.ids)
+```
+
+```console
+$ pdfinfo /tmp/multi_report.pdf | grep Pages
+Pages:           2
+```
+
+Two orders, two pages, no page-count field anywhere in the code you wrote. That is
+the `<div class="page">` from Concepts, earning its keep.
+</Step>
+
+</Steps>
+
+<Callout type="warn" title="Gotcha">
+  Testing from `odoo shell --no-http`, like the transcripts above, logs a harmless
+  `wkhtmltopdf: Exit with code 1 due to network error: ContentNotFoundError` warning.
+  `--no-http` means there is no running web server for wkhtmltopdf to fetch images
+  from (a company logo, say), so any `<img>`-backed content silently fails to load
+  while the rest of the PDF renders fine. Printing from the real running server, the
+  one serving `localhost:8069`, has no such gap: there is always an HTTP server to
+  fetch from.
+</Callout>
+
+Chapter 8's module tree, after this chapter:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="report" defaultOpen>
+      <File name="service_order_report.xml" />
+    </Folder>
+    <Folder name="models">
+      <File name="vehicle.py" />
+      <File name="service_order.py" />
+      <File name="..." />
+    </Folder>
+  </Folder>
+</Files>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch36
+✔ the service report action is registered
+✔ it is bound to the Print menu
+✔ both templates exist
+✔ the margin never prints on the customer document
+
+ch36 complete! On to the next chapter 🔧
+```
+
+In the UI: open any service order and check the Print dropdown in the form's header
+for "Service Report". Click it and confirm the PDF that comes back has the company's
+header and footer, the parts and labor totals, and no margin.
 
 ## Gotchas
 
+- **`many2many_tags` is a web client widget, not a report field converter.** Used on
+  a `t-field` inside a QWeb report, it does not error, it silently prints the
+  recordset's `repr()` instead of the names. Join the names yourself with `t-out` and
+  `.mapped('name')`.
+- **`report_name` needs the module prefix.** `"report_service_order"` instead of
+  `"librefleet.report_service_order"` saves without complaint and fails only when
+  someone actually clicks Print, with a template-not-found error nothing at install
+  time warned you about.
+- **`external_layout`'s company fallback is automatic, but only if you never override
+  it.** If your model does grow a `company_id` field later, the header switches to
+  that company instantly. Worth remembering before you add one without meaning to
+  change what a report prints.
+- **Testing without a running HTTP server breaks embedded images, not templates.**
+  The `ContentNotFoundError` warning from `odoo shell --no-http` looks alarming but
+  only affects `<img>`-backed content; text, tables and totals render correctly
+  regardless.
+- **A field existing on the model does not mean it belongs on every document built
+  from that model.** `margin` is a perfectly good field for the form view chapter 13
+  built and a terrible thing to hand a customer. The report template is a second
+  place field-level access decisions get made, separate from the ACLs chapter 10 set up.
+
+## Quick check
+
+<Quiz questions={[
+  {
+    q: "A report's wrapper template calls web.html_container inside a t-foreach loop over docs, once per record, instead of once around the whole loop. What breaks?",
+    options: [
+      "Nothing breaks structurally, but printing multiple selected records produces multiple separate PDF files glued together with visible seams between them",
+      "wkhtmltopdf ends up with several competing full documents instead of one, since html_container wraps a fragment into a whole document and is meant to run exactly once",
+      "The report renders correctly regardless; html_container is idempotent and safe to call any number of times per record",
+      "Odoo raises a ValidationError at module upgrade time refusing to load a template that calls html_container more than once",
+    ],
+    answer: 1,
+    why: "html_container is the one-time conversion from a page fragment to a full HTML document wkhtmltopdf can consume. Call it per record and you get several competing full documents instead of one document with several page divs inside it, which is why every core report calls it exactly once, outside the loop.",
+  },
+  {
+    q: "librefleet.service.order has no company_id field. What determines which company's logo and address web.external_layout prints on its report?",
+    options: [
+      "The report fails to render at all, since external_layout requires company_id on every model it is called against",
+      "It falls back to the current company (the one the report is being run in), since external_layout checks for company_id and only uses it if present",
+      "It always uses the very first company in the database, company id 1, regardless of context",
+      "You must add a company_id field to the model before the report can use web.external_layout at all",
+    ],
+    answer: 1,
+    why: "external_layout's own logic checks 'company_id' in o before touching it, and falls back to the environment's current company otherwise. That fallback is exactly what makes a report work correctly on a model that was never designed with multi-company in mind.",
+  },
+  {
+    q: "Why does printing three selected service orders in one action produce a three-page PDF, when nothing in the report's Python code tracks a page count?",
+    options: [
+      "ir.actions.report automatically inserts a page break before every single record it renders, entirely independent of whatever the template itself contains",
+      "wkhtmltopdf detects the change of database record between sections of the combined HTML and breaks pages there on its own",
+      "Each t-foreach iteration wraps its content in a div with class 'page', and that class is what triggers the break",
+      "report_type 'qweb-pdf' forces exactly one page per record as a hard limit built into the PDF format itself",
+    ],
+    answer: 2,
+    why: "There is no page counter anywhere. The wrapper's loop produces one 'page'-classed div per record inside one combined HTML document, and it is that CSS class, not any counting logic, that produces the page break wkhtmltopdf renders.",
+  },
+  {
+    q: "A t-field for o.margin is added to the service report's document template. What actually enforces that it should not be there?",
+    options: [
+      "Nothing in Odoo itself; it is a design decision the template author has to get right, the same way ACLs from chapter 10 are a decision, not something the ORM infers",
+      "ir.model.access.csv access rights, which block reading margin from any report context regardless of what the template asks for",
+      "The report engine validates every t-field against a list of customer-safe fields declared on the model",
+      "QWeb raises a ValidationError at render time for any field not explicitly marked public=True",
+    ],
+    answer: 0,
+    why: "margin is a normal Float field with normal read access for anyone who can read the order at all; nothing technical stops it from appearing on the report. Keeping it off is a judgment call about what a document should show, the same category of decision chapter 10's access rights make explicit at the model level but that a report template has to make for itself, field by field.",
+  },
+]} />
+
 ## Exercises
 
+1. ⭐ Add a `report_footer`-style line to the service report showing the order's
+   `scheduled_start` date, formatted with `t-options='{"widget": "date"}'`.
+2. ⭐⭐ Chapter 34 built a French translation for the module. Print the same service
+   order with the user's language set to French and confirm `service_type_id.name`
+   comes back in French on the PDF, the same jsonb-backed translation, now proven in
+   a document instead of a form.
+3. ⭐⭐ Design (no steps given) a second report action on the same templates, bound
+   only to orders where `stage = 'done'`, named "Completed Service Certificate". Which
+   field on `ir.actions.report` restricts it to a domain, and how does that interact
+   with `binding_model_id`?
+4. ⭐⭐⭐ Break-it lab: change `report_name` on the action record to
+   `"report_service_order"` (drop the `librefleet.` prefix), upgrade, and print from
+   the UI. Read the actual error, then explain from this chapter's Concepts why the
+   upgrade itself did not catch the mistake.
+5. ⭐⭐⭐ Read the [paper formats reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/reports.html)
+   and define a `report.paperformat` record with a wider left margin (for a
+   three-hole-punch binder), then set it as this report's `paperformat_id`. Confirm
+   with `pdfinfo` that the rendered page size or margins actually changed.
+
 ## Further reading
+
+- <Icon name="docs" /> [QWeb PDF reports (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/reports.html):
+  the full `ir.actions.report` reference, paper formats, and the wrapper/document
+  convention from the source.
+- <Icon name="source" /> [`account/views/report_invoice.xml`](https://github.com/odoo/odoo/blob/19.0/addons/account/views/report_invoice.xml):
+  the canonical invoice report this chapter's structure was built to match, address
+  blocks, tax lines and all.
+- <Icon name="source" /> [`web/views/report_templates.xml`](https://github.com/odoo/odoo/blob/19.0/addons/web/views/report_templates.xml):
+  `web.external_layout` and `web.html_container` themselves, plus every alternate
+  report layout (`boxed`, `bold`, `striped`...) a company can pick from Settings.
