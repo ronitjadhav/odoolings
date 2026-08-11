@@ -590,7 +590,7 @@ ORM CRUD ▢ recordsets ▢ env/context ▢ compute/related/onchange ▢ constra
 sequences ▢ all 3 inheritance types ▢ view inheritance/xpath ▢ all view types ▢
 wizards ▢ security (groups/ACL/record rules/sudo) ▢ mail.thread ▢ cron ▢
 server actions ▢ QWeb reports ▢ controllers ▢ portal ▢ OWL component ▢ widget ▢
-assets ▢ tests (unit + tour) ▢ data files/noupdate ▢ i18n basics ▢ pre-commit/OCA
+assets ▢ tests (unit + tour) ▢ data files/noupdate ▢ i18n basics ✅ (ch34) pre-commit/OCA
 conventions ▢ migration exercise ▢ performance patterns ▢ deployment concepts ▢
 
 Functional coverage (added 2026-08-05, D12; Parts 4-5):
@@ -1054,6 +1054,64 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-11 (later) — i18n folded into ch34, closing the second audit gap
+
+Second half of the audit above. `i18n basics` in §5.4 is now ✅, covered inside ch34 rather
+than as its own chapter, so no renumber (the alternative was priced at 16 chapters and
+declined). ch34 grows from ~1.5 h to ~2.5 h and gains four Hands-on steps, three odoolings
+checks, two quiz questions, six Gotchas and an `i18n/` folder in its checkpoint.
+
+Why ch34 is genuinely the right home rather than a convenient one: a `.po` **is** a data
+file, and the chapter's existing master data turned out to be load-bearing for the lesson.
+"Tire Rotation" is exportable as a translatable term **only because** it has a stable xml
+id from step 1 *and* the field became `translate=True` in step 6. Data with no xml id has
+nothing for a `.po` to point at, so the two halves of the chapter explain each other.
+
+Everything below was verified in the container; several facts contradicted what the
+obvious guess would have been:
+
+- **`ir.translation` does not exist in Odoo 19** (`"ir.translation" in env` is `False`).
+  Field values moved to `jsonb` columns, code strings to an in-memory catalog read from
+  `i18n/*.po`. Any answer telling you to query it is pre-16.
+- **Code translations are never in the database.** Confirmed via
+  `odoo.tools.translate.code_translations`. Consequence worth teaching: a database backup
+  cannot carry them, which is now a quiz question.
+- **`translate=True` migrates the column**: `character varying` → `jsonb`, and Odoo moves
+  existing values under an `en_US` key by itself. Watched it happen to all five service
+  types, including the three hand-clicked in ch11. No migration script.
+- **Odoo 19 has an `odoo i18n {loadlang,export,import}` subcommand**, replacing the old
+  `--load-language` / `--i18n-export` server flags.
+- `_()` still comes from `from odoo import _` in most of core (990 files under
+  `addons/*/models/` vs 238 for the newer `self.env._()`), so the book teaches the import
+  form and notes the other.
+- Named placeholders (`%(margin).2f` with `margin=`) survive into the `.pot` msgid and
+  interpolate correctly *inside* the French translation (`marge -240.00`), so ch20's
+  verified `-210.90` transcript is unaffected by the rewrite.
+
+Four gotchas found by doing it, none of which I would have predicted:
+
+1. **`-l` is greedy** (`nargs='+'`), so `i18n export -l pot librefleet` eats the module as
+   a language code and fails with `the following arguments are required: MODULE`. Module
+   goes before the flag.
+2. **Default export writes in-place and fails here**: container runs uid 100, the bind
+   mount belongs to host uid 1000, so it dies with `PermissionError`. The recipe is
+   `-o -` piped to a host-side redirect, which also ties back to ch6's new `-T` gotcha.
+3. **`-l fr_FR` logs `Ignoring not found languages: fr_FR` and then works.** Upstream
+   cosmetic bug: `_get_languages` matches on `code` OR `iso_code`, then diffs the request
+   against `iso_code` only, and French is `code=fr_FR`/`iso_code=fr`. Passing `-l fr`
+   avoids the scare. Read the source (`odoo/cli/i18n.py:129-135`) rather than guessing.
+4. **`_()` resolves its catalog from the calling frame**, so calling it in `odoo shell`
+   returns the source string even with the translation loaded and the language active.
+   Verified both halves: English from the shell, French when the wizard actually raises it.
+   The chapter tells readers to test code translations by triggering the real code path.
+
+One deliberate consequence, documented in the chapter rather than hidden: `translate=True`
+breaks raw SQL on that column, with `invalid input syntax for type json` (not the
+"operator does not exist" I expected). ch34's own earlier psql commands are affected, and
+because they run *before* step 6 they stay correct in reading order; step 6 says explicitly
+what changes for anyone re-running them afterwards. ORM domains are untouched, which is why
+all 17 chapter check suites on `tutorial` still pass unchanged.
 
 ### 2026-08-11 — syllabus coverage audit against an external checklist; pdb lands in ch6
 

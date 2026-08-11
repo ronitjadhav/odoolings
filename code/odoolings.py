@@ -1118,6 +1118,41 @@ def service_type_second_noupdate_record_was_added(env):
         "Wheel Alignment's flat_fee is %s, not 45.0" % rows[0]["flat_fee"])
 
 
+def service_type_name_is_translatable(env):
+    """translate=True on the field, which is what turns its column into jsonb."""
+    rows = env.call("ir.model.fields", "search_read",
+                    [("model", "=", "librefleet.service.type"), ("name", "=", "name")],
+                    fields=["translate"])
+    assert rows, "no 'name' field found on librefleet.service.type"
+    assert rows[0]["translate"], (
+        "librefleet.service.type.name is not translatable. Add translate=True to the "
+        "field and upgrade; Odoo migrates the varchar column to jsonb for you")
+
+
+def french_is_installed(env):
+    """A second language has to be loaded before anything can be translated into it."""
+    rows = env.call("res.lang", "search_read", [("code", "=", "fr_FR")],
+                    fields=["active"])
+    assert rows and rows[0]["active"], (
+        "French is not installed. Run: odoo i18n loadlang -c /etc/odoo/odoo.conf "
+        "-d tutorial -l fr  (pass the iso_code 'fr', not 'fr_FR', to avoid a "
+        "spurious 'not found languages' warning)")
+
+
+def tire_rotation_reads_in_french(env):
+    """The imported .po actually landed: same record, two languages, one jsonb column."""
+    en = env.call("librefleet.service.type", "search_read",
+                  [("name", "=", "Tire Rotation")], fields=["name"],
+                  context={"lang": "en_US"})
+    assert en, "no Tire Rotation service type found (chapter 34, step 1)"
+    fr = env.call("librefleet.service.type", "read", [en[0]["id"]],
+                  fields=["name"], context={"lang": "fr_FR"})
+    assert fr[0]["name"] == "Rotation des pneus", (
+        "Tire Rotation reads as %r in French, expected 'Rotation des pneus'. Write "
+        "i18n/fr.po with that msgstr and import it with odoo i18n import -l fr"
+        % fr[0]["name"])
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2275,6 +2310,17 @@ CHAPTERS = {
          "Add a Wheel Alignment <record> to the same noupdate block as Tire Rotation "
          "and upgrade again: noupdate blocks re-writing existing records, not "
          "creating new ones."),
+        ("the service type name is a translatable field", service_type_name_is_translatable,
+         "Add translate=True to librefleet.service.type.name and upgrade. Odoo "
+         "migrates the varchar column to jsonb and moves existing values under an "
+         "'en_US' key by itself, no migration script needed."),
+        ("French is installed", french_is_installed,
+         "odoo i18n loadlang -c /etc/odoo/odoo.conf -d tutorial -l fr. Note the "
+         "subcommand: Odoo 19 replaced the old --load-language server flag."),
+        ("Tire Rotation reads in French", tire_rotation_reads_in_french,
+         "Export the template (i18n export ... librefleet -l pot -o -), write "
+         "i18n/fr.po with msgstr \"Rotation des pneus\", then import it with "
+         "i18n import -l fr. Both languages then live in the same jsonb column."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,

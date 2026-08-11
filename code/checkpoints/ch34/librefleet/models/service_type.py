@@ -6,6 +6,6 @@ class ServiceType(models.Model):
     _description = "Service Type"
     _order = "name"
 
-    name = fields.Char(required=True)
+    name = fields.Char(required=True, translate=True)
     flat_fee = fields.Float(help="Fixed price charged for this service, parts excluded.")
     default_duration_h = fields.Float(string="Default Duration (h)")
