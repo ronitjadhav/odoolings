@@ -1057,6 +1057,49 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (really the last) — ch40 written: field widgets and patching
+
+§5.3's two topics, "a custom field widget, patching existing components", written as
+one argument rather than two unrelated halves: **registries are the front door,
+patching is the fire escape, and choosing between them is the actual skill.** The
+chapter's spine is that a registry entry affects only code that opts into it by name,
+while a patch rewrites a shared class for every current and future user of it.
+
+**Built two things.** A `librefleet_margin` field widget (green up-arrow on profit,
+bold red down-arrow on a loss) applied to `margin` on the service order form, and a
+`patch(FormController.prototype, ...)` overriding `onWillSaveRecord` to warn when
+saving a losing order. Both verified in the browser: the widget photographed at
+`-401.00` in red, the notification watched firing twice.
+
+**A deliberate design decision, argued in a code comment rather than glossed:** the
+patch *can* block the save by returning `false` and deliberately does not. A rule
+enforced only in the browser is not enforced (an import or an RPC call bypasses it),
+so chapter 20's server-side wizard stays the real control and the patch is a
+convenience for the person clicking. Worth being explicit about, because the tempting
+read of `onWillSaveRecord` is "here is where I enforce things".
+
+**Reused ch39's bundle-reading technique and immediately found its limit.** A bare
+substring check against a 9 MB bundle containing all of core is close to worthless:
+`supportedTypes` alone appears 67 times, once per built-in widget, so a check for it
+would pass even if the reader's own descriptor lacked it entirely. Added
+`_margin_field_descriptor()`, which slices out just our descriptor before asserting.
+This is a general lesson for ch41's checks too: **scope the slice before you grep.**
+
+All four checks run red for real against their specific mistake (missing
+`registry.add`, missing `supportedTypes` in *our* descriptor while core's 67 remain,
+missing `widget=` in the view, missing `resModel` guard in the patch).
+
+**The break-it lab was executed, not reasoned about.** The chapter claims that
+removing the `resModel` guard leaves the patch running on every save in the client
+while *appearing* harmless, because `record.data.margin` is `undefined` on a partner
+and `undefined < 0` is `false`. Rather than assert that from JS semantics, removed the
+guard, upgraded, edited and saved a real contact, and confirmed the save completed
+silently with no notification. The lesson lands harder as an observation than as an
+argument, and it is now safe to print.
+
+4 odoolings checks, one screenshot (`ch40-margin-widget-loss.jpg`), glossary gained
+`patch` and an expanded `widget`. All 22 odoolings suites green.
+
 ### 2026-08-11 (last of the day) — ch39 written: OWL fundamentals, Part 7 opens
 
 First frontend chapter, and the first where the thing being taught cannot be verified
