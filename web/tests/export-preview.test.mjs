@@ -71,7 +71,7 @@ try {
   assert.match(lessonBody, /rel="canonical" href="https:\/\/odoolings\.ronit\.io\/docs\/00-orientation\/01-what-odoo-is\/"/);
   assert.match(lessonBody, /"@type":"LearningResource"/);
 
-  const stubRoute = '/docs/06-business-logic/36-qweb-pdf-reports/';
+  const stubRoute = '/docs/06-business-logic/37-controllers-portal/';
   const stub = await fetch(`${origin}${stubRoute}`);
   assert.equal(stub.status, 200, 'planned lessons should remain navigable');
   const stubBody = await stub.text();
@@ -80,8 +80,8 @@ try {
   const sitemap = await fetch(`${origin}/sitemap.xml`);
   assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
   const sitemapBody = await sitemap.text();
-  assert.match(sitemapBody, /\/docs\/06-business-logic\/35-cron-server-automated-actions\/<\/loc>/);
-  assert.doesNotMatch(sitemapBody, /\/docs\/06-business-logic\/36-qweb-pdf-reports/);
+  assert.match(sitemapBody, /\/docs\/06-business-logic\/36-qweb-pdf-reports\/<\/loc>/);
+  assert.doesNotMatch(sitemapBody, /\/docs\/06-business-logic\/37-controllers-portal/);
   const expectedLocs = 1 + completeDocsPageCount();
   assert.equal(
     (sitemapBody.match(/<loc>/g) ?? []).length,

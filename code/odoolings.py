@@ -1231,6 +1231,60 @@ def finishing_an_order_cleared_its_vehicle_reminder(env):
         "on records.mapped('vehicle_id')")
 
 
+def _service_report_action(env):
+    res = env.call("ir.model.data", "check_object_reference",
+                    "librefleet", "action_report_service_order")
+    assert res and res[0] == "ir.actions.report", (
+        "librefleet.action_report_service_order does not resolve to an "
+        "ir.actions.report record")
+    return env.call("ir.actions.report", "read", [res[1]],
+                     fields=["model", "report_name", "report_type",
+                             "binding_model_id", "binding_type"])[0]
+
+
+def service_report_action_is_registered(env):
+    """A report is a stored ir.actions.report record, same family as chapter 35's server actions."""
+    action = _service_report_action(env)
+    assert action["model"] == "librefleet.service.order", (
+        "the report action's model is %r, expected librefleet.service.order"
+        % action["model"])
+    assert action["report_type"] == "qweb-pdf", (
+        "report_type is %r, expected 'qweb-pdf'" % action["report_type"])
+    assert action["report_name"] == "librefleet.report_service_order", (
+        "report_name is %r, expected 'librefleet.report_service_order' (module."
+        "template_id, not just the template id)" % action["report_name"])
+
+
+def service_report_is_bound_to_the_print_menu(env):
+    """binding_type='report' is what puts it in the form's Print dropdown, no button XML needed."""
+    action = _service_report_action(env)
+    assert action["binding_model_id"], (
+        "the action has no binding_model_id, so it will never appear in a "
+        "service order's Print menu")
+    assert action["binding_type"] == "report", (
+        "binding_type is %r, expected 'report' (chapter 35's server action "
+        "used binding_type 'action', a report uses 'report')" % action["binding_type"])
+
+
+def service_report_templates_exist(env):
+    """Two templates, same shape as core's account.report_invoice: a wrapper and a document."""
+    for name in ("report_service_order", "report_service_order_document"):
+        res = env.call("ir.model.data", "check_object_reference", "librefleet", name)
+        assert res and res[0] == "ir.ui.view", (
+            "librefleet.%s does not resolve to an ir.ui.view (QWeb templates "
+            "load as views)" % name)
+
+
+def service_report_never_prints_the_margin(env):
+    """margin is what the workshop earns; a document handed to the customer should never carry it."""
+    res = env.call("ir.model.data", "check_object_reference",
+                    "librefleet", "report_service_order_document")
+    view = env.call("ir.ui.view", "read", [res[1]], fields=["arch_db"])[0]
+    assert "o.margin" not in view["arch_db"], (
+        "the service report template renders o.margin somewhere. That field is "
+        "the workshop's profit, not something a customer-facing document should show")
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2537,6 +2591,24 @@ CHAPTERS = {
          "Take a service order to 'done' through the approve wizard, then check "
          "the base.automation fired: on_create_or_write, filter_pre_domain "
          "stage != 'done', filter_domain stage = 'done'."),
+    ],
+    "ch36": [
+        ("the service report action is registered", service_report_action_is_registered,
+         "<record model=\"ir.actions.report\">: model librefleet.service.order, "
+         "report_type qweb-pdf, report_name \"librefleet.report_service_order\"."),
+        ("it is bound to the Print menu", service_report_is_bound_to_the_print_menu,
+         "binding_model_id ref to model_librefleet_service_order, "
+         "binding_type \"report\" (chapter 35's server action used \"action\")."),
+        ("both templates exist", service_report_templates_exist,
+         "Two <template> records: report_service_order (the web.html_container "
+         "wrapper, one per selected order) and report_service_order_document "
+         "(the web.external_layout content), same shape as core's "
+         "account.report_invoice / account.report_invoice_document."),
+        ("the margin never prints on the customer document",
+         service_report_never_prints_the_margin,
+         "Do not add a t-field for o.margin anywhere in "
+         "report_service_order_document. It is the workshop's profit, not "
+         "something a customer-facing PDF should carry."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,

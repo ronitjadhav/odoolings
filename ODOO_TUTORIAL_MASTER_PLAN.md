@@ -1057,6 +1057,54 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (yet later still) — ch36 written: QWeb PDF reports
+
+Third write-chapter of the walkthrough phase. §5.3's line named the topic
+("PDF service report with header/footer, paper formats") and flagged that ch36
+"now assumes ch27-28, so the canonical invoice-report example is grounded", meaning
+the chapter should read core's real invoice report rather than invent an abstract
+example, which it does in Concepts.
+
+**Built a "Service Report" PDF for `librefleet.service.order`**, structured exactly
+like `account.report_invoice`: a wrapper template (`t-call="web.html_container"`,
+loops `docs`) calling a document template per record
+(`t-call="web.external_layout"`, content in a `<div class="page">`). Verified for
+real that this produces one page per record: rendered two orders in one call,
+`pdfinfo` confirmed `Pages: 2`, with no page-counting code anywhere, the `page`
+class does it. Binds to the Print menu the same way chapter 35's server action
+bound to the Action menu, `binding_model_id` + `binding_type = "report"` instead of
+`"action"`, a deliberate callback so the two chapters reinforce one mechanism
+(`ir.actions.*` records binding to model views) rather than reading as unrelated.
+
+**Two real bugs found rendering it, kept as worked Gotchas:**
+1. `t-field` with `t-options='{"widget": "many2many_tags"}'` does not error on a
+   QWeb report, it silently prints the recordset's `repr()` ("Technicians:
+   res.users(5,)"), because that widget only exists in the web client. Fixed with
+   `t-out="', '.join(o.technician_ids.mapped('name'))"`.
+2. Rendering from `odoo shell --no-http` logs a `wkhtmltopdf: ... network error:
+   ContentNotFoundError` warning, harmless: no running HTTP server means no
+   `<img>` content can load, but text/tables render fine. Documented so it does not
+   read as a real failure when a reader hits the same thing.
+
+**A design decision, not a bug:** `margin` (chapter 13's computed field, what the
+workshop earns) is deliberately never rendered on the document. One odoolings check
+reads the template's `arch_db` for `o.margin` and fails red if it is ever added,
+verified red on a duplicate before writing the real template.
+
+Added `web` to librefleet's `depends` explicitly (was always installed transitively,
+but the templates `t-call` into it, so an explicit dependency is correct regardless
+of install order luck). 4 odoolings checks, exercised red (arch_db injection test)
+and green. All ch08-ch20, ch31-ch35 suites re-run clean. Glossary gained one entry:
+`QWeb report (ir.actions.report)`.
+
+**Recurring issue flagged to the author:** a live browser session (user "Tina
+Technician") repeatedly reset one service order's stage to draft mid-session during
+both ch35 and ch36 development, three times total, breaking the automated-action
+check each time. Re-fixed and re-verified green before each commit; still
+unresolved as a root cause, likely an open tab against `localhost:8069`.
+
+No screenshot: same browser flakiness as ch28, ch30, ch35 (now four chapters).
+
 ### 2026-08-11 (yet later) — ch35 written: cron, server and automated actions
 
 Second chapter of the walkthrough's write-chapter phase (after ch30). §5.3's line was
