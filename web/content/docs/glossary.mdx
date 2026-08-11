@@ -63,6 +63,15 @@ emails, notes, followers, scheduled activities. Models opt in via `mail.thread` 
 model: fields land on the same model and the same table. The mechanism behind
 almost all real extension work.
 
+**COGS (cost of goods sold)**: the expense recognised when goods leave the company. In
+Odoo 19 it is produced by *validating the delivery*, not by invoicing: the stock asset is
+credited and the account named on the Customers location is debited (chapter 30).
+
+**costing method (`property_cost_method`)**: how a unit is priced, set on the product
+category. `standard` uses a cost you type, `fifo` consumes the oldest receipt first, and
+`average` (AVCO) keeps a running average recomputed on each receipt. Independent of
+whether the books hear about it, which is *inventory valuation* (chapter 30).
+
 **command list (x2many commands)**: the tuple language for writing relational
 fields: `(0, 0, {vals})` create, `(4, id)` link, `(3, id)` unlink, `(2, id)`
 delete, `(6, 0, [ids])` replace all. Spelled `Command.create/link/set/...` since
@@ -212,6 +221,12 @@ billing progress move at different speeds.
 
 **integrator / partner**: a company implementing Odoo for clients: configuration,
 custom modules, migrations, support. Most Odoo developers work at one.
+
+**inventory valuation (`property_valuation`)**: when stock movements reach the ledger,
+set on the product category. `periodic` ("Periodic (at closing)") values every move but
+posts no journal entry; `real_time` ("Perpetual (at invoicing)") posts one per valued
+move. Odoo 18 stored `manual_periodic` and called them Manual/Automated. Switching is
+never retroactive (chapter 30).
 
 **is_storable ("Track Inventory")**: the boolean deciding whether Odoo counts a
 product in stock. Contributed by the Inventory app, not by `product`, and in Odoo 19 it
@@ -543,6 +558,11 @@ appears inside a domain or context string written in XML. Not a Python variable.
 unit declares `relative_factor` against a `relative_uom_id` (Dozens is 12 Units),
 forming a tree whose absolute `factor` is computed recursively. The pre-19 model of unit
 *categories* with a reference unit and a `uom_type` is gone (chapter 21).
+
+**valued move (`is_valued`)**: whether a `stock.move` changes what the company owns.
+True only when the goods cross the company boundary, since locations with a `usage` of
+`internal` or `transit` count as inside it. Moving stock between your own shelves is
+valued at zero on purpose, because nothing economic happened (chapter 30).
 
 **vacuum**: the scheduled process that deletes old transient records automatically,
 so a wizard's table never accumulates forever. Configurable per model via

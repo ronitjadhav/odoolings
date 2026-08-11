@@ -1055,6 +1055,69 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (later still) — ch30 written; its §5.3 spec was pre-19 and had to be redesigned
+
+First stub turned into a chapter, and the first time the syllabus itself was wrong rather
+than merely incomplete. §5.3's ch30 line was written against an Odoo 15-18 mental model.
+Three of the things it asks for **do not exist in Odoo 19**, which was only discoverable
+by opening the container:
+
+- **`stock.valuation.layer` is gone.** `"stock.valuation.layer" in env` is `False`.
+  Valuation moved onto `stock.move.value`, with `remaining_value` carrying FIFO leftovers
+  and `value_manual`/`value_justification` providing a manual-override audit trail. This
+  is the single most expensive item in an 18 to 19 migration for anyone with custom
+  costing code, and it is now ch30's headline.
+- **The stock interim accounts are gone.** `property_stock_account_input_categ_id` and
+  `..._output_categ_id` survive only in stale `.po` files. The routing moved to
+  `stock.location.valuation_account_id`: each location *outside* the company names what
+  value becomes when it arrives there (Customers means COGS, Inventory Loss means
+  shrinkage, Production means WIP), while the category keeps the stock asset account.
+  Read `_get_account_move_line_vals`, which is a single symmetric `if`, and
+  `_should_be_valued`, which is three lines and defines "inside the company".
+- **`manual_periodic` is now `periodic`**, and the labels changed from Manual/Automated to
+  Periodic (at closing)/Perpetual (at invoicing).
+
+Scope call (author informed, logged here because §5.3 no longer matches what shipped).
+§5.3 listed eight topics for one chapter. Shipped: costing methods, periodic vs
+perpetual, the account routing, COGS on delivery, and the valuation-mode migration trap.
+**Deferred, deliberately:** landed costs (needs installing `stock_landed_costs`, a
+self-contained flow), lock dates and period close, and defining a custom `account.report`.
+The last is a reporting-engine topic that was bundled here only because Community ships
+the engine without the statements; it belongs nearer the reporting/OCA work, not inside a
+valuation chapter. Cramming eight topics would have produced a grab-bag; the five that
+shipped form one argument.
+
+The chapter got luckier than it deserved on material. The `functional` database already
+contained, from chapters 22, 24, 25 and 26, everything needed for the lesson:
+
+- 630.00 of valued receipts and **zero** journal entries, because the demo runs `periodic`
+- a two-step receipt whose second leg is `is_valued=False`, because both ends are inside
+  the company, which is the cleanest possible illustration of the boundary rule
+- `WH/OUT/00044`, the delivery created in ch22 and made reservable in ch24, still sitting
+  at `assigned` and never validated
+
+So the hands-on validates *that* delivery, which posts the database's first ever stock
+entry (STJ/2026/08/0001: Stock Valuation credit 132.63, COGS debit 132.63) and joins
+Parts 4 and 5 exactly as §5.3 hoped, without inventing a scenario.
+
+Two findings worth keeping:
+
+1. **The Brake Pad Set had no product category at all**, unnoticed since ch21, so it
+   valued at 0.00 whatever was paid for it. Now the chapter's opening hook and its first
+   odoolings check. A product with no category is unpriceable by construction and nothing
+   anywhere warns you.
+2. **Switching valuation mode is not retroactive**, and the arithmetic proves itself:
+   after the switch the warehouse holds 497.37 while account 110100 reports **-132.63**,
+   a gap of exactly 630.00, precisely the receipts that predate the switch. A negative
+   stock asset is the visible symptom, and the fix is an opening entry, not a costing
+   change. This is the "why is the P&L wrong" ticket §5.3 wanted, arrived at honestly.
+
+Five odoolings checks registered under `ch30`, run red (against a duplicate with the
+category cleared) and green. All nine earlier `functional` check suites re-run and still
+pass: the changes affect valuation only, and ORM-level checks on orders, invoices and
+taxes are untouched. Three glossary entries added (COGS, costing method, inventory
+valuation, valued move). Roadmap M4 flipped to done, which makes Parts 0 to 5 complete.
+
 ### 2026-08-11 (later) — i18n folded into ch34, closing the second audit gap
 
 Second half of the audit above. `i18n basics` in §5.4 is now ✅, covered inside ch34 rather

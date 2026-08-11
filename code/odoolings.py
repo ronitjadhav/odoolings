@@ -1880,6 +1880,98 @@ def an_export_order_dropped_the_domestic_tax(env):
     env._ch29_order = order
 
 
+def _brake_pad_variant(env):
+    """The Brake Pad Set variant chapter 21 created, used by the ch30 checks."""
+    rows = env.call("product.product", "search_read",
+                    [("product_tmpl_id.name", "=", "Brake Pad Set")],
+                    fields=["categ_id", "standard_price", "qty_available"], limit=1)
+    assert rows, "no Brake Pad Set product found; chapter 21 creates it"
+    return rows[0]
+
+
+def brake_pads_have_a_category(env):
+    """A product with no category falls back to periodic/standard and a zero cost."""
+    prod = _brake_pad_variant(env)
+    assert prod["categ_id"], (
+        "the Brake Pad Set has no product category. A category is what supplies the "
+        "costing method, the valuation mode and the stock account, so without one the "
+        "product silently values at 0.00 no matter what you paid")
+
+
+def goods_category_is_avco_and_real_time(env):
+    """Cost method and valuation mode are two separate switches; this sets both."""
+    prod = _brake_pad_variant(env)
+    rows = env.call("product.category", "read", [prod["categ_id"][0]],
+                    fields=["property_cost_method", "property_valuation"])[0]
+    assert rows["property_cost_method"] == "average", (
+        "the category's costing method is %r, expected 'average'. Standard Price keeps "
+        "whatever cost you typed; AVCO derives it from what actually moved."
+        % rows["property_cost_method"])
+    assert rows["property_valuation"] == "real_time", (
+        "the category's valuation is %r, expected 'real_time' (labelled Perpetual). "
+        "Under 'periodic' Odoo still values every move, it just never posts a journal "
+        "entry for one." % rows["property_valuation"])
+
+
+def avco_derived_the_unit_cost(env):
+    """630.00 of receipts over 19 units is 33.1579, and AVCO works that out itself."""
+    prod = _brake_pad_variant(env)
+    cost = prod["standard_price"]
+    assert abs(cost - 33.1578947368421) < 0.01, (
+        "the Brake Pad Set's cost is %s, expected about 33.16. Switching the category "
+        "to AVCO makes Odoo recompute the cost from the movements that already exist "
+        "(630.00 received over 19 units), so a wrong number here usually means the "
+        "receipts from chapters 24 and 25 are missing" % cost)
+
+
+def customers_location_routes_to_cogs(env):
+    """In Odoo 19 the counterpart account lives on the location, not the category."""
+    rows = env.call("stock.location", "search_read", [("usage", "=", "customer")],
+                    fields=["valuation_account_id"], limit=1)
+    assert rows, "no customer location found"
+    acc = rows[0]["valuation_account_id"]
+    assert acc, (
+        "the Customers location has no Stock Valuation Account. Odoo 19 asks each "
+        "location outside the company what value becomes when it arrives there, and "
+        "without it a delivery posts no journal entry at all")
+    acc_type = env.call("account.account", "read", [acc[0]], fields=["account_type"])[0]
+    assert acc_type["account_type"].startswith("expense"), (
+        "the Customers location points at %r, whose type is %r. Stock leaving for a "
+        "customer becomes cost of goods sold, so it wants an expense account."
+        % (acc[1], acc_type["account_type"]))
+
+
+def the_waiting_delivery_posted_cogs(env):
+    """Validating chapter 22's delivery is what finally moves value into the P&L."""
+    picks = env.call("stock.picking", "search_read", [("name", "=", "WH/OUT/00044")],
+                     fields=["state"])
+    assert picks, ("WH/OUT/00044 not found; it is the delivery chapter 22 created and "
+                   "chapter 24 made reservable")
+    assert picks[0]["state"] == "done", (
+        "WH/OUT/00044 is %r, not 'done'. Validate it: that transfer has been waiting "
+        "since chapter 22 and it is what posts the first stock journal entry."
+        % picks[0]["state"])
+    moves = env.call("stock.move", "search_read",
+                     [("picking_id.name", "=", "WH/OUT/00044")],
+                     fields=["value", "account_move_id"])
+    assert moves and moves[0]["account_move_id"], (
+        "the delivery move has no account_move_id, so no journal entry was posted. "
+        "Check that the category is real_time and the Customers location has an account")
+    val = moves[0]["value"]
+    assert abs(val - 132.63) < 0.5, (
+        "the move is valued at %s, expected about 132.63 (4 units at the 33.16 average)"
+        % val)
+    lines = env.call("account.move.line", "search_read",
+                     [("move_id", "=", moves[0]["account_move_id"][0])],
+                     fields=["debit", "credit", "account_id"])
+    assert len(lines) == 2, "expected two journal lines, found %d" % len(lines)
+    debits = [l for l in lines if l["debit"]]
+    credits = [l for l in lines if l["credit"]]
+    assert debits and credits, "the entry should have one debit and one credit"
+    assert abs(debits[0]["debit"] - credits[0]["credit"]) < 0.01, (
+        "the stock entry does not balance, which chapter 27 says is impossible")
+
+
 def rounding_method_is_back_to_round_per_tax(env):
     company = env.call("res.users", "read", [env.uid], fields=["company_id"])[0]["company_id"][0]
     method = env.call("res.company", "read", [company],
@@ -2249,6 +2341,30 @@ CHAPTERS = {
         ("the rounding method is back to Round per Tax", rounding_method_is_back_to_round_per_tax,
          "Settings > Accounting > Taxes > Rounding Method. The hands-on borrows Round "
          "per Line for one comparison; put it back so later chapters agree with ours."),
+    ],
+    "ch30": [
+        ("the brake pads have a product category", brake_pads_have_a_category,
+         "Open the product and set Product Category to Goods. Without one, the product "
+         "has no costing method, no valuation mode and no stock account, so it values "
+         "at 0.00 however much you paid."),
+        ("the category is AVCO and Perpetual", goods_category_is_avco_and_real_time,
+         "Inventory > Configuration > Product Categories > Goods: Costing Method = "
+         "Average Cost (AVCO), Inventory Valuation = Perpetual (at invoicing). Two "
+         "separate switches: what it is worth, and when the books hear about it."),
+        ("AVCO derived the unit cost from real movements", avco_derived_the_unit_cost,
+         "Switching to AVCO makes Odoo recompute the cost from the receipts already in "
+         "the database: 630.00 over 19 units is 33.16. If it reads 0.00 the category "
+         "is still on Standard Price."),
+        ("the Customers location routes stock to an expense account",
+         customers_location_routes_to_cogs,
+         "Inventory > Configuration > Locations > Customers, set Stock Valuation "
+         "Account to 500000 Cost of Goods Sold. Odoo 19 puts the counterpart on the "
+         "location, not on the category as older versions did."),
+        ("chapter 22's delivery posted a balanced stock entry",
+         the_waiting_delivery_posted_cogs,
+         "Validate WH/OUT/00044, the delivery waiting since chapter 22. It posts one "
+         "STJ entry: Stock Valuation credited, Cost of Goods Sold debited, 132.63 "
+         "each way."),
     ],
     "ch31": [
         ("classic _inherit extended the vehicle in place", vehicle_extended_in_place,
