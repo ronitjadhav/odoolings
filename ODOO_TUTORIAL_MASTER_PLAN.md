@@ -1057,6 +1057,69 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-11 (yet later, yet again) — ch37 written: controllers & portal, and the ch35/36 mystery solved
+
+Fourth write-chapter of the walkthrough phase. §5.3's line: "HTTP routes, type='http'
+vs 'json', auth levels, building the customer portal page; a taste of the website
+builder", now assuming ch22/28 so the portal shows real orders and invoices.
+
+**Mystery finally closed**: ch35's and ch36's PRs both flagged a "live user" (Tina
+Technician) repeatedly resetting `SO/2026/0001` to draft mid-verification, four times
+across two chapters. It was never a live browser session or the odoolings-starter
+port conflict investigated along the way (though that conflict was real and separately
+fixed, see below): it was `technician_rule_enforced` (ch10's own odoolings check),
+which writes an order to "confirmed" then hardcodes it back to "draft" to prove the
+record rule works, with no regard for what a later chapter needs that order to be.
+Any regression sweep across ch08-ch20, which the walkthrough runs before every commit,
+silently reset it. Fixed separately (PR #63, merged before this chapter): the check
+now reads the order's actual stage first and restores it in a `finally` block.
+
+**Separately, a real infrastructure issue surfaced mid-session**: `code-odoo-1`
+(this repo's own container) had crashed, and `odoolings-starter-odoo-1` (a completely
+different project, the reader-facing template, explicitly never meant to run
+alongside this repo per §4.5) grabbed port 8069 in the gap and held it for hours.
+Stopped with the author's confirmation, `code-odoo-1` brought back up cleanly on a
+fresh network. Worth remembering: two Odoo projects sharing a host can silently
+steal each other's ports, and "a live user is editing my data" is not the only
+explanation for state drifting between checks, "which container actually answered
+that curl" is another one to rule out first.
+
+**Built**: two standalone controllers (`/librefleet/services`, `type="http"`,
+`auth="public"`; `/librefleet/vehicles/lookup`, `type="jsonrpc"`, `auth="public"`),
+then a full customer portal for `librefleet.service.order`: `portal.mixin` +
+`_compute_access_url` override, a portal-scoped ACL + record rule (the same
+two-layer split chapter 10 built for internal groups, now a third group on the same
+model), a `CustomerPortal` extension adding a home tile, `/my/service-orders` list,
+`/my/service-orders/<id>` detail, and `/my/service-orders/<id>/report` reusing
+chapter 36's PDF action. Verified genuinely end to end: authenticated as a real
+portal user (Anna Keller) via `/web/session/authenticate`, confirmed the record rule
+actually hid `SO/2026/0002` (not hers) while showing `SO/2026/0001` (hers), then
+confirmed the `access_token` share-link path works with zero session at all,
+including the negative case (wrong token still redirects).
+
+**Two real bugs found building it, kept as worked Gotchas:**
+1. `portal_client_category_enable` defaults `False` on `portal.portal_my_home`; the
+   home tile rendered nothing until an xpath explicitly set it `True`, the same
+   two-step every core portal extension (`sale`, `project`, `account`) does.
+2. `Content-Disposition`'s filename built raw from `reference` ("SO/2026/0001")
+   carried a literal slash, which some browsers read as a path separator. Sanitized
+   with `.replace("/", "_")`, caught by actually downloading the file rather than
+   reading the code.
+
+**A version fact worth its own callout**: Odoo 19 renamed `type="json"` to
+`type="jsonrpc"` and kept the old name as a deprecated alias (confirmed in
+`odoo/http.py`: it still runs, but logs `DeprecationWarning` server-side only, no
+error to the caller). Reproduced for real in the chapter rather than just stated.
+
+5 odoolings checks, two of them genuinely functional (`urllib` requests against the
+reader's own running server, a new pattern for this file, previously everything went
+through XML-RPC only; not a violation of §4.5 rule 4's filesystem-access ban, this
+still only ever talks to the reader's own already-running Odoo). All ch08-ch20 and
+ch31-ch36 suites re-run clean, twice, to prove the ch10 fix actually holds. Glossary
+gained two entries: `controller`, `portal (customer portal, portal.mixin)`.
+
+No screenshot: same browser flakiness as ch28, ch30, ch35, ch36 (five chapters now).
+
 ### 2026-08-11 (yet later still) — ch36 written: QWeb PDF reports
 
 Third write-chapter of the walkthrough phase. §5.3's line named the topic

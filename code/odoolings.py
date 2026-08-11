@@ -14,6 +14,8 @@ Stdlib only, nothing to install. Defaults match the tutorial's Docker env
 import argparse
 import json
 import sys
+import urllib.error
+import urllib.request
 import xmlrpc.client
 
 
@@ -1292,6 +1294,87 @@ def service_report_never_prints_the_margin(env):
     assert "o.margin" not in view["arch_db"], (
         "the service report template renders o.margin somewhere. That field is "
         "the workshop's profit, not something a customer-facing document should show")
+
+
+def _http_get(env, path):
+    req = urllib.request.Request(env.url + path, headers={"X-Odoo-Database": env.db})
+    return urllib.request.urlopen(req, timeout=10)
+
+
+def services_page_renders(env):
+    """type='http', auth='public': no login, no XML-RPC, a plain unauthenticated GET."""
+    try:
+        resp = _http_get(env, "/librefleet/services")
+    except urllib.error.HTTPError as exc:
+        raise AssertionError(
+            "GET /librefleet/services returned %s, expected 200. Check the route's "
+            "auth level is \"public\" and the module is upgraded" % exc.code)
+    body = resp.read().decode()
+    assert "What we service" in body, (
+        "the page loaded (200) but its content is missing; check the template "
+        "librefleet.services_page")
+
+
+def vehicle_lookup_endpoint_works(env):
+    """type='jsonrpc': the envelope differs from type='http', not the auth story."""
+    vehicles = env.call("librefleet.vehicle", "search_read", [], fields=["license_plate"], limit=1)
+    assert vehicles, "no vehicle to look up; earlier chapters should have created one"
+    payload = json.dumps({
+        "jsonrpc": "2.0", "method": "call",
+        "params": {"license_plate": vehicles[0]["license_plate"]},
+    }).encode()
+    req = urllib.request.Request(
+        env.url + "/librefleet/vehicles/lookup", data=payload,
+        headers={"Content-Type": "application/json", "X-Odoo-Database": env.db})
+    try:
+        body = json.loads(urllib.request.urlopen(req, timeout=10).read())
+    except urllib.error.HTTPError as exc:
+        raise AssertionError(
+            "POST /librefleet/vehicles/lookup returned %s. Check the route uses "
+            "type=\"jsonrpc\" (not the deprecated type=\"json\") and auth=\"public\"" % exc.code)
+    assert body.get("result", {}).get("found") is True, (
+        "the endpoint did not find a vehicle that definitely exists: %r" % body)
+
+
+def service_order_has_portal_mixin(env):
+    """portal.mixin's own default access_url is the literal string '#'; this model must override it."""
+    orders = env.call("librefleet.service.order", "search_read", [], fields=["access_url"], limit=1)
+    assert orders, "no service order to check"
+    url = orders[0]["access_url"]
+    assert url and url.startswith("/my/service-orders/"), (
+        "access_url is %r. Add portal.mixin to the model's _inherit list and override "
+        "_compute_access_url to point at /my/service-orders/<id>" % url)
+
+
+def _portal_group_id(env):
+    return env.call("ir.model.data", "check_object_reference", "base", "group_portal")[1]
+
+
+def portal_access_is_read_only(env):
+    """The ACL only grants read; the record rule (checked separately) is what scopes it to one customer."""
+    rows = env.call("ir.model.access", "search_read",
+                     [("model_id.model", "=", "librefleet.service.order"),
+                      ("group_id", "=", _portal_group_id(env))],
+                     fields=["perm_read", "perm_write", "perm_create", "perm_unlink"])
+    assert rows, "no ir.model.access row grants base.group_portal access to librefleet.service.order"
+    acl = rows[0]
+    assert acl["perm_read"], "the portal ACL exists but does not grant read"
+    assert not (acl["perm_write"] or acl["perm_create"] or acl["perm_unlink"]), (
+        "the portal ACL grants more than read (%r); a customer should never be able "
+        "to write, create or delete a service order over the portal" % acl)
+
+
+def portal_record_rule_scopes_to_customer(env):
+    """The ACL alone would let every portal user read every order; this is what stops that."""
+    rules = env.call("ir.rule", "search_read",
+                      [("model_id.model", "=", "librefleet.service.order"),
+                       ("groups", "in", [_portal_group_id(env)])],
+                      fields=["domain_force"])
+    assert rules, ("no ir.rule scopes librefleet.service.order for base.group_portal; "
+                    "without one, any portal user could read any customer's orders")
+    assert "customer_id" in rules[0]["domain_force"], (
+        "the portal record rule's domain is %r, expected it to filter on customer_id"
+        % rules[0]["domain_force"])
 
 
 def demo_partner_exists(env):
@@ -2618,6 +2701,26 @@ CHAPTERS = {
          "Do not add a t-field for o.margin anywhere in "
          "report_service_order_document. It is the workshop's profit, not "
          "something a customer-facing PDF should carry."),
+    ],
+    "ch37": [
+        ("the public services page renders", services_page_renders,
+         "@http.route(\"/librefleet/services\", type=\"http\", auth=\"public\") "
+         "rendering the librefleet.services_page template."),
+        ("the vehicle lookup endpoint works", vehicle_lookup_endpoint_works,
+         "@http.route(\"/librefleet/vehicles/lookup\", type=\"jsonrpc\", "
+         "auth=\"public\"). type=\"json\" still works but logs a deprecation "
+         "warning, Odoo 19 renamed it."),
+        ("the service order has portal.mixin", service_order_has_portal_mixin,
+         "Add \"portal.mixin\" to librefleet.service.order's _inherit list, "
+         "then override _compute_access_url to point at "
+         "/my/service-orders/<id> instead of the mixin's default '#'."),
+        ("the portal ACL is read-only", portal_access_is_read_only,
+         "One ir.model.access row for base.group_portal on "
+         "librefleet.service.order, perm_read=1 and the other three 0."),
+        ("a record rule scopes it to the customer", portal_record_rule_scopes_to_customer,
+         "An ir.rule for base.group_portal with domain_force "
+         "[('customer_id', '=', user.partner_id.id)]. Without it the ACL "
+         "alone lets any portal user read any order."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
