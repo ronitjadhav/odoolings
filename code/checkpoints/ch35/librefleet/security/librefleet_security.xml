@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="privilege_librefleet" model="res.groups.privilege">
+        <field name="name">Workshop</field>
+        <field name="category_id" ref="base.module_category_services"/>
+    </record>
+
+    <record id="group_librefleet_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="privilege_librefleet"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">Technicians: see the whole fleet and keep vehicle data up to date.</field>
+    </record>
+
+    <record id="group_librefleet_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="sequence">20</field>
+        <field name="privilege_id" ref="privilege_librefleet"/>
+        <field name="implied_ids" eval="[(4, ref('group_librefleet_user'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="comment">Workshop managers: full control, including configuration.</field>
+    </record>
+
+    <data noupdate="1">
+
+        <record id="rule_service_order_technician" model="ir.rule">
+            <field name="name">Service orders: technicians handle their own</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="groups" eval="[(4, ref('group_librefleet_user'))]"/>
+            <field name="domain_force">[('technician_ids', 'in', user.ids)]</field>
+            <field name="perm_read" eval="False"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_service_order_manager" model="ir.rule">
+            <field name="name">Service orders: managers handle all</field>
+            <field name="model_id" ref="model_librefleet_service_order"/>
+            <field name="groups" eval="[(4, ref('group_librefleet_manager'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+    </data>
+
+</odoo>

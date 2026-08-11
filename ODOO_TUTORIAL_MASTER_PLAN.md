@@ -328,9 +328,10 @@ Rules that follow, and that every chapter must respect:
 4. **odoolings is location-independent** (no filesystem access, pure XML-RPC against
    `--url`), which is what makes all of the above possible. Keep it that way: a check
    that reads the reader's files would break this contract.
-5. **Fork mechanics** (`git remote rename origin upstream`, etc.) belong in ch35 where
-   they fork an OCA repo to submit a real PR, not in ch7 where they used to exist only
-   to work around living in someone else's repo. The starter is a **template**, not a
+5. **Fork mechanics** (`git remote rename origin upstream`, etc.) belong in ch45 (pre-D13:
+   ch35, corrected 2026-08-11 once ch35 turned out to be cron/server/automated actions
+   instead) where they fork an OCA repo to submit a real PR, not in ch7 where they used
+   to exist only to work around living in someone else's repo. The starter is a **template**, not a
    fork, precisely so the reader has no upstream and no temptation to PR against us.
 6. **`addons/.gitkeep` must stay in the starter.** Git cannot track an empty directory,
    but the directory has to exist before the first `docker compose up`: bind-mount a
@@ -630,8 +631,9 @@ Models, with the chapter that introduces each piece:
   kanban pipeline ch19), `scheduled_start`/`scheduled_end` (Datetime; the
   no-overlapping-bookings-per-vehicle constraint, ch14), `parts_total` / `labor_total`
   / `margin` (computed with `@api.depends`, ch13). Later: chatter (ch23), approve &
-  invoice wizard (ch20), QWeb PDF report (ch26), portal view (ch27), maintenance-
-  reminder cron (ch25), OWL jobs-per-technician dashboard (ch31).
+  invoice wizard (ch20), QWeb PDF report (ch36), portal view (ch37), maintenance-
+  reminder cron (ch35), OWL jobs-per-technician dashboard (ch41). [Pre-D13 numbers
+  corrected 2026-08-11 when ch35 was written; see the changelog entry above.]
 - **`librefleet.part`** (ch12) — `name`, `code`, `standard_cost`, `list_price`.
   Self-contained on purpose: no dependency on `product`/`sale` in Tier 1. Bridging to
   real product/invoice flows is exactly what ch22 (extending core apps) then teaches.
@@ -1054,6 +1056,52 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-11 (yet later) — ch35 written: cron, server and automated actions
+
+Second chapter of the walkthrough's write-chapter phase (after ch30). §5.3's line was
+one sentence, "Scheduled actions (cron), server actions, automated actions," and
+§5.5's blueprint already named the feature: a maintenance-reminder cron on
+`librefleet.vehicle`, moved here from its pre-renumber "ch25" reference by D13.
+
+**Built one feature three ways on purpose**, not three unrelated examples: a daily
+cron reminds the workshop about vehicles overdue for service, the same logic runs
+on demand from the Vehicles list's Action menu, and an automated action retires the
+reminder the moment a service order is actually marked done. The throughline is
+`_inherits`: `ir.cron` delegates to `ir.actions.server` through
+`ir_actions_server_id`, the exact composition pattern chapter 31 taught on
+`librefleet.loaner`. Once that clicks, a cron stops looking like a separate feature
+and becomes "a server action plus a schedule," which is literally what the code says.
+
+**Two bugs found by running it, both real and both now Gotchas:**
+1. `records` is `None` when a server action runs from a cron (no selection), so
+   `records.action_send_maintenance_reminders()` throws `AttributeError` on `None`
+   the first time Run Manually is clicked. Fixed with `records or model.search([])`,
+   and left in the chapter as a worked bug rather than smoothed over, matching the
+   plan's debugging-literacy differentiator.
+2. `mail.activity.mixin` alone is not enough to call `action_feedback()`: it posts
+   its completion note through `message_post_with_source()`, which lives on
+   `mail.thread`. `librefleet.vehicle` now inherits both.
+
+**A third finding, not a bug, worth flagging:** `ir.cron` and the `ir.actions.server`
+it targets share one database row via `_inherits`. Setting `name` on both records (an
+easy first instinct) silently overwrites the same field twice; the chapter settles on
+one name, set once, on the action.
+
+Added `base_automation` to librefleet's `depends` (pulls in `digest`, `resource`,
+`sms` transitively, normal and expected). 5 odoolings checks, exercised red and green
+during development (missing action name, missing done order, both caught for real,
+not staged). All ch08-ch20 and ch31-ch34 suites re-run clean on `tutorial` afterward.
+Glossary gained four entries: `activity`, `automated action`, `cron (scheduled
+action)`, `server action`. `web/tests/export-preview.test.mjs` had ch35 hardcoded as
+"the still-a-stub fixture", the same category of trap D13 caught elsewhere: bumped
+its two hardcoded chapter numbers forward to ch36.
+
+No screenshot: this session's browser tab now redirects every navigation to
+`/odoo/discuss` regardless of target URL, the same failure mode as ch28 and ch30 but
+now reproducing on a fresh tab too, which rules out per-tab state and points at the
+browser session itself. Flagging for the author to restart the Chrome connection;
+ch28, ch30 and ch35 can be caught up in one screenshot pass once it's healthy.
 
 ### 2026-08-11 (later still) — ch30 written; its §5.3 spec was pre-19 and had to be redesigned
 
