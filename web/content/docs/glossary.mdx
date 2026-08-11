@@ -434,6 +434,16 @@ at once.
 **pivot view**: a view type describing a table of aggregated data: `row`/`col`
 fields group records, `measure` fields are summed per group, via `read_group`.
 
+**Point of Sale (`pos.session` / `pos.order`)**: a real OWL SPA (`/pos/ui/...`),
+offline-first: it runs against an in-browser IndexedDB and syncs to the server as
+connectivity allows, a different bootstrap from the backend web client's
+`web.assets_backend` or the website's `web.assets_frontend`. A session moves through
+`opening_control` → `opened` → `closing_control` → `closed`; closing it posts one
+consolidated sales entry for every order in the session (`session.move_id`), plus one
+settlement entry per payment method clearing that receivable into the account the
+method actually pays into. The Closing Register screen's Cash Count field defaults to
+`0`, not to the expected total, which is the standard first-day gotcha (chapter 42).
+
 **portal (customer portal, `portal.mixin`)**: the `/my/...` pages a non-employee
 customer logs into to see their own records, `/my/orders`, `/my/invoices`, and
 whatever a module adds (chapter 37's `/my/service-orders`). `portal.mixin` gives a
@@ -596,6 +606,12 @@ it explicitly at the top of single-record methods.
 
 **smart button**: the stat buttons at the top of a form view linking to related
 records ("3 Orders", "2 Deliveries"). You'll build one in chapter 17.
+
+**snippet (`website.s_*`)**: a draggable content block in the website builder, one
+`ir.ui.view` per block, 191 of them shipped by core. Dragging a snippet onto a page
+copies its QWeb arch into that page's own `arch_db` rather than linking to the shared
+template, which is why editing one page's copy never touches another page that
+dragged in the same block (chapter 42).
 
 **statusbar**: the widget rendering a Selection field as the stage bar in a form's
 header. With the clickable option users can change stage by clicking; it enforces no

@@ -1057,6 +1057,59 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later) — ch42 written: website/snippets/POS survey, Part 7 (chapters 39-42) done
+
+§5.3's lighter survey chapter, and the first hands-on chapter with **no `librefleet`
+code at all**: Checkpoint is explicitly "none", and the hands-on runs entirely on
+`functional`, chapters 21-30's database, closing the loop those chapters opened
+(sale/purchase/stock/mrp/accounting all met a customer through a screen; POS is the
+screen for a customer standing at a counter).
+
+**Built a real till, not a described one.** Installed `point_of_sale` on `functional`,
+opened a Bakery Shop session with a $150 float, rang up two real orders (one cash, one
+card) through the actual offline SPA at `/pos/ui/...`, and closed the register.
+
+**The chapter's gotcha found itself.** Closing the register with the Cash Count field
+left at its default produced a genuine `-$167.24` "Difference" in red, a screenshot
+worth more than a paragraph describing it: `ch42-pos-closing-discrepancy.jpg`. Not
+staged, this was the actual first attempt clicking Close Register. Re-closed with the
+real count entered, difference `$0.00` across the board, and both states are now in
+the chapter as the "before" and "after" of the exact mistake a reader will make on
+their own first close.
+
+**Read the real accounting a session close produces**, not summarized: `POSS/.../0003`
+(the consolidated sales entry, one receivable line per order rather than one move per
+order) plus `PBNK1/...` and `CSH3/...` (one settlement move per payment method,
+clearing the receivable into Outstanding Receipts for Card and straight into the cash
+account for Cash, no bank statement needed since a physical drawer was just counted by
+hand). Ties directly back to chapter 27's manual journal entries and chapter 28's
+Outstanding Receipts pattern rather than introducing POS accounting as a new topic.
+
+**Website/snippets kept deliberately light**, matching §5.3's "lighter" instruction:
+installed `website`, confirmed for real that a page is exactly one `ir.ui.view`
+(`arch_db` is ordinary QWeb) and that 191 `website.s_*` templates back the snippet
+panel, captured the real Blocks panel. Attempted a live drag-and-drop of a snippet
+into the page; the `computer` tool's `left_click_drag` did not trigger the builder's
+drag handlers (needs finer-grained native drag events than a single synthetic
+drag produces), so per the standing "don't rabbit-hole on browser automation" rule,
+stopped after one attempt, discarded the half-edited page, and turned the drag itself
+into exercise 4 rather than faking a screenshot of a result never actually produced.
+
+Also verified and taught explicitly: **backend OWL components (chapters 39-41) do not
+run on the website**, `web.assets_backend` and `web.assets_frontend` are different
+bundles of the same framework. This closes a gap a reader coming straight off ch39-41
+would plausibly assume otherwise.
+
+4 odoolings checks against `--db functional`, all red-tested for real: the cash-count
+check was flipped red by writing `cash_register_balance_end_real` back to 0 on the
+closed session (reproducing the exact mistake) and confirmed it reports the same
+-167.24 figure the UI did, before restoring. Glossary gained `Point of Sale` and
+`snippet`. Three screenshots (cart, closing discrepancy, snippet panel), first chapter
+to use `<Steps>` across a Movement-style hands-on this deep into Part 7.
+
+**Part 7 (chapters 39-42, Frontend/OWL) is now fully written.** Next: Part 8, chapters
+43-50, the OCA/expert tier, opening with ch43 (OCA safari).
+
 ### 2026-08-12 — ch41 written: the dashboard client action, and a counting trap worth the chapter
 
 §5.3's "client action with an OWL component pulling data via ORM RPC", built as §5.5's
