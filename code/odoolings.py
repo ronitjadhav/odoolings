@@ -14,6 +14,7 @@ Stdlib only, nothing to install. Defaults match the tutorial's Docker env
 import argparse
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 import xmlrpc.client
@@ -1377,6 +1378,84 @@ def portal_record_rule_scopes_to_customer(env):
         % rules[0]["domain_force"])
 
 
+_BUNDLE_CACHE = {}
+
+
+def _backend_bundle(env):
+    """Fetch the backend JS bundle once per run, always freshly built.
+
+    OWL runs in the browser, so odoolings cannot execute a component. What it
+    CAN do is read the bundle the browser would download and prove the code
+    got compiled into it, which is what the manifest's "assets" key is for.
+
+    The URL matters. Odoo caches each built bundle as an ir.attachment named
+    after a content hash, and rebuilds ONLY when the web client asks for a
+    hash it has not stored yet. Read that attachment and you may be grading a
+    stale build (or, if the browser still has the good one cached, a build
+    nobody is actually running). The 'debug' unique token skips the attachment
+    lookup entirely and rebuilds from the manifest every time, which is the
+    only reliably current answer. Note it serves the non-minified bundle, so
+    the filename drops '.min'.
+    """
+    if env.db in _BUNDLE_CACHE:
+        return _BUNDLE_CACHE[env.db]
+    url = env.url + "/web/assets/debug/web.assets_web.js"
+    last = None
+    # Odoo watches the addons path and restarts itself when a file changes,
+    # which kills whatever request was in flight. Editing a component then
+    # immediately running this check reliably hits that, so retry once.
+    for attempt in range(3):
+        req = urllib.request.Request(url, headers={"X-Odoo-Database": env.db})
+        try:
+            body = urllib.request.urlopen(req, timeout=120).read().decode("utf-8", "replace")
+            _BUNDLE_CACHE[env.db] = body
+            return body
+        except urllib.error.HTTPError as exc:
+            raise AssertionError(
+                "could not fetch the backend asset bundle (HTTP %s). Is the "
+                "server running on %s?" % (exc.code, env.url))
+        except Exception as exc:  # connection reset by the auto-reload restart
+            last = exc
+            time.sleep(2)
+    raise AssertionError(
+        "could not fetch the backend asset bundle after 3 tries (%s). If you "
+        "just edited a file, Odoo's auto-reload may still be restarting; wait "
+        "a moment and re-run" % last)
+
+
+def workshop_clock_is_in_the_backend_bundle(env):
+    """Proves the manifest's assets key is right: no entry, no code in the bundle."""
+    bundle = _backend_bundle(env)
+    assert "class WorkshopClock extends Component" in bundle, (
+        "the WorkshopClock component is not in the backend bundle. Check the "
+        "manifest has an \"assets\" key (a sibling of \"data\", NOT inside it) "
+        "listing librefleet/static/src/**/*.js under \"web.assets_backend\", "
+        "then upgrade the module")
+
+
+def workshop_clock_template_is_registered(env):
+    """The .xml has to be listed in the bundle too; JS alone renders nothing."""
+    bundle = _backend_bundle(env)
+    assert 'registerTemplate("librefleet.WorkshopClock"' in bundle, (
+        "no template registered as \"librefleet.WorkshopClock\". Either the "
+        "*.xml line is missing from the manifest's assets list, or the "
+        "<t t-name=\"...\"> in workshop_clock.xml does not exactly match the "
+        "static template = \"...\" in workshop_clock.js. A mismatch throws "
+        "OwlError: Cannot find template, visible only in the browser console")
+
+
+def workshop_clock_reads_open_orders_over_rpc(env):
+    """The component's own domain, run here, so a wrong domain fails loudly."""
+    bundle = _backend_bundle(env)
+    assert "searchCount" in bundle and "librefleet.service.order" in bundle, (
+        "the component does not call orm.searchCount on librefleet.service.order. "
+        "useService(\"orm\") is how an OWL component reaches the ORM; a plain "
+        "fetch() would bypass the session and the ORM's access rules")
+    n = env.call("librefleet.service.order", "search_count",
+                  [("stage", "not in", ["done", "cancelled"])])
+    assert isinstance(n, int), "search_count did not return a number"
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -2721,6 +2800,23 @@ CHAPTERS = {
          "An ir.rule for base.group_portal with domain_force "
          "[('customer_id', '=', user.partner_id.id)]. Without it the ACL "
          "alone lets any portal user read any order."),
+    ],
+    "ch39": [
+        ("the WorkshopClock component is in the backend bundle",
+         workshop_clock_is_in_the_backend_bundle,
+         "Add an \"assets\" key to __manifest__.py, a SIBLING of \"data\", "
+         "listing librefleet/static/src/**/*.js under \"web.assets_backend\", "
+         "then upgrade. Assets never go in the \"data\" list."),
+        ("its template is registered under the matching name",
+         workshop_clock_template_is_registered,
+         "List librefleet/static/src/**/*.xml in the same assets bundle, and "
+         "make <t t-name=\"...\"> match static template = \"...\" exactly. A "
+         "mismatch only shows up as OwlError in the browser console."),
+        ("it reads open orders through the ORM service",
+         workshop_clock_reads_open_orders_over_rpc,
+         "useService(\"orm\") then orm.searchCount(\"librefleet.service.order\", "
+         "[[\"stage\", \"not in\", [\"done\", \"cancelled\"]]]). The ORM service "
+         "goes through the session, so access rules still apply."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,
