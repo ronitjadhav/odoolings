@@ -301,6 +301,31 @@ even groups them in two columns).
 </odoo>
 ```
 
+Trace the tree by id, since that is what actually renders it:
+
+- **`menu_librefleet_root`** has no `action=`. It is a pure folder, and its
+  `web_icon` is what makes it an app in the main menu (chapter 8's icon, back at
+  last).
+- **`menu_librefleet_fleet`** also has no `action=`, just a folder holding
+  Vehicles.
+- **`menu_librefleet_vehicles`** *does* have `action="action_librefleet_vehicle"`,
+  the exact XML id of the window action you defined two steps ago in
+  `vehicle_views.xml`. That is the entire connection: the menu doesn't know
+  anything about models or views, it only names an action by id, the same kind of
+  reference you have used since chapter 10.
+- **`menu_librefleet_config`** is a third folder, this one gated by `groups=`, so
+  only managers even see it exists.
+- **`menu_librefleet_service_types`** points at `action_librefleet_service_type`
+  the same way.
+
+Now follow one click all the way through, since that is "how the form comes":
+you open **Vehicles**, which points at `action_librefleet_vehicle`. That action
+says `res_model="librefleet.vehicle"` and `view_mode="list,form"`, so Odoo opens
+the *first* view type in that list for that model: the list. Click a row, and
+Odoo opens the *second* view type, the form, for that one record, still the same
+action. There is no separate "form menu" or "form action" anywhere; the order of
+`view_mode` is the only thing deciding what clicking a row does.
+
 `sequence` orders siblings, and the big gap (10, 90) is deliberate: later chapters
 slot Reporting between Fleet and Configuration without renumbering.
 </Step>
