@@ -117,11 +117,32 @@ In your workspace repository, everything goes under `addons/`:
 ```console
 $ mkdir -p addons/librefleet/static/description
 $ touch addons/librefleet/__init__.py
+$ cat > addons/librefleet/__manifest__.py << 'EOF'
+{
+    "name": "LibreFleet",
+    "summary": "Vehicle workshop & service booking management",
+    "version": "19.0.1.0.0",
+    "category": "Services",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "application": True,
+    "depends": ["base"],
+    "data": [],
+}
+EOF
 ```
 
-Create `__manifest__.py` with the content from the Concepts section. For the app
-icon, drop any 140×140 PNG at `static/description/icon.png`; the checkpoint you fetch
-in Verify below ships one you can borrow if you don't feel artistic today.
+That `__manifest__.py` is the same dict walked through line by line in the Concepts
+section above; the heredoc just saves you retyping it. **This file is the one that
+matters most**: without it, `/mnt/extra-addons` doesn't even count as a valid addons
+directory to Odoo (there's no subdirectory it recognizes as a module), and the
+install two steps from now will fail with `invalid module names, ignored: librefleet`
+and no obvious reason why. If you hit that error, `ls addons/librefleet` first.
+
+For the app icon, drop any 140×140 PNG at `static/description/icon.png`; the
+checkpoint you fetch in Verify below ships one you can borrow if you don't feel
+artistic today.
 
 That's the whole module, three files:
 
