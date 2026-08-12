@@ -1057,6 +1057,44 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (even later still) — ch47 written: migrations, Part 9 opens
+
+Opens Part 9. Built the planned interactive component (§4.4): `<MigrationChecklist>`,
+a chapter-scoped localStorage checklist (`web/components/migration-checklist.tsx`),
+registered in `mdx.tsx`, its own storage key rather than growing the shared
+`Progress` schema since nothing outside this one chapter reads it. Verified live in
+Chrome, not just `npm run build`: clicked two items, confirmed the count updated
+("2 / 9 done") and survived a full page reload.
+
+**The hands-on is a real, currently-unmigrated OCA module, not a fabricated one.**
+Found via `OCA/server-tools`'s live migration tracking issue
+([#3400](https://github.com/OCA/server-tools/issues/3400)): `html_text`, still on
+`18.0` at the time of writing. Copied its real source into `code/addons/` (temporary,
+never committed, removed and uninstalled again after), confirmed the exact real
+failure mode first (`WARNING ... The module html_text has an incompatible version,
+setting installable=False`), then bumped only the manifest version and reinstalled:
+clean install, `0 failed, 0 error(s) of 3 tests`, zero code changes needed. Cross-
+checked independently against a real, currently open PR migrating the same module,
+[`OCA/server-tools#3653`](https://github.com/OCA/server-tools/pull/3653): its
+`ir_fields_converter.py` diffed byte-identical against the `18.0` source. Two
+independent confirmations of the same finding, both real.
+
+**The deprecation-list table is entirely sourced from this project's own build
+history**, not invented for the chapter: `_sql_constraints`→`models.Constraint`
+(ch14), `t-esc`→`t-out` server-side only (ch39, with the OWL-side non-deprecation
+nuance preserved), `--without-demo=all` (ch4), controller `type="json"`→`"jsonrpc"`
+(ch37), plus `read_group`/`name_get`/`odoo.osv` from the original D1 baseline
+research. Every row cites the chapter that actually hit it.
+
+**No odoolings check**, same reasoning as ch38/ch44/ch45: the module install +
+test-suite run in the terminal is the verification, and this chapter's subject
+(an external OCA module) was never part of `tutorial`'s own state to begin with;
+it was installed, proven, and uninstalled again within the same session.
+
+**Housekeeping**: export-preview test's stub route bumped ch47 → ch48. No new
+glossary entries (OpenUpgrade, migration tracking issues, and `[MIG]` are process
+concepts already covered by existing `commit tags`/`OCA`/`PSC` entries).
+
 ### 2026-08-12 (even later) — ch46 written: LibreFleet's first real OCA-quality extraction, Part 8 done
 
 The Part 8 capstone: extracted the ch35 maintenance-reminder feature (two
