@@ -127,6 +127,12 @@ one and you can ignore it. Habits that pay off:
   *your* code.
 - `WARNING` lines are not decoration. Odoo warns about real problems (missing access
   rules, deprecated APIs) that will bite later. Read them.
+- **One recurring exception:** `missing --http-interface/http_interface, using
+  0.0.0.0 by default...` prints on every `odoo` command this tutorial's Docker setup
+  runs, starting now and continuing through the rest of the tutorial. It is
+  `odoo.conf` being verbose about a network-binding default, unrelated to whatever
+  chapter you're actually working through. Every other WARNING is worth reading;
+  this specific one is safe to skip.
 
 ### When the log isn't enough: pdb
 
