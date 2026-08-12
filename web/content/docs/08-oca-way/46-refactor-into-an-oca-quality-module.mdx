@@ -1,24 +1,436 @@
 ---
 title: "46. Refactor into an OCA-Quality Module"
-description: Not written yet, tracked in the roadmap.
+description: Pulling the maintenance-reminder feature out of LibreFleet into its own tooled, tested, standalone module.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch46`
+**Goal:** extract a real, working LibreFleet feature into its own OCA-quality
+module, tests and readme included, without breaking anything that depended on it.
+· **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch46` (two modules this
+time: `librefleet` and `librefleet_maintenance_reminder`, side by side, exactly
+like your own `addons/` will look after this chapter).
 
 ## Why this matters
 
+Part 8 has been building toward this. Chapter 43 taught you to find and judge OCA
+modules; chapter 44 brought your own module up to OCA tooling standard; chapter 45
+walked the path from a fix to a merged PR. This chapter closes the arc: taking
+something you built, that already works, and asking whether it should live in its
+own module. The maintenance-reminder feature from chapter 35 is a good candidate,
+and the reasons it's a good candidate are worth internalizing, because you'll make
+this call for real on client work.
+
 ## Concepts
+
+### Why extract a working feature at all
+
+Nothing is broken. The reasons to split it out are all about the shape of the
+codebase, not a bug:
+
+- **Optional dependency.** Not every LibreFleet install wants automatic reminders;
+  splitting it out means a shop can skip it entirely instead of disabling a cron
+  by hand.
+- **Smaller review surface.** Chapter 45's PR etiquette gets easier the smaller the
+  diff. A standalone module's PRs only ever touch one concern.
+- **The "many small modules" convention**, chapter 44's `OCA/fleet` case study
+  again: `fleet_vehicle_service_kanban` isn't bundled into core `fleet`, it's its
+  own module for exactly this reason.
+
+### Picking what to extract: how it's coupled matters
+
+Not every feature can be pulled out cleanly. The maintenance reminder touches
+`librefleet.vehicle` and `librefleet.service.order` only at the edges: two methods
+and one `base.automation` rule, none of it in the required create/booking path. A
+feature woven into `_check_no_overlap` or the approval wizard would resist
+extraction the same way a tangled function resists being split in two. Recognizing
+the difference before you start saves you from a refactor that turns into a rewrite.
+
+### The extraction mechanism is a classic extension, just across a module boundary
+
+`_inherit` with no `_name` (the *classic extension* from chapter 22, glossary
+entry and all) has always meant "add to an existing model without owning it."
+Nothing changes about the mechanism when the extending code moves into its own
+module; only the file it lives in changes:
+
+```python
+# librefleet_maintenance_reminder/models/vehicle.py
+from odoo import fields, models
+
+class Vehicle(models.Model):
+    _inherit = "librefleet.vehicle"
+
+    def action_send_maintenance_reminders(self):
+        ...
+```
+
+<Mermaid
+  label="librefleet defines librefleet.vehicle; librefleet_maintenance_reminder depends on librefleet and extends that same model with two methods and its own data files"
+  chart={`flowchart LR
+    subgraph lf["librefleet"]
+      v["librefleet.vehicle<br/>(_name)"]
+    end
+    subgraph mr["librefleet_maintenance_reminder<br/>depends: librefleet, base_automation"]
+      ext["Vehicle(_inherit)<br/>+ action_send_maintenance_reminders<br/>+ _clear_maintenance_reminder"]
+      cron["cron + automation<br/>data files"]
+    end
+    lf -.->|"depends"| mr
+    ext -.->|"extends"| v`}
+/>
+
+### XML IDs must be module-qualified once they leave home
+
+Inside `librefleet`, the cron's data file could write `ref="model_librefleet_vehicle"`,
+unqualified, because "the current module" resolved it. Once that XML moves to
+`librefleet_maintenance_reminder`, the same bare `ref` fails to resolve: it's no
+longer implicitly `librefleet`'s namespace. Every cross-module reference needs the
+owning module prefixed:
+
+```xml
+<!-- was: ref="model_librefleet_vehicle" -->
+<field name="model_id" ref="librefleet.model_librefleet_vehicle"/>
+```
+
+### Manifest hygiene: depend on what *you* use, not what your dependency happens to
+
+`librefleet` depended on `base_automation` for exactly one thing: the automation
+this chapter just moved out. Once that's gone, keeping `base_automation` in
+`librefleet`'s `depends` would be exactly the stale-dependency smell chapter 44
+taught pylint-odoo to catch elsewhere. The new module declares `base_automation`
+itself, because it's the one actually using it now. Never rely on a transitive
+dependency your own manifest doesn't claim; the module that needs something says so.
+
+### The database doesn't clean up after your manifest does
+
+This is the gotcha that actually bit during writing this chapter, not a
+hypothetical. Removing a data file from `data: [...]` and re-running `-u librefleet`
+does **not** delete the `ir.cron`, `ir.actions.server` and `base.automation` records
+that file already created. They're `noupdate="1"` (chapter 34's rule: a manager may
+have retuned them, an upgrade must not stomp that), and nothing in a plain manifest
+edit tells Odoo they should be gone entirely rather than just untouched. Real
+evidence, queried against `tutorial` right after the naive removal:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select module, name, model from ir_model_data where name in ('cron_send_maintenance_reminders','action_send_maintenance_reminders','automation_clear_maintenance_reminder','action_clear_maintenance_reminder');"
+   module   |                 name                  |       model
+------------+---------------------------------------+-------------------
+ librefleet | action_send_maintenance_reminders     | ir.actions.server
+ librefleet | cron_send_maintenance_reminders       | ir.cron
+ librefleet | automation_clear_maintenance_reminder | base.automation
+ librefleet | action_clear_maintenance_reminder     | ir.actions.server
+(4 rows)
+```
+
+Left alone, installing the new module (with the same feature, fresh xmlids under
+its own name) would leave you with two crons doing the same job. Odoo's XML
+`<delete>` tag is the textbook fix for exactly this situation, but it needs the
+record's model in the registry at data-load time, and `base.automation` isn't
+there anymore once `librefleet` stops depending on `base_automation`, a real
+chicken-and-egg this chapter walks through rather than around: a one-time, explicit
+SQL cleanup, run once, safe to never think about again.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Scaffold the new module
+
+```console
+$ mkdir -p addons/librefleet_maintenance_reminder/{models,data,tests,readme,static/description}
+$ touch addons/librefleet_maintenance_reminder/__init__.py
+$ touch addons/librefleet_maintenance_reminder/models/__init__.py
+$ touch addons/librefleet_maintenance_reminder/tests/__init__.py
+```
+
+```python
+# addons/librefleet_maintenance_reminder/__manifest__.py
+{
+    "name": "LibreFleet Maintenance Reminders",
+    "summary": "Automatic maintenance-due activities for LibreFleet vehicles",
+    "version": "19.0.1.0.0",
+    "category": "Services",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "development_status": "Beta",
+    "application": False,
+    "depends": ["librefleet", "base_automation"],
+    "data": [
+        "data/maintenance_reminder_cron.xml",
+        "data/maintenance_reminder_automation.xml",
+    ],
+}
+```
+</Step>
+
+<Step>
+### Move the code
+
+Cut `action_send_maintenance_reminders`, `_clear_maintenance_reminder` and the
+`DAYS_BETWEEN_SERVICES` constant out of `librefleet/models/vehicle.py`, into
+`librefleet_maintenance_reminder/models/vehicle.py` as a classic extension (no
+`_name`, just `_inherit`). Don't forget `models/__init__.py`:
+
+```python
+# addons/librefleet_maintenance_reminder/models/__init__.py
+from . import vehicle
+```
+
+Move the two data files the same way, and qualify their XML refs with `librefleet.`
+as in the Concepts section above (both files reference `librefleet.vehicle` and
+`librefleet.service.order`, both now living in a different module than the data).
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet_maintenance_reminder" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="vehicle.py" />
+    </Folder>
+    <Folder name="data" defaultOpen>
+      <File name="maintenance_reminder_cron.xml" />
+      <File name="maintenance_reminder_automation.xml" />
+    </Folder>
+    <Folder name="tests" defaultOpen>
+      <File name="__init__.py" />
+      <File name="test_maintenance_reminder.py" />
+    </Folder>
+    <Folder name="readme" defaultOpen>
+      <File name="DESCRIPTION.md" />
+      <File name="CONTRIBUTORS.md" />
+      <File name="ROADMAP.md" />
+    </Folder>
+    <File name="README.rst" />
+    <Folder name="static/description" defaultOpen>
+      <File name="icon.png" />
+    </Folder>
+  </Folder>
+</Files>
+</Step>
+
+<Step>
+### Trim librefleet's own manifest
+
+Remove the two data entries, and `base_automation` from `depends`:
+
+```python
+"depends": ["base", "product", "web", "portal"],
+"data": [
+    "security/librefleet_security.xml",
+    "security/ir.model.access.csv",
+    "data/ir_sequence.xml",
+    "data/mail_template.xml",
+    "data/service_type_master.xml",
+    "report/service_order_report.xml",
+    ...
+],
+```
+
+Bump the version: real code changed.
+</Step>
+
+<Step>
+### Move the tests, and don't forget the import
+
+Migrate `test_maintenance_reminder_is_idempotent` out of
+`librefleet/tests/test_service_order.py` into a new
+`librefleet_maintenance_reminder/tests/test_maintenance_reminder.py`, and write a
+second test while you're there: that a completed service order actually clears the
+reminder, the automation half nothing had tested directly before. Then wire it up:
+
+```python
+# addons/librefleet_maintenance_reminder/tests/__init__.py
+from . import test_maintenance_reminder
+```
+
+<Callout type="warn" title="Gotcha">
+  Skip that import and Odoo runs **zero** tests from this file, silently, no error,
+  no warning. It happened while writing this chapter: `--test-tags` reported
+  "0 tests" until the missing import was noticed. `tests/__init__.py` isn't
+  boilerplate, it's the only thing that makes a test file discoverable at all.
+</Callout>
+</Step>
+
+<Step>
+### Upgrade librefleet first, then clean up what it leaves behind
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+This succeeds cleanly, no errors, no warnings, which is exactly the trap: the four
+old records are still sitting in the database (query them yourself, same as the
+Concepts section). Remove them once, explicitly, in dependency-safe order (the
+action referencing the automation goes first, then the automation, then the cron,
+then the action it delegated to):
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial
+```
+```sql
+BEGIN;
+DELETE FROM ir_act_server WHERE id = <action_clear_maintenance_reminder's res_id>;
+DELETE FROM base_automation WHERE id = <automation_clear_maintenance_reminder's res_id>;
+DELETE FROM ir_cron WHERE id = <cron_send_maintenance_reminders's res_id>;
+DELETE FROM ir_act_server WHERE id = <action_send_maintenance_reminders's res_id>;
+DELETE FROM ir_model_data WHERE module = 'librefleet' AND name IN (
+  'cron_send_maintenance_reminders', 'action_send_maintenance_reminders',
+  'automation_clear_maintenance_reminder', 'action_clear_maintenance_reminder'
+);
+COMMIT;
+```
+
+Read the four ids off the same `ir_model_data` query from the Concepts section
+before running this. One-time surgery, not something you automate for a tutorial
+of this size, real teams reach for exactly this on a live database when a
+migration script would be overkill.
+</Step>
+
+<Step>
+### Install the new module, and prove there's exactly one of everything
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i librefleet_maintenance_reminder --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Module librefleet_maintenance_reminder loaded in 0.15s, 114 queries (+114 other)
+INFO tutorial odoo.modules.loading: Modules loaded.
+$ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from base_automation;"
+ count
+-------
+     1
+```
+
+One automation, not two. The feature moved, it didn't duplicate.
+</Step>
+
+<Step>
+### Run pre-commit and the module's own tests
+
+```console
+$ pre-commit run --all-files
+```
+
+Chapter 44's stack, now covering both modules, catching whatever it finds the same
+way it did there (this chapter's own first run caught one ruff import-order fix and
+generated a fresh `README.rst` from `librefleet_maintenance_reminder/readme/`'s
+fragments, same shape as every other chapter's README by now).
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet,librefleet_maintenance_reminder \
+    --test-tags /librefleet,/librefleet_maintenance_reminder --http-port=8070 --stop-after-init
+...
+INFO tutorial odoo.tests.result: 0 failed, 0 error(s) of 6 tests when loading database 'tutorial'
+```
+
+`--http-port=8070` again, chapter 38's answer to running tests against a database
+your main server is already serving on 8069.
+</Step>
+
+</Steps>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch46
+✔ librefleet_maintenance_reminder is installed
+✔ librefleet no longer depends on base_automation
+✔ exactly one maintenance-clearing automation exists
+
+ch46 complete! On to the next chapter 🔧
+```
+
+And, unchanged, chapter 35's own check:
+
+```console
+$ python3 odoolings.py check ch35
+✔ base_automation is installed
+✔ the maintenance-reminder cron exists
+✔ the reminder action is bound to the Vehicles list
+✔ running it reminded an overdue vehicle
+✔ finishing an order cleared its vehicle's reminder
+
+ch35 complete! On to the next chapter 🔧
+```
+
+That second check passing unmodified is the point of the whole chapter: a correct
+extraction is invisible from the outside. Everything chapter 35 proved still holds,
+now backed by a smaller `librefleet` and a standalone, independently-tested,
+independently-versioned module.
 
 ## Gotchas
 
+- **Removing a data file from the manifest doesn't delete what it already
+  created.** `noupdate="1"` records become orphaned, not gone, and nothing warns
+  you. Plan for an explicit cleanup step whenever a refactor moves data-created
+  records to a new module.
+- **XML refs need the owning module prefixed once they leave it.** A bare `ref`
+  that resolved fine inside `librefleet` fails silently different (a real
+  `ValueError` at load time, at least, not a silent skip) the moment the file
+  moves.
+- **A missing `tests/__init__.py` import means zero tests run, with zero errors.**
+  If `--test-tags` reports fewer tests than you wrote, check the import first.
+- **Removing a dependency from `depends` does not uninstall it.** `base_automation`
+  stayed `installed` in the database the whole time; only a fresh reader building
+  their environment from scratch would ever not have it, once
+  `librefleet_maintenance_reminder` itself depends on it.
+- **Delete linked records in dependency order.** The record being referenced goes
+  after the record referencing it, or you'll hit a foreign-key error mid-cleanup.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You moved a data file to a new module and re-ran `-u` on the old one. The old ir.cron record from that file is still in the database. Why?',
+      options: [
+        "removing a filename from data: [...] only stops future processing, it never deletes",
+        'this only happens if you forget to bump the module version number before upgrading',
+        "it's a bug specific to this scenario; Odoo normally deletes orphaned records for you",
+      ],
+      answer: 0,
+      why: "Manifest changes only control what a load processes going forward. Nothing about removing a filename from data: [...] tells Odoo the records that file once created should be deleted.",
+    },
+    {
+      q: "A cross-module XML ref like `ref=\"model_librefleet_vehicle\"` worked inside librefleet but fails once the file moves to a new module. What's the fix?",
+      options: [
+        "depend on the defining module instead of qualifying the ref, that alone resolves it",
+        'prefix it with the owning module: `librefleet.model_librefleet_vehicle`',
+        'rename the xmlid to something globally unique so qualification is never needed',
+      ],
+      answer: 1,
+      why: 'Bare refs resolve relative to the current module. Crossing a module boundary means the reference needs the owning module named explicitly, same as any cross-module reference in Odoo.',
+    },
+    {
+      q: "Your new test file's test count shows 0 when you run --test-tags, even though you wrote two tests. Most likely cause?",
+      options: [
+        'a missing @tagged("post_install") decorator on the test class itself',
+        "tests/__init__.py never imports the file, so it's never discovered",
+        '--http-port was left at its default instead of being set explicitly',
+      ],
+      answer: 1,
+      why: "Odoo discovers tests by importing tests/__init__.py at module load. A file that's never imported is a file Odoo never sees, silently, no error.",
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Uninstall `librefleet_maintenance_reminder` from the Apps UI, confirm the
+   Vehicles list's "Send maintenance reminders now" action disappears and
+   `librefleet` itself keeps working, then reinstall it.
+2. ⭐⭐ Run `pre-commit run --all-files` against both modules together and confirm
+   nothing in one module's config leaks into the other's (each keeps its own
+   `README.rst`, generated from its own `readme/` fragments).
+3. ⭐⭐⭐ Pick one more LibreFleet feature loosely coupled enough to extract (the
+   loaner-vehicle logic is a reasonable candidate), and do the same exercise this
+   chapter just walked: new module, moved code, qualified refs, migrated tests,
+   and the same database cleanup this chapter's Hands-on required.
+
 ## Further reading
+
+- <Icon name="docs" /> [Define module data (official tutorial)](https://www.odoo.com/documentation/19.0/developer/tutorials/define_module_data.html):
+  the `<delete>` tag and the rest of the data-file grammar in full.
+- <Icon name="docs" /> [Module manifest reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html):
+  revisit chapter 8's first read of this now that `depends` hygiene actually matters.
+- <Icon name="source" /> [OCA/fleet](https://github.com/OCA/fleet): chapter 44's
+  case study, still the best real example of "many small modules" done well.

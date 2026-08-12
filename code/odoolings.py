@@ -1664,6 +1664,43 @@ def cash_count_matches_reality(env):
         "Count the drawer (or type the expected total) before closing." % diff)
 
 
+def maintenance_reminder_module_is_installed(env):
+    mod = env.call("ir.module.module", "search_read",
+                    [("name", "=", "librefleet_maintenance_reminder")],
+                    fields=["state"])
+    assert mod and mod[0]["state"] == "installed", (
+        "librefleet_maintenance_reminder is not installed. -i "
+        "librefleet_maintenance_reminder from the CLI, after moving the code "
+        "and data files out of librefleet.")
+
+
+def librefleet_no_longer_depends_on_base_automation(env):
+    mod = env.call("ir.module.module", "search_read",
+                    [("name", "=", "librefleet")], fields=["dependencies_id"])
+    assert mod, "librefleet is not installed"
+    deps = env.call("ir.module.module.dependency", "read",
+                     mod[0]["dependencies_id"], ["name"])
+    dep_names = {d["name"] for d in deps}
+    assert "base_automation" not in dep_names, (
+        "librefleet's manifest still lists base_automation as a dependency. "
+        "Nothing in librefleet's own code uses it anymore once the reminder "
+        "logic moves to librefleet_maintenance_reminder, remove it from depends.")
+
+
+def exactly_one_maintenance_automation(env):
+    automations = env.call("base.automation", "search_read", [],
+                            fields=["name"])
+    reminder_automations = [a for a in automations
+                             if a["name"] == "Clear the maintenance reminder "
+                                              "when a service order is done"]
+    assert len(reminder_automations) == 1, (
+        "expected exactly one 'Clear the maintenance reminder...' automation, "
+        "found %d. A leftover record from librefleet (before its data file was "
+        "removed) alongside the new one in librefleet_maintenance_reminder "
+        "would double-fire the automation; see this chapter's cleanup SQL." %
+        len(reminder_automations))
+
+
 def demo_partner_exists(env):
     rows = env.call("res.partner", "search_read",
                     [("name", "=", "Nora Baumann")], fields=["id"])
@@ -3087,6 +3124,23 @@ CHAPTERS = {
          "The Closing Register screen's Cash Count field defaults to 0. "
          "Enter the actual (or expected) drawer total before clicking "
          "Close Register, or the session reports a fake shortfall."),
+    ],
+    "ch46": [
+        ("librefleet_maintenance_reminder is installed",
+         maintenance_reminder_module_is_installed,
+         "mkdir addons/librefleet_maintenance_reminder, move the code and "
+         "data files per the chapter, then -i librefleet_maintenance_reminder."),
+        ("librefleet no longer depends on base_automation",
+         librefleet_no_longer_depends_on_base_automation,
+         "Remove 'base_automation' from librefleet's own __manifest__.py "
+         "depends list; the new module declares it instead, since it's the "
+         "one actually using it now."),
+        ("exactly one maintenance-clearing automation exists",
+         exactly_one_maintenance_automation,
+         "If this fails with 2, librefleet's old data file created a record "
+         "that a plain -u never deleted. Run this chapter's cleanup SQL "
+         "against the leftover ir_model_data-tracked rows under module="
+         "'librefleet'."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,

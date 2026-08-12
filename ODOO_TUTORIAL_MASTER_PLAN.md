@@ -1057,6 +1057,53 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (even later) — ch46 written: LibreFleet's first real OCA-quality extraction, Part 8 done
+
+The Part 8 capstone: extracted the ch35 maintenance-reminder feature (two
+`librefleet.vehicle` methods, a cron, a `base.automation` rule) out of `librefleet`
+into a brand-new standalone module, `librefleet_maintenance_reminder`, tooled to
+ch44's pre-commit standard from day one (own manifest, own `development_status`,
+own real generated README from real `readme/` fragments, own tests).
+
+**Two real, non-obvious problems surfaced during the actual extraction, both now
+documented as the chapter's central Gotchas**, neither anticipated before doing the
+work for real:
+
+1. **Removing a data file from `data: [...]` and re-upgrading does not delete the
+   `noupdate="1"` records that file already created.** Verified via a direct psql
+   query: after a clean, error-free `-u librefleet`, the four old records
+   (`ir.cron`, two `ir.actions.server`, one `base.automation`) were still sitting
+   in the database under `module='librefleet'`. Installing the new module with
+   fresh xmlids for the same feature would have silently doubled the automation.
+   The textbook Odoo fix (an XML `<delete>` tag) turned out to be a dead end here:
+   it needs `base.automation`'s model in the registry at data-load time, which
+   requires the `base_automation` dependency that this exact refactor correctly
+   removes from `librefleet`'s manifest, a genuine chicken-and-egg. Resolved with
+   one-time, explicit SQL, in dependency-safe order (verified for real, twice: once
+   naively in the wrong order to confirm it fails, once correctly).
+2. **A `tests/__init__.py` with no import silently discovers zero tests.** No
+   error, no warning, `--test-tags` just reports "0 tests". Hit for real while
+   writing this chapter (an empty `__init__.py` left over from `touch`), caught by
+   noticing the suspiciously-empty test count rather than by any tooling flagging it.
+
+**New odoolings checks, `ch46`**: module installed, `librefleet`'s manifest no
+longer lists `base_automation` (read via `ir.module.module.dependencies_id` →
+`ir.module.module.dependency`, confirmed real over XML-RPC), and exactly one
+matching `base.automation` record exists (the anti-duplication check, the sharpest
+test of whether the cleanup actually worked). All three verified red (before the
+SQL cleanup, the duplication check would have failed) and green (after) for real.
+Chapter 35's own pre-existing checks were re-run unmodified and stayed green,
+which is the whole point: a correct extraction is invisible from the outside.
+
+**Checkpoint shape changed**: `code/checkpoints/ch46/` now holds two module
+directories (`librefleet/`, `librefleet_maintenance_reminder/`) side by side,
+the first checkpoint to do this. Future multi-module chapters should follow the
+same shape rather than inventing a new one.
+
+**Housekeeping**: export-preview test's stub route bumped ch46 → ch47 (Part 9's
+opener, `09-integrator-craft/47-migrations`). No new glossary entries (classic
+extension, base.automation, noupdate are all already defined).
+
 ### 2026-08-12 (later still, once more) — ch45 written: contributing to OCA, and a scoping decision on "do a real contribution"
 
 The plan's §5.3 line for ch45 calls for the chapter to walk through "a real first

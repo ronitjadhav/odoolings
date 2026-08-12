@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Extending a view we do not own. Same mechanism as ch16, but the target
+         belongs to `base`, so the ref is module-qualified: base.view_partner_form.
+         We only add nodes; nothing core is replaced, so any other module that
+         patches this form still gets what it expects. -->
+    <record id="view_partner_form_librefleet" model="ir.ui.view">
+        <field name="name">res.partner.form.librefleet</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <!-- core ships an empty <div name="button_box"/>, so "inside" is
+                 the safe position: no sibling to anchor before or after. -->
+            <div name="button_box" position="inside">
+                <button class="oe_stat_button" type="object"
+                        name="action_librefleet_vehicles" icon="fa-car"
+                        invisible="librefleet_vehicle_count == 0">
+                    <field name="librefleet_vehicle_count" widget="statinfo"
+                           string="Vehicles"/>
+                </button>
+            </div>
+        </field>
+    </record>
+
+</odoo>
