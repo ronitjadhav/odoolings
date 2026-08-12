@@ -123,7 +123,11 @@ That is the "no mechanism fired" state, and it is what you compare against.
 
 #### 2. Turn pricelists on
 
-**Settings → Sales → Pricing → Pricelists**, tick it, save. Then look again:
+**Settings → Sales**, under the **Pricing** section, tick **Pricelists**, save.
+
+![The Sales app's Pricing settings section: Discounts unchecked, Promotions/Loyalty & Gift Card checked, Pricelists checked with a link to manage them, Margins unchecked](/screens/ch23-sales-pricing-settings.jpg)
+
+Then look again:
 
 ```python
 >>> env["product.pricelist"].search_count([])
@@ -141,6 +145,8 @@ On **your own company's** Default pricelist, add two items:
 1. **All Products**, Discount, **10%**.
 2. **Product Variant** = `Brake Pad Set (Front)`, Fixed Price, **60.00**.
 
+![The Default pricelist's two rules: Variant Brake Pad Set (Front) at $60.00, and All Products at 10% discount on sales price](/screens/ch23-pricelist-two-rules.jpg)
+
 #### 4. Quote it and watch the price
 
 Make a new quotation, set its **Pricelist** to that Default, and add 2 of
@@ -150,7 +156,10 @@ Make a new quotation, set its **Pricelist** to that Default, and add 2 of
 
 Install **Coupons & Loyalty** (Apps, search `sale_loyalty`). The demo data includes a
 discount-code programme called *Code for 10% on orders*, whose code is `10pc`. On your
-quotation, open the **Discount & Loyalty** section and enter that code.
+quotation, click the **Coupon Code** button below the order lines, enter that code in
+the "Enter Promotion or Coupon Code" dialog, and **Apply**.
+
+![The quotation after both mechanisms: Brake Pad Set (Front) at the pricelist's $60.00 unit price, and a separate "10% on your order" line at -$12.00, total $124.20](/screens/ch23-quotation-pricelist-and-reward.jpg)
 
 ### Movement 2: read what it did
 
