@@ -160,8 +160,12 @@ And three things that are real syntax, not just field names:
 - Every `<record>` gets an **<Term k="XML id (external id)">XML id</Term>** (`id="group_librefleet_user"`), a stable
   handle other files and modules use to point at the record. `ref("...")` resolves
   one; ids from other modules need the module prefix (`base.group_user`).
-- `eval="[(4, ref(...))]"` is the ORM's list-manipulation syntax for x2many fields:
-  code `4` means "link this existing record". Chapter 12 covers the whole family.
+- `eval="[(4, ref(...))]"` is the ORM's command syntax for x2many fields, and every
+  command is a small integer, not an arbitrary one: `0` would create a brand-new
+  related record, `6` would replace the whole set, and `4` links to one that
+  already exists, which is all you want here. Chapter 12 names the rest of the
+  family and their readable `Command.link(...)`-style spellings; for now, `4`
+  just means "link, don't create".
 - The Manager group adds `base.user_admin` to `user_ids`. Skip that line and even
   admin stays locked out of your app; core modules do exactly the same.
 </Step>
