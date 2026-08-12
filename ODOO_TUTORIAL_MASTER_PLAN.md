@@ -1057,6 +1057,38 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later still) — ch43 written: OCA Safari opens Part 8
+
+First chapter of Part 8, and like ch2 (which it deliberately doesn't repeat), a pure
+research chapter: no `librefleet` code, no odoolings checks, Checkpoint "none". Ch2
+already covers the OCA players map, repo-by-domain organization, PSC mention, and
+branch-per-version with its own hands-on browse of `OCA/server-tools`; ch43 goes one
+level deeper: finding modules via the OCA's own catalog
+(`apps.odoo-community.org/modules`, reached from `odoo-community.org/apps`, distinct
+from raw GitHub browsing and from the third-party `apps.odoo.com` store), judging
+maturity via the `development_status` manifest key (Alpha/Beta/Production-Stable/
+Mature, Beta the silent default) and the README badge row, and reading real OCA
+source as study material.
+
+**Case study: `OCA/fleet` next to LibreFleet.** Confirmed real via `gh api`: the
+`19.0` branch holds `fleet_vehicle_service_kanban`, `fleet_vehicle_service_services`,
+`fleet_vehicle_inspection`, and others, LibreFleet's direct real-world parallel. Read
+two real manifests: `fleet_vehicle_service_services` declares no `development_status`
+(confirming Beta as the true silent default), `fleet_vehicle_service_kanban` declares
+`Production/Stable`. Read that module's generated `README.rst`: the
+`oca-gen-addon-readme` warning comment plus `source digest: sha256:...` marker, and
+the badge row (maturity, license, GitHub, Weblate "Translate me", Runboat "Try me").
+
+**Glossary gained four terms**, all new jargon this chapter introduces and none of
+which existed before: `CLA`, `development_status`, `ocabot`, `Weblate`. (`OCA`, `PSC`,
+`Runboat`, `commit tags` already existed from ch2.)
+
+**Housekeeping note**: `web/tests/export-preview.test.mjs` hardcodes the current
+"next stub" chapter for its noindex/sitemap assertions (by design, per its own
+comment: a literal count would go stale silently). Writing ch43 required bumping that
+route from ch43 to ch44, same as every prior chapter completion; `npm run test:ci`
+catches it if forgotten.
+
 ### 2026-08-12 (later) — ch42 written: website/snippets/POS survey, Part 7 (chapters 39-42) done
 
 §5.3's lighter survey chapter, and the first hands-on chapter with **no `librefleet`
