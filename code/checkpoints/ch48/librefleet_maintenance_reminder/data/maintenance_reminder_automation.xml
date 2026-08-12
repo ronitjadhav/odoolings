@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate: same reasoning as the cron file, a manager may disable this. -->
+    <data noupdate="1">
+
+        <record id="automation_clear_maintenance_reminder" model="base.automation">
+            <field name="name">Clear the maintenance reminder when a service order is done</field>
+            <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
+            <!-- "On update" plus a before/after domain pair, so this fires once,
+                 on the transition into done, not on every save of an already-
+                 done order. There is no on_stage_set trigger for a plain
+                 Selection field, that shortcut only exists for stage_id
+                 many2ones on kanban-pipeline models. -->
+            <field name="trigger">on_create_or_write</field>
+            <field name="filter_pre_domain">[('stage', '!=', 'done')]</field>
+            <field name="filter_domain">[('stage', '=', 'done')]</field>
+        </record>
+
+        <record id="action_clear_maintenance_reminder" model="ir.actions.server">
+            <field name="name">Clear the vehicle's maintenance reminder</field>
+            <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
+            <field name="base_automation_id" ref="automation_clear_maintenance_reminder"/>
+            <field name="state">code</field>
+            <field name="code">records.mapped('vehicle_id')._clear_maintenance_reminder()</field>
+        </record>
+
+    </data>
+</odoo>

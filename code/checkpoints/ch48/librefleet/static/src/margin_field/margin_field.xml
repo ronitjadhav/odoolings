@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.MarginField">
+        <span t-att-class="cssClass">
+            <i class="fa" t-att-class="iconClass"/>
+            <span t-out="formattedValue"/>
+        </span>
+    </t>
+
+</templates>
