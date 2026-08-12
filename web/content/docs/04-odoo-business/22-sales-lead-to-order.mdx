@@ -133,7 +133,16 @@ snapshot: 15 models, 709 records (database 'functional')
 
 #### 2. Take a lead through the pipeline
 
-In **CRM → New**, create a lead called `Fleet brake refresh` and set a customer on it.
+CRM ships with the **Leads** feature off by default, which skips straight to creating
+an opportunity and hides the conversion step this chapter is about. Turn it on first:
+**CRM → Configuration → Settings**, tick **Leads** ("Add a qualification step before
+the creation of an opportunity"), **Save**. A new **Leads** menu appears in the top bar.
+
+In **CRM → Leads → New**, create a lead called `Fleet brake refresh` and set a
+customer on it.
+
+![A CRM lead form: title field, Probability, Company Name, Contact Name, and a Convert to Opportunity button top left](/screens/ch22-lead-convert-to-opportunity.jpg)
+
 Then use **Convert to Opportunity**. Watch the breadcrumb: you are still on the same
 record.
 
@@ -288,6 +297,10 @@ outgoing picking linked to it.
 
 ## Gotchas
 
+- **The Leads feature is off by default.** Without it, CRM's "New" button creates an
+  opportunity directly, no lead, no Convert button, and this chapter's whole point
+  (conversion reuses the record) has nothing to show. Turn it on in CRM →
+  Configuration → Settings first.
 - **`sale._action_confirm` is empty, so searching it for the delivery logic finds
   nothing.** The document-creating code lives in whichever bridge module is installed,
   most often `sale_stock`. When you need to know what confirmation does *in this
