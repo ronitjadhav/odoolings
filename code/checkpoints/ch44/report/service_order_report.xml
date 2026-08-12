@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="action_report_service_order" model="ir.actions.report">
+            <field name="name">Service Report</field>
+            <field name="model">librefleet.service.order</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">librefleet.report_service_order</field>
+            <field name="report_file">librefleet.report_service_order</field>
+            <field name="print_report_name">'Service Report - %s' % (object.reference)</field>
+            <field name="binding_model_id" ref="model_librefleet_service_order"/>
+            <field name="binding_type">report</field>
+        </record>
+
+        <!-- Wrapper: one per selected record, same shape as core's
+             account.report_invoice, so several orders print as several pages
+             in one PDF. -->
+        <template id="report_service_order">
+            <t t-call="web.html_container">
+                <t t-foreach="docs" t-as="o">
+                    <t t-call="librefleet.report_service_order_document" t-lang="o.customer_id.lang"/>
+                </t>
+            </t>
+        </template>
+
+        <template id="report_service_order_document">
+            <t t-call="web.external_layout">
+                <div class="page">
+                    <h2>
+                        Service Report
+                        <span t-field="o.reference"/>
+                    </h2>
+
+                    <div class="row mt-4">
+                        <div class="col-6">
+                            <strong>Vehicle</strong>
+                            <p>
+                                <span t-field="o.vehicle_id.license_plate"/><br/>
+                                <span t-field="o.vehicle_id.model_name"/>
+                            </p>
+                        </div>
+                        <div class="col-6">
+                            <strong>Customer</strong>
+                            <div t-field="o.customer_id"
+                                 t-options='{"widget": "contact", "fields": ["address", "name"], "no_marker": True}'/>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-6">
+                            <strong>Service type:</strong> <span t-field="o.service_type_id.name"/>
+                        </div>
+                        <div class="col-6">
+                            <strong>Technicians:</strong>
+                            <span t-out="', '.join(o.technician_ids.mapped('name'))"/>
+                        </div>
+                    </div>
+
+                    <table class="table table-sm mt-4">
+                        <thead>
+                            <tr>
+                                <th>Part</th>
+                                <th class="text-end">Qty</th>
+                                <th class="text-end">Unit price</th>
+                                <th class="text-end">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="o.line_ids" t-as="line">
+                                <td><span t-field="line.part_id.name"/></td>
+                                <td class="text-end"><span t-field="line.qty"/></td>
+                                <td class="text-end">
+                                    <span t-field="line.price_unit" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                                <td class="text-end">
+                                    <span t-field="line.subtotal" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" class="text-end"><strong>Parts total</strong></td>
+                                <td class="text-end">
+                                    <span t-field="o.parts_total" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td colspan="3" class="text-end"><strong>Labor</strong></td>
+                                <td class="text-end">
+                                    <span t-field="o.labor_total" t-options='{"widget": "float", "precision": 2}'/>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    <!-- margin is deliberately never printed here: it is what the
+                         workshop earns, not something a customer document shows. -->
+                </div>
+            </t>
+        </template>
+
+    </data>
+</odoo>

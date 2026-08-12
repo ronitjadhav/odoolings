@@ -1,24 +1,471 @@
 ---
 title: "44. OCA Tooling on Your Own Module"
-description: Not written yet, tracked in the roadmap.
+description: Running the same pre-commit stack, readme generation and manifest checks that gate every OCA PR, against LibreFleet itself.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch44`
+**Goal:** wire up pre-commit, ruff, pylint-odoo and readme generation, then fix
+whatever they find in 36 chapters of accumulated LibreFleet code. · **Time:** ~2 h ·
+**Checkpoint:** `code/checkpoints/ch44`
 
 ## Why this matters
 
+Chapter 43 showed you what a properly-tooled OCA module looks like from the outside:
+badges, a generated README, a declared maturity level. This chapter builds that same
+setup and points it at your own code. LibreFleet has never had a linter anywhere near
+it, and that's normal. No real project starts with tooling in place; every team adopts
+it partway through, points it at code nobody was watching for style, and fixes what
+comes back. That's today's hands-on, not a contrived example: the findings below are
+what pre-commit genuinely found the first time it ran against this exact codebase.
+
 ## Concepts
+
+### What each tool actually checks
+
+<CardGrid cols={2}>
+  <Card tone="sage" icon={<Icon name="tool" />} title="ruff">
+    Python formatting and a large, fast rule set (unused imports, bug-prone patterns,
+    import order). Runs in milliseconds; most of what it finds it fixes itself with
+    `--fix`.
+  </Card>
+  <Card tone="sand" icon={<Icon name="tool" />} title="pylint-odoo">
+    A pylint plugin with Odoo-specific rules ruff can't express: manifest keys,
+    translation usage, ORM anti-patterns like writing inside a compute. This is the
+    OCA-specific layer.
+  </Card>
+  <Card tone="violet" icon={<Icon name="tool" />} title="prettier">
+    Formats the non-Python files: XML views, JS, JSON. The OWL work from chapter 39
+    on is exactly what this catches.
+  </Card>
+  <Card tone="plain" icon={<Icon name="tool" />} title="pre-commit">
+    The runner that wires all three (and more) into one command, `pre-commit run`,
+    triggered automatically on `git commit` once installed. Each hook gets its own
+    isolated environment; you don't install ruff or pylint-odoo yourself.
+  </Card>
+</CardGrid>
+
+pre-commit itself is a Python tool (`pip install pre-commit`, a one-time setup step
+same as Docker or git). Everything each individual hook needs, pre-commit fetches and
+builds the first time you run it.
+
+### The config, hook by hook
+
+`.pre-commit-config.yaml` lives at your workspace root, next to `docker-compose.yml`:
+
+```yaml
+default_language_version:
+  python: python3
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-xml
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        exclude: /README\.rst$
+      - id: trailing-whitespace
+        exclude: /README\.rst$
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/OCA/pylint-odoo
+    rev: v9.3.15
+    hooks:
+      - id: pylint_odoo
+        args: ["--rcfile=.pylintrc"]
+  - repo: https://github.com/oca/maintainer-tools
+    rev: c08659518fb287683074f0a6aacda984815ac7b1
+    hooks:
+      - id: oca-gen-addon-readme
+        args:
+          - --addons-dir=addons
+          - --branch=19.0
+          - --org-name=YOUR-GITHUB-USER
+          - --repo-name=odoolings-starter
+          - --if-source-changed
+```
+
+Each `repo:` entry is a separate git repository pre-commit clones and runs hooks
+from, pinned to a `rev` the same way a manifest pins a dependency version. This is
+a trimmed version of what a real OCA repo runs (`OCA/fleet`'s actual config also
+wires up eslint, eslint's node toolchain, and `whool`, none of which LibreFleet
+needs yet), but every hook here is real and does the same job on your module that it
+does on theirs.
+
+Two more files it leans on, both at the workspace root too. `.ruff.toml`:
+
+```toml
+target-version = "py312"
+
+[lint]
+extend-select = ["B", "I"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401", "I001"]
+"__manifest__.py" = ["B018"]
+```
+
+And `.pylintrc`, which enables pylint-odoo's Odoo-specific checks explicitly (its
+default is "check nothing" until you opt in) and declares the facts about your
+project the manifest-related checks verify against:
+
+```ini
+[MASTER]
+load-plugins=pylint_odoo
+score=n
+
+[ODOOLINT]
+manifest-required-authors=Odoolings readers
+manifest-required-keys=license
+license-allowed=AGPL-3,GPL-2,GPL-2 or any later version,GPL-3,GPL-3 or any later version,LGPL-3
+valid-odoo-versions=19.0
+
+[MESSAGES CONTROL]
+disable=all
+enable=dangerous-default-value,development-status-allowed,license-allowed,
+    manifest-author-string,manifest-required-author,manifest-required-key,
+    manifest-version-format,method-required-super,missing-return,
+    print-used,sql-injection,translation-required
+```
+
+<Callout type="info" title="In the field">
+  Real OCA repos actually ship two rcfiles: a full `.pylintrc` with every optional
+  check enabled (loaded in your editor, so nothing is hidden from you) and a shorter
+  `.pylintrc-mandatory` with only the checks that block a merge (what pre-commit
+  actually runs). We collapsed that into one file here to keep today's setup
+  readable; once you're contributing for real in chapter 45, you'll meet the split.
+</Callout>
+
+### readme fragments, not README.rst
+
+Chapter 43 showed you the generated file. The source you actually maintain is three
+small markdown files under `readme/`:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__manifest__.py" />
+    <Folder name="readme" defaultOpen>
+      <File name="DESCRIPTION.md" />
+      <File name="CONTRIBUTORS.md" />
+      <File name="ROADMAP.md" />
+    </Folder>
+    <File name="README.rst" />
+  </Folder>
+</Files>
+
+`oca-gen-addon-readme` (the last hook in the config above) reads those fragments plus
+your manifest (`name`, `author`, `license`, `development_status`) and writes
+`README.rst`, badges and all. Edit the fragments, run pre-commit, the README updates
+itself. Never the reverse.
+
+### Manifest conventions this chapter adds
+
+Two things LibreFleet's manifest has been missing since chapter 8:
+
+- **`development_status`**: chapter 43 covered the values. LibreFleet is real code
+  built across a tutorial and still growing, so `"Beta"` is the honest call, declared
+  explicitly rather than left to the silent default.
+- **A version bump**, same rule as every chapter since 8: real code changed, so the
+  patch number moves.
+
+### Module naming, revisited
+
+Chapter 8 picked `librefleet` specifically to avoid colliding with core's `fleet`
+module. That's the OCA naming rule in miniature: technical names share one global
+namespace, so real projects prefix theirs (a client trigram, a product name) the same
+way we did. Nothing to change here, just confirming chapter 8's call still holds.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Add the three config files
+
+Add `.pre-commit-config.yaml`, `.ruff.toml` and `.pylintrc` from the Concepts section
+above to your workspace root (not inside `addons/`), then install pre-commit if you
+haven't already:
+
+```console
+$ pip install pre-commit
+```
+</Step>
+
+<Step>
+### Run it, and read what comes back
+
+```console
+$ pre-commit run --all-files
+```
+
+The first run against LibreFleet's actual code (no config tuning applied yet) turned
+up real findings, condensed here to the interesting parts:
+
+```text
+F401 `.vehicle` imported but unused; consider removing, adding to `__all__`, or using a redundant alias
+ --> addons/librefleet/models/__init__.py:4:15
+help: Use an explicit re-export: `vehicle as vehicle`
+Found 15 errors.
+
+ruff format..............................................................Failed
+- hook id: ruff-format
+- files were modified by this hook
+12 files reformatted, 6 files left unchanged
+
+Check for Odoo modules using pylint......................................Failed
+- hook id: pylint_odoo
+- exit code: 20
+
+addons/librefleet/models/service_order.py:67: [missing-return, ServiceOrder._compute_access_url] Missing `return` (`super` is used) in method _compute_access_url.
+addons/librefleet/models/service_order.py:107: [translation-required, ServiceOrder._check_no_overlap] String parameter on "ValidationError" requires translation. Use self.env._('An order must end after it starts (check the schedule).')
+addons/librefleet/models/service_order.py:122: [translation-required, ServiceOrder._check_no_overlap] String parameter on "ValidationError" requires translation.
+addons/librefleet/models/vehicle.py:56: [translation-required, Vehicle._check_year] String parameter on "ValidationError" requires translation.
+```
+
+Fifteen ruff F401 hits, all on `__init__.py` files doing `from . import vehicle`,
+exactly the registration pattern chapter 9 taught you: importing a module by name to
+run it, never to use the name. Ruff can't tell that apart from a genuine unused
+import without help, which is what `.ruff.toml`'s `per-file-ignores` for
+`__init__.py` is for. Add it and the 15 errors disappear; `ruff-format`'s 12
+reformatted files are just whitespace and quote-style normalization, harmless, and
+worth committing as-is.
+</Step>
+
+<Step>
+### Fix what pylint-odoo actually found
+
+Two are real: `ValidationError` messages need to route through translation, or a
+French-speaking user sees the error in English forever. Odoo 19's idiom is
+`self.env._()`, a method now, not the old bare `_()` import:
+
+```python
+# addons/librefleet/models/service_order.py, _check_no_overlap
+raise ValidationError(
+    self.env._("An order must end after it starts (check the schedule).")
+)
+...
+raise ValidationError(
+    self.env._("%s is already booked during that window.")
+    % order.vehicle_id.license_plate
+)
+```
+
+```python
+# addons/librefleet/models/vehicle.py, _check_year
+raise ValidationError(
+    self.env._("Model year %s is out of range (1900 to next year).")
+    % vehicle.year
+)
+```
+
+The third, `missing-return` on `_compute_access_url`, is a false positive worth
+understanding rather than silencing blindly. The check exists because forgetting
+`return super().create(...)` is a real, easy-to-make bug: the override's result
+silently becomes `None` instead of the created record. But a `@api.depends` compute
+method is never supposed to return anything, it assigns fields on a loop, so the
+check has no way to tell "correctly returns nothing" from "forgot to return." The
+fix is the documented escape hatch, `no-missing-return` in `.pylintrc`'s
+`[ODOOLINT]` section:
+
+```ini
+no-missing-return=__init__,_register_hook,setUp,setUpClass,tearDown,tearDownClass,_compute_access_url
+```
+
+Run `pre-commit run --all-files` again: clean.
+</Step>
+
+<Step>
+### Declare development_status, and write the readme fragments
+
+In `__manifest__.py`, add the field and bump the version:
+
+```python
+"version": "19.0.1.28.0",
+...
+"development_status": "Beta",
+```
+
+Then write the three fragments under `addons/librefleet/readme/`:
+
+```markdown
+# DESCRIPTION.md
+LibreFleet manages a vehicle workshop's day to day: customers and their vehicles,
+service orders that move through a kanban of stages, parts consumption and margin
+tracking per order, technician assignment, and a small OWL dashboard summarizing
+jobs per technician.
+
+Booking conflicts are enforced at the model level: two service orders cannot claim
+the same vehicle over an overlapping window. Orders with a negative margin require
+manager approval through a wizard before they can be confirmed.
+```
+
+```markdown
+# CONTRIBUTORS.md
+- Odoolings readers <https://odoolings.ronit.io/>
+```
+
+```markdown
+# ROADMAP.md
+- Multi-company support for workshops running more than one location.
+- A recurring-maintenance plan per vehicle, instead of the current one-off reminder.
+```
+
+Run `pre-commit run --all-files` one more time. The `oca-gen-addon-readme` hook
+writes `README.rst`:
+
+```text
+.. 
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   !! This file is generated by oca-gen-addon-readme !!
+   !! changes will be overwritten.                   !!
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   !! source digest: sha256:4f5f88d07b0b782a55102c9d0191cd4e557f9b467b713fa9fc3d637be6e46192
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+.. |badge1| image:: https://img.shields.io/badge/maturity-Beta-yellow.png
+    :target: https://odoo-community.org/page/development-status
+    :alt: Beta
+```
+
+Same generated-file comment and digest marker you read on `fleet_vehicle_service_kanban`
+in chapter 43, this time for your own module, with a badge that reads `Beta` because
+that's what you just declared.
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="readme" defaultOpen>
+      <File name="DESCRIPTION.md" />
+      <File name="CONTRIBUTORS.md" />
+      <File name="ROADMAP.md" />
+    </Folder>
+    <File name="README.rst" />
+    <Folder name="controllers" />
+    <Folder name="data" />
+    <Folder name="i18n" />
+    <Folder name="models" />
+    <Folder name="report" />
+    <Folder name="security" />
+    <Folder name="static" />
+    <Folder name="tests" />
+    <Folder name="views" />
+    <Folder name="wizards" />
+  </Folder>
+</Files>
+</Step>
+
+</Steps>
+
 ## Verify
+
+```console
+$ pre-commit run --all-files
+check xml................................................................Passed
+check for merge conflicts................................................Passed
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+mixed line ending........................................................Passed
+ruff (legacy alias)......................................................Passed
+ruff format..............................................................Passed
+Check for Odoo modules using pylint......................................Passed
+Generate addons README files from fragments..............................Passed
+```
+
+Then confirm the module still installs cleanly after all these edits, the actual
+proof that "passed linting" and "still works" are two different questions:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.70s, 653 queries (+653 other)
+INFO tutorial odoo.modules.loading: Modules loaded.
+$ docker compose exec db psql -U odoo -d tutorial -c "select state, latest_version from ir_module_module where name='librefleet';"
+   state   | latest_version
+-----------+----------------
+ installed | 19.0.1.28.0
+```
+
+No `python3 odoolings.py check ch44`: like chapter 38's test runner, the tools
+themselves are today's verification, not a separate XML-RPC check.
 
 ## Gotchas
 
+- **`ruff`'s F401 on `__init__.py` isn't wrong, it just can't see intent.** The
+  `per-file-ignores` line is the documented fix, not a workaround; real OCA repos
+  carry the exact same line.
+- **`oca-gen-addon-readme` does nothing if `readme/` doesn't exist yet.** No error,
+  no README, just silence. If you add the hook before writing fragments, you'll
+  wonder why nothing happened; it needs `readme/DESCRIPTION.md` at minimum.
+- **`missing-return` false-positives on any `super()`-calling method with no
+  `return`, not just CRUD overrides.** Computes are the common case; the fix is
+  naming the method in `no-missing-return`, never adding a pointless `return`.
+- **README.rst carries a source digest for a reason.** Hand-edit it and the next
+  fragment change (or a teammate's) silently discards your edit, no warning beyond
+  the comment you probably didn't read.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: "Ruff flags every `from . import vehicle` line in models/__init__.py as an unused import. What's actually going on?",
+      options: [
+        'the import genuinely is dead code left over from an earlier refactor and should be deleted',
+        "ruff can't tell a registration import apart without a config rule",
+        'the models package is missing an __all__ list declaring its public names',
+      ],
+      answer: 1,
+      why: "The import runs the module for its registration side effect (chapter 9), never by name. Ruff has no way to know that without the per-file-ignores config telling it so.",
+    },
+    {
+      q: 'Why does pylint-odoo flag `_compute_access_url` for `missing-return` even though computes are never supposed to return a value?',
+      options: [
+        'the compute is genuinely buggy and Odoo silently drops its result without one',
+        "the check can't tell this apart from a forgotten create/write return",
+        'every method calling super() must always return whatever super() returned',
+      ],
+      answer: 1,
+      why: 'The check exists for CRUD overrides where forgetting `return super().create(...)` is a real, silent bug. It has no special case for computes, so the fix is naming the method in no-missing-return, not changing the code.',
+    },
+    {
+      q: "You want to fix a typo in LibreFleet's description. Which file do you edit?",
+      options: [
+        "README.rst directly, since that's the file GitHub actually renders on the repo page",
+        'the DESCRIPTION.md fragment, then let the generator regenerate README.rst',
+        "the manifest's summary key, which the description text is pulled from",
+      ],
+      answer: 1,
+      why: 'README.rst is generated output with a source digest guarding it. The fragment under readme/ is the file you actually maintain.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Swap `.pylintrc`'s trimmed `enable=` list for the full one from
+   `OCA/server-tools`'s real `.pylintrc` (linked below) and re-run. Note which new
+   checks fire on LibreFleet that our trimmed version never looked for.
+2. ⭐⭐ Run `pre-commit install` so the hooks fire automatically on every
+   `git commit`. Make a trivial change (an extra blank line in a model file) and
+   commit it; watch `end-of-file-fixer` or `ruff-format` catch it before the commit
+   even completes.
+3. ⭐⭐⭐ Diff our `.pre-commit-config.yaml` against `OCA/fleet`'s real one (chapter
+   43's link). List three hooks it runs that ours skips, and for each, one sentence
+   on whether LibreFleet would actually benefit from it yet.
+
 ## Further reading
+
+- <Icon name="source" /> [OCA/pylint-odoo](https://github.com/OCA/pylint-odoo): every
+  check's name and message, if you want the full reference instead of guessing from
+  an error.
+- <Icon name="source" /> [OCA/server-tools's real `.pylintrc`](https://github.com/OCA/server-tools/blob/19.0/.pylintrc):
+  the untrimmed version, exercise 1's material.
+- <Icon name="docs" /> [pre-commit](https://pre-commit.com/): the runner's own docs,
+  worth reading once beyond what this chapter used.
+- <Icon name="source" /> [oca-maintainer-tools](https://github.com/OCA/maintainer-tools):
+  `oca-gen-addon-readme` and the rest of the README-generation toolchain.
