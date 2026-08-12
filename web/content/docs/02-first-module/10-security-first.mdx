@@ -139,13 +139,33 @@ New directory `security/`, first file
 </odoo>
 ```
 
-Three things to unpack, because this file is your first real data XML:
+This is your first real data XML, so start with the shape before the specifics:
+`<record id="..." model="...">` creates one row in that model's table, and each
+`<field name="...">value</field>` inside it sets one column by its technical field
+name. That's the whole idea, no special syntax yet, it's the same "set a field on a
+record" you already did from Python in chapter 9, just written as tags instead of
+`env["model"].create({...})`.
+
+The fields this file actually sets, in plain terms:
+
+| Field | What it means here |
+|---|---|
+| `category_id` | which section of Settings this privilege is filed under (Services). Cosmetic, doesn't affect permissions. |
+| `sequence` | display order among sibling groups: User is 10, Manager is 20, so User lists first. Also cosmetic. |
+| `privilege_id` | which privilege this group belongs to. Both groups point at the same `privilege_librefleet` record above, that's what makes them "Workshop / User" and "Workshop / Manager" instead of two unrelated groups. |
+| `comment` | the description shown on the group's own page in Settings → Users & Companies → Groups. For humans; no code reads it. |
+
+And three things that are real syntax, not just field names:
 
 - Every `<record>` gets an **<Term k="XML id (external id)">XML id</Term>** (`id="group_librefleet_user"`), a stable
   handle other files and modules use to point at the record. `ref("...")` resolves
   one; ids from other modules need the module prefix (`base.group_user`).
-- `eval="[(4, ref(...))]"` is the ORM's list-manipulation syntax for x2many fields:
-  code `4` means "link this existing record". Chapter 12 covers the whole family.
+- `eval="[(4, ref(...))]"` is the ORM's command syntax for x2many fields, and every
+  command is a small integer, not an arbitrary one: `0` would create a brand-new
+  related record, `6` would replace the whole set, and `4` links to one that
+  already exists, which is all you want here. Chapter 12 names the rest of the
+  family and their readable `Command.link(...)`-style spellings; for now, `4`
+  just means "link, don't create".
 - The Manager group adds `base.user_admin` to `user_ids`. Skip that line and even
   admin stays locked out of your app; core modules do exactly the same.
 </Step>
@@ -161,11 +181,23 @@ access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,
 access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1
 ```
 
-Read it as a matrix: technicians read and update vehicles (a mileage correction
-after a service is their daily job), only managers register new vehicles or delete
-them. The `model_librefleet_vehicle` reference is an XML id too, one the ORM
-generated automatically for the model when chapter 9's upgrade registered it
-(pattern: `model_` + `_name` with dots as underscores).
+Three of these columns have "id" in the name, and they are not the same kind of id:
+
+- **`id`** is a brand-new XML id for *this access rule itself*, same idea as the
+  `id="..."` attribute on an XML `<record>`. Nothing points at it here, but
+  something could.
+- **`model_id:id`** and **`group_id:id`** are references to *other* records' XML
+  ids, the model's and the group's. The `:id` suffix is CSV's way of saying "look
+  this value up as an external id" instead of taking it as literal text, the same
+  job `ref("...")` does in XML. That's why `model_librefleet_vehicle` works: it's
+  an XML id the ORM generated automatically for the model when chapter 9's upgrade
+  registered it (pattern: `model_` + `_name` with dots as underscores), not a
+  string you invented.
+
+With that sorted out, read the two rows as a matrix: technicians read and update
+vehicles (a mileage correction after a service is their daily job), only managers
+register new vehicles or delete them. The four `perm_*` booleans are exactly the
+ones the Concepts section named above.
 </Step>
 
 <Step>
