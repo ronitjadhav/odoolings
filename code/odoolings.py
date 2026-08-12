@@ -1614,6 +1614,26 @@ def point_of_sale_is_installed(env):
         "or -i point_of_sale from the CLI.")
 
 
+def website_sale_is_installed(env):
+    mod = env.call("ir.module.module", "search_read",
+                    [("name", "=", "website_sale")], fields=["state"])
+    assert mod and mod[0]["state"] == "installed", (
+        "website_sale is not installed. Settings > Apps > eCommerce, "
+        "or -i website_sale from the CLI.")
+
+
+def a_website_order_was_placed(env):
+    """The functional proof for the eCommerce half: a real order, placed
+    through the actual storefront, not created directly on the backend."""
+    orders = env.call("sale.order", "search_read",
+                       [("website_id", "!=", False)],
+                       fields=["name", "amount_total"], limit=1, order="id desc")
+    assert orders, (
+        "no sale.order with a website_id found. Place a real order through "
+        "http://localhost:8069/shop (Wire Transfer needs no external "
+        "account; enable it first via payment.provider).")
+
+
 def a_pos_session_was_closed(env):
     """The functional proof this chapter is really about: a real till, opened and closed."""
     sessions = env.call("pos.session", "search_read",
@@ -3108,6 +3128,14 @@ CHAPTERS = {
          "orders, or the dashboard renders an empty table."),
     ],
     "ch42": [
+        ("website_sale is installed", website_sale_is_installed,
+         "Settings > Apps > eCommerce (or -i website_sale). Run this "
+         "chapter's checks with --db functional."),
+        ("a real order was placed through the online store",
+         a_website_order_was_placed,
+         "http://localhost:8069/shop: pick a product, add to cart, check "
+         "out with Wire Transfer (enable it first, it needs no external "
+         "account)."),
         ("point_of_sale is installed", point_of_sale_is_installed,
          "Settings > Apps > Point of Sale (or -i point_of_sale). Run this "
          "chapter's checks with --db functional."),

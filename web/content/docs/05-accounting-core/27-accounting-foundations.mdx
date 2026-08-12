@@ -111,6 +111,33 @@ A move is `draft` until you post it. Two things follow, and both matter:
 Chapter 34's sequences are the same mechanism you already met, applied where the stakes
 are highest.
 
+### Lock dates: closing a period for good
+
+Posting isn't the last word. A posted entry can still be reset to draft and edited,
+which is exactly what you don't want possible once a period's books are final and
+someone has filed a tax return against them. `res.company` carries five real lock
+date fields, confirmed live: `fiscalyear_lock_date`, `tax_lock_date`,
+`sale_lock_date`, `purchase_lock_date`, and `hard_lock_date` (new in Odoo 19, the
+strictest of the five). Each guards a different slice: `sale_lock_date` blocks
+edits to customer invoices and credit notes dated on or before it, `purchase_lock_date`
+does the same for the vendor side, and `fiscalyear_lock_date`/`hard_lock_date` block
+everything, any move, any journal.
+
+Setting one isn't a bare field write, either. Odoo checks the books are actually
+clean first:
+
+```text
+There are still unreconciled bank statement lines in the period you want to lock.
+You should either reconcile or delete them.
+```
+
+That's a real, live response to trying to set `fiscalyear_lock_date` on the
+`functional` database, not a hypothetical: ten bank statement lines from June
+through August were still sitting unreconciled, and Odoo refused to lock a period
+that contained them rather than silently letting the lock hide the mess. "A month
+that will not close," this chapter's opening line, is precisely this validation
+firing for real.
+
 ## Hands-on
 
 Two movements again, continuing in the `functional` database.
@@ -274,6 +301,28 @@ thing that made it look like "an invoice" was `move_type` and a different form v
 True
 ```
 
+#### 7. Lock the sales period, and watch the invoice defend itself
+
+`sale_lock_date` is the one that doesn't hit the unreconciled-lines check, so it's
+the cleanest way to see the actual edit-blocking behavior rather than the
+book-cleanliness check that fires first on the broader locks:
+
+```python
+>>> env.company.sale_lock_date = '2026-08-10'
+>>> inv.button_draft()
+Traceback (most recent call last):
+    ...
+odoo.exceptions.UserError: You cannot add/modify entries prior to and inclusive of: Sales Lock Date (08/10/2026).
+```
+
+The invoice from step 6, dated `2026-08-05`, is now inclusive of that lock. Nobody
+can reopen it, not through the UI, not through a script, not through this exact
+shell session. Reset it before you move on, it's shared demo data:
+
+```python
+>>> env.company.sale_lock_date = False
+```
+
 ## Verify
 
 ```console
@@ -309,6 +358,10 @@ ch27 complete! On to the next chapter 🔧
 - **Unbalanced means unpostable, so "my code posted a broken entry" is never the bug.**
   If a move will not post, the arithmetic really is wrong, usually because a rounding
   difference or a tax line was computed rather than taken from Odoo.
+- **Setting a broad lock date can fail before it ever touches your target entry.**
+  `fiscalyear_lock_date` and `hard_lock_date` both check for unreconciled bank
+  statement lines first and refuse to set at all if any exist in the period. That
+  refusal is doing its job, not blocking you by mistake.
 
 ## Quick check
 
@@ -353,6 +406,16 @@ ch27 complete! On to the next chapter 🔧
       ],
       answer: 1,
       why: 'Double-entry is the definition of the record, not a preference: value has to come from somewhere and go somewhere, so the two sides are equal by construction. The chapter triggers the actual refusal, "The entry is not balanced.", which is why a broken posted entry is never the explanation for a reporting problem.',
+    },
+    {
+      q: 'You set sale_lock_date to a date after a posted customer invoice, then call button_draft() on that invoice. What happens?',
+      options: [
+        'nothing at all; the lock only ever applies to invoices created after it',
+        'a UserError naming the Sales Lock Date, the same block the UI would hit',
+        'it resets fine, but a nightly cron silently re-posts it later',
+      ],
+      answer: 1,
+      why: 'Confirmed live, exact message: "You cannot add/modify entries prior to and inclusive of: Sales Lock Date". The block applies to any code path, not just the interface, script included.',
     },
   ]}
 />

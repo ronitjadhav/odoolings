@@ -300,6 +300,13 @@ pipeline grouped by stage). One of the standard view types you'll build in chapt
 **list view**: the rows-and-columns view type (`<list>` arch; `<tree>` before
 Odoo 17, removed in 19). Each `<field>` in the arch is a column.
 
+**lock date**: a `res.company` date field (`fiscalyear_lock_date`, `tax_lock_date`,
+`sale_lock_date`, `purchase_lock_date`, `hard_lock_date`) that blocks editing any
+move dated on or before it. Each guards a different slice (sales, purchases,
+everything); setting the broadest ones first checks that the period's bank
+statement lines are actually reconciled, and refuses to lock a messy period
+(chapter 27).
+
 **manufacturing order (`mrp.production`)**: the document that executes a bill of
 materials. Unlike every other transactional document in this part, it gets its sequence
 number at *creation*, not confirmation. Confirming reserves the component and
@@ -417,6 +424,13 @@ constructor), and reactive state from `useState` (chapter 39).
 **pinning**: fixing every external dependency (OCA repos, Odoo itself) to an exact
 commit or package version so a production build is reproducible from the project repo
 alone. Done with git submodules, git-aggregator, or pip requirements.
+
+**payment provider (`payment.provider`)**: the record backing one checkout payment
+method (Stripe, PayPal, Wire Transfer, ...), disabled by default for every method
+Odoo ships. A `payment.transaction` links a specific attempt back to whatever
+document it's paying for (a `sale.order`, an invoice); a manual provider like Wire
+Transfer leaves that transaction `pending` until a human confirms the money
+actually arrived, rather than confirming itself (chapter 42).
 
 **payment_state**: the *computed* billing summary on an `account.move` (`not_paid`,
 `partial`, `in_payment`, `paid`, `reversed`, `blocked`). Derived from `amount_residual`

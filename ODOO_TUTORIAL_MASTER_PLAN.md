@@ -586,23 +586,23 @@ matrix; get the author's sign-off before writing Part 2.)
     Odoo Experience, keeping up with version releases; what changes in Odoo 19/20
     and how to re-learn efficiently each October.
 
-### 5.4 Concept coverage checklist (agent: verify before calling the syllabus done)
-ORM CRUD ▢ recordsets ▢ env/context ▢ compute/related/onchange ▢ constraints ▢
-sequences ▢ all 3 inheritance types ▢ view inheritance/xpath ▢ all view types ▢
-wizards ▢ security (groups/ACL/record rules/sudo) ▢ mail.thread ▢ cron ▢
-server actions ▢ QWeb reports ▢ controllers ▢ portal ▢ OWL component ▢ widget ▢
-assets ▢ tests (unit + tour) ▢ data files/noupdate ▢ i18n basics ✅ (ch34) pre-commit/OCA
-conventions ▢ migration exercise ▢ performance patterns ▢ deployment concepts ▢
+### 5.4 Concept coverage checklist (verified for real 2026-08-12, at ch50, see §10)
+ORM CRUD ✅ recordsets ✅ env/context ✅ compute/related/onchange ✅ constraints ✅
+sequences ✅ all 3 inheritance types ✅ view inheritance/xpath ✅ all view types ✅
+wizards ✅ security (groups/ACL/record rules/sudo) ✅ mail.thread ✅ cron ✅
+server actions ✅ QWeb reports ✅ controllers ✅ portal ✅ OWL component ✅ widget ✅
+assets ✅ tests (unit + tour) ✅ data files/noupdate ✅ i18n basics ✅ (ch34) pre-commit/OCA
+conventions ✅ migration exercise ✅ (ch47) performance patterns ✅ (ch48) deployment concepts ✅ (ch49)
 
 Functional coverage (added 2026-08-05, D12; Parts 4-5):
-partner/company model ▢ product.template vs product.product + variants ▢ UoM ▢
-sale.order lifecycle ▢ CRM pipeline ▢ pricelist resolution ▢ discounts/promotions ▢
-purchase.order + three-way match ▢ stock.move/quant/picking ▢ warehouses & locations ▢
-mrp.bom + mrp.production ▢ double-entry ▢ account.move duality (invoice = journal
-entry) ▢ journals & chart of accounts ▢ payment + reconciliation ▢ payment terms ▢
-taxes (incl./excl.) + fiscal positions ▢ inventory valuation (std/FIFO/AVCO) + COGS ▢
-lock dates/period close ▢ account.report engine ▢ POS session → journal entry ▢
-eCommerce order → sale.order ▢
+partner/company model ✅ product.template vs product.product + variants ✅ UoM ✅
+sale.order lifecycle ✅ CRM pipeline ✅ pricelist resolution ✅ discounts/promotions ✅
+purchase.order + three-way match ✅ stock.move/quant/picking ✅ warehouses & locations ✅
+mrp.bom + mrp.production ✅ double-entry ✅ account.move duality (invoice = journal
+entry) ✅ journals & chart of accounts ✅ payment + reconciliation ✅ payment terms ✅
+taxes (incl./excl.) + fiscal positions ✅ inventory valuation (std/FIFO/AVCO) + COGS ✅
+lock dates/period close ✅ (ch27, added 2026-08-12) account.report engine ✅ POS session → journal entry ✅
+eCommerce order → sale.order ✅ (ch42, added 2026-08-12)
 
 ### 5.5 LibreFleet blueprint (data model & feature map — added 2026-07-13)
 
@@ -1056,6 +1056,70 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-12 (the last one) — ch50 written, the tutorial's 50th and final chapter
+
+Career map: reading core source effectively (a synthesis of techniques the tutorial
+already used on the reader across 49 chapters, named explicitly rather than taught
+fresh), official certification with real numbers pulled live from Odoo's own
+listing (120 questions, 90 minutes, 70% pass, negative marking for wrong answers,
+version-specific per major), OCA Days vs Odoo Experience, and the October rhythm
+this project's own §9/§10 already commits to (no LTS, one major a year, re-verify
+every October), turned into a checklist the reader applies to themselves via the
+new `<MigrationChecklist>` component chapter 47 introduced.
+
+**No LibreFleet code, Checkpoint "none"**, matching the closing tone: the real
+verification is whatever the reader already built across chapters 8-49, not
+anything new this chapter adds.
+
+**§5.4's coverage checklist, flagged "verify before calling the syllabus done,"
+was actually run, not rubber-stamped.** Grepped every dev-track and functional
+item against the real chapter content (sample: `recordset` in 16 files,
+`_read_group`/`formatted_read_group` confirmed live in ch48, `sudo(` in 6 files,
+`HttpCase`/tour in 8 files). Two genuine, confirmed gaps turned up against the
+D12 functional list: **eCommerce order → sale.order** (ch42's survey covered
+Website Snippets and POS but never an actual `website_sale` checkout) and
+**lock dates / period close** (zero mentions of `fiscalyear_lock_date` or
+`period_lock_date` anywhere in Parts 4-5). Put to the author as an explicit
+choice (defer as known follow-up, or backfill now); **author chose: backfill
+both before shipping ch50.**
+
+- **ch27 gained a real lock-dates section.** `res.company`'s five real lock
+  fields confirmed live (`fiscalyear_lock_date`, `tax_lock_date`,
+  `sale_lock_date`, `purchase_lock_date`, `hard_lock_date`, the last one new in
+  19). A genuine, unplanned finding while testing: setting the broad locks
+  (`fiscalyear_lock_date`/`hard_lock_date`) on `functional` failed outright with
+  a real `RedirectWarning`, "unreconciled bank statement lines in the period you
+  want to lock", Odoo checking the books are actually clean before it lets you
+  lock them, which is precisely ch27's own opening line ("a month that will not
+  close") firing for real rather than as a turn of phrase. `sale_lock_date`
+  doesn't hit that check, so it became the hands-on: locked a real posted
+  invoice's period, called `button_draft()`, got the real `UserError` ("You
+  cannot add/modify entries prior to and inclusive of: Sales Lock Date"), reset
+  the lock afterward. New Gotcha, new Quiz question, glossary +1 (`lock date`).
+- **ch42 gained a real eCommerce checkout.** Installed `website_sale` on
+  `functional` for real, enabled the Wire Transfer payment provider (needs no
+  external account or fake credentials, the honest choice for a hands-on), and
+  placed a genuine order through the actual storefront via the Chrome browser
+  tools: picked a real product (Customizable Desk, White/Steel variant), real
+  cross-sell upsell dialog, real cart, real checkout, real confirmation page
+  ("Thank you for your order. Order S00047"). Two new real screenshots
+  (`ch42-shop-product-variants.jpg`, `ch42-shop-order-confirmation.jpg`). Read
+  the resulting `sale.order` from the shell: `website_id` set, real order line
+  with the chosen variant, a real linked `payment.transaction`. **Genuine
+  unplanned finding**: the order's `state` stayed `'sent'`, not `'sale'`,
+  because a manual payment method can't confirm itself, a human has to see the
+  wire transfer land first, `payment.transaction.state = 'pending'` confirmed
+  directly. New Concepts subsection, new Hands-on steps, new Gotcha, new Quiz
+  question, new odoolings checks (`website_sale is installed`,
+  `a real order was placed through the online store`, both red-tested before
+  the checkout, green after), glossary +1 (`payment provider`).
+- Both enrichments re-verified: `npm run test:ci` green, `python3 odoolings.py
+  check ch42 --db functional` green (6/6 including the two new checks).
+
+§5.4's checklist now reads all ✅ across both lists, each of the two backfilled
+items dated so a future reader of this plan can see they were a deliberate
+later addition, not part of the original chapter.
 
 ### 2026-08-12 (later yet still) — ch49 written: deployments & ops, concept-level as planned
 

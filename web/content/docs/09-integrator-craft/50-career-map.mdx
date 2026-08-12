@@ -1,24 +1,205 @@
 ---
 title: "50. Career Map"
-description: Not written yet, tracked in the roadmap.
+description: Reading core source on your own, official certification with real numbers, the community events, and the October rhythm this tutorial itself commits to.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch50`
+**Goal:** know how to keep growing after this chapter ends, concretely: what to
+read, what certification actually measures, where the community is, and how to
+handle the yearly version bump that never stops coming. · **Time:** ~1.5 h ·
+**Checkpoint:** none, the last chapter closes the tutorial rather than LibreFleet.
 
 ## Why this matters
 
+Chapter 8 built an empty module. Fifty chapters later you've extracted a feature
+into a standalone, tooled, tested OCA-quality module (chapter 46), read the real
+SQL your own code produces (chapter 48), and (if you took chapter 45's real
+exercise) have an actual PR against a real OCA repository. That's not a finish
+line, it's the point where the tutorial stops handing you the next chapter and you
+start choosing. This one is about how.
+
 ## Concepts
+
+### Reading core source effectively: the toolkit you already have
+
+Every technique here is one this tutorial already used on you, named explicitly
+now so you reach for it on purpose:
+
+- **Measure, don't guess.** Chapter 7 counted 73 modules on `OCA/server-tools`'s
+  `16.0` branch against 34 on `19.0`, real numbers from a real `git clone`, not an
+  estimate. Chapters 18 and 19 did the same for a core view attribute, "141 hits
+  vs 0" settled an argument a doc excerpt couldn't have.
+- **Read the manifest and README before the code.** Chapter 43's habit: maturity,
+  dependencies, and what a module claims to do, before you're deep in
+  implementation detail that may not even matter to your question.
+- **Verify behavior in a shell, not just in docs.** Chapter 48's whole method:
+  `--log-sql` and `odoo shell` tell you what actually happens; a tutorial (this
+  one included) can be stale the moment a version ships.
+- **Cross-reference OCA's take on the same problem.** Chapters 43 and 44 read
+  `OCA/fleet` as real, reviewed, production-grade prose about the same domain
+  LibreFleet lives in. Core solves it one way; a community module solving the same
+  shape of problem is a second, differently-constrained opinion worth having.
+
+### Certification: what it actually measures, with real numbers
+
+Confirmed directly from Odoo's own certification listing:
+
+| Detail | Real value |
+|---|---|
+| Format | 120 questions, multiple choice |
+| Time | 90 minutes |
+| Pass mark | 70% |
+| Scoring | +1 correct, −0.5 wrong, 0 unanswered |
+| Scope | version-specific: 19, 18, 17 each offered separately |
+
+That negative marking for wrong answers is worth knowing before you sit one:
+guessing blind costs you, leaving a question blank doesn't. The certification is
+also explicitly **nominative** (tied to one account, non-transferable), and it's a
+**functional** exam, sales/inventory/accounting/CRM configuration knowledge, not a
+developer/technical track under that same name. If you're hiring or being hired
+for development work specifically, this tutorial's own bar (a real merged OCA PR,
+chapter 45) is the more direct signal; the certification and a contribution
+history measure different things, not competing versions of the same thing.
+
+### Where the community actually is
+
+Two real, different gatherings, not interchangeable:
+
+<CardGrid cols={2}>
+  <Card tone="sage" icon={<Icon name="people" />} title="Odoo Experience">
+    Odoo SA's own annual conference: product keynotes, partner ecosystem,
+    the commercial and product side of things.
+  </Card>
+  <Card tone="sand" icon={<Icon name="branch" />} title="OCA Days">
+    The community's own gathering: contribution workflow, module deep-dives,
+    the people actually reviewing the PRs chapter 45 walked you through opening.
+  </Card>
+</CardGrid>
+
+Chapter 2 already pointed at both YouTube channels as ongoing sources, worth
+revisiting now that the jargon in those talks (PSC, ocabot, Runboat, `[MIG]`)
+isn't jargon anymore.
+
+### The October rhythm, and how this tutorial itself commits to it
+
+From this project's own planning record, a real, standing decision: **Odoo has no
+LTS, one major version per year, the last three supported at any time**, and this
+tutorial's own author re-verifies its entire baseline every October when a new
+major ships. That's not a one-off task, it's routine, budgeted-for maintenance,
+the same posture chapter 47 asked you to bring to migrating any module. Apply it
+to yourself:
+
+<MigrationChecklist
+  items={[
+    { id: "changelog", label: "Read the new version's own release notes / changelog first" },
+    { id: "deprecations", label: "Check your own modules against a fresh deprecation list, chapter 47's table as the template" },
+    { id: "cert", label: "Note whether your certification (if you hold one) now targets a version behind current" },
+    { id: "oca-branch", label: "Check whether the OCA repos you depend on have a branch yet for the new version" },
+    { id: "own-modules", label: "Migrate your own modules the way chapter 46 taught: version bump first, see what actually breaks" },
+  ]}
+/>
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Take the real sample test
+
+Odoo publishes a genuine 20-minute sample test alongside the full certification.
+Low stakes, real questions, worth doing once regardless of whether you plan to
+sit the real exam.
+</Step>
+
+<Step>
+### Read one real core method you've never opened
+
+Pick something in LibreFleet's own domain, `account.move`'s posting logic or
+`stock.move`'s state machine are both good targets given Parts 4 and 5. Apply this
+chapter's toolkit: manifest and README first if it's in a module, `grep` for real
+usage counts across `odoo/odoo` before assuming you understand a pattern, and
+confirm any behavior you're unsure of in a real shell rather than trusting the
+first comment you read.
+</Step>
+
+<Step>
+### Write your own October plan
+
+Using the checklist above as the template, name one real module (yours or an OCA
+one you depend on) and what you'd actually check the next time a major ships.
+</Step>
+
+</Steps>
+
 ## Verify
+
+No odoolings check, no LibreFleet state to assert. The real verification is
+whatever you already built: a real PR (chapter 45), a real extracted module
+(chapter 46), a real measured query count (chapter 48). If you can point at those,
+you're past the point this tutorial was built to get you to.
 
 ## Gotchas
 
+- **A certification is version-locked.** An Odoo 18 certificate doesn't quietly
+  become 19 knowledge; the framework moved, chapter 47's whole subject.
+- **The certificate and a contribution history measure different things.** Don't
+  substitute one for the other when the question is "can this person actually
+  write Odoo code."
+- **"No LTS" surprises people coming from other ecosystems.** Budget the yearly
+  re-learning cost as routine maintenance, not a crisis each October.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: "Odoo's official certification uses negative marking for wrong answers. What's the practical implication when you sit it?",
+      options: [
+        'a blank answer and a wrong one cost you the exact same amount',
+        "a blind guess can cost more than just leaving it blank",
+        'wrong answers only start costing points after your third mistake',
+      ],
+      answer: 1,
+      why: 'Correct is +1, wrong is -0.5, blank is 0. A guess with worse than 50% odds of being right is expected to cost you more than skipping it.',
+    },
+    {
+      q: "You're evaluating a developer candidate for real Odoo work. Which is the more direct signal, per this chapter?",
+      options: [
+        "the official certification, since it's Odoo SA's own comprehensive product exam",
+        'a real, merged OCA contribution history: actual code, actually reviewed',
+        'neither; resume-listed years of experience is the only thing that matters here',
+      ],
+      answer: 1,
+      why: "The certification tests business-app configuration knowledge. A real PR history (chapter 45's own exercise) is direct evidence of the actual skill: writing, testing, and landing real code.",
+    },
+    {
+      q: 'This tutorial\'s own author re-verifies its baseline every October. Why does that make sense given how Odoo ships?',
+      options: [
+        'there is no LTS release; a new major ships every October, full stop',
+        "October is when Odoo bundles a year's worth of security patches into one release",
+        "it's an arbitrary habit, unrelated to Odoo's own release schedule"
+      ],
+      answer: 0,
+      why: 'No long-term-support version exists to hide behind. A new major every year means routine re-verification is the only way documentation (or a developer\'s own knowledge) stays current.',
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Take the real 20-minute sample certification test.
+2. ⭐⭐ Read one real core method you've never opened before, using this chapter's
+   toolkit, and write three sentences on what you learned that you wouldn't have
+   gotten from a doc page alone.
+3. ⭐⭐⭐ The closing exercise, genuinely open-ended: LibreFleet is yours now. Write
+   a short plan (a page, no more) for the next feature you'd build on it, using
+   everything from chapter 8 through chapter 46, your call, no answer key.
+
 ## Further reading
+
+- <Icon name="docs" /> [Odoo Certification](https://www.odoo.com/slides?slide_category=certification):
+  the real exam listing this chapter's numbers came from.
+- <Icon name="video" /> [Official YouTube](https://www.youtube.com/@Odoo) ·
+  <Icon name="talk" /> [OCA Days talks](https://www.youtube.com/@OdooCommunity):
+  chapter 2's links, worth a second look now that the jargon is familiar.
+- <Icon name="source" /> [odoo/odoo](https://github.com/odoo/odoo): where this
+  chapter's "read one real method" exercise actually happens.

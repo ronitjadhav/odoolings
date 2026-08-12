@@ -23,6 +23,28 @@ function completeDocsPageCount(dir = 'content/docs') {
   return total;
 }
 
+/**
+ * Finds one stub page's route, if any stub still exists. All 50 planned
+ * chapters shipped as of ch50 (2026-08-12), so this currently returns null;
+ * written that way rather than deleted so the noindex/sitemap-exclusion
+ * checks below re-engage automatically the moment a new chapter is planned
+ * and stubbed, instead of needing to be hand-restored.
+ */
+function findStubRoute(dir = 'content/docs', base = '/docs') {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findStubRoute(full, `${base}/${entry.name}`);
+      if (found) return found;
+    } else if (entry.name.endsWith('.mdx')) {
+      if (readFileSync(full, 'utf8').includes('title="Stub"')) {
+        return `${base}/${entry.name.replace(/\.mdx$/, '')}/`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Every exported docs route, read off the sitemap the build just produced. */
 function docsRoutes(sitemapBody) {
   return [...sitemapBody.matchAll(/<loc>https:\/\/odoolings\.ronit\.io([^<]*)<\/loc>/g)]
@@ -71,17 +93,24 @@ try {
   assert.match(lessonBody, /rel="canonical" href="https:\/\/odoolings\.ronit\.io\/docs\/00-orientation\/01-what-odoo-is\/"/);
   assert.match(lessonBody, /"@type":"LearningResource"/);
 
-  const stubRoute = '/docs/09-integrator-craft/50-career-map/';
-  const stub = await fetch(`${origin}${stubRoute}`);
-  assert.equal(stub.status, 200, 'planned lessons should remain navigable');
-  const stubBody = await stub.text();
-  assert.match(stubBody, /name="robots" content="[^"]*noindex[^"]*follow/);
+  // All 50 planned chapters are written as of ch50; findStubRoute() returns
+  // null until a future chapter is planned and stubbed again, at which point
+  // this block re-engages on its own.
+  const stubRoute = findStubRoute();
+  if (stubRoute) {
+    const stub = await fetch(`${origin}${stubRoute}`);
+    assert.equal(stub.status, 200, 'planned lessons should remain navigable');
+    const stubBody = await stub.text();
+    assert.match(stubBody, /name="robots" content="[^"]*noindex[^"]*follow/);
+  }
 
   const sitemap = await fetch(`${origin}/sitemap.xml`);
   assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
   const sitemapBody = await sitemap.text();
-  assert.match(sitemapBody, /\/docs\/09-integrator-craft\/49-deployments-ops\/<\/loc>/);
-  assert.doesNotMatch(sitemapBody, /\/docs\/09-integrator-craft\/50-career-map/);
+  assert.match(sitemapBody, /\/docs\/09-integrator-craft\/50-career-map\/<\/loc>/);
+  if (stubRoute) {
+    assert.doesNotMatch(sitemapBody, new RegExp(stubRoute.replace(/\/$/, '')));
+  }
   const expectedLocs = 1 + completeDocsPageCount();
   assert.equal(
     (sitemapBody.match(/<loc>/g) ?? []).length,
