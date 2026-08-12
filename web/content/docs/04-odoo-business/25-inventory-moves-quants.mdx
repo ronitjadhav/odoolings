@@ -103,8 +103,13 @@ number you can safely promise are not the same field.
 
 #### 2. Switch to a two-step reception
 
-**Inventory → Configuration → Warehouses**, open the one warehouse, and set **Incoming
-Shipments** to *Receive goods in input, then stock (2 steps)*.
+The warehouse form does not show routing options until you turn them on. **Inventory →
+Configuration → Settings**, tick **Multi-Step Routes** under the Warehouse section, and
+save. Only then does **Inventory → Configuration → Warehouses** show a **Warehouse
+Configuration** tab: open the one warehouse, and set **Incoming Shipments** to *Receive
+then Store (2 steps)*.
+
+![The warehouse configuration tab with Incoming Shipments set to Receive then Store (2 steps), Outgoing Shipments still at Deliver (1 step)](/screens/ch25-warehouse-2step-config.jpg)
 
 #### 3. Raise and confirm a small purchase
 
@@ -158,6 +163,8 @@ Read that carefully. `receipt_status` already reads `full`, and the goods have n
 delivered, not whether the warehouse has finished putting the stock away. And there it is:
 `WH/STOR/00001`, the second leg, created only now.
 
+![The second-leg internal transfer, source location WH/Input, destination WH/Stock, created only after the receipt was validated](/screens/ch25-second-leg-transfer.jpg)
+
 #### 5. Validate the internal transfer
 
 ```console
@@ -190,6 +197,8 @@ That screen opens with **To Reorder** and **Not Snoozed** already filtered, so a
 product you have plenty of will not be in the list you are looking at. Clear the filters, or
 pick **All** in the Trigger panel on the left, if you want to see the rule you just made.
 
+![The replenishment screen with filters cleared, showing the Brake Pad Set (Front) rule at minimum 5, maximum 15, alongside the demo furniture's own reordering rules](/screens/ch25-replenishment-rule.jpg)
+
 ```console
 $ python3 odoolings.py diff --db functional
 stock.warehouse.orderpoint +1
@@ -202,7 +211,7 @@ would notice.
 
 #### 7. Switch the route back
 
-Set **Incoming Shipments** back to *Receive goods directly (1 step)*. Later chapters
+Set **Incoming Shipments** back to *Receive and Store (1 step)*. Later chapters
 assume the simple case unless they say otherwise, the same discipline chapter 23 used
 when it turned pricelists on deliberately and chapter 34 used reverting a price it had
 only bumped to prove a point.
