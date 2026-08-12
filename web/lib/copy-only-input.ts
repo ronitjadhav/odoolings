@@ -26,8 +26,15 @@ export function transformerCopyOnlyInput(): ShikiTransformer {
     pre(hast: Element) {
       if (!PROMPTED_LANGS.has(this.options.lang as string)) return;
 
+      const lines = this.source.split('\n');
+      // A plain ```python source file (a model definition, no REPL prompts at all) has
+      // nothing to strip. Leave it alone so it falls through to fumadocs' default copy
+      // (the full source, verbatim) instead of computing an empty "typed" string, which
+      // is what happens if every line here gets treated as unprompted output.
+      if (!lines.some((raw) => PROMPTS.some((re) => re.test(raw)))) return;
+
       const typed: string[] = [];
-      for (const raw of this.source.split('\n')) {
+      for (const raw of lines) {
         const prompt = PROMPTS.find((re) => re.test(raw));
         if (prompt) typed.push(raw.replace(prompt, ''));
       }
