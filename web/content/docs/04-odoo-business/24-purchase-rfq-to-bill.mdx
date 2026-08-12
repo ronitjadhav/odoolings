@@ -120,8 +120,16 @@ Open the receipt, set the received quantity to 10, and **Validate**.
 
 #### 4. Bill it
 
-Back on the purchase order, press **Create Bill**. Give the draft bill an
-**invoice date**, then post it.
+The purchase order's own **Upload Bill** button wants a real file (a scanned invoice) to
+attach before it will create anything, so that is not today's path. Instead, go to
+**Purchase → Orders → Purchase Orders** (the confirmed-orders list, a different menu item
+from Requests for Quotation), tick the checkbox next to P00013, and press **Create Bills**
+in the toolbar that appears. Odoo drops you straight onto a draft bill, pre-filled from the
+PO's lines.
+
+![A draft vendor bill created by the Create Bills bulk action, with the Bill Date field empty and outlined in red as required, the Brake Pad Set line pre-filled at qty 10 and $420.00 total](/screens/ch24-draft-vendor-bill.jpg)
+
+Give it a **Bill Date**, then press **Confirm** to post it.
 
 ### Movement 2: read what it did
 
@@ -254,9 +262,13 @@ ch24 complete! On to the next chapter 🔧
 - **Receiving goods can change documents you were not looking at.** Any outgoing transfer
   waiting on stock may reserve as a side effect. This is correct behaviour and it makes
   "who changed this delivery" a confusing question: often nobody did, directly.
-- **A vendor bill needs an invoice date before it will post.** Odoo does not guess it from
+- **A vendor bill needs a Bill Date before it will post.** Odoo does not guess it from
   today, because the bill's date drives the accounting period. Forgetting it is the most
-  common reason a `Create Bill` flow stalls.
+  common reason a `Create Bills` flow stalls.
+- **The purchase order form's own button is `Upload Bill`, and it wants a file.** It is a
+  file-upload component, not a bill-creation shortcut: without a real attachment it has
+  nothing to call. The no-file path is the `Create Bills` bulk action, and it only appears
+  on the **Purchase Orders** list view's selection toolbar, not on Requests for Quotation.
 - **Ordered, received and billed are three numbers, and they are allowed to disagree.**
   Do not "fix" a mismatch in code without asking which of the three is wrong. That
   disagreement is a feature: it is how an over-billing supplier gets caught.
