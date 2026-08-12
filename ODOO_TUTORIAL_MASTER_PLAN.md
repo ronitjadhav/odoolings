@@ -1057,6 +1057,39 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later yet still) — ch49 written: deployments & ops, concept-level as planned
+
+Genuinely concept-level, per the plan's own framing, unlike ch47/48: no LibreFleet
+code changed, Checkpoint "none." Still held to the same "never ship unexecuted
+code" bar, just applied to real CLI commands rather than a code refactor:
+
+- **Real flags and defaults pulled straight from `odoo server --help`**, not
+  memory: `--workers` (default 0, prefork disabled), `--max-cron-threads`
+  (default 2), `--limit-time-cpu`/`--limit-time-real`/`--limit-memory-soft`, and
+  the `--proxy-mode` warning text quoted verbatim.
+- **`odoo db dump` run for real** against a scratch database (`test_ch39`,
+  never `tutorial` itself): confirmed the zip actually contains `dump.sql`,
+  `filestore/`, and `manifest.json` together by opening it with `zipfile`, not
+  assumed from the `--help` text.
+- **Full backup/restore round-trip verified**: `db dump` → `db load` into a
+  freshly-named database, confirmed it exists in `psql -l`, then cleaned up.
+- **`odoo neutralize` run for real** against a throwaway `db duplicate`, and its
+  actual effect confirmed directly, not just described: `ir_config_parameter`'s
+  `database.is_neutralized` flips to `true`. Throwaway database dropped
+  afterward.
+- **Multi-company section reuses ch27's own already-verified findings**
+  (company-dependent `account.account.code` returning `False` silently across
+  companies, bare `search([])` crossing company boundaries) rather than
+  re-deriving them, since they're already real and on the record.
+- odoo.sh vs Docker platforms and the "why yearly October releases..." framing
+  (already ch1/ch47 territory) kept deliberately general: no odoo.sh account to
+  verify specifics against, so the comparison stays at the level that's
+  actually true rather than guessing at UI details.
+
+**No odoolings check, no glossary additions** (`filestore` already existed from
+an earlier chapter, checked for consistency, none needed). Housekeeping:
+export-preview test's stub route bumped ch49 → ch50, the tutorial's last chapter.
+
 ### 2026-08-12 (later yet) — ch48 written: performance, measured against real query counts
 
 Every number in this chapter is real, captured via `--log-sql` (`odoo.sql_db:DEBUG`)

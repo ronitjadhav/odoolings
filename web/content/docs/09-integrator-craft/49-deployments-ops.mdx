@@ -1,24 +1,283 @@
 ---
 title: "49. Deployments & Ops"
-description: Not written yet, tracked in the roadmap.
+description: What changes between the dev container you've used all tutorial and a real production deployment, at the concept level integrator work actually needs.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch49`
+**Goal:** know what changes between the dev setup you've used since chapter 5 and a
+real production deployment, and why each change exists. · **Time:** ~1.5 h ·
+**Checkpoint:** none, concept-level: nothing here touches LibreFleet.
 
 ## Why this matters
 
+`code/docker-compose.yml` has run this entire tutorial: one Postgres container, one
+Odoo container, hot reload on, hardcoded credentials, a single process. That's
+exactly right for learning and exactly wrong for a business's actual traffic. This
+chapter is concept-level on purpose, per the plan that shaped it: you won't stand up
+nginx today, you'll know what it's for and why the pieces exist, which is the level
+integrator work actually needs day to day; the ops team (or the client's, or
+odoo.sh's) usually owns the rest.
+
 ## Concepts
+
+### What our own setup quietly skips
+
+`code/odoo.conf` says so directly: `admin_passwd = admin`, a comment reading
+"dev-only credentials, hardcoded on purpose. Never reuse this file in
+staging/prod." `docker-compose.yml` runs one Odoo process, no reverse proxy, a
+single Postgres container with no backup job. Every gap below is something that
+file is deliberately not doing.
+
+### Workers: the prefork model
+
+```console
+$ docker compose exec odoo odoo server --help
+```
+
+Real flags this tutorial's `odoo.conf` never sets:
+
+| Flag | Real default | What it controls |
+|---|---|---|
+| `--workers` | `0` (prefork disabled) | Worker processes handling HTTP requests |
+| `--max-cron-threads` | `2` | Concurrent cron jobs |
+| `--limit-time-cpu` | `60` | Max CPU seconds per request before the worker is killed |
+| `--limit-time-real` | `120` | Max wall-clock seconds per request |
+| `--limit-memory-soft` | `2048MiB` | Per-worker memory ceiling, worker recycled after the current request |
+
+`--workers=0`, our default, means one process handling one request at a time,
+which is exactly right for a lone developer clicking around and exactly wrong for
+concurrent users. Production sets a real worker count (a common starting rule of
+thumb is `2 × cpu_count + 1`, a convention, not a law) so multiple requests run in
+parallel processes instead of queueing behind each other.
+
+### The gevent worker (what "longpolling" used to mean)
+
+A normal HTTP worker handles a request and returns. The live chatter notifications,
+Discuss, the bus, all of it depends on connections held open far longer than any
+normal request, exactly what would starve a small worker pool if handled the same
+way. Odoo runs those on a separate process instead: `--gevent-port` names the port
+it listens on. Older docs and tutorials call this "longpolling"; Odoo's own
+`--help` output now just calls it the gevent worker, same job, current name.
+
+### Reverse proxy and `--proxy-mode`
+
+```console
+$ docker compose exec odoo odoo server --help | grep -A2 "proxy-mode"
+--proxy-mode        Activate reverse proxy WSGI wrappers (headers
+                     rewriting) Only enable this when running behind a
+                     trusted web proxy!
+```
+
+nginx (or any reverse proxy) sits in front in production: terminates TLS, routes
+normal traffic to the HTTP workers and bus traffic to the gevent port, and adds
+`X-Forwarded-*` headers so Odoo knows the real client IP and scheme instead of the
+proxy's own. `--proxy-mode` is what makes Odoo trust those headers, which is
+exactly why the warning says "only... behind a *trusted*" one: enabling it without
+an actual proxy in front lets anyone forge those headers.
+
+### Filestore and backups: two things that must travel together
+
+Attachments, PDF reports, product images, none of that lives in a Postgres row.
+Confirmed live, one directory per database:
+
+```console
+$ docker compose exec odoo ls /var/lib/odoo/.local/share/Odoo/filestore/
+functional  tutorial  ...
+```
+
+A bare `pg_dump` backs up every table and forgets every one of those files. Odoo's
+own `db dump` command exists specifically so you don't have to remember that
+separately:
+
+```console
+$ docker compose exec odoo odoo db dump tutorial backup.zip
+```
+
+Real contents of the zip it produces, confirmed by actually opening it:
+
+```text
+dump.sql  filestore/  manifest.json
+```
+
+The database and the filestore, one file, one command. `db load` reverses it, and
+does, verified end to end:
+
+```console
+$ docker compose exec odoo odoo db load tutorial_restored backup.zip
+...
+INFO ? odoo.service.db: RESTORE DB: tutorial_restored
+```
+
+### Staging that can't accidentally act like production: `neutralize`
+
+```console
+$ docker compose exec odoo odoo neutralize -c /etc/odoo/odoo.conf -d <db>
+INFO ? odoo.cli.neutralize: Starting <db> database neutralization
+INFO ? odoo.modules.neutralize: Neutralization finished
+```
+
+Confirmed what it actually changes, on a real duplicate database:
+
+```console
+$ psql ... -c "select key, value from ir_config_parameter where key like '%neutraliz%';"
+ database.is_neutralized | true
+```
+
+A production copy pulled down for staging or testing still has every real customer's
+email address and every configured outgoing mail server. `neutralize` is the tool
+for the actual risk that creates: a staging environment quietly emailing real
+customers, or firing a real webhook, because nobody remembered to disable those by
+hand.
+
+### odoo.sh vs a Docker platform
+
+Two real, different answers to "where does this run," worth knowing apart rather
+than treating as interchangeable:
+
+<CardGrid cols={2}>
+  <Card tone="sage" icon={<Icon name="rocket" />} title="odoo.sh">
+    Odoo SA's own PaaS: push to a git branch, it builds and deploys, with
+    staging and production branches as a first-class concept and most of this
+    chapter's ops surface managed for you.
+  </Card>
+  <Card tone="sand" icon={<Icon name="tool" />} title="Docker / self-hosted">
+    What this tutorial's own environment already models, scaled up: you own
+    workers, the reverse proxy, backups, and scaling decisions yourself, more
+    control, more surface to get right.
+  </Card>
+</CardGrid>
+
+Real integrator work uses both, chosen per client, not a universal "better" answer.
+
+### Multi-company and localization awareness
+
+Chapter 27 already found two real traps here, worth carrying forward rather than
+re-deriving: `account.account.code` is computed and **company-dependent**, reading
+it under the wrong active company silently returns `False` rather than erroring,
+and a bare `search([])` in a script or shell session crosses company boundaries
+that the equivalent UI action would never cross. Every ops script (a report, a bulk
+fix, a migration helper) needs the same discipline chapter 27 taught firsthand:
+`with_company()` or an explicit `company_id` domain, always, the moment more than
+one company might exist in the database you're pointed at.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Audit our own setup against the checklist above
+
+Open `code/docker-compose.yml` and `code/odoo.conf` side by side with this
+chapter's Concepts section. For each of workers, proxy-mode, filestore backups and
+credentials, name what's currently missing and why that's correct for a learning
+environment specifically.
+</Step>
+
+<Step>
+### Run a real backup, and look inside it
+
+```console
+$ docker compose exec odoo odoo db dump tutorial /tmp/backup.zip
+```
+
+Confirm it actually contains `dump.sql`, `filestore/`, and `manifest.json`
+together, not just a SQL dump.
+</Step>
+
+<Step>
+### Neutralize a throwaway copy
+
+```console
+$ docker compose exec odoo odoo db duplicate tutorial tutorial_staging
+$ docker compose exec odoo odoo neutralize -c /etc/odoo/odoo.conf -d tutorial_staging
+$ docker compose exec db psql -U odoo -d tutorial_staging \
+    -c "select value from ir_config_parameter where key = 'database.is_neutralized';"
+```
+
+Then drop it, this was a disposable copy:
+
+```console
+$ docker compose exec odoo odoo db drop tutorial_staging
+```
+</Step>
+
+</Steps>
+
 ## Verify
+
+No odoolings check, this chapter is ops literacy, not application state to assert
+over XML-RPC. You should be able to say, for our own `docker-compose.yml`, exactly
+what a production deployment would add and why each addition exists, not just that
+"more stuff" is needed.
 
 ## Gotchas
 
+- **`--workers=0` isn't a bug in the tutorial setup, it's the right call for one
+  developer.** Don't "fix" it here; know when a real deployment needs it changed.
+- **`pg_dump` alone forgets the filestore, silently.** The backup succeeds, looks
+  complete, and is missing every attachment and generated PDF until someone
+  restores it and finds out.
+- **An un-neutralized staging copy has real customers' real email addresses.**
+  The risk isn't hypothetical, it's the reason the command exists.
+- **A bare `search([])` crosses company boundaries a UI action never would**
+  (chapter 27's own finding). Any ops script touching a multi-company database
+  needs to scope explicitly, every time.
+- **"Longpolling" and "gevent worker" are the same thing, old and current name.**
+  Don't be thrown by which term a given doc or tutorial uses.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Our docker-compose.yml never sets --workers, leaving it at 0. What does that actually mean for the running server?',
+      options: [
+        'the server refuses to boot at all without an explicit worker count',
+        'one process handles one request at a time; fine solo, wrong under real concurrent load',
+        'Odoo silently ignores the setting and always matches the host CPU count',
+      ],
+      answer: 1,
+      why: '0 disables prefork mode entirely. Fine for solo development, exactly the setting a production deployment with real concurrent users needs to change.',
+    },
+    {
+      q: "You back up a database with plain pg_dump instead of Odoo's own db dump command. What did you just lose?",
+      options: [
+        'nothing; a table-level dump is already the complete, fully restorable backup',
+        'every attachment and generated file, none of which lives in a Postgres row',
+        "just the cron schedules, which pg_dump is known to skip on its own",
+      ],
+      answer: 1,
+      why: "Confirmed directly: Odoo's own db dump zip bundles dump.sql alongside a full filestore/ directory. Attachments and generated files live on disk, a table-only dump never touches them.",
+    },
+    {
+      q: 'What does running `odoo neutralize` on a database actually change, confirmed directly against ir_config_parameter?',
+      options: [
+        'it deletes every table except whatever the admin login needs to work',
+        'it flips a flag and disables things like outgoing mail, so staging stays harmless',
+        "it re-encrypts every user's password hash so old production logins stop working",
+      ],
+      answer: 1,
+      why: "Verified live: the config parameter flips to true. The real point is preventing a staging copy of production data from silently emailing real customers or firing real webhooks.",
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ List every setting in `code/odoo.conf` and `code/docker-compose.yml` that
+   this chapter says a production deployment would change, and for each, write one
+   sentence on what breaks if it's left as-is.
+2. ⭐⭐ Run the full backup/restore cycle yourself: `db dump`, `db drop` the
+   original (on a throwaway duplicate, never `tutorial` itself), `db load` it back,
+   and confirm the restored database's data matches.
+3. ⭐⭐⭐ Sketch (on paper, no need to actually run nginx) a minimal reverse-proxy
+   config for this tutorial's own `docker-compose.yml`: which port routes where,
+   and where `--proxy-mode` and TLS termination fit.
+
 ## Further reading
+
+- <Icon name="docs" /> [Deploy Odoo (19.0 official docs)](https://www.odoo.com/documentation/19.0/administration/on_premise/deploy.html):
+  the official production deployment guide, workers/proxy/nginx in full detail.
+- <Icon name="docs" /> [Odoo.sh documentation](https://www.odoo.com/documentation/19.0/administration/odoo_sh.html):
+  the PaaS side of this chapter's comparison, from the source.
+- <Icon name="docs" /> [Instance administration and maintenance](https://www.odoo.com/documentation/19.0/administration/on_premise.html):
+  backups, filestore, and the surrounding operational concerns this chapter surveyed.
