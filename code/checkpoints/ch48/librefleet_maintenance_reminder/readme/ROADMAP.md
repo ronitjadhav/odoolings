@@ -1,0 +1,2 @@
+- A configurable interval instead of the hardcoded 180-day window.
+- A mileage-based trigger alongside the current time-based one.

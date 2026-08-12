@@ -467,6 +467,13 @@ model using the mixin must override, the default is the literal string `'#'`).
 normal record-rule read first, an `access_token` match as the fallback for a
 logged-out visitor with a share link.
 
+**prefetch**: the ORM's automatic batching of related-field reads across one
+recordset. Iterate records that came from a single `search()` and touch a related
+field on each, and the ORM fetches the whole batch in a handful of queries rather
+than one per record. A fresh `search()` called inside a loop starts a new,
+unbatched recordset every time, defeating this entirely, the real mechanism behind
+the N+1 query trap (chapter 48).
+
 **price-included tax (`price_include`)**: a tax treated as already inside the price you
 type, so 100.00 at 15% is 86.96 of revenue plus 13.04 of tax rather than 115.00. In Odoo
 19 `price_include` is *computed* from the tax's `price_include_override` falling back to

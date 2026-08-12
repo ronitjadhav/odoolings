@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.WorkshopClock">
+        <div class="o_librefleet_clock d-flex align-items-center gap-2 px-2">
+            <!-- text-bg-warning, not text-bg-primary: Odoo's brand purple IS
+                 the primary colour, so a primary badge on the purple navbar
+                 renders as invisible-background plain text. -->
+            <span class="badge text-bg-warning" t-out="state.openOrders"/>
+            <span class="d-none d-md-inline" t-out="state.now"/>
+            <button class="btn btn-link p-0" t-on-click="onRefresh" title="Refresh open order count">
+                <i class="fa fa-refresh"/>
+            </button>
+        </div>
+    </t>
+
+</templates>

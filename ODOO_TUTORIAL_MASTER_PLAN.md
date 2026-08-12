@@ -1057,6 +1057,46 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later yet) — ch48 written: performance, measured against real query counts
+
+Every number in this chapter is real, captured via `--log-sql` (`odoo.sql_db:DEBUG`)
+against the `functional` database's real 22 invoices / 63 lines (per §5.8's D12
+note that ch48's N+1 examples live on `account.move.line`), not estimated:
+
+- **N+1**: a `search()`-per-invoice loop measured at 22 real queries against
+  `account_move_line`; the batched `in`-domain version at 1. Same 63 lines back
+  either way.
+- **Prefetch**: iterating 63 already-fetched lines and reading
+  `line.move_id.partner_id.name` on each measured at 4 real queries against
+  `account_move`/`res_partner` combined, not 126, proving the ORM's automatic
+  batching, and showing exactly why the N+1 loop above defeats it (a fresh
+  `search()` per iteration has no batch to prefetch into).
+- **Batch `create()`**: 200 records, one-by-one vs one call, 0.501s vs 0.145s in
+  this Docker environment, ~3.5x, explicitly caveated as a network-latency-bound
+  gap that's much larger over a real app-server-to-Postgres connection.
+- **Indexes**: added a real one LibreFleet was missing (`customer_id` on
+  `librefleet.service.order`, which backs a portal record rule filtering every
+  request). Confirmed via `EXPLAIN` that Postgres ignores it on our 4-row table
+  (correct planner behavior) while using the structurally identical index on
+  `account_move_line`'s 179 rows, an honest "the planner decides, not you" lesson
+  rather than a fabricated benchmark on data too small to show one.
+- **`_read_group`/`formatted_read_group`**: real signature and output captured
+  live against `account.move.line`, cross-referencing ch27's live finding that
+  pre-19 `read_group()` keys its count differently (`<field>_count`, not
+  `__count`), now properly demonstrated here as ch27's own note promised.
+
+**Real code change**: `customer_id = fields.Many2one(..., index=True, ...)` in
+`librefleet/models/service_order.py`, version bumped, checkpoint `ch48` holds both
+modules. ch13 and ch37 (both exercise `customer_id` directly) re-verified green
+after the upgrade.
+
+**No odoolings check**: an index's existence isn't observable over XML-RPC the way
+a field or record is; `\d table_name` over psql is the real proof, same reasoning
+as chapters 38/44/45.
+
+**Glossary +1**: `prefetch`, inserted alphabetically between `portal` and
+`price-included tax`.
+
 ### 2026-08-12 (even later still) — ch47 written: migrations, Part 9 opens
 
 Opens Part 9. Built the planned interactive component (§4.4): `<MigrationChecklist>`,

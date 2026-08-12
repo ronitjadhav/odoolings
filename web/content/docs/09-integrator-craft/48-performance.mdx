@@ -1,24 +1,317 @@
 ---
 title: "48. Performance"
-description: Not written yet, tracked in the roadmap.
+description: Reading the ORM's own SQL, the N+1 trap measured in real queries, batch create, indexes, and when dropping to SQL is actually justified.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch48`
+**Goal:** read what your own code does to Postgres, recognize the N+1 pattern by its
+query count rather than by guessing, and know the few cases where SQL beats the ORM.
+· **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch48`
 
 ## Why this matters
 
+Every chapter so far trusted the ORM to turn a Python expression into reasonable
+SQL, and it usually does. "Usually" is the word this chapter earns: the ORM can't
+see across a loop you wrote, and a query count that's fine on your four-row local
+database can be the reason a client's production instance times out on a busy
+Monday. Reading the actual SQL, not guessing from the Python, is the skill.
+
 ## Concepts
+
+### Seeing the SQL at all: `--log-sql`
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http --log-sql
+```
+
+Every statement the ORM sends to Postgres prints, timed, exactly as it left the
+connection. This is the instrument the rest of this chapter uses throughout,
+not a one-off trick: when a piece of code feels slow, this is the first thing to
+reach for, before profilers, before guessing.
+
+### N+1, measured, not described
+
+Two ways to total up every invoice's lines, run against the same 22 invoices on
+the `functional` database from Part 4:
+
+```python
+# the trap: a fresh search() per invoice, inside the loop
+for move in moves:
+    lines = env['account.move.line'].search([('move_id', '=', move.id)])
+```
+
+```python
+# the fix: one search for every invoice at once
+lines = env['account.move.line'].search([('move_id', 'in', moves.ids)])
+```
+
+Counted directly from `--log-sql` output, real numbers, not estimates:
+
+| Version | Queries against `account_move_line` |
+|---|---|
+| Loop, `search()` per move | **22** |
+| One `search()`, `in` | **1** |
+
+Same 63 lines returned either way. The loop version issues one query exactly as
+often as it loops, N queries for N moves, and that's the whole definition of N+1:
+not "many queries", but "a query count that scales with your data instead of
+staying flat."
+
+<Callout type="warn" title="Gotcha">
+  N+1 doesn't announce itself. Both versions above return identical, correct
+  results. Nothing errors, nothing warns, the page just gets slower as the
+  business grows, which is exactly why reading query counts has to be a habit,
+  not something you reach for only once a client complains.
+</Callout>
+
+### Why the loop version breaks something the ORM does for you automatically
+
+Odoo prefetches: iterate a recordset that came from *one* `search()`, and accessing
+a related field on each record batches the fetch behind the scenes instead of
+querying per record. Proven the same way, iterating all 63 lines and reading
+`line.move_id.partner_id.name` on each:
+
+```text
+LINE COUNT: 63
+```
+
+Real query count against `account_move` and `res_partner` combined for all 63
+accesses: **4**, not 126. The loop-with-`search()`-inside version from above breaks
+this entirely, because a fresh `search()` call each iteration is a brand new
+recordset with nothing to batch, prefetch has no batch to work with. The fix isn't
+"avoid loops", it's "don't re-query inside one."
+
+### `read_group` became `_read_group` / `formatted_read_group`
+
+Chapter 39 hit the version fact; here's the shape, run for real against
+`account.move.line`:
+
+```python
+env['account.move.line']._read_group(
+    [], groupby=['move_id.move_type'], aggregates=['balance:sum', '__count'])
+# [('entry', 0.0, 76), ('in_invoice', 0.0, 12), ('in_refund', 0.0, 6),
+#  ('out_invoice', 0.0, 63), ('out_refund', 0.0, 22)]
+```
+
+`_read_group` returns plain tuples, positional, in the exact order you asked for
+(groupby fields, then aggregates). `formatted_read_group` wraps the same call in
+dicts keyed by the literal groupby/aggregate strings you passed, better suited to
+building an API response than to reading in a shell. Either way, one query replaces
+what a naive "loop and sum in Python" would cost N queries to do.
+
+<Callout type="warn" title="On Odoo 18 this differs">
+  The pre-19 `read_group()` returns dicts too, but keys the count differently
+  (`<field>_count`, not `__count`), a real trap ch27 hit directly: code copied from
+  an older tutorial raises `KeyError` on 19 rather than silently returning the
+  wrong thing.
+</Callout>
+
+### Batch `create()`, measured
+
+`create()` has always accepted a list of dicts, not just one. Real timing, 200
+records, this Docker environment:
+
+| Version | Time |
+|---|---|
+| `Model.create({...})`, once per record, in a loop | **0.501s** |
+| `Model.create([{...}, {...}, ...])`, one call | **0.145s** |
+
+About 3.5× here, on a database sitting on the same machine as the client. Network
+latency between an app server and a production Postgres instance makes the gap
+much larger in practice: every individual `create()` pays that round trip, the
+batched version pays it once.
+
+### Indexes: real, but the planner decides, not you
+
+`index=True` on a field creates a real Postgres btree index; nothing hypothetical
+about it. What's easy to get wrong is expecting the planner to always use one.
+Same filter, two tables, two real `EXPLAIN` outputs:
+
+```text
+-- librefleet_service_order, 4 rows, customer_id indexed
+explain select * from librefleet_service_order where customer_id = 1;
+ Seq Scan on librefleet_service_order  (cost=0.00..1.05 rows=1 width=147)
+   Filter: (customer_id = 1)
+```
+
+```text
+-- account_move_line, 179 rows, move_id indexed
+explain select * from account_move_line where move_id = 73;
+ Bitmap Heap Scan on account_move_line  (cost=4.18..14.57 rows=4 width=339)
+   Recheck Cond: (move_id = 73)
+   ->  Bitmap Index Scan on account_move_line__move_id_index  (cost=0.00..4.17 rows=4 width=0)
+```
+
+The index on `librefleet_service_order` exists, and Postgres ignores it, correctly:
+on 4 rows a sequential scan is cheaper than the overhead of using the index at all.
+The `account_move_line` table, with more rows, gets the bitmap index scan. Same
+mechanism, different verdict, purely from row count. Add indexes for the query
+shape you know is coming (a portal record rule that filters every request, a
+search field readers will actually filter by), not because you can watch the
+`EXPLAIN` output change on your own small database, you usually can't.
+
+### When dropping to SQL is actually justified
+
+The OCA's own guidance (chapter 44's `.pylintrc` enables `sql-injection` for
+exactly this reason) is blunt: don't bypass the ORM. It exists for a reason,
+security rules, `_read()` triggers, computed fields, all of it. The narrow,
+legitimate case is read-only bulk reporting where the ORM's per-record Python
+overhead genuinely dominates and no business logic needs to run, always through
+`env.cr.execute()` with parameterized placeholders, **never** string
+interpolation into the query, that's the SQL injection chapter 44's linter is
+watching for. If a raw query result needs to become real records with real
+security applied, hand it back to the ORM immediately, don't keep working in SQL
+past the one query that needed it.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Reproduce the N+1 measurement yourself
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http --log-sql
+```
+
+Run the loop version from the Concepts section, count the `account_move_line`
+queries in the output, then run the batched version and count again. You should
+land on the same 22-vs-1 split.
+</Step>
+
+<Step>
+### Add the real index LibreFleet was missing
+
+`service_order.py`'s `customer_id` backs a record rule that filters every portal
+request (`security/librefleet_security.xml`), and had no index:
+
+```python
+customer_id = fields.Many2one(
+    related="vehicle_id.owner_id",
+    store=True,
+    index=True,
+    string="Customer",
+    tracking=True,
+)
+```
+
+Bump the version, upgrade, and confirm the index exists for real:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose exec db psql -U odoo -d tutorial -c "\d librefleet_service_order"
+Indexes:
+    "librefleet_service_order_pkey" PRIMARY KEY, btree (id)
+    "librefleet_service_order__customer_id_index" btree (customer_id)
+    "librefleet_service_order__vehicle_id_index" btree (vehicle_id)
+```
+</Step>
+
+<Step>
+### Confirm nothing regressed
+
+```console
+$ python3 odoolings.py check ch13
+$ python3 odoolings.py check ch37
+```
+
+Both exercise `customer_id` directly (ch13's stored-related-field check, ch37's
+portal record rule), so a broken index migration would show up here first.
+</Step>
+
+</Steps>
+
 ## Verify
+
+```console
+$ python3 odoolings.py check ch37
+✔ the public services page renders
+✔ the vehicle lookup endpoint works
+✔ the service order has portal.mixin
+✔ the portal ACL is read-only
+✔ a record rule scopes it to the customer
+
+ch37 complete! On to the next chapter 🔧
+```
+
+No new odoolings check for ch48 itself: an index's existence isn't something
+XML-RPC can observe the way a field or a record can, `\d table_name` over psql is
+the real proof, same reasoning as chapters 38, 44 and 45.
 
 ## Gotchas
 
+- **N+1 returns correct results.** It's not a bug you'll catch from wrong output,
+  only from watching query counts, which is why `--log-sql` habit matters more
+  than any specific fix.
+- **Prefetch only batches within one recordset.** A `search()` call inside a loop
+  creates a brand new, unbatched recordset every iteration, no matter how
+  carefully you access its fields afterward.
+- **An index existing doesn't mean Postgres will use it.** Small tables often get
+  a correct, deliberate sequential scan instead. Don't "fix" a working query plan
+  because an index sits there unused on your own tiny local database.
+- **`read_group()`'s count key changed name in 19.** Code copied from an older
+  tutorial that expects `<field>_count` raises `KeyError`, silently different from
+  what actually shipped.
+- **SQL you write yourself skips every ORM safety net.** Constraints, record
+  rules, computed field triggers, all of it. Reach for `env.cr.execute()` only for
+  read-only aggregation, and hand results back to the ORM the moment you need to
+  touch a record.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Looping over 22 invoices and calling env["account.move.line"].search() once per invoice measured as 22 real SQL queries. What made it 22 instead of 1?',
+      options: [
+        'a missing index on move_id, forcing Postgres to scan for each invoice separately',
+        "a fresh search() runs inside the loop, once per invoice, instead of one call for all of them",
+        'a row-count limit Postgres silently enforces on any single query',
+      ],
+      answer: 1,
+      why: "Each search() is a brand-new query regardless of indexes. The fix isn't indexing, it's asking for every invoice's lines in one call with an 'in' domain.",
+    },
+    {
+      q: "Iterating 63 already-fetched account.move.line records and reading line.move_id.partner_id.name on each measured as only 4 real queries, not 126. Why?",
+      options: [
+        'field values, once read anywhere in the session, are cached permanently for every model',
+        "prefetch batches related-field access across one recordset from a single search()",
+        'partner_id.name turns out to be a denormalized column stored directly on account_move_line',
+      ],
+      answer: 1,
+      why: "Prefetch is exactly this: one recordset from one search() lets the ORM batch-fetch related fields as you touch them, instead of one query per record per hop.",
+    },
+    {
+      q: "You add index=True to a field, upgrade, and confirm the btree index exists in Postgres. EXPLAIN on a filter over that field still shows a Seq Scan. What's going on?",
+      options: [
+        'the upgrade silently failed to create the index, despite what psql itself reports',
+        "on a small table, a sequential scan is genuinely cheaper, and the planner knows it",
+        'Many2one indexes need a manual REINDEX before Postgres will actually use them',
+      ],
+      answer: 1,
+      why: "This chapter measured exactly this: a real index, genuinely ignored, on a 4-row table, and a genuinely used one on a 179-row table. Row count decides, not index existence.",
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Reproduce this chapter's batch-`create()` timing yourself, at 500 and 2000
+   records instead of 200. Does the ratio between one-by-one and batched hold, grow,
+   or shrink?
+2. ⭐⭐ Find one place in LibreFleet's own code (outside `service_order.py`) that
+   loops over a recordset and calls `search()` or `search_count()` inside the loop.
+   Rewrite it as a single batched call and confirm the query count drops with
+   `--log-sql`.
+3. ⭐⭐⭐ Using `_read_group` on `account.move.line`, compute total debit and credit
+   per `move_id.move_type` in one call, no Python-side summing loop, and explain
+   why summing `balance:sum` alone isn't the interesting number for this report
+   (hint: chapter 27's *debit / credit* glossary entry).
+
 ## Further reading
+
+- <Icon name="docs" /> [Performance (developer docs, 19.0)](https://www.odoo.com/documentation/19.0/developer/misc/other/cheatsheet.html):
+  official ORM cheat sheet, prefetch and batching included.
+- <Icon name="docs" /> [ORM API reference: search/read_group (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  `_read_group`'s real signature, straight from the source of truth.
+- <Icon name="tool" /> [PostgreSQL EXPLAIN documentation](https://www.postgresql.org/docs/current/sql-explain.html):
+  worth reading in full once; the planner's reasoning stops looking mysterious.
