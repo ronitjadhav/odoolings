@@ -9,6 +9,7 @@ import { Mastery } from '@/components/mastery';
 import { Card, CardGrid } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { BreakIt } from '@/components/break-it';
+import { MigrationChecklist } from '@/components/migration-checklist';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -26,6 +27,7 @@ export function getMDXComponents(components?: MDXComponents) {
     File,
     Folder,
     BreakIt,
+    MigrationChecklist,
     ...components,
   } satisfies MDXComponents;
 }

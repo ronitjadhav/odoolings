@@ -1,24 +1,264 @@
 ---
 title: "47. Migrations"
-description: Not written yet, tracked in the roadmap.
+description: Why every October forces this, migrating a real OCA module 18 to 19, and the OCA's own process for tracking who's doing it.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch47`
+**Goal:** migrate a real, currently-unported OCA module from 18.0 to 19.0, and know
+the difference between "just bump the version" and "actually port the code." ·
+**Time:** ~2 h · **Checkpoint:** none, this chapter's hands-on happens against a
+module outside LibreFleet entirely.
 
 ## Why this matters
 
+Chapter 1's October cadence and chapter 7's branch-per-version model both pointed
+here without quite arriving: a new Odoo major ships every year, each OCA repo grows
+a new version branch for it, and every module on the old branch has to get ported,
+by someone, eventually. Chapter 7 measured this for real on `OCA/server-tools`: 73
+modules on the mature `16.0` branch, 34 on the young `19.0` one. That gap is not
+neglect, it's the queue, and "that developer will regularly be you" wasn't a throwaway
+line.
+
 ## Concepts
+
+### Why yearly releases force this at all
+
+Each Odoo major is supported for a fixed window (three years past its release, per
+chapter 1), and OCA repos mirror that with one branch per version. A fix landed on
+`19.0` never automatically reaches `16.0`, and a `16.0`-only module never automatically
+gains a `19.0` branch. Someone has to do the work, every module, every year, which is
+exactly why the OCA treats migration as first-class, tracked activity rather than an
+occasional chore.
+
+### The OCA's migration process: a tracking issue, claimed module by module
+
+Every OCA repo keeps one open issue per target version, a literal checklist: every
+module on the old branch, one checkbox each, filled in with the contributor's name
+and PR link the moment someone claims it. Real, live, right now:
+[`OCA/server-tools` "Migration to version 19.0"](https://github.com/OCA/server-tools/issues/3400)
+lists `auditlog` done, `base_exception` done, `attachment_unindex_content` still
+open. This is the shape chapter 45's contribution mechanics point straight at: find
+an unclaimed line, comment to claim it, then fork, branch, and PR exactly as chapter
+45 walked through, this time with `[MIG]` as the tag.
+
+<MigrationChecklist
+  items={[
+    { id: "unclaimed", label: "Confirm the module isn't already claimed on the repo's migration tracking issue" },
+    { id: "claim", label: "Comment on the tracking issue to claim it" },
+    { id: "branch", label: "Fork, fetch upstream, branch off the new version branch (chapter 45)" },
+    { id: "bump", label: "Bump the manifest version prefix to the new major" },
+    { id: "install", label: "Install against the new version and read what breaks" },
+    { id: "fix", label: "Fix flagged deprecations (see the list below), one at a time" },
+    { id: "test", label: "Run the module's own test suite" },
+    { id: "readme", label: "Regenerate the README from readme/ fragments (chapter 44)" },
+    { id: "pr", label: "Open the PR: [TARGET][MIG] module: Migration to X.0, linked to the tracking issue" },
+  ]}
+/>
+
+### Sometimes migration really is just the version bump
+
+Not every module needs porting. `html_text`, a small `OCA/server-tools` module
+extending `ir.fields.converter` to strip plain text out of an HTML field, was still
+sitting on `18.0` at the time of writing, unclaimed. Installed as-is on Odoo 19:
+
+```text
+WARNING tutorial odoo.modules.module: The module html_text has an incompatible version, setting installable=False
+```
+
+Odoo refuses to install a module whose manifest version prefix doesn't match the
+running server's major version, full stop, before a single line of the module's
+Python ever runs. Bump `"version": "18.0.1.0.0"` to `"19.0.1.0.0"` and nothing else,
+and:
+
+```text
+INFO tutorial odoo.tests.result: 0 failed, 0 error(s) of 3 tests when loading database 'tutorial'
+```
+
+Clean install, all three of its own tests green, zero code changes. This isn't a
+guess: a real, currently open PR,
+[`OCA/server-tools#3653`](https://github.com/OCA/server-tools/pull/3653), migrates
+this exact module, and its `ir_fields_converter.py` is byte-for-byte identical to
+the `18.0` version, confirmed by diffing them directly. The only functional change
+in that PR is the same one-line version bump this chapter just made independently.
+
+### When it isn't: the real deprecation list
+
+Most of what actually breaks between majors isn't invented for this chapter, it's
+what building LibreFleet on Odoo 19 hit for real, chapter by chapter:
+
+| Old (pre-19) | New (19) | Hit in |
+|---|---|---|
+| `_sql_constraints` tuple list | `models.Constraint` pseudo-field | chapter 14 |
+| `read_group()` | `_read_group()` / `formatted_read_group()` | baseline research |
+| `name_get()` | `display_name` | baseline research |
+| server-side QWeb `t-esc` | `t-out` | chapter 39 |
+| `odoo.osv` | (retired) | baseline research |
+| `--without-demo=all` | a plain boolean | chapter 4 |
+| controller `type="json"` | `type="jsonrpc"` | chapter 37 |
+
+<Callout type="warn" title="Gotcha">
+  `t-esc` is **not** deprecated in OWL's client-side templates, only in server-side
+  QWeb (chapter 39's own finding: core ships 126 files still using OWL `t-esc`).
+  Migrating a module's Python-rendered reports needs `t-out`; migrating its OWL
+  components does not, by itself, need the same swap.
+</Callout>
+
+### OpenUpgrade and the Enterprise upgrade service: migrating data, not code
+
+Everything above is about a module's *code* surviving a version bump. A running
+*database* is a separate problem entirely: existing records, in old table shapes,
+need to land correctly in the new version's schema. [OpenUpgrade](https://github.com/OCA/OpenUpgrade)
+is the OCA's own project for exactly this, a fork of Odoo carrying migration
+scripts release to release, community-maintained the same way any OCA repo is.
+Odoo SA sells the same problem solved as a service for Enterprise customers
+(the "upgrade" offering on odoo.com), concept-level knowledge worth having even if
+your own projects run OpenUpgrade or a client-specific migration script instead:
+know that data migration and code migration are two different problems with two
+different tools before a project conflates them.
 
 ## Hands-on
 
+<Steps>
+
+<Step>
+### Find something real and unclaimed
+
+Open a repo's migration tracking issue (`OCA/server-tools`'s is linked above) and
+find a module with no checkmark. Read its `18.0` source on GitHub first, the same
+way chapter 43 taught: small and single-purpose beats large for a first migration,
+same as chapter 45's advice for a first contribution.
+</Step>
+
+<Step>
+### Try the naive install first
+
+Copy the module into your workspace's `addons/` unmodified, manifest version and
+all, and try installing it against your Odoo 19 environment:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
+...
+WARNING tutorial odoo.modules.module: The module <module_name> has an incompatible version, setting installable=False
+```
+
+You'll see this exact warning, every time, for every unmigrated module. It's the
+starting gun, not a real failure.
+</Step>
+
+<Step>
+### Bump the version, install, and read what happens
+
+```python
+"version": "19.0.1.0.0",
+```
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
+```
+
+If it installs clean, you may already be done, exactly `html_text`'s situation
+above. If it doesn't, the traceback names the exact deprecated call; check it
+against this chapter's table first, it's very often already on there.
+</Step>
+
+<Step>
+### Run its own tests, not just the install
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u <module_name> \
+    --test-tags /<module_name> --http-port=8070 --stop-after-init
+```
+
+An install that succeeds but a test suite that fails is real signal: the module
+loaded, but something it does at runtime hits a removed API the loader itself never
+exercises.
+</Step>
+
+<Step>
+### Work the checklist
+
+Use the interactive checklist in the Concepts section above for the rest: claiming
+the module, running chapter 44's tooling over it, and opening the actual PR per
+chapter 45's mechanics, `[MIG]` tag, targeting the new version branch, linked back
+to the tracking issue you claimed it from.
+</Step>
+
+</Steps>
+
 ## Verify
+
+No odoolings check, same reasoning as chapters 38 and 44: this chapter's proof lives
+in a module that installs clean on Odoo 19 and passes its own test suite, which you
+just watched happen in the terminal. You should be able to say, for the module you
+picked, whether it needed real porting or just the version bump, and why.
 
 ## Gotchas
 
+- **The version-mismatch warning fires before any of your module's Python runs.**
+  `installable=False` isn't a bug in the module, it's Odoo refusing to even try.
+- **A clean install doesn't mean a clean test run.** Always run `--test-tags`
+  separately; the loader and the test suite exercise different code paths.
+- **`t-esc` is deprecated in server-side QWeb, not in OWL.** Check which templating
+  engine you're actually looking at before "fixing" the wrong one.
+- **Migrating code and migrating data are different problems.** A module's Python
+  passing on 19 says nothing about whether existing production records in that
+  module's tables need their own migration script (OpenUpgrade's job, not this
+  chapter's).
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You install an unmodified 18.0 module against an Odoo 19 server and see "incompatible version, setting installable=False". What does this tell you?',
+      options: [
+        "the module's Python has a syntax error specific to the newer interpreter",
+        "the manifest's declared version prefix is checked before any of the module's code runs at all",
+        'a required dependency the module lists is unavailable on this server',
+      ],
+      answer: 1,
+      why: 'This check happens at the manifest-reading stage, before a single line of the module\'s own Python executes. It is purely about the declared version prefix.',
+    },
+    {
+      q: 'A module installs cleanly on 19 with just a version bump, and its own test suite passes. Real example from this chapter?',
+      options: [
+        "auditlog, whose migration PR rewrote its scheduled-cleanup cron entirely",
+        "html_text, verified two ways: a local install, and a real open OCA PR",
+        'no real case exists; every migration needs at least one code change',
+      ],
+      answer: 1,
+      why: "html_text's own migration PR (OCA/server-tools#3653) changes only the manifest version; the module's Python is byte-identical to its 18.0 source.",
+    },
+    {
+      q: "Your module renders a report using server-side QWeb's t-esc, and you're migrating it to 19. What's the fix, and does it apply to your OWL frontend code too?",
+      options: [
+        'swap to t-out; the same swap is also required in any OWL component templates',
+        "swap to t-out; OWL's client-side t-esc is unrelated and not deprecated",
+        'no change needed; t-esc still works identically in every context on 19',
+      ],
+      answer: 1,
+      why: "Server-side QWeb deprecates t-esc in favor of t-out. OWL's own templating, used client-side, still uses t-esc throughout Odoo's own core (126 files), a genuinely separate concern.",
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Pick a second unclaimed module from a repo's migration tracking issue and
+   determine, without writing any code yet, just from reading its source: version
+   bump only, or real porting work? Check your guess by actually installing it.
+2. ⭐⭐ For one deprecation from this chapter's table you haven't personally hit yet
+   (`read_group`, `name_get`, or `odoo.osv`), find one real usage of the old form
+   still in `odoo/odoo`'s own `18.0` branch, and describe what the fix would look like.
+3. ⭐⭐⭐ Do the real thing: claim an unclaimed module on a tracking issue, migrate
+   it fully (chapter 44's tooling passing, real tests green), and open the PR.
+
 ## Further reading
+
+- <Icon name="docs" /> [OCA/server-tools: Migration to version 19.0](https://github.com/OCA/server-tools/issues/3400):
+  the live tracking issue this chapter's checklist mirrors.
+- <Icon name="source" /> [OCA/server-tools#3653](https://github.com/OCA/server-tools/pull/3653):
+  the real `html_text` migration PR referenced above.
+- <Icon name="source" /> [OpenUpgrade](https://github.com/OCA/OpenUpgrade): the
+  OCA's own database-migration project, concept-level for now.
+- <Icon name="docs" /> [Deprecated features (19.0 release notes)](https://www.odoo.com/documentation/19.0/administration/upgrade.html):
+  Odoo SA's own upgrade documentation, the Enterprise-side counterpart to OpenUpgrade.
