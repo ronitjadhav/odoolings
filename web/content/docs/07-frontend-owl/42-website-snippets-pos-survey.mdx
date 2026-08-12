@@ -1,12 +1,13 @@
 ---
 title: "42. Website, Snippets & POS (Survey)"
-description: A lighter chapter, a real bakery till opened and closed for real, and a look at the drag-and-drop builder behind every Odoo website.
+description: A lighter chapter, a real online order and a real bakery till both closed for real, and a look at the drag-and-drop builder behind every Odoo website.
 ---
 
-**Goal:** open a real POS session, ring up two sales, close the till, and read the
+**Goal:** place a real order through the actual online store and read the sale.order
+it becomes; open a real POS session, ring up two sales, close the till, and read the
 journal entries it posts; then survey the website builder's snippet library, what it
 is, and when reaching for it beats writing an OWL component. ·
-**Time:** ~1 h · **Checkpoint:** none, this chapter runs entirely on the `functional`
+**Time:** ~1.5 h · **Checkpoint:** none, this chapter runs entirely on the `functional`
 database with core Odoo apps, no `librefleet` code changes.
 
 ## Why this matters
@@ -23,11 +24,16 @@ building yet another widget.
 application by far, and it is offline-first, meaning the till itself is a separate
 bootstrap that has to keep ringing up sales through a dropped connection and sync
 later. That combination, a real OWL SPA plus a completely different reliability model
-from the backend web client, makes it the natural case study to close Part 7 on. It
-also finally closes the loop Parts 4 and 5 opened: sale, purchase, stock, manufacturing
-and accounting all met a customer who placed an order through a screen; POS is the
-screen for a customer standing at a counter, and its session close is where cash and
-card sales become the same kind of journal entry chapter 27 taught you to read.
+from the backend web client, makes it the natural case study to close Part 7 on.
+
+This chapter also finally closes the loop Parts 4 and 5 opened: sale, purchase,
+stock, manufacturing and accounting all met a customer who placed an order through a
+screen. Two screens close it, both covered here. POS is the screen for a customer
+standing at a counter, and its session close is where cash and card sales become the
+same kind of journal entry chapter 27 taught you to read. The website's shop is the
+screen for a customer who never walks in at all, and it produces the exact same
+`sale.order` chapter 22 taught you to read, just created by a stranger on the
+internet instead of a salesperson at a desk.
 
 ## Concepts
 
@@ -73,6 +79,23 @@ components do not automatically run on the website.** They loaded into
 `web.assets_frontend`. A systray widget or a field widget has no meaning outside the
 backend it was built for.
 
+### The online store is `website_sale`, and it still just makes a `sale.order`
+
+Everything chapter 22 taught about `sale.order` (states, order lines, the quote-to-
+order lifecycle) applies unchanged to an order a customer places through the
+website. `website_sale` is the app that adds the shop, cart, and checkout flow on
+top of `website` and `sale`; installing it is what turns product pages from static
+content into something with an **Add to cart** button at all. What it produces is
+not a new kind of document, it's the same `sale.order` model, with `website_id` set
+and, if a payment provider handled it, a linked `payment.transaction`.
+
+One real wrinkle worth knowing before you check out for the first time: a
+manual payment method like Wire Transfer doesn't confirm the order immediately.
+The `sale.order` lands in `state = 'sent'` (Quotation Sent) and its
+`payment.transaction` sits at `state = 'pending'`, waiting for someone to actually
+see the money arrive and confirm it by hand. A real-time gateway (Stripe, PayPal)
+would confirm automatically; a bank transfer, by its nature, can't.
+
 ### A POS session is a normal Odoo record with an offline app in front of it
 
 `pos.session` is a plain model: `state` moves through `opening_control` → `opened` →
@@ -99,10 +122,62 @@ Sale and the website builder are core apps you are installing and using directly
 with no `librefleet` code to write.
 
 ```console
-$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional -i point_of_sale --stop-after-init
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional -i point_of_sale,website_sale --stop-after-init
 ```
 
 <Steps>
+
+<Step>
+### Place a real order through the online store
+
+Enable a payment method first; the demo data ships every provider disabled. Wire
+Transfer needs no external account, real gateway or fake credentials, which makes
+it the honest choice for a hands-on:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+>>> wire = env['payment.provider'].search([('code', '=', 'custom'), ('company_id', '=', env.company.id)]).filtered(lambda p: 'Wire' in p.name)
+>>> wire.state = 'enabled'
+>>> env.cr.commit()
+```
+
+Now shop for real: `http://localhost:8069/shop`, pick any product, choose a variant.
+
+![The Customizable Desk product page with Color (White selected) and Legs (Steel selected, Aluminium +$50.40) options, $675.00 price, and an Add to cart button](/screens/ch42-shop-product-variants.jpg)
+
+**Add to cart**, then **Go to Checkout** on the upsell dialog that appears (skip the
+cross-sell offers, Conference Chair and Warranty, unless you want to see how they
+attach to the same order). Confirm the address chapter's own account already has on
+file, pick **Wire Transfer** as the payment method, and **Pay now**:
+
+![The order confirmation page reading "Thank you for your order, Order S00047" with real Wire Transfer bank account details and a $675.00 total](/screens/ch42-shop-order-confirmation.jpg)
+
+That's a real order, `S00047`, not a sandbox mockup.
+</Step>
+
+<Step>
+### Read what it actually created
+
+```python
+>>> order = env['sale.order'].search([('name', '=', 'S00047')])
+>>> order.state, order.website_id.name, order.amount_total
+('sent', 'My Website', 675.0)
+>>> order.order_line.mapped(lambda l: (l.product_id.display_name, l.price_unit))
+[('[FURN_0096] Customizable Desk (White, Steel)', 675.0), ('[Delivery_007] Standard delivery', 0.0)]
+>>> order.transaction_ids.mapped(lambda t: (t.reference, t.state, t.provider_id.name))
+[('S00047', 'pending', 'Wire Transfer')]
+```
+
+`state` reads `sent`, not `sale`, exactly as the Concepts section predicted: Wire
+Transfer can't confirm itself, a human has to see the money land and validate the
+transaction by hand (Invoicing → Customers → Payments, or directly on the
+transaction record) before this becomes a confirmed sale. The order line, the
+delivery line, the linked transaction, all of it is the ordinary `sale.order` shape
+chapter 22 already taught you to read.
+</Step>
 
 <Step>
 ### Open a till and sell something
@@ -217,6 +292,8 @@ exercise 4 below.
 
 ```console
 $ python3 odoolings.py check ch42 --db functional
+✔ website_sale is installed
+✔ a real order was placed through the online store
 ✔ point_of_sale is installed
 ✔ a POS session was opened and closed
 ✔ the session's journal entry is posted and balanced
@@ -231,6 +308,10 @@ Register screen's default would produce if you clicked through without counting.
 
 ## Gotchas
 
+- **A website order paid by Wire Transfer stays `sent`, not `sale`.** Manual payment
+  methods can't confirm themselves; the order sits at Quotation Sent until someone
+  validates the transaction by hand once the money actually arrives. Don't read
+  "unconfirmed" as "broken."
 - **The Cash Count field defaults to `0`, not to the expected total.** Closing a
   register without entering a real count reports a shortfall for the entire opening
   float plus every cash sale, on a till that lost nothing.
@@ -252,6 +333,16 @@ Register screen's default would produce if you clicked through without counting.
 ## Quick check
 
 <Quiz questions={[
+  {
+    q: "You complete a real website checkout using Wire Transfer as the payment method. The resulting sale.order's state reads 'sent', not 'sale'. Why?",
+    options: [
+      "checkout silently failed partway through, and the order never actually finished",
+      "a manual payment method needs a human to validate it once the money lands",
+      "every website order starts as a quotation no matter the payment method chosen",
+    ],
+    answer: 1,
+    why: "Confirmed directly: the linked payment.transaction sits at state 'pending'. A real-time gateway would auto-confirm; a bank transfer, by its nature, needs a human to see the money land first.",
+  },
   {
     q: "A cashier closes a POS session without typing anything into the Cash Count field, and the Closing Register screen reports a $167.24 shortfall. What actually happened to the cash?",
     options: [
@@ -300,20 +391,23 @@ Register screen's default would produce if you clicked through without counting.
 
 ## Exercises
 
-1. ⭐ Open a second POS session on a different shop (Clothes or Furniture), sell one
+1. ⭐ Place a second website order, this time adding the Conference Chair or
+   Warranty cross-sell offered in the upsell dialog, and confirm both end up as
+   separate `order_line` records on the same `sale.order`.
+3. ⭐ Open a second POS session on a different shop (Clothes or Furniture), sell one
    order, and correctly close the register on the first attempt, using the numbers the
    Closing Register screen itself shows you rather than guessing.
-2. ⭐⭐ Read `POSS/.../0003`'s tax line, `251000 Tax Received`, against the two
+4. ⭐⭐ Read `POSS/.../0003`'s tax line, `251000 Tax Received`, against the two
    orders' totals and confirm by hand that 15% of the untaxed subtotal produces the
    exact tax figure posted.
-3. ⭐⭐ Find the `pos.payment.method` record backing the "Customer Account" payment
+5. ⭐⭐ Find the `pos.payment.method` record backing the "Customer Account" payment
    option and explain, from its `journal_id` (or lack of one), why paying by customer
    account does not need a settlement entry the way Card does.
-4. ⭐⭐⭐ Actually drag a snippet onto a page in the website editor (Edit > any block
+6. ⭐⭐⭐ Actually drag a snippet onto a page in the website editor (Edit > any block
    under Intro or Content), fill in real text and an image, and Save. Confirm from the
    shell that the page's `ir.ui.view.arch_db` now contains your edited copy of the
    snippet's markup, not a reference to the original template.
-5. ⭐⭐⭐ Break-it lab: open a POS session, ring up an order, and before paying, open
+7. ⭐⭐⭐ Break-it lab: open a POS session, ring up an order, and before paying, open
    devtools and go offline (Network tab > Offline). Complete the sale anyway, then go
    back online. Read what the POS SPA's IndexedDB-backed order queue does once
    connectivity returns, and explain why this would have been meaningfully harder to
