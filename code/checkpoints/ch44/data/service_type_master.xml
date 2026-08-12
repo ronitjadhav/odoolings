@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Master data: config the app needs to be useful out of the box, not
+         examples to delete before going live. noupdate="1" so a manager's
+         edits (say, a price change) survive the next module upgrade. -->
+    <data noupdate="1">
+        <record id="service_type_tire_rotation" model="librefleet.service.type">
+            <field name="name">Tire Rotation</field>
+            <field name="flat_fee">59.0</field>
+            <field name="default_duration_h">0.5</field>
+        </record>
+        <record id="service_type_wheel_alignment" model="librefleet.service.type">
+            <field name="name">Wheel Alignment</field>
+            <field name="flat_fee">45.0</field>
+            <field name="default_duration_h">0.75</field>
+        </record>
+    </data>
+</odoo>

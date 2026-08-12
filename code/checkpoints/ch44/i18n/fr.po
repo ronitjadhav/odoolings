@@ -1,0 +1,31 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* librefleet
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0\n"
+"Report-Msgid-Bugs-To: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: nplurals=2; plural=n > 1;\n"
+
+#. module: librefleet
+#: model:librefleet.service.type,name:librefleet.service_type_tire_rotation
+msgid "Tire Rotation"
+msgstr "Rotation des pneus"
+
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid "Only an order that is in progress can be marked done."
+msgstr "Seul un ordre en cours peut être marqué comme terminé."
+
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid ""
+"This order loses money (margin %(margin).2f). A manager must tick the "
+"override to complete it anyway."
+msgstr ""
+"Cet ordre est déficitaire (marge %(margin).2f). Un responsable doit cocher "
+"la dérogation pour le terminer malgré tout."

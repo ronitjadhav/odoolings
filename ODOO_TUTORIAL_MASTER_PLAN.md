@@ -1057,6 +1057,42 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later still, again) — ch44 written: pre-commit, ruff, pylint-odoo and readme generation, pointed at LibreFleet itself
+
+Unlike ch43, a real hands-on chapter: wired up `.pre-commit-config.yaml`,
+`.ruff.toml` and `.pylintrc` (a trimmed, real, hand-explained subset of
+`OCA/fleet`'s actual config, verified live via `gh api`) and ran `pre-commit run
+--all-files` against LibreFleet's real code for the first time ever, 36 chapters in.
+
+**The findings were real, not staged.** First run: 15 ruff F401 hits on every
+`models/__init__.py`-style registration import (fixed with a `per-file-ignores`
+entry, the standard idiom, also present in `OCA/fleet`'s own `.ruff.toml`), two
+genuine `translation-required` violations in `service_order.py`/`vehicle.py`
+(`ValidationError` strings not routed through Odoo 19's `self.env._()`, fixed for
+real in the actual source), and one `missing-return` false positive on
+`_compute_access_url` (pylint-odoo's check can't distinguish a correctly-returning-
+nothing compute from a forgotten `create`/`write` return; fixed via the documented
+`no-missing-return` config escape hatch, not a code change).
+
+**Manifest gained `development_status: Beta`** (declared, not left to the silent
+default ch43 covered) and a version bump to `19.0.1.28.0`. **Wrote real
+`readme/DESCRIPTION.md`/`CONTRIBUTORS.md`/`ROADMAP.md` fragments** and ran
+`oca-gen-addon-readme` for real, producing a genuine generated `README.rst` with the
+digest marker and badge row, same shape as the `fleet_vehicle_service_kanban`
+example ch43 read.
+
+**Verified for real**: `docker compose exec odoo ... -u librefleet --stop-after-init`
+clean upgrade after all edits, `ir_module_module.latest_version` confirms
+`19.0.1.28.0`, plus a spot-check of odoolings chapters touching the edited files
+(ch09, ch35, ch37, ch41) to confirm nothing regressed. No odoolings check registered
+for ch44 itself, same reasoning as ch38: the tool run is the verification, there's
+nothing new in Odoo's own state to assert over XML-RPC.
+
+**Housekeeping**: `web/tests/export-preview.test.mjs`'s hardcoded stub route bumped
+ch44 → ch45. No new glossary entries: ruff/pylint-odoo/prettier/pre-commit are
+general external tooling, and the glossary's scope (confirmed by grepping for
+"Docker"/"git"/"psql", none present) is Odoo-specific jargon only.
+
 ### 2026-08-12 (later still) — ch43 written: OCA Safari opens Part 8
 
 First chapter of Part 8, and like ch2 (which it deliberately doesn't repeat), a pure

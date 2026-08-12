@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="librefleet.Dashboard">
+        <div class="o_librefleet_dashboard p-4">
+            <h2>Workshop load</h2>
+
+            <div t-if="state.loading" class="text-muted">Loading...</div>
+
+            <div t-else="">
+                <p class="text-muted">
+                    <span t-out="state.openCount"/> open order(s) across
+                    <span t-out="state.technicians.length"/> group(s).
+                </p>
+
+                <table class="table table-sm w-auto">
+                    <thead>
+                        <tr>
+                            <th>Technician</th>
+                            <th class="text-end">Open orders</th>
+                            <th class="text-end">Margin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="state.technicians" t-as="tech" t-key="tech.id">
+                            <td t-out="tech.name"/>
+                            <td class="text-end">
+                                <button class="btn btn-link p-0"
+                                        t-on-click="() => this.openGroup(tech)">
+                                    <span t-out="tech.count"/>
+                                </button>
+                            </td>
+                            <td class="text-end" t-out="tech.margin.toFixed(2)"/>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </t>
+
+</templates>
