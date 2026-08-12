@@ -1,24 +1,269 @@
 ---
 title: "45. Contributing to OCA"
-description: Not written yet, tracked in the roadmap.
+description: The CLA, fork mechanics in full, PR shape, review etiquette, and making your first real contribution.
 ---
 
-<Callout type="warn" title="Stub">
-  This chapter isn't written yet. Progress is tracked in the [roadmap](/docs/roadmap).
-</Callout>
-
-**Goal:** _one sentence._ · **Time:** ~_X_ h · **Checkpoint:** `code/checkpoints/ch45`
+**Goal:** know the exact sequence from "I found a fix" to "it's an open PR against
+OCA", and understand what happens to it after. · **Time:** ~2 h · **Checkpoint:**
+none, this chapter's work happens on GitHub, not in LibreFleet.
 
 ## Why this matters
 
+Chapter 43 taught you to find and judge OCA modules. Chapter 44 taught you to bring
+your own module up to that standard. This chapter closes the loop: sending a fix
+back. "Keep a good submitted/reviewed ratio" is genuinely how integrator developers
+are expected to work, not a slogan, and the mechanics here (fork, branch off the
+right thing, PR shape, CI gate) are the same whether you're fixing a typo today or
+landing a real feature on a client-funded contribution next year.
+
 ## Concepts
+
+### The CLA, signed once, and it isn't a bot click
+
+Unlike a lot of open source projects, OCA's CLA isn't a "comment to sign" GitHub
+bot. It's a real document: download the Individual CLA (or an Entity CLA if your
+employer signs on behalf of its developers, which does not replace each individual
+signing their own ICLA too), sign it, and email the scan or digitally-signed file
+to `cla@odoo-community.org`, including your GitHub username. You can technically
+open a PR before signing, but review won't proceed until you have, so sign it
+before you need it.
+
+### Fork mechanics, in full
+
+Chapter 7 named this moment: forking is for contributing to *someone else's* repo,
+which is exactly what's happening now.
+
+<Mermaid
+  label="Your fork holds an origin remote you push to; the real OCA repo is upstream, fetched from but never pushed to directly; the PR flows from your branch into upstream's version branch"
+  chart={`flowchart LR
+    subgraph you["Your fork (origin)"]
+      b["fix/readme-typo<br/>branched off 19.0"]
+    end
+    subgraph oca["OCA/fleet (upstream)"]
+      v["19.0"]
+    end
+    v -."fork".-> you
+    b -."git pull --rebase upstream 19.0<br/>before opening the PR".-> v
+    b -."git push origin<br/>then open a PR".-> v`}
+/>
+
+```console
+$ gh repo fork OCA/fleet --clone
+$ cd fleet
+$ git remote add upstream https://github.com/OCA/fleet.git
+$ git fetch upstream
+$ git checkout -b fix/readme-typo upstream/19.0
+```
+
+Branching from `upstream/19.0`, not from your fork's default branch, matters: your
+fork's default branch is whatever it was the moment you forked, and can drift stale.
+Branching straight off the version branch you fetched guarantees you're starting
+from what OCA actually has right now.
+
+Before you push, catch up on anything that landed upstream while you worked:
+
+```console
+$ git pull --rebase upstream 19.0
+```
+
+<Callout type="warn" title="Gotcha">
+  Plain `git pull upstream 19.0` (no `--rebase`) can stop with "you have divergent
+  branches and need to specify how to reconcile them" on current git. `--rebase`
+  keeps your commit on top, cleanly, which is what a reviewer expects: one commit,
+  sitting directly on the branch tip.
+</Callout>
+
+### PR shape: title, single commit, the right base
+
+The title carries the version, same tag convention chapter 7 taught for commits:
+`[19.0][FIX] fleet: fix a typo in the module description`. One commit per PR
+(squash locally first if you made several), targeting the version branch you
+branched from, **never `master`**, chapter 7's rule again, now with real
+consequences: a PR against `master` gets closed with "wrong branch."
+
+### The CI gate is what you already ran
+
+Every OCA PR runs pre-commit, the module's test suite, and Codecov, plus spins up a
+**Runboat** instance (chapter 2) so a reviewer can click through your change live
+without installing anything. None of this should surprise you: `pre-commit run
+--all-files`, chapter 44's whole hands-on, is exactly what the CI step runs. Green
+locally means green in CI, that's the point of running it locally at all.
+
+### Review etiquette, and the actual merge bar
+
+OCA's own guidelines are specific about how review should feel, not just what it
+checks: thank the contributor first, be cordial, explain *why* something needs to
+change rather than just flagging that it does, and reviewers tag whether they
+reviewed the code, tested it functionally, or both. A PR generally needs multiple
+approving reviews (the community's documented bar tightens the longer a PR sits
+without them), and at least one has to come from a PSC member or core maintainer.
+Once that bar is met, a PSC member merges it with a bot command, `/ocabot merge`,
+which rebases, optionally bumps the module's version, and updates the changelog for
+you. Two more commands you'll see in the wild: `/ocabot rebase` (rebases your PR for
+you when it's gone stale) and `/ocabot migration` (links a migration PR to the
+repo's tracking issue).
 
 ## Hands-on
 
+<Callout type="warn" title="This one's yours to run for real">
+  Every command below is verified, real, and exactly what you'll type. What isn't
+  simulated here is signing the actual CLA or opening an actual PR against a live
+  OCA repository under your own GitHub identity, both of which only you can do.
+  Treat this the same way you've treated logging into the Odoo backend all
+  tutorial long: something only you can do once, that then just works from here on.
+</Callout>
+
+<Steps>
+
+<Step>
+### Sign the CLA
+
+Download the Individual CLA from [odoo-community.org/page/cla](https://odoo-community.org/page/cla),
+sign it, and email it to `cla@odoo-community.org` with your GitHub username
+included. Do this now, before you need a review to unblock.
+</Step>
+
+<Step>
+### Find something real and small
+
+Use chapter 43's skills: pick a repo whose domain you understand (`OCA/fleet` is
+the obvious choice if you've been following the LibreFleet parallel), and look for
+something genuinely wrong and genuinely small: a typo in a README fragment, a
+missing detail in a `readme/DESCRIPTION.md`, a manifest `summary` that doesn't match
+what the module does. Small and real beats impressive and half-finished for a first
+PR.
+</Step>
+
+<Step>
+### Fork, clone, branch off the version branch
+
+```console
+$ gh repo fork OCA/fleet --clone
+$ cd fleet
+$ git remote add upstream https://github.com/OCA/fleet.git
+$ git fetch upstream
+$ git checkout -b fix/readme-typo upstream/19.0
+```
+</Step>
+
+<Step>
+### Make the fix, commit with the tag convention
+
+```console
+$ git add -A
+$ git commit -m "[FIX] fleet_vehicle_service_kanban: fix a typo in the readme"
+```
+</Step>
+
+<Step>
+### Run pre-commit before you push, not after CI tells you to
+
+```console
+$ pre-commit run --all-files
+```
+
+Chapter 44's whole setup, pointed at someone else's module this time. Fix anything
+it finds the same way you did there.
+</Step>
+
+<Step>
+### Stay current, push, open the PR
+
+```console
+$ git pull --rebase upstream 19.0
+$ git push origin fix/readme-typo
+$ gh pr create --repo OCA/fleet --base 19.0 \
+    --title "[19.0][FIX] fleet_vehicle_service_kanban: fix a typo in the readme" \
+    --body "Fixes a typo in the readme/DESCRIPTION.md fragment."
+```
+</Step>
+
+<Step>
+### Watch it work
+
+Check the PR page: CI running, a Runboat link appearing once it's green, the CLA
+check passing since you signed ahead of time. Respond to any review comments the
+way chapter 43 and this chapter's Concepts section described reading them: as
+someone spending their own time on your PR, not as a gate to argue with.
+</Step>
+
+</Steps>
+
 ## Verify
+
+No odoolings check, this chapter's proof lives on GitHub: you should be able to
+paste a real PR URL, opened under your own account, targeting a real OCA repo's
+version branch, with a title in the `[19.0][TAG] module: description` shape and a
+single commit.
 
 ## Gotchas
 
+- **CLA timing.** You can PR before signing, but review stalls until the CLA clears.
+  Sign it the day you plan to contribute, not the day a reviewer asks.
+- **`git pull upstream 19.0` without `--rebase` can refuse to run** on current git,
+  asking you to choose a reconcile strategy. `--rebase` is the one that keeps your
+  history reviewable.
+- **Branching from your fork's default branch instead of `upstream/<version>`**
+  quietly starts you from a stale snapshot. Always fetch upstream first.
+- **A PR against `master`** looks like an honest mistake and gets closed as one.
+  Confirm your base branch before you open the PR, not after.
+- **Multiple small PRs beat one large one**, for you and for the reviewer. A
+  ten-line typo fix gets merged same-day; a rewrite sits in review for weeks.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Why branch off `upstream/19.0` (after fetching) instead of your fork\'s own default branch?',
+      options: [
+        "your fork's default branch can be a stale snapshot from fork time",
+        'GitHub requires every feature branch to be created from a remote-tracking branch, never from a local one',
+        "forks are read-only until you push a branch to them yourself",
+      ],
+      answer: 0,
+      why: "A fork is a snapshot at fork time. Fetching upstream and branching from it guarantees you're starting from the real, current state of the repo you're contributing to.",
+    },
+    {
+      q: 'Plain `git pull upstream 19.0` stops with a "divergent branches" message. What fixes it, and why is that the right fix here?',
+      options: [
+        '`git pull --ff-only upstream 19.0`, which refuses to run at all unless your branch is already caught up',
+        '`git pull --rebase upstream 19.0`, replaying your commit on top instead of a merge commit',
+        'running `git merge upstream/19.0` directly instead of going through pull at all',
+      ],
+      answer: 1,
+      why: 'A merge commit would bury your single commit inside a merge; rebase keeps it sitting cleanly on the branch tip, which is what a one-commit PR is supposed to look like.',
+    },
+    {
+      q: "Your PR's CI fails pre-commit. What does that tell you about local testing?",
+      options: [
+        'nothing useful, CI always runs a stricter, separately-configured version of the checks',
+        'you could have caught it locally first, with the same config',
+        'pre-commit failures in CI are usually flaky and safe to retry without changes',
+      ],
+      answer: 1,
+      why: "CI isn't running a separate check, it's running your own .pre-commit-config.yaml. A clean local pre-commit run and a clean CI pre-commit step are the same claim.",
+    },
+  ]}
+/>
+
 ## Exercises
 
+1. ⭐ Read `OCA/fleet`'s (or any repo you're interested in) five most recently merged
+   PRs. For each, note the tag, whether it was a one-commit PR, and roughly how long
+   review took.
+2. ⭐⭐ Find an open PR (not yet merged) on an OCA repo of your choice and read the
+   review comments. Identify one comment that follows the "explain why, not just
+   what" etiquette from this chapter's Concepts section.
+3. ⭐⭐⭐ Do it for real: sign the CLA, find a genuinely small real fix, and open the
+   PR. This is the actual exercise the whole chapter has been pointing at.
+
 ## Further reading
+
+- <Icon name="docs" /> [Sign the CLA](https://odoo-community.org/page/cla)
+- <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
+  the review-etiquette and merge-requirements section in full.
+- <Icon name="docs" /> [How to contribute](https://odoo-community.org/get-involved/contribute):
+  the CLA-to-merge workflow from the OCA's own side.
+- <Icon name="source" /> [oca-github-bot](https://github.com/OCA/oca-github-bot):
+  every `/ocabot` command, straight from the source.
