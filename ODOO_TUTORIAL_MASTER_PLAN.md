@@ -1057,6 +1057,41 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-12 (later still, once more) — ch45 written: contributing to OCA, and a scoping decision on "do a real contribution"
+
+The plan's §5.3 line for ch45 calls for the chapter to walk through "a real first
+contribution (docs fix or small improvement)." Before starting, asked the author
+whether the agent should actually fork a live OCA repo under their GitHub identity
+and open a real PR against it, since that's a public, externally-visible action
+under the author's name, not something covered by standing authorization. **Author's
+answer: write the mechanics, don't open a live PR** (option 2 of 3 offered). The
+chapter presents the exact real commands, and the actual CLA-signing and PR-opening
+are left as the reader's own action, the same pattern the site already uses for
+login (the agent can't authenticate either; the author does that once, personally).
+
+**Every command in the chapter is still verified, just not against a live OCA
+repo.** Simulated the full fork → remote → branch-off-version-branch →
+commit → rebase-on-upstream → push sequence locally, using two bare git repos
+standing in for "upstream" (OCA/fleet) and "origin" (the fork), including a
+genuine upstream-moved-forward-in-the-meantime scenario. Caught and documented a
+real, current gotcha this surfaced: plain `git pull upstream 19.0` refuses to run
+on current git ("divergent branches, specify how to reconcile"), `--rebase` is
+the fix and matches what a one-commit PR should look like anyway.
+
+**Real facts pulled from live sources, not memory**: the CLA is a signed
+PDF/email process to `cla@odoo-community.org` (ICLA vs Entity CLA distinction),
+not a bot-comment flow, confirmed via `odoo-community.org/page/cla`. PR title
+convention `[19.0][TAG] module: description`, the CI stack (pre-commit + tests +
+Runboat + Codecov), and the review-etiquette bullets (thank the contributor first,
+explain why not what, tag review type) came from `OCA/odoo-community.org`'s real
+`CONTRIBUTING.rst` and the `get-involved/contribute` page. The three `/ocabot`
+commands (`merge`, `rebase`, `migration`) came from `OCA/oca-github-bot`'s own
+README.
+
+**Housekeeping**: export-preview test's stub route bumped ch45 → ch46. No new
+glossary entries (fork/upstream/CLA-mechanics are generic git/process concepts;
+CLA, ocabot, Runboat, PSC, commit tags already exist from ch2/ch7/ch43).
+
 ### 2026-08-12 (later still, again) — ch44 written: pre-commit, ruff, pylint-odoo and readme generation, pointed at LibreFleet itself
 
 Unlike ch43, a real hands-on chapter: wired up `.pre-commit-config.yaml`,
