@@ -200,6 +200,24 @@ Points worth pausing on: the view records are plain `<record>`s like chapter 10'
 groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
 `name` field on a view is a developer label, pick something greppable. The action's
 `help` becomes the friendly empty-state message users see before any record exists.
+
+The `<field name="license_plate"/>` tags inside `arch` are not new fields. They are
+references to the fields chapter 9 already put on `librefleet.vehicle` in Python. A
+view never defines a field, it only picks which existing ones to show and how to lay
+them out, which is exactly why a typo here breaks loading (the break-it lab) instead
+of quietly creating a new column: there is nothing to create, only a name to match.
+
+That also explains the choices here, not just the syntax:
+
+- **The list shows four fields, not all of them.** `license_plate`, `model_name`,
+  `year` and `mileage_km` are exactly what a technician scanning the fleet needs at
+  a glance. `vin` and `notes` exist on the model too, but would only be noise in a
+  list, so they wait for the form.
+- **The form splits those same fields into two groups on purpose.**
+  "Identification" (`license_plate`, `model_name`, `vin`) answers *which vehicle is
+  this*; "Usage" (`year`, `mileage_km`) answers *what state is it in*. Grouping by
+  the question a reader is trying to answer, not by field type, is the habit worth
+  keeping.
 </Step>
 
 <Step>
@@ -231,6 +249,11 @@ groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
 
 </odoo>
 ```
+
+Same idea as the vehicle list: `name`, `flat_fee` and `default_duration_h` are
+exactly the three fields step 1 defined in Python, in the same order, nothing new
+declared here either. Unlike the vehicle list, there is no selecting to do, a
+three-field config model has nothing worth hiding from the list.
 
 Note the `view_mode` is just `list`: with inline editing there's nothing a form
 would add. We didn't define a form at all, and that's fine; if something ever
