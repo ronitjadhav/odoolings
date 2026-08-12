@@ -1,0 +1,2 @@
+- Multi-company support for workshops running more than one location.
+- A recurring-maintenance plan per vehicle, instead of the current one-off reminder.

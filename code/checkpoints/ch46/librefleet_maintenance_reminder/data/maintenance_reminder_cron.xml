@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate: a manager may disable the cron or retune the schedule; an
+         upgrade must not silently re-enable or reset it (chapter 34's rule). -->
+    <data noupdate="1">
+
+        <!-- The server action both triggers share. It shows up on its own in
+             the Vehicles list's Action menu (binding_model_id below), so a
+             manager can run it by hand without waiting for the schedule. -->
+        <record id="action_send_maintenance_reminders" model="ir.actions.server">
+            <!-- One name only: ir.cron below shares this exact row through
+                 _inherits, so whatever this record is called is what both the
+                 Vehicles list's Action menu AND Scheduled Actions will show. -->
+            <field name="name">LibreFleet: maintenance reminders</field>
+            <field name="model_id" ref="librefleet.model_librefleet_vehicle"/>
+            <field name="binding_model_id" ref="librefleet.model_librefleet_vehicle"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <!-- records is only populated when this runs bound to a selection
+                 (the list-view "Send maintenance reminders now" action). The
+                 cron calls the same code with no selection, so records is
+                 empty and this falls back to every vehicle. -->
+            <field name="code">action = (records or model.search([])).action_send_maintenance_reminders()</field>
+        </record>
+
+        <!-- A cron is that same server action plus a schedule: ir.cron
+             _inherits ir.actions.server through ir_actions_server_id, sharing
+             its row rather than copying it. Deliberately NOT setting "name"
+             here: cron.name and the action's own name are the same delegated
+             field, so writing it here would silently rename the Action-menu
+             entry above too. Scheduled Actions lists it under the name the
+             action already carries. -->
+        <record id="cron_send_maintenance_reminders" model="ir.cron">
+            <field name="ir_actions_server_id" ref="action_send_maintenance_reminders"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

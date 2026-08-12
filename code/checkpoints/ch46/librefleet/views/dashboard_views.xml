@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- The "tag" is the only link between this database record and the
+         JavaScript: it is looked up in the "actions" registry, where
+         dashboard.js registered a component under the same string. Change one
+         without the other and the menu opens a blank screen. -->
+    <record id="action_librefleet_dashboard" model="ir.actions.client">
+        <field name="name">Workshop Load</field>
+        <field name="tag">librefleet_dashboard</field>
+    </record>
+
+    <menuitem id="menu_librefleet_dashboard"
+              name="Dashboard"
+              parent="menu_librefleet_root"
+              action="action_librefleet_dashboard"
+              sequence="5"/>
+
+</odoo>
