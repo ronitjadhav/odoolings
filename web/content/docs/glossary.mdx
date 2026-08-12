@@ -81,6 +81,11 @@ emails, notes, followers, scheduled activities. Models opt in via `mail.thread` 
 (chapter 33). Adds no columns to the model's own table; the thread lives in
 `mail.message`, keyed generically by model and record id.
 
+**CLA**: Contributor License Agreement. The OCA requires every contributor to sign one
+(a one-time, per-person process via a bot check on your first PR) before a merge,
+granting the OCA the rights it needs to keep a module's license enforceable and its
+authorship clear (chapter 45).
+
 **classic extension**: `_inherit` with no `_name`. The class *is* the existing
 model: fields land on the same model and the same table. The mechanism behind
 almost all real extension work.
@@ -186,6 +191,11 @@ several modules.
 **developer mode**: a per-session backend mode (`?debug=1` or Settings → General
 Settings) that reveals technical field tooltips and the Settings → Technical menu.
 `debug=assets` additionally serves unminified JS/CSS.
+
+**development_status**: a manifest key OCA modules use to declare maturity: `Alpha`,
+`Beta` (the silent default when the key is omitted), `Production/Stable`, or `Mature`.
+Shows as a colored badge on the module's generated README (chapter 43); judge a
+module's fitness for production by this badge before its star count.
 
 **display_name**: the one-line string Odoo uses to present a record (breadcrumbs,
 dropdowns). Computed on demand from the field `_rec_name` points at, which defaults
@@ -362,6 +372,10 @@ normally, which is why adding a second master-data record later still works.
 
 **OCA**: Odoo Community Association. A Swiss nonprofit hosting hundreds of
 community-maintained module repositories at [github.com/OCA](https://github.com/OCA).
+
+**ocabot**: the bot account that runs OCA repository chores from PR comments:
+`/ocabot merge`, migration-issue tracking, and the CLA check on a contributor's
+first PR (chapter 45).
 
 **Odoo SA**: the Belgian company that develops Odoo, ships the yearly release, and
 sells Enterprise subscriptions and hosting (Odoo Online, odoo.sh).
@@ -696,6 +710,10 @@ its message to the user (chapter 14).
 **view priority**: the tie-breaker among primary views: lowest number wins the
 default slot (base views sit at 16). Views with high priorities are only shown when
 an action requests them via `view_id`.
+
+**Weblate**: the OCA's translation platform. Contributors translate strings there,
+never by editing a module's `.po` files directly in a PR; edits made straight to
+`.po` get overwritten on the next sync (chapter 45).
 
 **widget**: an attribute on a view field picking an alternative renderer for the
 same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17
