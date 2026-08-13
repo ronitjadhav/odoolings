@@ -200,6 +200,24 @@ Points worth pausing on: the view records are plain `<record>`s like chapter 10'
 groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
 `name` field on a view is a developer label, pick something greppable. The action's
 `help` becomes the friendly empty-state message users see before any record exists.
+
+The `<field name="license_plate"/>` tags inside `arch` are not new fields. They are
+references to the fields chapter 9 already put on `librefleet.vehicle` in Python. A
+view never defines a field, it only picks which existing ones to show and how to lay
+them out, which is exactly why a typo here breaks loading (the break-it lab) instead
+of quietly creating a new column: there is nothing to create, only a name to match.
+
+That also explains the choices here, not just the syntax:
+
+- **The list shows four fields, not all of them.** `license_plate`, `model_name`,
+  `year` and `mileage_km` are exactly what a technician scanning the fleet needs at
+  a glance. `vin` and `notes` exist on the model too, but would only be noise in a
+  list, so they wait for the form.
+- **The form splits those same fields into two groups on purpose.**
+  "Identification" (`license_plate`, `model_name`, `vin`) answers *which vehicle is
+  this*; "Usage" (`year`, `mileage_km`) answers *what state is it in*. Grouping by
+  the question a reader is trying to answer, not by field type, is the habit worth
+  keeping.
 </Step>
 
 <Step>
@@ -231,6 +249,11 @@ groups, only their `arch` field carries XML inside XML (hence `type="xml"`). The
 
 </odoo>
 ```
+
+Same idea as the vehicle list: `name`, `flat_fee` and `default_duration_h` are
+exactly the three fields step 1 defined in Python, in the same order, nothing new
+declared here either. Unlike the vehicle list, there is no selecting to do, a
+three-field config model has nothing worth hiding from the list.
 
 Note the `view_mode` is just `list`: with inline editing there's nothing a form
 would add. We didn't define a form at all, and that's fine; if something ever
@@ -277,6 +300,31 @@ even groups them in two columns).
 
 </odoo>
 ```
+
+Trace the tree by id, since that is what actually renders it:
+
+- **`menu_librefleet_root`** has no `action=`. It is a pure folder, and its
+  `web_icon` is what makes it an app in the main menu (chapter 8's icon, back at
+  last).
+- **`menu_librefleet_fleet`** also has no `action=`, just a folder holding
+  Vehicles.
+- **`menu_librefleet_vehicles`** *does* have `action="action_librefleet_vehicle"`,
+  the exact XML id of the window action you defined two steps ago in
+  `vehicle_views.xml`. That is the entire connection: the menu doesn't know
+  anything about models or views, it only names an action by id, the same kind of
+  reference you have used since chapter 10.
+- **`menu_librefleet_config`** is a third folder, this one gated by `groups=`, so
+  only managers even see it exists.
+- **`menu_librefleet_service_types`** points at `action_librefleet_service_type`
+  the same way.
+
+Now follow one click all the way through, since that is "how the form comes":
+you open **Vehicles**, which points at `action_librefleet_vehicle`. That action
+says `res_model="librefleet.vehicle"` and `view_mode="list,form"`, so Odoo opens
+the *first* view type in that list for that model: the list. Click a row, and
+Odoo opens the *second* view type, the form, for that one record, still the same
+action. There is no separate "form menu" or "form action" anywhere; the order of
+`view_mode` is the only thing deciding what clicking a row does.
 
 `sequence` orders siblings, and the big gap (10, 90) is deliberate: later chapters
 slot Reporting between Fleet and Configuration without renumbering.
