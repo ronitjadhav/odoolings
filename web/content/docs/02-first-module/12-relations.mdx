@@ -147,11 +147,30 @@ proper reference. And until chapter 13 computes them, prices sit as plain floats
 ### The parts catalog
 
 `addons/librefleet/models/part.py` is chapter 9 material, four fields, no
-relations (`name` required, `code`, `standard_cost`, `list_price`; see the
-checkpoint). Deliberately *not* Odoo's `product` module: bridging LibreFleet to
-real products is chapter 32's whole point. Import both new files in
-`models/__init__.py` (alphabetical, so `part`, `service_order`, `service_type`,
-`vehicle`).
+relations:
+
+```python
+from odoo import fields, models
+
+
+class Part(models.Model):
+    _name = "librefleet.part"
+    _description = "Spare Part"
+    _order = "name"
+
+    name = fields.Char(required=True)
+    code = fields.Char(help="Internal reference printed on the shelf label.")
+    standard_cost = fields.Float(help="What the workshop pays for it.")
+    list_price = fields.Float(help="What the customer pays for it.")
+```
+
+Deliberately *not* Odoo's `product` module: bridging LibreFleet to real products
+is chapter 32's whole point, and a catalog this small doesn't earn that
+complexity yet. `standard_cost` and `list_price` are plain floats today; chapter
+13 computes the order's real margin from the gap between them, and defaults a
+line's price from `list_price` the moment you pick a part. Import both new
+files in `models/__init__.py` (alphabetical, so `part`, `service_order`,
+`service_type`, `vehicle`).
 
 </Step>
 
@@ -205,11 +224,30 @@ together:
 <Step>
 ### ACLs for three new models
 
-Six new lines in `security/ir.model.access.csv`, same pattern as always:
-technicians read the parts catalog but don't edit it, and they work with orders and
-lines but never delete an order (see the checkpoint for the exact lines). Note
-what's *deliberately* granted: user create on orders and full line access; the real
-restriction comes next.
+Six new lines in `security/ir.model.access.csv`, same pattern as chapter 10, one
+user/manager pair per model:
+
+```csv
+access_librefleet_service_order_user,librefleet.service.order user,model_librefleet_service_order,group_librefleet_user,1,1,1,0
+access_librefleet_service_order_manager,librefleet.service.order manager,model_librefleet_service_order,group_librefleet_manager,1,1,1,1
+access_librefleet_service_order_line_user,librefleet.service.order.line user,model_librefleet_service_order_line,group_librefleet_user,1,1,1,1
+access_librefleet_service_order_line_manager,librefleet.service.order.line manager,model_librefleet_service_order_line,group_librefleet_manager,1,1,1,1
+access_librefleet_part_user,librefleet.part user,model_librefleet_part,group_librefleet_user,1,0,0,0
+access_librefleet_part_manager,librefleet.part manager,model_librefleet_part,group_librefleet_manager,1,1,1,1
+```
+
+Read the booleans as chapter 10 taught you (read, write, create, unlink), and
+notice what's *deliberately* granted to the plain user group:
+
+- **`part`** is read-only (1,0,0,0): technicians consult the catalog but don't
+  edit it.
+- **`order`** gets read, write, create but no unlink (1,1,1,0): as far as this
+  ACL is concerned, any technician can write *any* order, model-wide. The next
+  step's record rule is what narrows that down to only the orders they're
+  assigned to.
+- **`order.line`** gets all four (1,1,1,1): full control over the parts and
+  quantities on any order, not just their own. Nothing narrows that in this
+  chapter; exercise 4 asks you to fix exactly that gap yourself.
 
 </Step>
 
