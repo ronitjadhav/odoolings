@@ -299,7 +299,13 @@ The manifest entry has to come **after** `views/librefleet_menus.xml`, because
         "views/dashboard_views.xml",
 ```
 
-Bump to `19.0.1.27.0` and upgrade. A new Dashboard entry appears in the LibreFleet menu.
+Bump to `19.0.1.27.0` and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+A new Dashboard entry appears in the LibreFleet menu.
 </Step>
 
 <Step>
@@ -342,8 +348,13 @@ technicians as tags. The count and the list agree because both came from the sam
 <Step>
 ### Break-it lab: mistype the tag
 
-Change the tag on the `ir.actions.client` record to `librefleet_dashbord`, upgrade, and
-open the Dashboard menu **in a new browser tab**. You get an "Oops!" dialog, and the
+Change the tag on the `ir.actions.client` record to `librefleet_dashbord`, then upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Open the Dashboard menu **in a new browser tab**. You get an "Oops!" dialog, and the
 console carries the real reason:
 
 ```text
@@ -360,7 +371,11 @@ genuinely confusing debugging situation: the change is live in the database, one
 broken, another is fine, and neither the server log nor the upgrade said anything. When
 a client action misbehaves, open a fresh tab before you believe anything.
 
-Put the tag back and upgrade.
+Put the tag back and upgrade:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
 </Step>
 
 </Steps>
