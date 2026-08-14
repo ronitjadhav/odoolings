@@ -122,6 +122,12 @@ Odoo 15; the tuples remain everywhere in existing code.
 commit messages: `[FIX]` bugfix, `[IMP]` improvement, `[ADD]` new feature/module,
 `[MIG]` migration to a version, `[REF]` refactor.
 
+**compute_sudo**: whether a computed field recomputes as superuser (bypassing record
+rules and `groups=`) or as whoever triggered it. Defaults to whatever `store` is on
+that field, `True` for stored fields, `False` for non-stored ones, so mixing stored
+and non-stored fields under one compute method silently mixes privilege levels too
+(chapter 20).
+
 **computed field**: a field filled by a method instead of the user, with
 `@api.depends` declaring exactly which fields the value derives from (the ORM's
 recompute triggers). Non-stored by default (no column, computed on read);

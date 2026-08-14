@@ -235,10 +235,20 @@ This is chapter 19's `store=True` on `margin` catching up with you. All three fi
 but only `margin` got a real column. Odoo 19 now warns explicitly, twice, that mixing
 stored and non-stored (and, separately, sudoed and non-sudoed) fields in a single
 compute method is a bad pattern, because each pairing has genuinely different
-behavior under the hood. One fix resolves both warnings at once: splitting the
-compute method by storage also gives each half a consistent `compute_sudo`, since
-that attribute defaults per field and both fields in each half share the same
-default. In `models/service_order.py`:
+behavior under the hood.
+
+`compute_sudo` decides *whose* access rights the compute method runs under: `True`
+recomputes as superuser, bypassing record rules and field-level `groups=`; `False`
+recomputes as whichever user triggered it, so the compute can fail or see less data
+than a superuser would. You never set it on any of these three fields, so Odoo
+picked a default for each: `store` for that field. `margin` is `store=True`, so it
+silently got `compute_sudo=True`; `parts_total` and `labor_total` are not stored, so
+they silently got `compute_sudo=False`. One method, three fields, two different
+privilege levels, which is exactly the inconsistency both warnings are naming.
+
+One fix resolves both warnings at once: splitting the compute method by storage also
+gives each half a consistent `compute_sudo`, since that attribute defaults per field
+and both fields in each half share the same default. In `models/service_order.py`:
 
 ```python
     parts_total = fields.Float(compute="_compute_parts_labor")
