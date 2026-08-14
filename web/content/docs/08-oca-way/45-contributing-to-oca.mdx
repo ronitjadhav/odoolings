@@ -83,11 +83,14 @@ consequences: a PR against `master` gets closed with "wrong branch."
 
 ### The CI gate is what you already ran
 
-Every OCA PR runs pre-commit, the module's test suite, and Codecov, plus spins up a
-**Runboat** instance (chapter 2) so a reviewer can click through your change live
-without installing anything. None of this should surprise you: `pre-commit run
---all-files`, chapter 44's whole hands-on, is exactly what the CI step runs. Green
-locally means green in CI, that's the point of running it locally at all.
+Every OCA PR runs pre-commit, the module's test suite, and **Codecov** (a third-party
+service that measures which lines your tests actually executed and flags a PR that
+drops coverage, so "I added a method" without "I added a test for it" shows up as a
+number, not just a hunch), plus spins up a **Runboat** instance (chapter 2) so a
+reviewer can click through your change live without installing anything. None of this
+should surprise you: `pre-commit run --all-files`, chapter 44's whole hands-on, is
+exactly what the CI step runs. Green locally means green in CI, that's the point of
+running it locally at all.
 
 ### Review etiquette, and the actual merge bar
 
