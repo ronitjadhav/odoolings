@@ -183,8 +183,14 @@ Reception also wants a stripped-down vehicle list. In the same file, before
 ```
 
 No `inherit_id`, so it's a full view in its own right, competing for the default slot
-through priority. At 99 it deliberately loses to the original's 16. Upgrade again and
-check the table:
+through priority. At 99 it deliberately loses to the original's 16. It lives in the
+same already-registered file, so no new manifest entry and no version bump, just:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Then check the table:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, priority, mode, inherit_id from ir_ui_view where model = 'librefleet.vehicle' order by id;"
