@@ -378,7 +378,110 @@ The templates (`views/portal_templates.xml`) follow the exact shape core's own
 from `portal.portal_breadcrumbs`, a home tile inherited from `portal.portal_my_home`
 (behind a `portal_client_category_enable` flag every contributing module has to set
 to `True`, it defaults `False`), a list built on `portal.portal_table` with the
-standard pager, and a detail page. The full templates are in the checkpoint.
+standard pager, and a detail page.
+
+```xml
+<template id="portal_my_home_menu_service_order" inherit_id="portal.portal_breadcrumbs" priority="20">
+    <xpath expr="//ol[hasclass('o_portal_submenu')]" position="inside">
+        <li t-if="page_name == 'service_order'" class="breadcrumb-item">
+            <a t-if="order" href="/my/service-orders">Service Orders</a>
+            <t t-else="">Service Orders</t>
+        </li>
+        <li t-if="order" class="breadcrumb-item active">
+            <t t-out="order.reference"/>
+        </li>
+    </xpath>
+</template>
+
+<template id="portal_my_home_service_order" name="Service Orders" customize_show="True"
+          inherit_id="portal.portal_my_home" priority="20">
+    <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+        <t t-set="portal_client_category_enable" t-value="True"/>
+    </xpath>
+    <div id="portal_client_category" position="inside">
+        <t t-call="portal.portal_docs_entry">
+            <t t-set="title">Service Orders</t>
+            <t t-set="url" t-value="'/my/service-orders'"/>
+            <t t-set="text">Track your vehicle's service history</t>
+            <t t-set="placeholder_count" t-value="'service_order_count'"/>
+        </t>
+    </div>
+</template>
+
+<template id="portal_my_service_orders" name="My Service Orders">
+    <t t-call="portal.portal_layout">
+        <t t-set="breadcrumbs_searchbar" t-value="True"/>
+        <t t-call="portal.portal_searchbar">
+            <t t-set="title">Service Orders</t>
+        </t>
+        <div t-if="not orders" class="alert alert-warning" role="alert">
+            There are currently no service orders for your account.
+        </div>
+        <t t-if="orders" t-call="portal.portal_table">
+            <thead>
+                <tr class="active">
+                    <th>Reference</th>
+                    <th class="text-end">Scheduled</th>
+                    <th class="text-end">Stage</th>
+                </tr>
+            </thead>
+            <t t-foreach="orders" t-as="order">
+                <tr>
+                    <td>
+                        <a t-att-href="order.get_portal_url()"><t t-out="order.reference"/></a>
+                    </td>
+                    <td class="text-end">
+                        <span t-field="order.scheduled_start" t-options='{"widget": "date"}'/>
+                    </td>
+                    <td class="text-end"><span t-field="order.stage"/></td>
+                </tr>
+            </t>
+        </t>
+    </t>
+</template>
+
+<template id="portal_service_order_page" name="Service Order">
+    <t t-call="portal.portal_layout">
+        <t t-set="breadcrumbs_searchbar" t-value="False"/>
+        <div class="row">
+            <div class="col-lg-8">
+                <h2>Service Report <t t-out="order.reference"/></h2>
+                <p>
+                    <strong>Vehicle:</strong> <span t-field="order.vehicle_id.license_plate"/><br/>
+                    <strong>Service type:</strong> <span t-field="order.service_type_id.name"/><br/>
+                    <strong>Stage:</strong> <span t-field="order.stage"/>
+                </p>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Part</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="order.line_ids" t-as="line">
+                            <td><span t-field="line.part_id.name"/></td>
+                            <td class="text-end"><span t-field="line.qty"/></td>
+                            <td class="text-end">
+                                <span t-field="line.subtotal" t-options='{"widget": "float", "precision": 2}'/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <a t-attf-href="/my/service-orders/#{order.id}/report?access_token=#{order.access_token}"
+                   class="btn btn-primary">
+                    Download Service Report
+                </a>
+            </div>
+        </div>
+    </t>
+</template>
+```
+
+`portal_my_home_service_order` is the one to remember by name: it's the template
+the break-it-lab in the exercises below asks you to come back and edit, the one
+that carries the `portal_client_category_enable` xpath.
 </Step>
 
 <Step>
