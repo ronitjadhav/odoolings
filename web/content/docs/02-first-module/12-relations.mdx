@@ -449,10 +449,121 @@ INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for
 <Step>
 ### Views and menus for the new models
 
-Nothing conceptually new, so skim the checkpoint for the full XML:
-`views/service_order_views.xml` (list + form + action) and `views/part_views.xml`
-(an editable list like service types), plus two menu items: Fleet → Service Orders,
-Configuration → Parts. Two details in the order form deserve your attention:
+Nothing conceptually new here, chapter 11 already walked the menu→action→view chain in
+full, but "nothing new" is not a reason to skip it. `views/service_order_views.xml`,
+list and form:
+
+```xml
+<record id="view_librefleet_service_order_list" model="ir.ui.view">
+    <field name="name">librefleet.service.order.list</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <list>
+            <field name="vehicle_id"/>
+            <field name="service_type_id"/>
+            <field name="scheduled_start"/>
+            <field name="technician_ids" widget="many2many_tags"/>
+            <field name="stage"/>
+        </list>
+    </field>
+</record>
+
+<record id="view_librefleet_service_order_form" model="ir.ui.view">
+    <field name="name">librefleet.service.order.form</field>
+    <field name="model">librefleet.service.order</field>
+    <field name="arch" type="xml">
+        <form>
+            <sheet>
+                <group>
+                    <group string="What and for whom">
+                        <field name="vehicle_id"/>
+                        <field name="service_type_id"/>
+                        <field name="technician_ids" widget="many2many_tags"/>
+                    </group>
+                    <group string="When">
+                        <field name="scheduled_start"/>
+                        <field name="scheduled_end"/>
+                        <field name="stage"/>
+                    </group>
+                </group>
+                <group string="Parts used">
+                    <field name="line_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="part_id"/>
+                            <field name="qty"/>
+                            <field name="price_unit"/>
+                        </list>
+                    </field>
+                </group>
+                <group string="Notes">
+                    <field name="notes" nolabel="1"
+                           placeholder="Diagnosis, customer requests, anything the invoice should remember..."/>
+                </group>
+            </sheet>
+        </form>
+    </field>
+</record>
+
+<record id="action_librefleet_service_order" model="ir.actions.act_window">
+    <field name="name">Service Orders</field>
+    <field name="res_model">librefleet.service.order</field>
+    <field name="view_mode">list,form</field>
+    <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">Book the first service</p>
+        <p>A service order is one vehicle, one visit: what gets done, by whom, and which parts it takes.</p>
+    </field>
+</record>
+```
+
+Two `<group>`s side by side ("What and for whom" / "When") is the same two-column
+layout chapter 11's vehicle form used; "Parts used" and "Notes" each get a full-width
+group of their own below. `nolabel="1"` drops a field's own label when the group's
+`string=` already says what it holds. The action's `help` is what a reader sees on an
+empty list, not decoration: `o_view_nocontent_smiling_face` is Odoo's own empty-state
+illustration class, applied by name rather than built from scratch.
+
+`views/part_views.xml` is shorter, and reuses a pattern chapter 11 already covered for
+service types: an editable list standing in for a form entirely.
+
+```xml
+<record id="view_librefleet_part_list" model="ir.ui.view">
+    <field name="name">librefleet.part.list</field>
+    <field name="model">librefleet.part</field>
+    <field name="arch" type="xml">
+        <list editable="bottom">
+            <field name="name"/>
+            <field name="code"/>
+            <field name="standard_cost"/>
+            <field name="list_price"/>
+        </list>
+    </field>
+</record>
+
+<record id="action_librefleet_part" model="ir.actions.act_window">
+    <field name="name">Parts</field>
+    <field name="res_model">librefleet.part</field>
+    <field name="view_mode">list</field>
+</record>
+```
+
+And the two new menu items, following exactly the parent/action/sequence pattern
+chapter 11 traced: Fleet → Service Orders, Configuration → Parts.
+
+```xml
+<menuitem id="menu_librefleet_service_orders"
+          name="Service Orders"
+          parent="menu_librefleet_fleet"
+          action="action_librefleet_service_order"
+          sequence="20"/>
+
+<menuitem id="menu_librefleet_parts"
+          name="Parts"
+          parent="menu_librefleet_config"
+          action="action_librefleet_part"
+          sequence="20"/>
+```
+
+Two details in the order form deserve extra attention:
 
 ```xml
     <field name="technician_ids" widget="many2many_tags"/>
