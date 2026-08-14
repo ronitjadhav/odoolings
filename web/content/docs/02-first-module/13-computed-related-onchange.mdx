@@ -128,9 +128,19 @@ On the order model:
 One method may fill several fields (they recompute together anyway). Read the
 `depends` list like an audit: subtotals, quantities, part costs, the fee. Miss one
 and the totals lie *sometimes*, which is worse than always. In the form, a "Money"
-group shows the three; put `groups="librefleet.group_librefleet_manager"` on the
-margin field so technicians don't see the workshop's cut (a view-level trim, like
-menu groups; the checkpoint has the XML).
+group shows the three:
+
+```xml
+<group string="Money">
+    <field name="parts_total"/>
+    <field name="labor_total"/>
+    <field name="margin" groups="librefleet.group_librefleet_manager"/>
+</group>
+```
+
+`groups=` on a single `<field>` is the same view-level trim chapter 11's menu items
+used, just aimed at one field instead of a whole menu: technicians see Parts Total and
+Labor Total, but Margin, the workshop's actual cut, only renders for managers.
 
 ### 3. The customer that follows the owner
 
@@ -176,8 +186,24 @@ On the line model:
             self.price_unit = self.part_id.list_price
 ```
 
-Bump the version to `19.0.1.5.0`, upgrade, restart. The upgrade backfills the new
-stored columns for existing rows, watch the log do it.
+Bump the version to `19.0.1.5.0`, upgrade, restart:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.models: Prepare computation of librefleet.service.order.line.subtotal
+...
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 279 queries (+279 other)
+```
+
+That one line is the whole backfill, and only one line, not six, is exactly the point:
+`subtotal` is the only field of the bunch declared `store=True`, so it is the only one
+with a real column that existing rows need a value written into. `parts_total`,
+`labor_total` and `margin` have no `store=True` at all, they are computed fresh on every
+read, so there is nothing to backfill, no column, no log line, just live arithmetic.
+`customer_id` is `store=True` too, but as a `related` field its column gets its initial
+value copied in directly rather than through this same compute-and-log path, so it
+updates correctly without a matching line of its own.
 
 ### 5. See the dependency system work
 
