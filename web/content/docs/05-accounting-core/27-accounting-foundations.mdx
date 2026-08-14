@@ -118,11 +118,19 @@ Posting isn't the last word. A posted entry can still be reset to draft and edit
 which is exactly what you don't want possible once a period's books are final and
 someone has filed a tax return against them. `res.company` carries five real lock
 date fields, confirmed live: `fiscalyear_lock_date`, `tax_lock_date`,
-`sale_lock_date`, `purchase_lock_date`, and `hard_lock_date` (new in Odoo 19, the
-strictest of the five). Each guards a different slice: `sale_lock_date` blocks
-edits to customer invoices and credit notes dated on or before it, `purchase_lock_date`
-does the same for the vendor side, and `fiscalyear_lock_date`/`hard_lock_date` block
-everything, any move, any journal.
+`sale_lock_date`, `purchase_lock_date`, and `hard_lock_date` (new in Odoo 19). Each
+guards a different slice: `sale_lock_date` blocks edits to customer invoices and
+credit notes dated on or before it, `purchase_lock_date` does the same for the
+vendor side, and `fiscalyear_lock_date`/`hard_lock_date` both block everything, any
+move, any journal.
+
+What actually makes `hard_lock_date` **the strictest of the five**, verified against
+`res.company`'s own field definitions in core, is not what it blocks but that nothing
+can get around it. The other four are "soft" locks: an `account.lock_exception`
+record can grant one user a temporary, logged override past any of them, fiscal year
+included. `hard_lock_date`'s own help text says it plainly: "irreversible and does
+not allow any exception." No model grants an exception against it, for anyone, ever.
+Setting it is the one lock in this list you cannot talk your way around later.
 
 Setting one isn't a bare field write, either. Odoo checks the books are actually
 clean first:
@@ -162,10 +170,12 @@ Two movements again, continuing in the `functional` database.
   `account_move_views.xml`. Reaching the action by URL does not route around a restriction
   that lives on a page inside the form, only on the menu that opens it.
 
-  So grant yourself the group, the one legitimate way Community leaves open. With
-  developer mode on (chapter 4), go to **Settings → Technical → Users → Groups**, search
-  **Show Accounting Features - Readonly**, open it, and add your user on its **Users**
-  tab:
+  So grant yourself the group, the one legitimate way Community leaves open. Turn on
+  developer mode if it isn't already (chapter 4: **Settings → General Settings**,
+  bottom of the page, *Developer Tools* → **Activate the developer mode**, or just
+  append `?debug=1` to the URL), then go to **Settings → Technical → Users → Groups**,
+  search **Show Accounting Features - Readonly**, open it, and add your user on its
+  **Users** tab:
 
   ![The Show Accounting Features - Readonly group record, Users tab, with Mitchell Admin added as a line](/screens/ch27-readonly-group-users.jpg)
 
