@@ -201,7 +201,14 @@ it. Delete the plain `service_count` line from the Usage group at the same time
                             bg_color="text-bg-danger" invisible="active"/>
 ```
 
-Bump the manifest to `19.0.1.10.0`, upgrade, restart (there's new Python).
+Bump the manifest to `19.0.1.10.0`, then upgrade and restart the running server so it
+loads the new Python (Python changes need the restart; the upgrade alone runs in a
+throwaway process):
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose restart odoo
+```
 
 <BreakIt />
 
