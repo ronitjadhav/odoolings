@@ -143,6 +143,13 @@ The two new models need ACLs, exactly as chapter 10 taught. Add four lines to
 `security/ir.model.access.csv`: read plus write for users and full CRUD for managers on
 loaners, read-only for users and full CRUD for managers on consumables.
 
+```csv
+access_librefleet_consumable_user,librefleet.consumable user,model_librefleet_consumable,group_librefleet_user,1,0,0,0
+access_librefleet_consumable_manager,librefleet.consumable manager,model_librefleet_consumable,group_librefleet_manager,1,1,1,1
+access_librefleet_loaner_user,librefleet.loaner user,model_librefleet_loaner,group_librefleet_user,1,1,0,0
+access_librefleet_loaner_manager,librefleet.loaner manager,model_librefleet_loaner,group_librefleet_manager,1,1,1,1
+```
+
 Then a simple list/form view plus a menu item for loaners, in a new
 `views/loaner_views.xml`, and **register both new files**, which means two different
 places and forgetting either one bites:
