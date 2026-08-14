@@ -113,6 +113,11 @@ choices:
 | `service` | Service |
 | `combo` | Combo |
 
+A **Combo** isn't a product you stock or deliver, it's a bundle: it points at one or
+more `product.combo` records, each offering the customer a choice of items ("pick a
+sandwich, pick a drink") at one prorated price. LibreFleet never needs one; it exists
+here only so you recognise the word when you see it.
+
 There is **no `product` type any more**. The old "storable product" idea is now a
 separate boolean, <Term k='is_storable ("Track Inventory")'>`is_storable`</Term>, labelled **Track Inventory**, and it is contributed by
 the Inventory app rather than by `product`. So "is this a physical thing" and "do we
@@ -148,7 +153,7 @@ Every functional chapter from here on ends with you reading the database, and th
 impossible until you can answer "what model am I even looking at?" for any screen in
 Odoo. Two ways:
 
-- **In the interface**, turn on developer mode (chapter 1 covered where the toggle
+- **In the interface**, turn on developer mode (chapter 4 covered where the toggle
   lives) and the bug menu in the top bar names the model behind the current view and
   lets you inspect its fields.
 - **In the shell**, which is the one you can automate: `env["ir.model"]` is a table of
