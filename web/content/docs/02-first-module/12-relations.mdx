@@ -453,66 +453,74 @@ Nothing conceptually new here, chapter 11 already walked the menu→action→vie
 full, but "nothing new" is not a reason to skip it. `views/service_order_views.xml`,
 list and form:
 
+This is a brand-new file, so it needs the same `<?xml?>` declaration and `<odoo>`
+wrapper every file in this module opens with, not just the `<record>`s themselves:
+
 ```xml
-<record id="view_librefleet_service_order_list" model="ir.ui.view">
-    <field name="name">librefleet.service.order.list</field>
-    <field name="model">librefleet.service.order</field>
-    <field name="arch" type="xml">
-        <list>
-            <field name="vehicle_id"/>
-            <field name="service_type_id"/>
-            <field name="scheduled_start"/>
-            <field name="technician_ids" widget="many2many_tags"/>
-            <field name="stage"/>
-        </list>
-    </field>
-</record>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
 
-<record id="view_librefleet_service_order_form" model="ir.ui.view">
-    <field name="name">librefleet.service.order.form</field>
-    <field name="model">librefleet.service.order</field>
-    <field name="arch" type="xml">
-        <form>
-            <sheet>
-                <group>
-                    <group string="What and for whom">
-                        <field name="vehicle_id"/>
-                        <field name="service_type_id"/>
-                        <field name="technician_ids" widget="many2many_tags"/>
-                    </group>
-                    <group string="When">
-                        <field name="scheduled_start"/>
-                        <field name="scheduled_end"/>
-                        <field name="stage"/>
-                    </group>
-                </group>
-                <group string="Parts used">
-                    <field name="line_ids" nolabel="1">
-                        <list editable="bottom">
-                            <field name="part_id"/>
-                            <field name="qty"/>
-                            <field name="price_unit"/>
-                        </list>
-                    </field>
-                </group>
-                <group string="Notes">
-                    <field name="notes" nolabel="1"
-                           placeholder="Diagnosis, customer requests, anything the invoice should remember..."/>
-                </group>
-            </sheet>
-        </form>
-    </field>
-</record>
+    <record id="view_librefleet_service_order_list" model="ir.ui.view">
+        <field name="name">librefleet.service.order.list</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="vehicle_id"/>
+                <field name="service_type_id"/>
+                <field name="scheduled_start"/>
+                <field name="technician_ids" widget="many2many_tags"/>
+                <field name="stage"/>
+            </list>
+        </field>
+    </record>
 
-<record id="action_librefleet_service_order" model="ir.actions.act_window">
-    <field name="name">Service Orders</field>
-    <field name="res_model">librefleet.service.order</field>
-    <field name="view_mode">list,form</field>
-    <field name="help" type="html">
-        <p class="o_view_nocontent_smiling_face">Book the first service</p>
-        <p>A service order is one vehicle, one visit: what gets done, by whom, and which parts it takes.</p>
-    </field>
-</record>
+    <record id="view_librefleet_service_order_form" model="ir.ui.view">
+        <field name="name">librefleet.service.order.form</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="What and for whom">
+                            <field name="vehicle_id"/>
+                            <field name="service_type_id"/>
+                            <field name="technician_ids" widget="many2many_tags"/>
+                        </group>
+                        <group string="When">
+                            <field name="scheduled_start"/>
+                            <field name="scheduled_end"/>
+                            <field name="stage"/>
+                        </group>
+                    </group>
+                    <group string="Parts used">
+                        <field name="line_ids" nolabel="1">
+                            <list editable="bottom">
+                                <field name="part_id"/>
+                                <field name="qty"/>
+                                <field name="price_unit"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1"
+                               placeholder="Diagnosis, customer requests, anything the invoice should remember..."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_librefleet_service_order" model="ir.actions.act_window">
+        <field name="name">Service Orders</field>
+        <field name="res_model">librefleet.service.order</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Book the first service</p>
+            <p>A service order is one vehicle, one visit: what gets done, by whom, and which parts it takes.</p>
+        </field>
+    </record>
+
+</odoo>
 ```
 
 Two `<group>`s side by side ("What and for whom" / "When") is the same two-column
@@ -523,31 +531,39 @@ empty list, not decoration: `o_view_nocontent_smiling_face` is Odoo's own empty-
 illustration class, applied by name rather than built from scratch.
 
 `views/part_views.xml` is shorter, and reuses a pattern chapter 11 already covered for
-service types: an editable list standing in for a form entirely.
+service types: an editable list standing in for a form entirely. Another brand-new
+file, so the same wrapper again:
 
 ```xml
-<record id="view_librefleet_part_list" model="ir.ui.view">
-    <field name="name">librefleet.part.list</field>
-    <field name="model">librefleet.part</field>
-    <field name="arch" type="xml">
-        <list editable="bottom">
-            <field name="name"/>
-            <field name="code"/>
-            <field name="standard_cost"/>
-            <field name="list_price"/>
-        </list>
-    </field>
-</record>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
 
-<record id="action_librefleet_part" model="ir.actions.act_window">
-    <field name="name">Parts</field>
-    <field name="res_model">librefleet.part</field>
-    <field name="view_mode">list</field>
-</record>
+    <record id="view_librefleet_part_list" model="ir.ui.view">
+        <field name="name">librefleet.part.list</field>
+        <field name="model">librefleet.part</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="standard_cost"/>
+                <field name="list_price"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_librefleet_part" model="ir.actions.act_window">
+        <field name="name">Parts</field>
+        <field name="res_model">librefleet.part</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>
 ```
 
-And the two new menu items, following exactly the parent/action/sequence pattern
-chapter 11 traced: Fleet → Service Orders, Configuration → Parts.
+And the two new menu items, added inside the `<odoo>` tags `views/librefleet_menus.xml`
+already opened in chapter 11 (an existing file, no new wrapper needed this time),
+following exactly the parent/action/sequence pattern chapter 11 traced: Fleet →
+Service Orders, Configuration → Parts.
 
 ```xml
 <menuitem id="menu_librefleet_service_orders"
@@ -570,9 +586,31 @@ Two details in the form above deserve extra attention: `technician_ids` carries
 a handful of technicians; chapter 17 tours the widget zoo). And nesting a `<list>`
 inside a one2many field gives you the inline lines editor every Odoo order screen
 uses; rows you add there are `(0, 0, {...})` commands under the hood. Also add
-`owner_id` to the vehicle list and form from chapter 11. Upgrade (no restart needed,
-chapter 10's registry-signaling finding again), and click through: Fleet → Service
-Orders, open the oil change, add a line, pick technicians by name.
+`owner_id` to the vehicle list and form from chapter 11.
+
+Both new view files need registering in `__manifest__.py`'s `data` list, above
+`views/librefleet_menus.xml`, the same file-ordering rule you already know from every
+earlier chapter: a menu can only point at an action that loaded before it did.
+
+```python title="addons/librefleet/__manifest__.py"
+    "data": [
+        "security/librefleet_security.xml",
+        "security/ir.model.access.csv",
+        "views/vehicle_views.xml",
+        "views/service_type_views.xml",
+        "views/service_order_views.xml",
+        "views/part_views.xml",
+        "views/librefleet_menus.xml",
+    ],
+```
+
+Miss this and the upgrade won't even complain about the views, it'll die on the
+menu items instead: `External ID not found in the system: librefleet.action_librefleet_service_order`,
+since a `<menuitem>`'s `action=` resolves against records already in the database, and
+these two never got loaded to become one. Bump the version to `19.0.1.4.0` while
+you're in the manifest, then upgrade (no restart needed, chapter 10's
+registry-signaling finding again), and click through: Fleet → Service Orders, open
+the oil change, add a line, pick technicians by name.
 
 ![The oil change service order: Technicians tag widget showing Tina Technician, a Parts Used inline editable list with oil filter and engine oil lines, scheduling fields on the right](/screens/ch12-service-order-form.jpg)
 
