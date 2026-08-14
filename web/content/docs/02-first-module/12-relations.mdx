@@ -257,7 +257,10 @@ notice what's *deliberately* granted to the plain user group:
 Append the technician rule to `security/librefleet_security.xml`, inside a
 `<data noupdate="1">` block (rules are policy, not code; `noupdate` keeps a later
 upgrade from overwriting what a client tuned in production; chapter 34 returns to
-this):
+this). Quick reminder before the code, since it looks a lot like step 4's ACLs
+but is not the same layer: Concepts already drew the line, the ACL you just wrote
+answers "can technicians touch orders *at all*" (yes); this record is the next,
+separate layer, answering "*which* orders":
 
 ```xml
     <data noupdate="1">
@@ -276,28 +279,107 @@ this):
     </data>
 ```
 
-`domain_force` is evaluated with `user` in scope; `perm_read=False` means reading
-stays unrestricted (technicians see the whole planning, they just can't touch
-foreign orders). Upgrade, then seed some real data from the shell: two partners as
-owners, three parts, and two orders, one with tina assigned, one without. The full
-paste-ready snippet is `code/checkpoints/ch12/seed_ch12.py`; the line worth
-studying is the one2many write:
+Field by field:
+
+| Field | What it means |
+|---|---|
+| `model_id` | which model this rule filters: the same `model_<name>` XML id chapter 9's upgrade generated automatically, resolved with `ref()` like any other |
+| `groups` | which groups this rule applies to, linked the same `eval="[(4, ref(...))]"` way as chapter 10's group memberships |
+| `domain_force` | the actual filter, see below |
+| `perm_read`/`perm_write`/`perm_create`/`perm_unlink` | which of the four operations this rule restricts; a `False` here means that operation isn't gated by this rule at all, not "deny" |
+
+`domain_force` is the one field here written as plain text instead of
+`eval="..."`, and that is deliberate: a domain needs to see `user`, whoever is
+actually logged in at the moment of the check, so it cannot be resolved once
+when the XML loads the way `ref()` is. It gets evaluated fresh on every single
+access check instead. Chapter 15 covers domains properly, but you need just
+enough now to read this one: a **domain** is a list of `(field, operator,
+value)` conditions, and `[('technician_ids', 'in', user.ids)]` reads as "keep
+this record only if the logged-in user's id shows up somewhere in its
+`technician_ids`". `.ids` (plural), not `.id`: `in` compares against a list, and
+`technician_ids` is a many2many, so a list is exactly what belongs on both
+sides.
+
+Put together: `perm_read=False` means reading stays unrestricted (technicians
+see the whole planning, they just can't touch foreign orders), while the other
+three `True` means this domain genuinely gates writing, creating and deleting.
+
+Upgrade, then open the shell (chapter 6):
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Everything from here through the trap below happens in this one session,
+paste each piece one after another, in order, without exiting: later pieces
+use variables (`zh`, `tina`, `oil_filter`...) that earlier ones create. Four
+small pieces rather than one wall of code (the same script, all in one
+place, lives in `code/checkpoints/ch12/seed_ch12.py` if you'd rather paste
+it whole).
+
+First, two partners to own your two vehicles:
+
+```python
+anna, beat = env["res.partner"].create([
+    {"name": "Anna Keller"}, {"name": "Beat Muster"},
+])
+zh = env["librefleet.vehicle"].search([("license_plate", "=", "ZH 468 202")])
+be = env["librefleet.vehicle"].search([("license_plate", "=", "BE 30 447")])
+zh.owner_id, be.owner_id = anna, beat
+```
+
+`create()` on a list of dicts returns a recordset in the same order, which is
+why unpacking straight into `anna, beat` works. Writing `zh.owner_id = anna` is
+just a plain field assignment, nothing relation-specific, because you already
+hold the record.
+
+Next, three parts for the catalog you modeled two steps ago:
+
+```python
+oil_filter, oil, pads = env["librefleet.part"].create([
+    {"name": "Oil filter", "code": "OF-102", "standard_cost": 12.0, "list_price": 24.5},
+    {"name": "Engine oil 5W30 (1l)", "code": "OIL-5W30", "standard_cost": 9.5, "list_price": 18.9},
+    {"name": "Brake pads, front", "code": "BP-201", "standard_cost": 35.0, "list_price": 79.0},
+])
+```
+
+Then look up the three existing records the orders below will need: tina
+(chapter 10) and the two service types (chapter 11):
+
+```python
+tina = env["res.users"].search([("login", "=", "tina")])
+oil_change = env["librefleet.service.type"].search([("name", "=", "Oil change")])
+brake_insp = env["librefleet.service.type"].search([("name", "=", "Brake inspection")])
+```
+
+And finally the two orders that actually set up the trap:
 
 ```python
 o1 = env["librefleet.service.order"].create({
-    "vehicle_id": zh.id,
-    "service_type_id": oil_change.id,
-    "technician_ids": [(4, tina.id)],
-    "scheduled_start": "2026-07-16 08:00:00",
+    "vehicle_id": zh.id,                       # Many2one: just the other record's id
+    "service_type_id": oil_change.id,          # same, another Many2one
+    "technician_ids": [(4, tina.id)],          # Many2many: a list of command tuples, (4, id) links an existing record
+    "scheduled_start": "2026-07-16 08:00:00",  # Datetime fields also just take a "YYYY-MM-DD HH:MM:SS" string
     "scheduled_end": "2026-07-16 09:00:00",
-    "line_ids": [
-        (0, 0, {"part_id": oil_filter.id, "qty": 1, "price_unit": 24.5}),
-        (0, 0, {"part_id": oil.id, "qty": 4, "price_unit": 18.9}),
+    "line_ids": [                              # One2many: also a list of command tuples
+        (0, 0, {"part_id": oil_filter.id, "qty": 1, "price_unit": 24.5}),  # (0, 0, {...}) creates a new line, attached to this order
+        (0, 0, {"part_id": oil.id, "qty": 4, "price_unit": 18.9}),         # a second line, same idiom
     ],
 })
+o2 = env["librefleet.service.order"].create({
+    "vehicle_id": be.id,
+    "service_type_id": brake_insp.id,
+    "scheduled_start": "2026-07-17 09:00:00",
+    "scheduled_end": "2026-07-17 10:30:00",
+})
+env.cr.commit()
 ```
 
-Commit, then walk into the trap. As **admin**, try to confirm the order tina is
+The one difference that matters: `o1` gets a technician (tina), `o2` gets
+none at all, which is exactly what makes `o2` the order to test the trap
+against next.
+
+Now walk into the trap. As **admin**, try to confirm the order tina is
 *not* on:
 
 ```console
@@ -314,8 +396,17 @@ administrator with a batch of freshly baked cookies.
 The boss is locked out of the workshop. Why: admin is a Workshop Manager, Manager
 implies User, so the technician rule applies to admin, and admin is in
 `technician_ids` of nothing. This is the most common record-rule bug in the wild,
-and now you've caused it yourself. The fix is the standard pattern, a second rule
-that gives managers everything:
+and now you've caused it yourself.
+
+Prefer to see the same trap in the browser instead of the shell? Log in as
+admin at [localhost:8069](http://localhost:8069), open the brake inspection
+order (`o2`, the one without tina), and try to change its stage: the same
+`AccessError`, shown as an in-app error dialog instead of a shell traceback.
+`with_user()` is only how you *simulate* being someone else from the shell;
+logging in as admin for real hits the identical rule the identical way, no
+simulation needed.
+
+The fix is the standard pattern, a second rule that gives managers everything:
 
 ```xml
         <record id="rule_service_order_manager" model="ir.rule">
@@ -326,9 +417,11 @@ that gives managers everything:
         </record>
 ```
 
-Upgrade, retest: admin writes any order (rules OR together, and `[(1, '=', 1)]`
-matches everything), while tina still bounces off foreign orders. The server log
-narrates every denial:
+`[(1, '=', 1)]` is not testing a real field, `1` is not a column on service
+orders; it is the standard idiom for "always true", comparing a literal to
+itself so every record passes. Upgrade, retest: admin writes any order (rules
+OR together, and this domain matches everything), while tina still bounces off
+foreign orders. The server log narrates every denial:
 
 ```text
 INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for operation: write on record ids: [2], uid: 2, model: librefleet.service.order
