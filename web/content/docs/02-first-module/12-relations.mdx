@@ -304,11 +304,28 @@ Put together: `perm_read=False` means reading stays unrestricted (technicians
 see the whole planning, they just can't touch foreign orders), while the other
 three `True` means this domain genuinely gates writing, creating and deleting.
 
-Upgrade, then open the shell (chapter 6):
+Upgrade, then open the shell:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+...
+INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
+INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
+INFO tutorial odoo.modules.loading: loading librefleet/views/vehicle_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/service_type_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/service_order_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/part_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/librefleet_menus.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 261 queries (+261 other)
+```
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
+
+Both are the two commands chapter 6 introduced (`-u` upgrades, `shell` opens this
+interactive session); the query count is only ever approximate, don't worry if yours
+differs a little.
 
 Everything from here through the trap below happens in this one session,
 paste each piece one after another, in order, without exiting: later pieces
