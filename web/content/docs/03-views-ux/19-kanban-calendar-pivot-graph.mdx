@@ -101,7 +101,8 @@ That shared foundation is about to matter.
 
 <Steps>
 
-### 1. Add all four views
+<Step>
+### Add all four views
 
 In `views/service_order_views.xml`, add a kanban grouped by stage:
 
@@ -194,8 +195,10 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 Zero errors. All four views loaded, arch and all, `margin` field reference included.
 That's worth sitting with for a second: **the view installed completely cleanly with
 a measure it cannot actually compute yet.**
+</Step>
 
-### 2. Watch it fail, but only when it's actually used
+<Step>
+### Watch it fail, but only when it's actually used
 
 Loading a view's arch (what `get_view` returns, what the upgrade just validated) is
 metadata. Rendering a pivot means *fetching aggregated data*, a separate step that
@@ -216,8 +219,10 @@ promise chapter 13 made you and didn't collect on yet: "non-stored fields can't 
 searched, grouped, or aggregated." Chapters 16 through 18 taught you three ways a
 mistake stays completely silent. This one is the opposite: loud, unambiguous, and
 delayed until the exact moment someone opens the pivot tab.
+</Step>
 
-### 3. Pay the debt: store margin
+<Step>
+### Pay the debt: store margin
 
 The fix is one attribute, in `models/service_order.py`:
 
@@ -238,8 +243,10 @@ Bump to `19.0.1.13.0`, upgrade, and restart (new Python, chapter 14's rule):
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+</Step>
 
-### 4. Confirm it recomputed on its own
+<Step>
+### Confirm it recomputed on its own
 
 Unlike chapter 14's sequence backfill, toggling `store=True` on an existing compute
 triggers Odoo to recompute every existing row automatically as part of the upgrade,
@@ -263,6 +270,7 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select column_name from in
 One new column, correct values already in it, and `parts_total`/`labor_total`
 confirmed still absent from the table, exactly the selective storing this chapter is
 demonstrating.
+</Step>
 
 </Steps>
 
