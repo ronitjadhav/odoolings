@@ -95,6 +95,8 @@ Create two simple products, both tracking inventory: `Friction Material` (cost 8
 Physical Inventory → New** (under the *Adjustments* heading), setting the counted quantity
 for each and applying it.
 
+![The Physical Inventory count screen, listing every stocked product with its On Hand, Counted and Difference columns; Backing Plate, Brake Pad Set (Front) and Friction Material appear among the rows](/screens/ch26-physical-inventory-count.jpg)
+
 ```console
 $ python3 odoolings.py diff --db functional
 product.template     +2
@@ -119,6 +121,8 @@ one more time.
 - **Quantity**: 1
 - Components: `Friction Material` × **0.5**, `Backing Plate` × **1**
 - One operation: **Bond friction material**, work center **Assembly 1**
+
+![The Brake Pad Set bill of materials, Components tab: Friction Material at 0.50 and Backing Plate at 1.00, BoM Type set to Manufacture this product](/screens/ch26-brake-pad-set-bom.jpg)
 
 #### 3. Manufacture 4 of them
 
@@ -174,6 +178,8 @@ stock.quant          +3
       chg   Friction Material        quantity: 20.0 -> 18.0
       chg   Brake Pad Set (Front)    quantity: 15.0 -> 19.0
 ```
+
+![Manufacturing order WH/MO/00007, statusbar at Done, quantity 4.00 / 4.00, Components tab showing Friction Material 2.00 consumed and Backing Plate 4.00 consumed](/screens/ch26-manufacturing-order-done.jpg)
 
 Read the Production quants as one small ledger. Friction Material and Backing Plate
 arrive there positive (that is where the components went), and Brake Pad Set arrives
