@@ -99,7 +99,8 @@ non-issue you should simply expect.
 
 <Steps>
 
-### 1. A unique license plate (SQL constraint)
+<Step>
+### A unique license plate (SQL constraint)
 
 In `models/vehicle.py`, import `ValidationError` (you'll need it in step 2) and
 declare the constraint at the top of the class:
@@ -124,8 +125,10 @@ The attribute name (`_license_plate_unique`) becomes the constraint's name in
 Postgres; the first string is raw SQL added with `ADD CONSTRAINT`; the second is the
 message users see when they hit it. That's the whole declaration, and Postgres does
 the enforcing.
+</Step>
 
-### 2. A believable model year (Python constraint)
+<Step>
+### A believable model year (Python constraint)
 
 Uniqueness is a job for SQL. "Is this year plausible?" needs a comparison against
 *this* year, so it's Python. Add to the vehicle model:
@@ -146,8 +149,10 @@ Three habits worth copying. The decorator lists the field(s) that trigger the ch
 `self`, because constrains, like computes, receive a recordset. And it skips the
 empty case (`if vehicle.year`), so a blank year (not yet filled) doesn't trip the
 rule; `0` and `False` are legitimately "no year given".
+</Step>
 
-### 3. The sequence and the reference field
+<Step>
+### The sequence and the reference field
 
 Create `data/ir_sequence.xml`:
 
@@ -208,8 +213,10 @@ a `<field name="reference"/>` first in the list, and a heading at the top of the
                 <sheet>
                     <h1><field name="reference" readonly="1"/></h1>
 ```
+</Step>
 
-### 4. Upgrade, and watch the backfill quirk
+<Step>
+### Upgrade, and watch the backfill quirk
 
 Bump the manifest to `19.0.1.6.0`, then upgrade and restart the running server so it
 loads the new Python (Python changes need the restart; the upgrade alone runs in a
@@ -235,8 +242,10 @@ new required column it backfilled existing rows using the field default, but the
 database tables are built *before* the data files load, so the sequence didn't exist
 yet and `next_by_code` returned nothing. Brand-new orders from here on will number
 correctly; the legacy two need a one-time backfill.
+</Step>
 
-### 5. Backfill the legacy orders
+<Step>
+### Backfill the legacy orders
 
 From the shell, hand the existing orders real numbers:
 
@@ -253,8 +262,10 @@ This is the shape of a real data migration: new field, existing rows, a short sc
 to bring history in line. In production it would live in a migration step (chapter
 47); here the shell is fine. Note `next_by_code` is how you pull a number outside a
 create, which is exactly what the default does under the hood.
+</Step>
 
-### 6. No double-booked vehicles (a Python constraint that searches)
+<Step>
+### No double-booked vehicles (a Python constraint that searches)
 
 The overlap rule is the most interesting kind of constraint: it can't judge a record
 in isolation, it has to look at *other* orders. In `models/service_order.py`, with
@@ -289,8 +300,10 @@ before the other ends. `("id", "!=", order.id)` excludes the order from clashing
 itself; cancelled orders are ignored on both sides. It's in the `depends` list too
 (`stage`), so cancelling an order re-checks and un-cancelling re-validates. Bump the
 manifest to `19.0.1.7.0`, upgrade, and restart.
+</Step>
 
-### 7. See all three guards fire
+<Step>
+### See all three guards fire
 
 From the shell, try to break each rule. First the unique plate (order 1's vehicle is
 `ZH 468 202`):
@@ -340,10 +353,11 @@ undoing the failures. They did not: a Python `ValidationError` already prevented
 write, and the `UniqueViolation` was refused by Postgres. What the rollbacks cleared is
 the *transaction state* the first failure left behind. Your two orders and two vehicles
 are untouched throughout, but not because anything "rolled itself back" for you.
+</Step>
 
+<Step>
 <BreakIt />
-
-### 8. Break-it lab: watch a sequence leak numbers
+### Break-it lab: watch a sequence leak numbers
 
 Sequences give out numbers that a rollback can't take back. Watch the counter directly
 rather than trusting the references, because that makes the leak impossible to miss:
@@ -381,6 +395,7 @@ form opens (a user who opens "New" and closes it burns one). If gap-free numberi
 ever becomes a hard requirement, the usual fix is to draw the number in an overridden
 `create` at save time instead of in the default, which you'll be ready for after
 chapter 15. Roll back so no test order survives.
+</Step>
 
 </Steps>
 
