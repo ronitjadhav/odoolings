@@ -563,19 +563,8 @@ chapter 11 traced: Fleet → Service Orders, Configuration → Parts.
           sequence="20"/>
 ```
 
-Two details in the order form deserve extra attention:
-
-```xml
-    <field name="technician_ids" widget="many2many_tags"/>
-    ...
-    <field name="line_ids" nolabel="1">
-        <list editable="bottom">
-            <field name="part_id"/>
-            <field name="qty"/>
-            <field name="price_unit"/>
-        </list>
-    </field>
-```
+Two details in the form above deserve extra attention: `technician_ids` carries
+`widget="many2many_tags"`, and `line_ids` nests a `<list>` inside it.
 
 `widget=` picks a different renderer for the same data (tags beat a full table for
 a handful of technicians; chapter 17 tours the widget zoo). And nesting a `<list>`
