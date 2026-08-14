@@ -71,7 +71,8 @@ from a confirmation step and maybe some extra input first.
 
 <Steps>
 
-### 1. Scaffold the wizard
+<Step>
+### Scaffold the wizard
 
 A new top-level `wizards/` directory, alongside `models/`. Create
 `wizards/__init__.py`:
@@ -152,8 +153,10 @@ Update `wizards/service_order_approve_views.xml`:
 the override checkbox entirely on the common path, a healthy job made money, nobody
 needs to see a checkbox that never applies. `special="cancel"` is the standard way
 to close a wizard popup without running any action.
+</Step>
 
-### 2. The button that opens it
+<Step>
+### The button that opens it
 
 On `librefleet.service.order`, add the method the button calls:
 
@@ -197,8 +200,10 @@ needs a wizard), but there is no clickable step left that jumps straight to done
 The statusbar widget always displays whatever the field's *current* value is, even
 one absent from `statusbar_visible`, so once an order reaches done it still shows
 correctly; the field just stops offering it as somewhere to click *into*.
+</Step>
 
-### 3. Register the wizard, and wire security
+<Step>
+### Register the wizard, and wire security
 
 Add the view file to the manifest's `data` list, and `from . import wizards` to the
 top-level `__init__.py` alongside `from . import models`. A `TransientModel` still
@@ -214,8 +219,10 @@ Bump the manifest to `19.0.1.14.0` and upgrade:
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+</Step>
 
-### 4. Two warnings you'll actually see, and the fix
+<Step>
+### Two warnings you'll actually see, and the fix
 
 Watch the upgrade output closely (or check it in the shell afterward) and you'll spot
 something new, and it's actually two distinct warnings, not one:
@@ -296,8 +303,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin f
  SO/2026/0002 |    120
 (2 rows)
 ```
+</Step>
 
-### 5. Watch every guard fire, for real
+<Step>
+### Watch every guard fire, for real
 
 In the shell, move an order to in_progress and walk through the wizard, exactly the
 sequence the button and popup perform for a real user:
@@ -354,10 +363,11 @@ data matches the real chapter demonstration, not your break-it experiments:
 ```console
 >>> env.cr.rollback()
 ```
+</Step>
 
+<Step>
 <BreakIt />
-
-### 6. Break-it lab: is `groups=` on a field a real security boundary, or just UI polish?
+### Break-it lab: is `groups=` on a field a real security boundary, or just UI polish?
 
 You might reasonably assume `groups=` on a field only hides it from the form, the
 way many admin tools work, and that anyone with API access could still set it. Test
@@ -413,6 +423,7 @@ because it *is* the same machinery. So hold both halves of the result at once:
 That is not a flaw, it is the definition of `sudo()`, and it is why the audit question on
 a real project is never "is this field restricted?" but "which code paths sudo their way
 to it?". Chapter 38 writes the test that pins that down.
+</Step>
 
 </Steps>
 
