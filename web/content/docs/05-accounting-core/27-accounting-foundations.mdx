@@ -68,7 +68,8 @@ unbalanced entry**, which you will see for yourself.
 - The <Term k="chart of accounts (`account.account`)">`account.account`</Term> is the chart of accounts: the list of buckets value can sit in.
   Each carries an `account_type` (`asset_receivable`, `asset_cash`, `expense`, `income`,
   `equity`, and so on) which is what reports group by. The demo database installs a
-  generic chart of 157 accounts.
+  generic chart of accounts, 55 of them visible to this company (the same
+  multi-company visibility rule the Gotchas section below shows journals obeying too).
 - A <Term k="journal (`account.journal`)">`account.journal`</Term> is the book an entry is written in, and it owns the numbering
   sequence. Sales, Purchases, Bank and Miscellaneous are the ones you will meet first.
 - **<Term k="account.move / account.move.line">`account.move`</Term>** is one accounting document, and **`account.move.line`** are its
@@ -154,9 +155,23 @@ Two movements again, continuing in the `functional` database.
   has no checkbox for it at all. In Enterprise, installing `account_accountant` grants it,
   which is why every screenshot online has these menus and you do not.
 
-  The **actions are not gated, only the menus are**, so this chapter reaches those two
-  screens by URL. Worth remembering as a technique: when a menu is missing but you know the
-  action exists, `/odoo/action-<module>.<xmlid>` gets you there.
+  Reaching the list views by URL (below) is enough to *read* the chart of accounts and
+  browse journal entries. It is **not** enough to write one: the same group also gates
+  the **Journal Items** tab on the entry form itself, the exact tab you need for step 2's
+  debit and credit lines, `groups="account.group_account_readonly"` right on that page in
+  `account_move_views.xml`. Reaching the action by URL does not route around a restriction
+  that lives on a page inside the form, only on the menu that opens it.
+
+  So grant yourself the group, the one legitimate way Community leaves open. With
+  developer mode on (chapter 4), go to **Settings → Technical → Users → Groups**, search
+  **Show Accounting Features - Readonly**, open it, and add your user on its **Users**
+  tab:
+
+  ![The Show Accounting Features - Readonly group record, Users tab, with Mitchell Admin added as a line](/screens/ch27-readonly-group-users.jpg)
+
+  Save, then **hard-refresh** (F5, not a client-side navigation) any accounting page:
+  the server sees the new group immediately, but the browser session's own cache of your
+  groups does not, so a plain click-through still shows the old, line-free form.
 </Callout>
 
 #### 1. Look at the chart of accounts and the journals
@@ -166,8 +181,10 @@ Open the chart of accounts at
 Note the **Type** column: that is `account_type`, and it is what makes a report able to
 say "assets" without hard-coding account numbers.
 
+![The Chart of Accounts list, 55 accounts for this company, sorted by code with Type and Allow Reconciliation columns visible](/screens/ch27-chart-of-accounts.jpg)
+
 Then **Invoicing → Configuration → Journals** (it sits under the *Accounting* heading in
-that dropdown). Seven for this company:
+that dropdown). Eleven for this company, in this same `functional` database:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -181,15 +198,22 @@ INV Sales sale
 BILL Purchases purchase
 BNK1 Bank bank
 MISC Miscellaneous Operations general
+CSH1 Cash Furn. Shop cash
+CSH2 Cash Clothes Shop cash
+CSH3 Cash Bakery cash
 CABA Cash Basis Taxes general
 EXCH Exchange Difference general
+POSS Point of Sale general
 STJ Inventory Valuation general
 ```
 
-Two of those are worth noticing now. **STJ, Inventory Valuation**, is where chapter 30's
-stock accounting lands. **CABA** and **EXCH** exist so tax-on-payment and currency
+Three of those are worth noticing now. **STJ, Inventory Valuation**, is where chapter
+30's stock accounting lands. **CABA** and **EXCH** exist so tax-on-payment and currency
 movements have somewhere to go, which is a good early hint that Odoo would rather create
-a journal than fudge a number.
+a journal than fudge a number. The three **CSH** journals and **POSS** are here because
+this same `functional` database gets `point_of_sale` installed later, for chapter 42;
+if you are working through the tutorial in order and have not reached that chapter yet,
+you will only see the first seven.
 
 #### 2. Try to post an entry that does not balance
 
@@ -207,30 +231,43 @@ Press **Post**. Odoo stops you:
 The entry is not balanced.
 ```
 
+![The \"Invalid Operation\" dialog reading The entry is not balanced, after posting a draft with 250.00 debit against 200.00 credit](/screens/ch27-entry-not-balanced.jpg)
+
 That is not a warning you can dismiss. Double-entry is enforced at the database boundary,
 not left to your good intentions.
 
+Before you fix it, grab a handle on this draft from the shell you opened in step 1 (still
+draft, so `name` is not set yet):
+
+```python
+>>> mv = env["account.move"].search([("journal_id.code", "=", "MISC")], order="id desc", limit=1)
+>>> mv.name, mv.state
+(False, 'draft')
+```
+
 #### 3. Balance it and post
 
-Change the credit to **250.00** and post. The entry gets a number, and the status becomes
-Posted.
+Back in the browser, change the credit to **250.00** and post. The entry gets a number,
+and the status becomes Posted.
+
+![A posted journal entry MISC/2026/08/0003, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
 
 ### Movement 2: read what it did
 
 #### 4. The number arrives on posting, not on creation
 
-Take a snapshot before you post, and watch the two states from the shell:
+Back in the shell, `mv` is the same recordset: re-read the same two fields and watch them
+change:
 
 ```python
->>> mv.name, mv.state          # before posting
-(False, 'draft')
 >>> mv.name, mv.state          # after posting
 ('MISC/2026/08/0002', 'posted')
 ```
 
 `False`, not `"/"` and not an empty string. There was no number to show, because none had
 been requested. Your own number will differ, and it encodes the journal code and the
-period: `MISC`, year, month, counter.
+period: `MISC`, year, month, counter. This database has been through this exercise
+before, so its own counter keeps climbing; yours will start lower.
 
 Then confirm the rule Odoo just enforced:
 
@@ -273,14 +310,19 @@ in_invoice   4
 in_refund    2
 ```
 
+The exact counts are not the point and will not match yours: every sale, purchase and
+manufacturing order you have posted since chapter 21 added a document here, so this
+number only grows. What matters is that five different `move_type` values all show up
+against the same model.
+
 Five different document types, one model, one table. (If you reach for `read_group`
 here instead, note that in Odoo 19 the count comes back under a key named after the
 grouping field, `move_type_count`, not the `__count` older code expects.) Now open a real customer invoice and
-check what it is made of:
+check what it is made of. This one is pinned by name so the example stays this simple
+one regardless of how many invoices your own database has since accumulated:
 
 ```python
->>> inv = env["account.move"].search([("move_type", "=", "out_invoice"),
-...                                   ("state", "=", "posted"),
+>>> inv = env["account.move"].search([("name", "=", "INV/2026/00008"),
 ...                                   ("company_id", "=", env.company.id)], limit=1)
 >>> inv.name, inv.move_type, inv._name
 ('INV/2026/00008', 'out_invoice', 'account.move')
