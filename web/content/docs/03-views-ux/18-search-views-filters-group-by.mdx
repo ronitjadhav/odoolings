@@ -120,7 +120,8 @@ purpose in a minute so you recognize the shape of it forever.
 
 <Steps>
 
-### 1. Build the search view
+<Step>
+### Build the search view
 
 In `views/service_order_views.xml`, add a new `ir.ui.view` record before the action,
 `type` inferred from the root tag:
@@ -162,8 +163,10 @@ schema and the group-by list is always collapsed.) Four searchable fields, six
 toggleable filters, three group-by options: this is already a working search view. You
 don't need to reference it anywhere yet, the client finds a model's search view
 automatically the same way it finds the lowest-priority list and form.
+</Step>
 
-### 2. Wire the default, with the typo left in on purpose
+<Step>
+### Wire the default, with the typo left in on purpose
 
 On the action, add a context with the default filter, but misspell the filter name:
 
@@ -182,8 +185,10 @@ Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would 
 the correct spelling, because nothing in the loading process ever reads a filter's
 `name` attribute against an action's context keys. They're unrelated strings that
 happen to follow a convention only the browser's JavaScript understands.
+</Step>
 
-### 3. Catch what the server can't
+<Step>
+### Catch what the server can't
 
 ```console
 $ python3 odoolings.py check ch18
@@ -201,8 +206,10 @@ you, ever, which is exactly why the check exists. Note that it lists the filters
 find, which is usually enough to spot the typo without opening the XML, and that it reads
 the live arch rather than a fixed list, so filters you add yourself (exercises 1 and 3)
 count as real ones.
+</Step>
 
-### 4. Fix the typo
+<Step>
+### Fix the typo
 
 ```xml
 <field name="context">{'search_default_not_cancelled': 1}</field>
@@ -220,8 +227,10 @@ $ python3 odoolings.py check ch18
 
 ch18 complete! On to the next chapter 🔧
 ```
+</Step>
 
-### 5. Prove group-by actually aggregates
+<Step>
+### Prove group-by actually aggregates
 
 `read_group` is what the client calls under the hood when you click a Group By
 option; call it yourself and get real buckets back:
@@ -237,8 +246,10 @@ option; call it yourself and get real buckets back:
 
 One order per vehicle, which matches the two vehicles and two orders you've had since
 chapter 12. The action's context now reads back exactly as written: the fixed string.
+</Step>
 
-### 6. Prove My Services actually scopes
+<Step>
+### Prove My Services actually scopes
 
 `with_user` from chapter 15 makes this the cheapest security-relevant test you'll ever
 write:
@@ -254,8 +265,10 @@ Tina's own filter, evaluated as Tina, returns exactly the one order she's assign
 (from chapter 12). In the browser, the exact same domain runs when she clicks "My
 Services", with `uid` standing in for `tina.id` because the client fills it in from
 her session.
+</Step>
 
-### 7. Prove that two ticked filters OR
+<Step>
+### Prove that two ticked filters OR
 
 The Concepts claim is easy to state and easier to disbelieve, so measure it. Your orders
 are all in `draft` right now, so flip one to `confirmed` first, and note that we never
@@ -276,6 +289,7 @@ One record each, an ANDed domain that can never match anything, and an ORed doma
 returns both. Ticking **Draft** and **Confirmed** in the browser gives you 2, so the
 search view is building the second domain. Quit without `env.cr.commit()` and both
 orders are back to draft.
+</Step>
 
 </Steps>
 
