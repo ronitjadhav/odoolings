@@ -195,7 +195,8 @@ into archaeology. House rule you'll see at every serious integrator: sudo the
 
 <Steps>
 
-### 1. Anatomy of a recordset
+<Step>
+### Anatomy of a recordset
 
 In the shell, meet the three faces of the same object:
 
@@ -251,8 +252,10 @@ librefleet.vehicle()
 `exists()` is the guard: it returns the subset of records that are really in the
 database. Any code that receives ids from outside (a controller, an import, a cron
 argument) should pass them through `exists()` before trusting them.
+</Step>
 
-### 2. Trip over the singleton rule, on purpose
+<Step>
+### Trip over the singleton rule, on purpose
 
 ```console
 >>> orders.stage
@@ -266,8 +269,10 @@ librefleet.vehicle(2, 1)
 Scalar field on two records: refused. `mapped` collects the values; relational access
 unions the targets. You'll hit this error for real within a week of writing Odoo code;
 now you'll recognize it in one second.
+</Step>
 
-### 3. The search toolbox
+<Step>
+### The search toolbox
 
 Work through these and predict each result before running it:
 
@@ -288,8 +293,10 @@ Work through these and predict each result before running it:
 Note `order=` and `limit=` doing their work in SQL, `search_count` skipping the fetch
 entirely (it becomes a `SELECT count(*)`), and the `"|"` prefix taking the next two
 conditions. `ilike` matched `zh` against `ZH 468 202` case-insensitively.
+</Step>
 
-### 4. filtered, mapped, sorted, grouped
+<Step>
+### filtered, mapped, sorted, grouped
 
 The in-memory quartet, on the orders you already hold:
 
@@ -311,8 +318,10 @@ keeps records where the field is truthy). `sorted` takes a field name or a key
 function. `grouped` buckets a recordset into a dict in one pass. All four operate on
 what's already in memory; none of them touches Postgres. Notice `margin` computing on
 demand inside `filtered`: chapter 13's non-stored computes work transparently here.
+</Step>
 
-### 5. Create in batch, write in batch
+<Step>
+### Create in batch, write in batch
 
 Three new vehicles, one call, then one write that hits all three:
 
@@ -335,8 +344,10 @@ And the new ids jumped to 16–18 even though you only ever saw two vehicles: ev
 failed create from chapter 14's constraint experiments consumed a primary-key id.
 Postgres id sequences leak on rollback exactly like `ir.sequence` does; gaps in ids
 are as normal as gaps in order references.
+</Step>
 
-### 6. Archive one, delete one, and meet active_test
+<Step>
+### Archive one, delete one, and meet active_test
 
 ```console
 >>> new[1].active = False
@@ -355,10 +366,11 @@ search, which is precisely their point (chapter 9's Gotcha, now demonstrated).
 permanent. The `commit()` matters, as always in the shell, and this exact state
 (SHELL-001 active with its note, SHELL-002 archived, SHELL-003 gone) is what
 `odoolings` will verify.
+</Step>
 
+<Step>
 <BreakIt />
-
-### 7. Become tina: record rules in action (break-it lab)
+### Become tina: record rules in action (break-it lab)
 
 Chapter 10's record rule says technicians may only *write* orders they're assigned
 to. The shell's superuser never feels that rule; `with_user` does:
@@ -402,8 +414,10 @@ warning anywhere. In a real module this line would be a security bug: any code p
 tina can trigger now edits orders she was explicitly fenced off from. Roll it back and
 remember the house rule: sudo the smallest operation, comment why, and never use it to
 make an AccessError "go away" without understanding what the error protected.
+</Step>
 
-### 8. Move the sequence draw into create
+<Step>
+### Move the sequence draw into create
 
 Chapter 14 left a known wart: the callable default draws a number the moment a form
 opens, so every abandoned "New" burns one. Production modules (look at `sale.order` in
@@ -437,8 +451,10 @@ recordset. Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+</Step>
 
-### 9. Prove the improvement
+<Step>
+### Prove the improvement
 
 Back in a fresh shell. `default_get` is what a new form calls to prefill fields, so it
 shows exactly what opening "New" now costs:
@@ -468,6 +484,7 @@ One nuance so you're never surprised: the rollback above still cost numbers, bec
 number drawn inside `create` is as non-transactional as anywhere else. What the override
 fixes is forms and abandoned drafts (no draw before save), not rollbacks after a
 successful save.
+</Step>
 
 </Steps>
 
