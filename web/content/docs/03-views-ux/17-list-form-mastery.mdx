@@ -72,7 +72,8 @@ That's the whole trick behind "3 Services opens *this* vehicle's services".
 
 <Steps>
 
-### 1. Give the order form a lifecycle header
+<Step>
+### Give the order form a lifecycle header
 
 In `views/service_order_views.xml`, insert a header before the sheet and remove
 `stage` from the "When" group (it's moving up):
@@ -91,8 +92,10 @@ In `views/service_order_views.xml`, insert a header before the sheet and remove
 workflow has no rules; chapter 20 replaces raw clicks with guarded buttons.
 `statusbar_visible` keeps `cancelled` off the happy path: a cancelled order still
 *shows* its stage, but nobody is invited to click their way into it.
+</Step>
 
-### 2. Fold the long content into a notebook
+<Step>
+### Fold the long content into a notebook
 
 Still in the form: wrap the parts list, the money group and the notes into a
 notebook, one page per concern:
@@ -136,8 +139,10 @@ picker:
 
 The widget edits both fields; `scheduled_end` stays in the view (invisible) so the
 client loads and writes it.
+</Step>
 
-### 3. Decorate the order list
+<Step>
+### Decorate the order list
 
 Replace the plain list with a self-explaining one:
 
@@ -161,8 +166,10 @@ Three ideas in one arch: row-level `decoration-*` on the `<list>`, a `badge` wid
 with its own per-cell decorations, and `optional` columns (users toggle them from the
 list's column menu; `hide`/`show` sets the default). Nothing here needed Python or an
 upgrade beyond `-u librefleet`.
+</Step>
 
-### 4. The smart button, method first
+<Step>
+### The smart button, method first
 
 The button needs a destination. In `models/vehicle.py`:
 
@@ -209,10 +216,11 @@ throwaway process):
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+</Step>
 
+<Step>
 <BreakIt />
-
-### 5. Break-it lab: the anchor you just moved
+### Break-it lab: the anchor you just moved
 
 Chapter 16's reception extension inserts `active` with
 `expr="//field[@name='service_count']"`. You just moved `service_count` *inside the
@@ -252,8 +260,10 @@ Upgrade and confirm the toggle is back among the usage fields:
 >>> arch.index('name="active"') > arch.index("</button>")
 True
 ```
+</Step>
 
-### 6. Prove the button's destination
+<Step>
+### Prove the button's destination
 
 ```console
 >>> env["librefleet.vehicle"].browse(1).action_view_service_orders()
@@ -261,6 +271,7 @@ True
 ```
 
 An action is a dict all the way down; buttons just hand it to the client.
+</Step>
 
 </Steps>
 
