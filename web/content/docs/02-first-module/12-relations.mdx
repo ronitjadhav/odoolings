@@ -347,14 +347,14 @@ And finally the two orders that actually set up the trap:
 
 ```python
 o1 = env["librefleet.service.order"].create({
-    "vehicle_id": zh.id,
-    "service_type_id": oil_change.id,
-    "technician_ids": [(4, tina.id)],
-    "scheduled_start": "2026-07-16 08:00:00",
+    "vehicle_id": zh.id,                       # Many2one: just the other record's id
+    "service_type_id": oil_change.id,          # same, another Many2one
+    "technician_ids": [(4, tina.id)],          # Many2many: a list of command tuples, (4, id) links an existing record
+    "scheduled_start": "2026-07-16 08:00:00",  # Datetime fields also just take a "YYYY-MM-DD HH:MM:SS" string
     "scheduled_end": "2026-07-16 09:00:00",
-    "line_ids": [
-        (0, 0, {"part_id": oil_filter.id, "qty": 1, "price_unit": 24.5}),
-        (0, 0, {"part_id": oil.id, "qty": 4, "price_unit": 18.9}),
+    "line_ids": [                              # One2many: also a list of command tuples
+        (0, 0, {"part_id": oil_filter.id, "qty": 1, "price_unit": 24.5}),  # (0, 0, {...}) creates a new line, attached to this order
+        (0, 0, {"part_id": oil.id, "qty": 4, "price_unit": 18.9}),         # a second line, same idiom
     ],
 })
 o2 = env["librefleet.service.order"].create({
@@ -366,12 +366,9 @@ o2 = env["librefleet.service.order"].create({
 env.cr.commit()
 ```
 
-`o1` gets `technician_ids: [(4, tina.id)]`, chapter 10's command language
-again, this time on a many2many; `o2` gets no technician at all, which is
-what makes it the order to test the trap against. The one line worth pausing
-on either way is the one2many write on `line_ids`: `(0, 0, {...})` creates
-each order line attached to the parent, in the same `create` call, the same
-command language once more.
+The one difference that matters: `o1` gets a technician (tina), `o2` gets
+none at all, which is exactly what makes `o2` the order to test the trap
+against next.
 
 Now walk into the trap. As **admin**, try to confirm the order tina is
 *not* on:
