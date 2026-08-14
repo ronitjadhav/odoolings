@@ -652,6 +652,19 @@ Write `i18n/fr.po` with three translations, keeping each `msgid` byte-identical 
 template (that string *is* the lookup key) and the named placeholder intact:
 
 ```text title="addons/librefleet/i18n/fr.po"
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* librefleet
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0\n"
+"Report-Msgid-Bugs-To: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: nplurals=2; plural=n > 1;\n"
+
 #. module: librefleet
 #: model:librefleet.service.type,name:librefleet.service_type_tire_rotation
 msgid "Tire Rotation"
@@ -661,10 +674,23 @@ msgstr "Rotation des pneus"
 #: code:addons/librefleet/wizards/service_order_approve.py:0
 msgid "Only an order that is in progress can be marked done."
 msgstr "Seul un ordre en cours peut être marqué comme terminé."
+
+#. odoo-python
+#: code:addons/librefleet/wizards/service_order_approve.py:0
+msgid ""
+"This order loses money (margin %(margin).2f). A manager must tick the "
+"override to complete it anyway."
+msgstr ""
+"Cet ordre est déficitaire (marge %(margin).2f). Un responsable doit cocher "
+"la dérogation pour le terminer malgré tout."
 ```
 
-(The checkpoint has the full file, including the gettext header and the third,
-placeholder-carrying message.) Import it:
+The gettext header (that first `msgid ""` block) is boilerplate every `.po` file
+carries; write it once and never think about it again. The third message is the one
+with the named placeholder, `%(margin).2f`, sitting untouched in both `msgid` and
+`msgstr`: the translator moves it wherever French phrasing wants it, but never renames
+or drops it, since Python fills it in by name at raise time, not by position. Import
+it:
 
 ```console
 $ docker compose exec odoo odoo i18n import -c /etc/odoo/odoo.conf -d tutorial -l fr /mnt/extra-addons/librefleet/i18n/fr.po
