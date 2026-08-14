@@ -124,7 +124,8 @@ touching `vehicle_views.xml`.
 
 <Steps>
 
-### 1. Write the extension view
+<Step>
+### Write the extension view
 
 Create `views/vehicle_views_inherit.xml`:
 
@@ -161,8 +162,10 @@ version to `19.0.1.9.0`, and upgrade:
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+</Step>
 
-### 2. Add the competing list view
+<Step>
+### Add the competing list view
 
 Reception also wants a stripped-down vehicle list. In the same file, before
 `</odoo>`, add a *second standalone list view* for the model:
@@ -205,8 +208,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, pri
 
 Everything this chapter claimed, visible in one query: the extension with its
 `inherit_id`, the standalone at priority 99.
+</Step>
 
-### 3. Watch the combination happen
+<Step>
+### Watch the combination happen
 
 <Term k="get_view">`get_view`</Term> is the method the web client itself calls; ask it for the combined form
 arch from the shell:
@@ -223,8 +228,10 @@ True
 The base record's arch in the database still has neither change (check it in the psql
 `arch_db` column if you're curious); the merge happened at request time. That's why
 this mechanism is safe: nothing was edited, something was *composed*.
+</Step>
 
-### 4. Rig the priority contest, then unrig it
+<Step>
+### Rig the priority contest, then unrig it
 
 Still in the shell, make the reception list win and watch the default flip live:
 
@@ -247,10 +254,11 @@ open reception's list; back at 99, order is restored. No file changed, no upgrad
 priority is data, and the winner is recomputed on every request. (The rollback keeps
 your database matching the checkpoint; the file's `eval="99"` is the state that
 ships.)
+</Step>
 
+<Step>
 <BreakIt />
-
-### 5. Break-it lab: the locator that matches nothing
+### Break-it lab: the locator that matches nothing
 
 Sabotage the xpath in your extension view, replacing `service_count` with a field
 that doesn't exist:
@@ -291,6 +299,7 @@ that looks innocent, trust those three instead; they name the real culprit every
 You will meet this shape again whenever a version migration renames a field your xpath
 anchored on (chapter 47's bread and butter). Restore `service_count`, upgrade, and
 confirm the module loads clean.
+</Step>
 
 </Steps>
 
