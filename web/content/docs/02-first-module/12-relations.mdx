@@ -304,9 +304,18 @@ Put together: `perm_read=False` means reading stays unrestricted (technicians
 see the whole planning, they just can't touch foreign orders), while the other
 three `True` means this domain genuinely gates writing, creating and deleting.
 
-Upgrade, then seed some real data from the shell, in four small pieces rather
-than one wall of code (the same script, all in one place, lives in
-`code/checkpoints/ch12/seed_ch12.py` if you'd rather paste it whole).
+Upgrade, then open the shell (chapter 6):
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Everything from here through the trap below happens in this one session,
+paste each piece one after another, in order, without exiting: later pieces
+use variables (`zh`, `tina`, `oil_filter`...) that earlier ones create. Four
+small pieces rather than one wall of code (the same script, all in one
+place, lives in `code/checkpoints/ch12/seed_ch12.py` if you'd rather paste
+it whole).
 
 First, two partners to own your two vehicles:
 

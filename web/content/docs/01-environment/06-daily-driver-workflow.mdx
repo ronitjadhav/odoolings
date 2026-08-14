@@ -47,7 +47,10 @@ odoo [--addons-path=PATH,...] server: error: unrecognized parameters: db init sc
 
 Odoo read `db init scratch` as stray server arguments, because with `-c` in front it
 never recognised `db` as a command at all. The `ocdb` alias puts the flag in the right
-place once so you never think about it again.
+place once, so if you set it up, you never think about it again. This tutorial's own
+commands still spell out the full form from here on, though, so every one of them stays
+copy-paste safe whether or not you bothered with the alias; treat it as a shortcut for
+your own terminal, not something the book leans on.
 
 Run `docker compose exec odoo odoo help` once to see everything (`scaffold`,
 `populate`, `neutralize`, `cloc`...). Today we need three: the **server** (the default
