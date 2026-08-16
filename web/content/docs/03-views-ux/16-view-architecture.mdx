@@ -38,8 +38,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, pri
 (2 rows)
 ```
 
-Two views, both `primary`, both at the default priority of 16. Those two columns,
-`mode` and `priority`, are this chapter's levers.
+Two views, both `primary`, both at the default priority of 16. `mode` has exactly two
+values: `primary` means "a view in its own right", and `extension` means "a bundle of
+patches applied on top of another view". You never type it yourself, Odoo derives it
+when the record is created: a view with an `inherit_id` becomes an `extension`, one
+without stays `primary`. `priority` is a plain integer that defaults to 16. Those two
+columns are this chapter's levers.
 
 ### How Odoo picks and builds the view you see
 
@@ -62,7 +66,9 @@ Two consequences worth engraving:
   original is back, unchanged.
 - **<Term k="view priority">Priority</Term> is a golf score.** Among <Term k="primary view">primary views</Term>, the *lowest* number wins the
   default slot. Base views sit at 16, so a view with priority 8 hijacks the default,
-  and one at 99 never wins unless an action asks for it by `view_id` explicitly.
+  and one at 99 never wins the contest. It can still be reached: a window action
+  (chapter 11) has a `view_id` field pointing at one specific `ir.ui.view` record, and
+  when that field is set, the action opens that view instead of the priority winner.
 
 ### The patch language
 
@@ -75,8 +81,12 @@ insert (or the attributes to change):
 </xpath>
 ```
 
-`expr` is a real XPath expression evaluated against the parent's arch; `position`
-says what to do at the first match:
+XPath is a small query language for pointing at a node inside an XML document, and this
+`expr` reads left to right: `//` means "anywhere below the root, at any depth", `field`
+is the tag to look for, and `[@name='service_count']` keeps only the tags whose `name`
+attribute is `service_count`. Put together: the `service_count` field, wherever it sits
+in the parent's form. Odoo evaluates the expression against the parent's arch and takes
+the first node it finds; `position` says what to do there:
 
 | position | Effect |
 |---|---|
@@ -156,8 +166,22 @@ arch holds two patches: one XPath locator inserting `active` after the service
 counter, one shorthand locator relabeling `mileage_km` for this form only (the field
 itself, and every other view, keeps its model-level label).
 
-Add the file to the manifest's `data` list right after `vehicle_views.xml`, bump the
-version to `19.0.1.9.0`, and upgrade:
+Two edits in `__manifest__.py`. First, add the new file to `data`, right after
+`vehicle_views.xml`, so the base form record already exists when Odoo resolves this
+file's `ref`:
+
+```python
+        "views/vehicle_views.xml",
+        "views/vehicle_views_inherit.xml",
+```
+
+Second, bump the version, as with every change to the module:
+
+```python
+    "version": "19.0.1.9.0",
+```
+
+Then upgrade:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -186,8 +210,13 @@ Reception also wants a stripped-down vehicle list. In the same file, before
 ```
 
 No `inherit_id`, so it's a full view in its own right, competing for the default slot
-through priority. At 99 it deliberately loses to the original's 16. It lives in the
-same already-registered file, so no new manifest entry and no version bump, just:
+through priority. `eval="99"` is how that number gets set: `eval` runs the attribute as
+Python, so the field receives the integer 99 rather than text. At 99 the view
+deliberately loses to the original's 16, and that is the point. Nobody's Vehicles menu
+changes today, you gain a second primary view to run step 4's experiment against, and
+it matches how real modules ship an alternative screen: parked at a high priority,
+opened only by an action that names it with `view_id`. It lives in the same
+already-registered file, so no new manifest entry and no version bump, just:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -213,8 +242,14 @@ Everything this chapter claimed, visible in one query: the extension with its
 <Step>
 ### Watch the combination happen
 
-<Term k="get_view">`get_view`</Term> is the method the web client itself calls; ask it for the combined form
-arch from the shell:
+<Term k="get_view">`get_view`</Term> is the method the web client itself calls, and it hands back a dict
+whose `arch` key holds the finished XML. Open a shell against the tutorial database:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Then ask it for the combined form arch:
 
 ```console
 >>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
@@ -233,7 +268,10 @@ this mechanism is safe: nothing was edited, something was *composed*.
 <Step>
 ### Rig the priority contest, then unrig it
 
-Still in the shell, make the reception list win and watch the default flip live:
+Still in the shell, make the reception list win and watch the default flip live. The
+tell is `service_count`: the base list shows `license_plate`, `owner_id`, `model_name`,
+`year` and `mileage_km`, and only reception's list shows `service_count`, so whether
+that name turns up in the combined arch tells you which of the two views won:
 
 ```console
 >>> Vehicle = env["librefleet.vehicle"]
@@ -287,7 +325,9 @@ View error context:
  'xmlid': 'view_librefleet_vehicle_form'}
 ```
 
-Read this one carefully, because its `file` and `line` lie to you a little. They point
+Your ids will not match this transcript, because Postgres hands them out per database
+as records are created, so read the names rather than the numbers. And read this one
+carefully, because its `file` and `line` lie to you a little. They point
 at `vehicle_views.xml`, the *base* form's file, not `vehicle_views_inherit.xml` where
 your broken xpath actually lives. That's because the base form isn't `noupdate`, so
 every upgrade rewrites its record, and that write is what triggers Odoo to recombine
