@@ -117,7 +117,10 @@ class ServiceOrderApproveWizard(models.TransientModel):
 
 Two business rules, both things a raw statusbar click could never ask about: the
 order must actually be `in_progress` (you can't "complete" a draft), and a
-money-losing order needs a manager's explicit override. `related="order_id.margin"`
+money-losing order needs a manager's explicit override. The last line returns
+`{"type": "ir.actions.act_window_close"}`, the "nothing more to show" action: that
+return value is what closes the popup and drops the user back on the order form once
+the write went through. `related="order_id.margin"`
 gives the wizard a read-only mirror of the order's margin for free, no separate
 compute needed. `override_negative_margin` carries `groups=`, the same
 group-restriction mechanism chapter 10 taught you for regular model fields, and it
@@ -125,7 +128,9 @@ works exactly the same way here: only Workshop Managers see the field in the for
 *and*, worth confirming for yourself below, only they're allowed to write to it at
 all, at the ORM level, not just hidden in the UI.
 
-Update `wizards/service_order_approve_views.xml`:
+The wizard needs a form view of its own: the same `ir.ui.view` record shape you have
+written since chapter 16, just pointed at the wizard model. Create
+`wizards/service_order_approve_views.xml`:
 
 ```xml
 <record id="view_librefleet_service_order_approve_wizard_form" model="ir.ui.view">
@@ -152,7 +157,12 @@ Update `wizards/service_order_approve_views.xml`:
 `invisible="margin &gt;= 0"` (the escaped `>=`, XML doesn't allow a bare `>`) hides
 the override checkbox entirely on the common path, a healthy job made money, nobody
 needs to see a checkbox that never applies. `special="cancel"` is the standard way
-to close a wizard popup without running any action.
+to close a wizard popup without running any action. Two other bits of this form are
+wizard shapes you haven't met: everything inside `<footer>` is lifted out by the
+client and rendered as the popup's own button bar (which is why the buttons sit there
+rather than in a `<header>`), and `order_id` is declared `invisible="1"` instead of
+being left out, because the popup still has to carry the order it was opened from
+even though there is nothing for the user to do with it.
 </Step>
 
 <Step>
@@ -205,19 +215,30 @@ correctly; the field just stops offering it as somewhere to click *into*.
 <Step>
 ### Register the wizard, and wire security
 
-Add the view file to the manifest's `data` list, and `from . import wizards` to the
-top-level `__init__.py` alongside `from . import models`. A `TransientModel` still
-needs access rights like any model:
+Three registrations, one file each:
+
+- `__manifest__.py`: add `"wizards/service_order_approve_views.xml",` to the `data`
+  list, below the existing `views/` entries, so the wizard's form gets loaded.
+- the module's top-level `__init__.py` (the one next to `__manifest__.py`, not the
+  one you just wrote in `wizards/`): add `from . import wizards` under the existing
+  `from . import models`, or Python never imports the package and the model never
+  exists.
+- `security/ir.model.access.csv`: a `TransientModel` needs access rights like any
+  other model, so add these two rows, one per group:
 
 ```csv
 access_librefleet_service_order_approve_wizard_user,librefleet.service.order.approve.wizard user,model_librefleet_service_order_approve_wizard,group_librefleet_user,1,1,1,1
 access_librefleet_service_order_approve_wizard_manager,librefleet.service.order.approve.wizard manager,model_librefleet_service_order_approve_wizard,group_librefleet_manager,1,1,1,1
 ```
 
-Bump the manifest to `19.0.1.14.0` and upgrade:
+Bump the manifest to `19.0.1.14.0`, then upgrade and restart. The upgrade loads the
+new view and the new ACL rows; the restart is what makes the long-running server pick
+up the new Python, since the upgrade runs in a separate throwaway process (chapter
+17's rule, and it matters here because the wizard is a whole new Python package):
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose restart odoo
 ```
 </Step>
 
@@ -247,15 +268,18 @@ behavior under the hood.
 `compute_sudo` decides *whose* access rights the compute method runs under: `True`
 recomputes as superuser, bypassing record rules and field-level `groups=`; `False`
 recomputes as whichever user triggered it, so the compute can fail or see less data
-than a superuser would. You never set it on any of these three fields, so Odoo
-picked a default for each: `store` for that field. `margin` is `store=True`, so it
+than a superuser would. You never set it on any of these three fields, so each
+one fell back to the default Odoo uses when you leave it out, which is that field's
+own `store` value. `margin` is `store=True`, so it
 silently got `compute_sudo=True`; `parts_total` and `labor_total` are not stored, so
 they silently got `compute_sudo=False`. One method, three fields, two different
 privilege levels, which is exactly the inconsistency both warnings are naming.
 
 One fix resolves both warnings at once: splitting the compute method by storage also
 gives each half a consistent `compute_sudo`, since that attribute defaults per field
-and both fields in each half share the same default. In `models/service_order.py`:
+and both fields in each half share the same default. In `models/service_order.py`,
+repoint the three fields at two new compute methods and delete chapter 13's
+`_compute_totals` (nothing references it once the fields name the new methods):
 
 ```python
     parts_total = fields.Float(compute="_compute_parts_labor")
@@ -308,8 +332,15 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin f
 <Step>
 ### Watch every guard fire, for real
 
-In the shell, move an order to in_progress and walk through the wizard, exactly the
-sequence the button and popup perform for a real user:
+Open the shell on the `tutorial` database:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Everything from here to the end of the chapter happens in that one session, so paste
+each piece in order without exiting. Move an order to in_progress and walk through
+the wizard, exactly the sequence the button and popup perform for a real user:
 
 ```console
 >>> order = env["librefleet.service.order"].search([("reference", "=", "SO/2026/0001")])
@@ -329,7 +360,13 @@ sequence the button and popup perform for a real user:
 
 `with_context(**act["context"])` is standing in for what the client does
 automatically when it opens the popup: applying `default_order_id` before the form's
-first `create`. Now break the two rules on purpose. First, wrong stage:
+first `create`. `invalidate_recordset()` is a shell-only detail: the wizard wrote the
+new stage through its own `order_id` recordset, so the `order` variable you are
+holding still has the old value in its cache, and invalidating throws that cache away
+so the next read goes back to the database. The web client never needs it, because a
+button action reloads the record once the popup closes.
+
+Now break the two rules on purpose. First, wrong stage:
 
 ```console
 >>> order.stage = "draft"
