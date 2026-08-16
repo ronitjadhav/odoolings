@@ -102,6 +102,13 @@ The field split follows the same logic. `name` is stored on the template, and
 can confirm yourself in the Hands-on. So renaming a template renames every variant,
 because there was only ever one name.
 
+Which raises the obvious question: if a variant's `name` is just "Brake Pad Set", where
+does the "(Front)" come from? From a second field, `display_name`. Core computes it as the
+variant's `name` followed by its attribute values in brackets, and that is the string
+lists, many2one dropdowns and the diff output further down all show you. Hold on to the
+pair: `name` is the one every variant shares, `display_name` is the one that tells them
+apart.
+
 ### Product types changed in Odoo 19
 
 If you have seen older Odoo, unlearn this one. The type field now offers exactly three
@@ -139,7 +146,12 @@ declares its size **relative to another unit**:
 
 - `relative_uom_id` points at the unit it is defined against (Dozens points at Units).
 - `relative_factor` says how many of that unit it contains (12).
-- `factor` is the absolute quantity, computed recursively up the chain and stored.
+- `factor` is what the whole chain adds up to: how many of the unit at the *root* of the
+  tree this one is worth. Odoo computes it as `relative_factor` times the parent's own
+  `factor`, walking up until it hits a unit with no parent, and stores the result. Units
+  sits at the root and is worth 1, so Dozens comes out at 12. Converting is then just
+  dividing one stored `factor` by the other, which is why nothing has to walk the tree at
+  read time.
 - `parent_path` indexes the resulting hierarchy.
 
 Older Odoo grouped units into a category with one reference unit each and a `uom_type`
@@ -153,12 +165,21 @@ Every functional chapter from here on ends with you reading the database, and th
 impossible until you can answer "what model am I even looking at?" for any screen in
 Odoo. Two ways:
 
-- **In the interface**, turn on developer mode (chapter 4 covered where the toggle
-  lives) and the bug menu in the top bar names the model behind the current view and
-  lets you inspect its fields.
-- **In the shell**, which is the one you can automate: `env["ir.model"]` is a table of
-  every model, and `fields_get` on any model returns its fields with their types and
-  labels. The Hands-on uses this, and so does every check `odoolings` runs.
+- **In the interface**, turn on developer mode if it is not already on in this database
+  (chapter 4: **Settings → General Settings**, scroll to the bottom, *Developer Tools* →
+  **Activate the developer mode**, or just append `?debug=1` to the URL). A 🐞 menu then
+  appears in the top bar; open it on any screen and it names the model behind the current
+  view and lets you inspect its fields.
+- **In the shell**, which is the one you can automate: `env["ir.model"]` is an ordinary
+  model whose records are all the other models, so you can search it like anything else.
+  For one model's fields there are two handles worth knowing. `fields_get()` returns a
+  dictionary keyed by field name, each value describing that field (its type, its label,
+  whether it is required), which is the shape an RPC client gets back. `_fields` is the
+  same information in Python form: a dict of field name to the `fields.Char` /
+  `fields.Float` / ... object the model class declared, so `_fields["name"].store` reads
+  an attribute straight off the field's *definition* rather than off any record. The
+  Hands-on uses `_fields`, and `odoolings` reads the same metadata through the
+  `ir.model.fields` model.
 
 ## Hands-on
 
@@ -179,7 +200,12 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
 INFO functional odoo.modules.loading: Modules loaded.
 ```
 
-That installs six apps, because `account` arrives as a dependency of Sales:
+Those five technical names are the apps you will be clicking through for the next ten
+chapters: `sale_management` is Sales, `purchase` is Purchase, `stock` is Inventory, `mrp`
+is Manufacturing, `crm` is CRM. `-i` installs them, `--with-demo` asks for the demo
+records, and `--stop-after-init` makes this a one-shot install rather than a server you
+then have to stop. Six modules end up installed rather than five, because `account`
+(Invoicing) arrives as a dependency of Sales:
 
 ```console
 $ docker compose exec db psql -U odoo -d functional -t -c \
@@ -187,14 +213,27 @@ $ docker compose exec db psql -U odoo -d functional -t -c \
  account, crm, mrp, purchase, sale_management, stock
 ```
 
-Restart the web server so it picks up the new database, then log in at
-[http://localhost:8069](http://localhost:8069) and choose `functional`. Your `tutorial`
-database is untouched, and stays that way for the whole of Parts 4 and 5.
+Restart the web server so it picks up the new database:
+
+```console
+$ docker compose restart odoo
+```
+
+Then open [http://localhost:8069](http://localhost:8069). You have more than one database
+now, so Odoo shows a picker before the login form: choose `functional`. This one was
+created from the command line rather than from the database manager, so it carries core's
+default credentials, login `admin` and password `admin`. Your `tutorial` database is
+untouched, and stays that way for the whole of Parts 4 and 5.
 
 #### 2. Take a snapshot before you touch anything
 
-This is the tool that makes the second movement possible. It records the current state
-of the models these two parts care about, so you can ask what changed afterwards:
+This is the tool that makes the second movement possible. It records the current state of
+the models these two parts care about into a `.odoolings-snapshot.json` file in the
+directory you run it from, so you can ask what changed afterwards. Two things to know
+before you rely on it: `diff` only ever reads that file, it never rewrites it, so every
+diff you run is measured from the last `snapshot` you took rather than from the previous
+diff. And both commands need the same working directory, or `diff` will not find the
+file. Whenever you want a clean baseline, take another snapshot first.
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -237,6 +276,12 @@ Read that carefully, because it is the whole concept in four lines. **One** form
 created **three** records: the template you named, and two variants you never typed. The
 attribute values became products. This is what people mean when they say Odoo "generates
 variants", and now you have watched it happen instead of reading about it.
+
+The two price fields are not a typo either. `list_price` is the template's own Sales
+Price, the 79.00 you typed. `lst_price` is the variant's version of it: the template's
+price plus whatever extra that variant's attribute values add on top. You gave Front and
+Rear no extra, so both read 79.0, and they would part company the moment you priced one
+of them up.
 
 #### 5. Confirm the relationship from the shell
 
@@ -325,8 +370,13 @@ One model, one table, a company and its people.
 12.0
 ```
 
-Dozens is defined as twelve Units, and conversion walks that link in both directions. If
-you go looking for the old category field to confirm the grouping, you will not find it:
+Read those last two lines by the signature rather than by the numbers:
+`_compute_quantity(qty, to_unit)` converts `qty`, expressed in whichever unit you called
+it on, into `to_unit`. So `unit._compute_quantity(12, dozen)` asks "twelve Units, in
+Dozens?" and gets 1.0, while `dozen._compute_quantity(1, unit)` asks "one Dozen, in
+Units?" and gets 12.0. Dozens is defined as twelve Units, and conversion walks that link
+in both directions. If you go looking for the old category field to confirm the grouping,
+you will not find it:
 
 ```python
 >>> "category_id" in env["uom.uom"]._fields
