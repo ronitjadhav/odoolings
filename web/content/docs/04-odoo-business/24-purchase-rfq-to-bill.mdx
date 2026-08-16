@@ -76,10 +76,17 @@ flag could not express it.
 
 ### A stock move always has two ends
 
-Chapter 27 said value never appears or vanishes, it moves, and that an accounting entry
-records both ends. Inventory works identically: a `stock.move` has a source location and a
-destination, and receiving goods does not create them out of nothing. It moves them **from
-the Vendors location into your warehouse**, leaving a negative quantity behind.
+Accounting has a rule you will meet properly in chapter 27: value never appears or
+vanishes, it moves, and an entry records both ends of the movement. Inventory works
+identically. A `stock.move` has a source location and a destination, so receiving goods
+does not create them out of nothing. It moves them **from the Vendors location into your
+warehouse**, leaving a negative quantity behind.
+
+Two words to have ready before you meet them in the data. Odoo stores what is on hand as
+`stock.quant` rows, each one recording how much of a product sits in one location, and
+"quant" is just the name of that row. And Vendors is not a shelf: it is a virtual location
+standing for the outside world on the supplier's side, which is why it is perfectly happy
+to hold a negative quantity.
 
 That sounds like bookkeeping pedantry until you see it in the data, which you are about to.
 It is also why Odoo can tell you what you bought from whom without a separate purchase
@@ -87,11 +94,17 @@ history: the negative quants *are* the history.
 
 ### The vendor bill is the invoice, mirrored
 
-A vendor bill is an `account.move` with `move_type = 'in_invoice'`. Same model as chapter
-28's customer invoice, opposite direction, mirrored accounts: where a customer invoice
-debits Account Receivable and credits income, a vendor bill **debits an expense** and
-**credits Account Payable**. It also comes from a different journal, so it is numbered
-`BILL/...` rather than `INV/...`.
+A vendor bill is a record of `account.move`, the single model Odoo uses for every
+accounting document. A field on it, `move_type`, says which kind you are looking at:
+`out_invoice` is a customer invoice, `in_invoice` is a vendor bill.
+
+Chapters 27 and 28 teach the accounting itself, so for now just take the shape. Every
+accounting entry is written as lines that balance, one side called **debit** and the other
+**credit**. A customer invoice records what the customer owes you (a debit on Account
+Receivable) against the sale (a credit on an income account). A vendor bill is that
+mirrored: a debit on an **expense** account for the cost, and a credit on **Account
+Payable** for what you now owe the supplier. Bills are also numbered out of a different
+book of entries (a **journal**), which is why they read `BILL/...` rather than `INV/...`.
 
 ## Hands-on
 
@@ -101,9 +114,17 @@ Continuing in `functional`.
 
 #### 1. Raise an RFQ
 
-Snapshot first, then **Purchase → Orders → Requests for Quotation → New**:
+Movement 2 reads a separate diff for each of the four steps in this Movement, so take a
+fresh snapshot right before each one, starting now:
 
-1. **Vendor**: any partner with a vendor rank (the demo has a couple).
+```console
+$ python3 odoolings.py snapshot --db functional
+```
+
+Then **Purchase → Orders → Requests for Quotation → New**:
+
+1. **Vendor**: the demo database ships two partners whose `supplier_rank` is above zero
+   (chapter 21's vendor counter), `Gemini Furniture` and `Ready Mat`. Either will do.
 2. Add a line for `Brake Pad Set (Front)`, quantity **10**, unit price **42.00**.
 3. Save, and leave it as an RFQ.
 
@@ -116,15 +137,26 @@ Order, and a **Receipt** smart button appears.
 
 #### 3. Receive the goods
 
-Open the receipt, set the received quantity to 10, and **Validate**.
+Back on the purchase order:
+
+1. Click the **Receipt** smart button at the top right. It opens the incoming transfer,
+   the one named `WH/IN/...`.
+2. On the `Brake Pad Set (Front)` line, find the **Quantity** column, the one right next
+   to **Demand**, and set it to **10** if it is not already.
+3. Press **Validate**. The transfer's status moves to Done.
+
+Demand is what the order asked for and Quantity is what you are saying actually turned up.
+They are two columns rather than one for exactly the reason this chapter is about.
 
 #### 4. Bill it
 
 The purchase order's own **Upload Bill** button wants a real file (a scanned invoice) to
 attach before it will create anything, so that is not today's path. Instead, go to
 **Purchase → Orders → Purchase Orders** (the confirmed-orders list, a different menu item
-from Requests for Quotation), tick the checkbox next to P00013, and press **Create Bills**
-in the toolbar that appears. Odoo drops you straight onto a draft bill, pre-filled from the
+from Requests for Quotation), tick the checkbox next to your order, and press **Create
+Bills** in the toolbar that appears. Yours will not be numbered `P00013`, because the
+sequence keeps counting: read every number in this chapter's output, `P00013`,
+`WH/IN/00007`, `BILL/2026/08/0002`, as "the record I just made". Odoo drops you straight onto a draft bill, pre-filled from the
 PO's lines.
 
 ![A draft vendor bill created by the Create Bills bulk action, with the Bill Date field empty and outlined in red as required, the Brake Pad Set line pre-filled at qty 10 and $420.00 total](/screens/ch24-draft-vendor-bill.jpg)
@@ -141,7 +173,15 @@ purchase.order      +1
       new   P00013                   state=draft  amount_total=420.0
 ```
 
+Now open a shell on the same database and pick up the order you just created, which is the
+newest `purchase.order` there is:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
 ```python
+>>> po = env["purchase.order"].search([], order="id desc", limit=1)
 >>> po.state, po.receipt_status, po.invoice_status
 ('draft', False, 'no')
 ```
@@ -188,7 +228,10 @@ stock.quant         +2
       new   Brake Pad Set (Front)    location_id=WH/Stock  quantity=10.0
 ```
 
-Three separate things happened, and only one of them was your purchase order.
+Three separate things happened, and only one of them was your purchase order. Both
+`stock.move` rows print the same product name, so read them against the pickings below
+them: `assigned -> done` is the receipt's own move, and `confirmed -> assigned` belongs to
+a document you never opened.
 
 **The two quants are the move's two ends.** `WH/Stock` gained 10 and `Vendors` lost 10.
 Nothing was created; ten brake pads moved across a boundary, and Odoo recorded both sides,
@@ -231,7 +274,16 @@ comes from the Purchases journal, not the Sales one.
 
 #### 9. The match, closed
 
+If the shell from step 5 is still open, quit it with `Ctrl-D` and start a new one first. An
+Odoo shell holds a single database transaction open, so it keeps returning the values from
+when it first read, and none of the browser work you have done since would show up:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
 ```python
+>>> po = env["purchase.order"].search([], order="id desc", limit=1)
 >>> l = po.order_line[0]
 >>> l.product_qty, l.qty_received, l.qty_invoiced
 (10.0, 10.0, 10.0)
