@@ -82,7 +82,7 @@ Every recordset carries its `env`, and the env answers three questions:
 | Attribute | Question it answers | Example value in the shell |
 |---|---|---|
 | `env.user` / `env.uid` | who is acting? | `__system__`, uid `1` |
-| `env.cr` | which database cursor (transaction)? | one transaction per shell session |
+| `env.cr` | which open database transaction? | one per shell session, until you `commit()` or `rollback()` |
 | `env.context` | with which settings? | `{'lang': 'en_US', 'tz': False, 'uid': 1}` |
 
 Plus two conveniences you'll use constantly: `env["model.name"]` to get a model's
@@ -315,8 +315,12 @@ The in-memory quartet, on the orders you already hold:
 `mapped` takes a dotted path and follows relations (deduplicating recordset results on
 the way). `filtered` takes a function (or a field name: `orders.filtered("notes")`
 keeps records where the field is truthy). `sorted` takes a field name or a key
-function. `grouped` buckets a recordset into a dict in one pass. All four operate on
-what's already in memory; none of them touches Postgres. Notice `margin` computing on
+function. `grouped` buckets a recordset into a dict in one pass: each key is a value of
+the field you grouped on, and each value is a recordset of the records sharing it.
+Group on a many2one and the keys are whole *vehicle records*, which is why the
+comprehension above can write `k.license_plate` for the key and `v.mapped("reference")`
+for the group. All four operate on what's already in memory; none of them touches
+Postgres. Notice `margin` computing on
 demand inside `filtered`: chapter 13's non-stored computes work transparently here.
 </Step>
 
@@ -348,6 +352,10 @@ are as normal as gaps in order references.
 
 <Step>
 ### Archive one, delete one, and meet active_test
+
+`new` still holds the three vehicles in the order you created them, so `new[1]` is
+SHELL-002 and `new[2]` is SHELL-003. Archive the first of those, delete the second,
+then go looking for all three:
 
 ```console
 >>> new[1].active = False
@@ -421,8 +429,15 @@ make an AccessError "go away" without understanding what the error protected.
 
 Chapter 14 left a known wart: the callable default draws a number the moment a form
 opens, so every abandoned "New" burns one. Production modules (look at `sale.order` in
-core someday) draw the number **in `create`**, when the record is actually saved. In
-`models/service_order.py`, simplify the field and add the override:
+core someday) draw the number **in `create`**, when the record is actually saved. Two
+edits in `models/service_order.py`:
+
+- **Replace the `reference` field** with the version below. Only the default changes:
+  chapter 14's `default=lambda self: ... next_by_code(...)` becomes the plain string
+  `"New"`, so opening a form no longer touches the sequence at all.
+- **Add a `create` method** to the `ServiceOrder` class, below the field declarations
+  and above `_compute_totals`. By convention the methods that create, write and delete
+  records sit there, between the fields and the computes.
 
 ```python
     reference = fields.Char(
@@ -439,13 +454,24 @@ core someday) draw the number **in `create`**, when the record is actually saved
         return super().create(vals_list)
 ```
 
-Read it with this chapter's eyes. `@api.model_create_multi` declares the
+That `create` method is your first **override**, so slow down on it. Every model
+already inherits a `create` from Odoo's base `Model` class; writing a method with the
+same name in your own class means yours is the one that runs, which is what gives you
+a chance to edit `vals_list` before anything is stored. `super()` is plain Python for
+"the version I just replaced", so `super().create(vals_list)` hands the now-numbered
+values to Odoo's real create, which does the standard work (defaults, constraints from
+chapter 14, computes from 13) and returns the new recordset. Leave that line out and
+no record is ever written.
+
+The rest reads with this chapter's eyes. `@api.model_create_multi` declares the
 batch-friendly signature: `vals_list` is a *list* of dicts, exactly what you passed in
 step 5, and the loop stamps a number on each entry that doesn't already have one. The
-`vals.get(...) == "New"` guard leaves imported or copied values alone if a caller
-supplied a real reference. `super().create(vals_list)` runs the standard creation
-(defaults, constraints from chapter 14, computes from 13) and returns the new
-recordset. Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
+decorator also keeps single-record callers working: hand `create()` one plain dict and
+it wraps that dict in a one-item list before your method sees it, so your loop is
+always safe. The `vals.get(...) == "New"` guard leaves imported or copied values alone
+if a caller supplied a real reference, and it is why the field keeps `default="New"`:
+a form sends that literal along on save, and the guard reads it as "no number yet".
+Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -456,8 +482,15 @@ $ docker compose restart odoo
 <Step>
 ### Prove the improvement
 
-Back in a fresh shell. `default_get` is what a new form calls to prefill fields, so it
-shows exactly what opening "New" now costs:
+Quit the shell you were in with `Ctrl-D` (it is still running the pre-restart Python)
+and open a fresh one:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+`default_get` is the method a new form calls to prefill its fields, so it shows
+exactly what opening "New" now costs:
 
 ```console
 >>> SO = env["librefleet.service.order"]
@@ -476,8 +509,16 @@ Opening a form burns nothing (`'New'`, no number drawn), while a real save, even
 batch of two in one call, numbers each order. Your counter will be sitting well ahead of
 your order count, and by an amount nobody can predict for you: chapter 14's constraint
 experiments spent several, `odoolings` spends one per run that creates an order, and so
-does every attempt you retried. Check `number_next_actual` if you are curious, and expect
-a number with no tidy relationship to how many orders exist. Gaps, as established, are the
+does every attempt you retried. If you are curious, read the counter directly, the way
+chapter 14 did:
+
+```console
+>>> seq = env["ir.sequence"].search([("code", "=", "librefleet.service.order")])
+>>> seq.number_next_actual
+```
+
+Expect a number with no tidy relationship to how many orders exist. Gaps, as
+established, are the
 sequence working correctly.
 
 One nuance so you're never surprised: the rollback above still cost numbers, because a
