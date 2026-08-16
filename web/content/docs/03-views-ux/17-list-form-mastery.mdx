@@ -75,8 +75,12 @@ That's the whole trick behind "3 Services opens *this* vehicle's services".
 <Step>
 ### Give the order form a lifecycle header
 
-In `views/service_order_views.xml`, insert a header before the sheet and remove
-`stage` from the "When" group (it's moving up):
+Open `views/service_order_views.xml` and make two changes to the order form:
+
+- Add a `<header>` block as the first child of `<form>`, immediately before
+  `<sheet>`, holding `stage` rendered as a statusbar.
+- Delete the old `<field name="stage"/>` line from the "When" group. The stage lives
+  in the header now, so that copy is redundant.
 
 ```xml
             <form>
@@ -97,8 +101,11 @@ workflow has no rules; chapter 20 replaces raw clicks with guarded buttons.
 <Step>
 ### Fold the long content into a notebook
 
-Still in the form: wrap the parts list, the money group and the notes into a
-notebook, one page per concern:
+Right now the sheet ends with three stacked top-level groups: "Parts used", the
+two-column wrapper holding "Money", and "Notes". Delete all three and put a single
+`<notebook>` where they stood, directly after the What/When group and still inside
+`<sheet>`. Each `<page>` becomes one tab, and the Money group rides along inside the
+Parts tab:
 
 ```xml
                     <notebook>
@@ -164,8 +171,12 @@ Replace the plain list with a self-explaining one:
 
 Three ideas in one arch: row-level `decoration-*` on the `<list>`, a `badge` widget
 with its own per-cell decorations, and `optional` columns (users toggle them from the
-list's column menu; `hide`/`show` sets the default). Nothing here needed Python or an
-upgrade beyond `-u librefleet`.
+list's column menu; `hide`/`show` sets the default). Nothing here needed Python, so a
+plain module upgrade is all it takes to see steps 1 to 3 in the browser:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
 </Step>
 
 <Step>
@@ -192,9 +203,15 @@ say so), the `domain` filters the list to this vehicle, and the `context`'s
 with the right vehicle. Returning the dict is all it takes: the client executes
 whatever action a button method returns.
 
-Now the button, at the top of the vehicle form's sheet, and the ribbon right under
-it. Delete the plain `service_count` line from the Usage group at the same time
-(the count lives in the button now):
+Now the button and the ribbon, this time in `views/vehicle_views.xml` (the base
+vehicle form, not the reception extension you wrote in chapter 16). Three edits:
+
+- Delete the `<field name="service_count"/>` line from the "Usage" group. The count
+  is about to live in the button instead.
+- As the very first thing inside `<sheet>`, before the existing `<group>`, add the
+  button box with the stat button in it.
+- Right after the button box, still a direct child of `<sheet>`, add the ribbon
+  widget.
 
 ```xml
                 <sheet>
@@ -207,6 +224,21 @@ it. Delete the plain `service_count` line from the Usage group at the same time
                     <widget name="web_ribbon" title="Archived"
                             bg_color="text-bg-danger" invisible="active"/>
 ```
+
+Three details in that snippet are conventions rather than anything you could guess:
+
+- `name="button_box"` is the load-bearing part, not the class. The form compiler
+  looks for `div[name='button_box']` and turns that div into the real button box,
+  and other modules anchor their own buttons on the same name. `oe_button_box` and
+  `oe_stat_button` are the classes core writes alongside it, so write them too.
+- `icon="fa-wrench"` names a Font Awesome icon: a value starting with `fa-` renders
+  from the Font Awesome set bundled with the web module, `oi-` from Odoo's own icon
+  set, and anything else is treated as an image path.
+- `invisible="active"` reads "hide this while `active` is true", so the ribbon shows
+  exactly when the vehicle is archived. That is `invisible` in its dynamic form, an
+  expression over the record's fields rather than the flat `1` you gave
+  `scheduled_end`. `bg_color` takes a Bootstrap color class (`text-bg-danger` for
+  red); leave it out and the ribbon is green.
 
 Bump the manifest to `19.0.1.10.0`, then upgrade and restart the running server so it
 loads the new Python (Python changes need the restart; the upgrade alone runs in a
@@ -224,7 +256,15 @@ $ docker compose restart odoo
 
 Chapter 16's reception extension inserts `active` with
 `expr="//field[@name='service_count']"`. You just moved `service_count` *inside the
-smart button*. No error on upgrade; instead, look at the combined arch:
+smart button*. No error on upgrade; instead, go and look at the combined arch
+yourself. Open the shell:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Then ask for the vehicle form the way the web client does, and print the arch from 80
+characters before the stat button to just past its closing tag:
 
 ```console
 >>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
@@ -253,7 +293,16 @@ the Usage group:
             </xpath>
 ```
 
-Upgrade and confirm the toggle is back among the usage fields:
+Quit the shell with `Ctrl-D`, upgrade so the corrected extension is reloaded, then
+open the shell again:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Confirm the toggle is back among the usage fields, after the button's closing tag
+instead of inside the button:
 
 ```console
 >>> arch = env["librefleet.vehicle"].get_view(view_type="form")["arch"]
