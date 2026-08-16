@@ -98,11 +98,38 @@ belongs in computes, defaults or constraints (chapter 14).
 <Step>
 ### The stored line subtotal
 
-In `models/service_order.py`, extend the imports (`from odoo import api, fields,
-models`), then give the line its subtotal exactly as in the Concepts section, and
-show it in the inline list in `views/service_order_views.xml` (a `<field
-name="subtotal"/>` after `price_unit`; computed fields render read-only by
-default).
+Three edits, all in `models/service_order.py` unless noted.
+
+Widen the import line at the top of the file, you'll need `api` for the
+`@api.depends` decorator below:
+
+```python title="addons/librefleet/models/service_order.py"
+from odoo import api, fields, models     # was: from odoo import fields, models
+```
+
+On the `ServiceOrderLine` class, right after `price_unit`, add the field and its
+compute method (the exact code from the Concepts section above):
+
+```python
+    subtotal = fields.Float(compute="_compute_subtotal", store=True)
+
+    @api.depends("qty", "price_unit")
+    def _compute_subtotal(self):
+        for line in self:
+            line.subtotal = line.qty * line.price_unit
+```
+
+Then show it on screen: in `views/service_order_views.xml`, find the inline list
+that already has `part_id`, `qty` and `price_unit`, and add one line right after
+`price_unit`:
+
+```xml
+                                <field name="price_unit"/>
+                                <field name="subtotal"/>
+```
+
+Nothing else to add for it to render read-only, that's the default for computed
+fields, no `readonly="1"` needed.
 </Step>
 
 <Step>
