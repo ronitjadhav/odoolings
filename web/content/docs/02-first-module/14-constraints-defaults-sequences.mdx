@@ -145,7 +145,10 @@ Uniqueness is a job for SQL. "Is this year plausible?" needs a comparison agains
 ```
 
 Three habits worth copying. The decorator lists the field(s) that trigger the check
-(`year`), so it only re-runs when `year` changes, not on every write. It loops over
+(`year`), so it only re-runs when `year` changes, not on every write. That list works
+exactly like chapter 13's `@api.depends`, trigger wiring rather than documentation,
+which is why the rest of this chapter calls it the constraint's depends list even
+though the decorator is spelled `constrains`. It loops over
 `self`, because constrains, like computes, receive a recordset. And it skips the
 empty case (`if vehicle.year`), so a blank year (not yet filled) doesn't trip the
 rule; `0` and `False` are legitimately "no year given".
@@ -174,7 +177,11 @@ Create `data/ir_sequence.xml`:
 ```
 
 `code` is the handle you'll look the sequence up by. `prefix` supports date tokens, so
-`%(year)s` bakes the year in; `padding` zero-pads the counter to four digits.
+`%(year)s` bakes the year in; `padding` zero-pads the counter to four digits. An empty
+`company_id` (that is what `eval="False"` writes, the Python value `False` rather than
+the text "False") makes this a shared sequence: `next_by_code` only considers sequences
+belonging to your current company or to no company at all, and LibreFleet has no reason
+to number orders per company.
 `noupdate="1"` matters: without it, every module upgrade would rewrite the record and
 reset its counter to 1, renumbering your live orders. You want this created once and
 then left alone.
@@ -190,8 +197,10 @@ Register the file in `__manifest__.py`, after the security files and before the 
         ...
 ```
 
-Now the field. In `models/service_order.py`, add `reference` at the top of the model
-and make it the record's display name:
+Now the field. In `models/service_order.py`, add `reference` as the first field on the
+`ServiceOrder` class, and point the model's display name at it. Chapter 12 set
+`_rec_name = "vehicle_id"` because a plate was the best label an order had; an order
+number is better, so edit that existing line instead of adding a second one:
 
 ```python
     _rec_name = "reference"
@@ -206,8 +215,19 @@ and make it the record's display name:
 The callable default draws the next number when an order is created. `copy=False` so
 duplicating an order gets a fresh number instead of a clashing one; `readonly=True`
 because nobody hand-edits an order number. The `or "New"` is a safety net for the one
-moment the sequence doesn't exist yet (you're about to see it). Show it in the views:
-a `<field name="reference"/>` first in the list, and a heading at the top of the form:
+moment the sequence doesn't exist yet (you're about to see it). Now put it on screen.
+Both edits are in `views/service_order_views.xml`.
+
+In the order's list view, make `reference` the first column, ahead of `vehicle_id`:
+
+```xml
+            <list>
+                <field name="reference"/>
+                <field name="vehicle_id"/>
+```
+
+In the form view, put it in an `<h1>` as the first thing inside `<sheet>`, so the order
+number reads as the record's title:
 
 ```xml
                 <sheet>
@@ -247,7 +267,14 @@ correctly; the legacy two need a one-time backfill.
 <Step>
 ### Backfill the legacy orders
 
-From the shell, hand the existing orders real numbers:
+Open a shell. Steps 5, 7 and 8 all happen in this one session, so leave it running
+until the end of the chapter:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Now hand the existing orders real numbers:
 
 ```console
 >>> SO = env["librefleet.service.order"]
@@ -268,8 +295,17 @@ create, which is exactly what the default does under the hood.
 ### No double-booked vehicles (a Python constraint that searches)
 
 The overlap rule is the most interesting kind of constraint: it can't judge a record
-in isolation, it has to look at *other* orders. In `models/service_order.py`, with
-`ValidationError` imported at the top:
+in isolation, it has to look at *other* orders. It goes in `models/service_order.py`,
+and that file has never raised an exception before, so widen its imports first:
+
+```python title="addons/librefleet/models/service_order.py"
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+```
+
+Miss that line and the module will not load at all: `ValidationError` becomes a
+`NameError` while Odoo is importing your package. Then the constraint itself, on the
+`ServiceOrder` class:
 
 ```python
     @api.constrains("scheduled_start", "scheduled_end", "vehicle_id", "stage")
@@ -295,10 +331,15 @@ in isolation, it has to look at *other* orders. In `models/service_order.py`, wi
                     % order.vehicle_id.license_plate)
 ```
 
-The overlap test is the standard interval one: two windows overlap when each starts
-before the other ends. `("id", "!=", order.id)` excludes the order from clashing with
-itself; cancelled orders are ignored on both sides. It's in the `depends` list too
-(`stage`), so cancelling an order re-checks and un-cancelling re-validates. Bump the
+`search_count` takes a domain and answers with a number, how many records match, never
+the records themselves, which is all this check needs. The domain is chapter 12's list
+of `(field, operator, value)` conditions, and conditions sitting side by side in one
+list are ANDed, so a row is only counted when all five hold: it is some *other* order
+(`("id", "!=", order.id)`, so an order can never clash with itself), on the same
+vehicle, not cancelled, starting before this one ends, and ending after this one
+starts. Those last two are the whole overlap test: two windows overlap exactly when
+each one starts before the other finishes. `stage` is in the trigger list too, so
+cancelling an order re-runs the check and un-cancelling re-validates it. Bump the
 manifest to `19.0.1.7.0`, upgrade, and restart.
 </Step>
 
@@ -359,8 +400,10 @@ are untouched throughout, but not because anything "rolled itself back" for you.
 <BreakIt />
 ### Break-it lab: watch a sequence leak numbers
 
-Sequences give out numbers that a rollback can't take back. Watch the counter directly
-rather than trusting the references, because that makes the leak impossible to miss:
+Sequences give out numbers that a rollback can't take back. Watch the counter itself
+rather than the references on your orders, because that makes the leak impossible to
+miss. `number_next_actual` is the field on `ir.sequence` holding the number the
+sequence will hand out next:
 
 ```console
 >>> seq = env["ir.sequence"].search([("code", "=", "librefleet.service.order")])
