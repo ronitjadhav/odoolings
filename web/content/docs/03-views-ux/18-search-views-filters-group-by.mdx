@@ -25,16 +25,24 @@ By now this shouldn't surprise you: a search view is just another `ir.ui.view` r
 `type="search"`, loaded from XML like every view before it. Its arch holds three kinds
 of element:
 
-- **`<field>`**: a searchable field. Typing in the search bar against
-  `vehicle_id` does a `name_search` on vehicles, exactly like typing into a many2one
-  widget on a form.
+- **`<field>`**: a field the user can search on. Type text into the search bar and the
+  dropdown offers one "search Vehicle for..." line per `<field>` listed here, so this is
+  the list of things the search bar knows how to look in. For a many2one like
+  `vehicle_id` the lookup runs `name_search`, the ORM method that matches records whose
+  display name contains what you typed. It is the same method that fills the suggestion
+  list when you type into a many2one on a form.
 - A <Term k="filter (search view)">`<filter>`</Term>: a named, static domain the user can toggle on with a click. Each
   one needs a `domain` (or a `context` for group-by, see below) and a `name` that
   matters more than it looks like it should.
 - **`<group>`** wrapping filters with `context="{'group_by': '...'}"`: the <Term k="group-by">Group By</Term>
-  menu. Grouping by a field runs a `read_group` (or a Python `_read_group`), which
-  buckets records and returns counts per bucket, the same aggregation a pivot or
-  kanban column count uses under the hood.
+  menu. Grouping never ships every record to the browser to be counted there. The web
+  client calls `web_read_group`, the web module's entry point for loading grouped data
+  in list and kanban views, and underneath it sits `_read_group`, the ORM call that
+  turns your grouping into a single SQL `GROUP BY`: one bucket per distinct value, plus
+  its count. A pivot's cells and a kanban's column counts come from the same machinery.
+  The older public name, `read_group`, still works and is the one you'll call from the
+  shell later in this chapter, though Odoo 19 marks it deprecated in favour of
+  `_read_group`.
 
 <Callout type="warn" title="Gotcha">
   Don't confuse a search view's `<filter>` element with the `ir.filters` model.
@@ -48,7 +56,10 @@ of element:
 
 Chapter 15 drilled that the conditions in a domain are **ANDed** by default. Search
 views break that expectation on purpose, and this is the single most common Odoo search
-surprise, so get it now rather than from a confused user:
+surprise, so get it now rather than from a confused user. One word of vocabulary first:
+every condition currently narrowing a list shows up in the search bar as a **facet**,
+the rounded chip sitting there that you can remove with a click. Facets are what the
+table below is really counting:
 
 | What the user ticks | How it combines | Why |
 |---|---|---|
@@ -63,13 +74,20 @@ what a reader who trusts chapter 15 predicts.
 That is what `<separator/>` is for: it starts a new group, so it is how you say "this
 filter must narrow the others, not join them".
 
-Now look carefully at the arch you are about to write, because it has exactly one
-separator and that is **one too few**. "My Services" and "Exclude Cancelled" end up in
-the same group, so ticking both shows you *your* orders plus *everyone's* non-cancelled
-ones, which is not what either label promises. The stage filters below the separator are
-correctly ANDed against them. Exercise 5 has you fix it, and it is worth leaving wrong
-for one read: this is precisely the bug you will meet in real modules, where the label
-says "exclude" and the behaviour says "include as well".
+One warning about the word "group", because this chapter uses it for two unrelated
+things. A *group of filters* is just a run of adjacent `<filter>` elements between two
+separators; nothing in the XML marks it, you count separators to see where one ends. The
+`<group>` *element* is something else entirely: it is the container that turns the
+filters inside it into the Group By menu, and it has nothing to do with AND and OR. Both
+show up in the arch you are about to write.
+
+Now look ahead at the arch you write in step 1, because it has exactly one separator and
+that is **one too few**. "My Services" and "Exclude Cancelled" end up in the same group,
+so ticking both shows you *your* orders plus *everyone's* non-cancelled ones, which is
+not what either label promises. The stage filters below the separator are correctly
+ANDed against them. Exercise 4 has you fix it, and it is worth leaving wrong for one
+read: this is precisely the bug you will meet in real modules, where the label says
+"exclude" and the behaviour says "include as well".
 
 Each group's facets appear as one chip in the search bar, which is the visual tell:
 one chip means OR inside it, two chips mean AND between them.
@@ -123,8 +141,11 @@ purpose in a minute so you recognize the shape of it forever.
 <Step>
 ### Build the search view
 
-In `views/service_order_views.xml`, add a new `ir.ui.view` record before the action,
-`type` inferred from the root tag:
+In `views/service_order_views.xml`, add a new `ir.ui.view` record before the action.
+You will notice there is no `<field name="type">search</field>` in it: leave `type`
+out of a standalone view and Odoo reads the arch's root tag to decide, so a `<search>`
+root makes this a search view. (Extension views like chapter 16's skip that guess
+entirely: they take their parent's type through `inherit_id`.)
 
 ```xml
 <record id="view_librefleet_service_order_search" model="ir.ui.view">
@@ -168,11 +189,19 @@ automatically the same way it finds the lowest-priority list and form.
 <Step>
 ### Wire the default, with the typo left in on purpose
 
-On the action, add a context with the default filter, but misspell the filter name:
+Now the action, further down the same file. It has never had a `context` field, so add
+one between `view_mode` and the `help` block, and misspell the filter name on the way
+in:
 
 ```xml
-<field name="context">{'search_default_not_cancelld': 1}</field>
+<record id="action_librefleet_service_order" model="ir.actions.act_window">
+    <field name="name">Service Orders</field>
+    <field name="res_model">librefleet.service.order</field>
+    <field name="view_mode">list,form</field>
+    <field name="context">{'search_default_not_cancelld': 1}</field>
 ```
+
+Leave the `help` block and the closing `</record>` below it untouched.
 
 That's `not_cancelld`, missing the second `e`. Bump the manifest to `19.0.1.11.0` and
 upgrade:
@@ -215,8 +244,15 @@ count as real ones.
 <field name="context">{'search_default_not_cancelled': 1}</field>
 ```
 
-Bump to `19.0.1.11.0` (or reuse the same bump from step 2 if you haven't upgraded
-since), upgrade again, and confirm:
+The manifest is already at `19.0.1.11.0` from step 2, so leave the version alone:
+`-u librefleet` reloads the module's data files whether or not the version changed.
+Upgrade again to push the corrected action into the database:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Then re-run the check and watch the third line flip:
 
 ```console
 $ python3 odoolings.py check ch18
@@ -232,8 +268,16 @@ ch18 complete! On to the next chapter 🔧
 <Step>
 ### Prove group-by actually aggregates
 
-`read_group` is what the client calls under the hood when you click a Group By
-option; call it yourself and get real buckets back:
+The next three steps all run in `odoo shell` against your `tutorial` database. Open it
+and keep it open:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Grouping is not the browser slicing up a list it already downloaded: the server does the
+counting and hands back one row per bucket. Call that aggregation yourself with
+`read_group` and you get exactly the buckets the Group By menu draws:
 
 ```console
 >>> action_id = env.ref("librefleet.action_librefleet_service_order").id
