@@ -873,6 +873,19 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   migration exercise completed against a real 18.0 module (18→19).
 
 ### M8 — Polish & launch (week 16)
+
+> **Live status of the two running sweeps (updated 2026-08-17).** Both are partly done;
+> pick either up cold from here.
+>
+> | Sweep | Done | Left |
+> |---|---|---|
+> | Screenshot backfill | ch4, ch21-28 | **ch29** (1 image, vs 3-4 in its neighbours) |
+> | Reader-clarity pass | ch12-24 | **ch25-30**, then a decision on ch31-50 |
+>
+> The clarity pass is the newer of the two and is described in its own M8 item below.
+> ch30 was written after the screenshot policy changed and carries its own images by
+> §6 rule 4b, so it is not part of the backfill; it *is* in scope for the clarity pass.
+
 - [ ] **Backfill screenshots for the chapters written before the policy changed**: ch4 and
       ch21-29, which shipped with no images because the pipeline was broken until
       2026-08-05 (see the changelog). Chapters from ch30 on carry their own, per §6 rule
@@ -894,6 +907,35 @@ now Part 6 and moved to M5, so M3 is just Part 3.
       it. Screenshots arrive as **jpeg at 1568px wide** from the browser tool, so check
       whether small UI text survives the compression before committing to a whole pass;
       re-crop with the `zoom` action for anything fiddly like a distribution table.
+- [ ] **Reader-clarity pass, chapter by chapter** (started 2026-08-16 after the author
+      read the tutorial as a learner and kept getting stuck). **Done: ch12-24. Left:
+      ch25-30, then decide whether ch31-50 needs it.**
+      This is not a proofread. It hunts seven specific defects, and the two that matter
+      most are the ones a normal review misses:
+      **steps that cannot be followed at all** (ch22's hands-on told the reader to press
+      Confirm before the diff that had to precede it; ch23 sent them to search Apps for
+      `sale_loyalty`, which is `auto_install` with no `application` key so the search
+      returns nothing; ch14 said "with `ValidationError` imported" when the ch13
+      checkpoint has no such import), and **claims the chapter contradicts elsewhere**
+      (ch19's Gotcha demanded root declarations that its own Concepts section, code and
+      screenshot all show are unnecessary).
+      The others: unexplained jargon at first use, one sentence cramming several edits,
+      assumed knowledge, a command named but not shown, and content deferred to the
+      checkpoint that the reader needs right now.
+      **Method that worked, reuse it.** One agent per chapter reading the chapter, the
+      previous chapter (so it does not flag what was already taught) and the checkpoint,
+      each finding carrying exact verbatim `old_string`/`new_string`; then a skeptic pass
+      over every finding before applying. Do not skip the skeptic: it caught an agent
+      repeating a chapter's own wrong module count, and another asserting a view-typing
+      rule that ch16's extension view disproves. Verify every claim against the running
+      container, and treat "never ship unexecuted code" as binding on the fix text too,
+      no invented output.
+      **Beware shared-database drift**, the same trap that produced the stale "157
+      accounts" and "seven journals" figures: the `functional` database on a working
+      machine is *ahead* of what an in-order reader has, because later chapters install
+      more apps into it. ch22 needed a pristine chapter-21-state database built from
+      scratch to get the right answer (three bridge modules, not the four a
+      fully-worked-through database reports).
 - [ ] Full read-through edit; consistency pass on admonitions and footers.
 - [ ] Landing page with learning-path graphic; "how to use this tutorial" guide.
 - [ ] README, CONTRIBUTING, licenses; announce (LinkedIn, r/Odoo, OCA Discord —
@@ -1057,7 +1099,61 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
-### 2026-08-12 (the last one) — ch50 written, the tutorial's 50th and final chapter
+### 2026-08-17 — reader-clarity pass, ch14-24 (91 fixes, PRs #119-129)
+
+The author read the shipped tutorial as a learner rather than as its writer, got stuck
+repeatedly, and asked for chapters 14-24 to be made followable. That produced a new
+standing M8 item (see §6), and it is worth recording *why* it is a separate exercise
+from the read-through edit already on that list.
+
+**A written chapter that passes every check can still be impossible to follow.** All 50
+chapters were verified: code executed, output pasted from real runs, odoolings green.
+None of that catches an instruction pointing at a control that is not on screen. The
+worst finds were not typos:
+
+- **ch22's hands-on contradicted itself.** Step 4 says press Confirm; step 5's diff is
+  explicitly the one taken *before* confirming; step 6 then says "snapshot again, press
+  Confirm" on an order that is already confirmed. Following the chapter literally makes
+  step 5's output unreachable. Also, the Customer field step 2 tells the reader to set is
+  hidden by core while `type` is `lead` (`_compute_is_partner_visible`), and the dialog
+  that actually attaches the partner was never mentioned.
+- **ch23 had three dead ends**: an Apps search that cannot succeed (`sale_loyalty` is
+  `auto_install` and declares no `application`, while the Apps action filters to
+  applications), a shell that silently reports stale data after a browser change (one
+  transaction at REPEATABLE READ, `sql_db.py:373`), and a `diff` with no snapshot to
+  compare against.
+- **ch14** said "with `ValidationError` imported at the top" when the ch13 checkpoint
+  imports no such thing, so pasting the constraint gives `NameError` at import time.
+- **ch19's Gotcha was simply wrong**, and contradicted its own chapter: it demanded root
+  declarations for fields the card template already declares. The parser settles it, the
+  `t-name` branch returns `undefined` and `visitXML` only stops descending on an explicit
+  `false`, so nested `<field>` nodes *are* collected.
+- **ch20** told the reader to "Update" a wizard view file that does not exist yet, and
+  never told them to delete the `_compute_totals` its own checkpoint has removed.
+
+**Two process findings worth keeping.**
+
+*The skeptic pass is not optional.* Agents audited each chapter and proposed exact
+replacement text; a second pass checked every finding before it was applied. It caught an
+agent faithfully reproducing a chapter's own wrong claim (ch22's installed-module count)
+and another asserting that every view so far was typed from its arch root, which ch16's
+`inherit_id` extension disproves. Roughly one in fifteen findings needed correcting, and
+those would have shipped as confident, plausible errors.
+
+*Shared-database drift bites again.* This is the third time (after "157 accounts" and
+"seven journals"). A working machine's `functional` database has been through chapters
+that the reader has not, so it answers questions differently: it reported four bridge
+modules overriding `_action_confirm` where an in-order reader has three, `delivery`
+having arrived via `website_sale` in ch42. The fix was to build a pristine
+chapter-21-state database and quote *that*. **Rule: before quoting any count, list or
+"which modules are installed" output in Parts 4-5, ask which chapter the reader is
+standing in, not what your database says.**
+
+The related-but-narrower sweep of 2026-08-16 (inline the real command instead of a bare
+"(chapter N)" backref, show code instead of "see the checkpoint") is folded into the same
+M8 item; it covered ch12-50 for those two defects only.
+
+### 2026-08-12 (the last of the writing phase) — ch50 written, the tutorial's 50th and final chapter
 
 Career map: reading core source effectively (a synthesis of techniques the tutorial
 already used on the reader across 49 chapters, named explicitly rather than taught
