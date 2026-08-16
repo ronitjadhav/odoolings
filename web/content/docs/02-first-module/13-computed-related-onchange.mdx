@@ -249,7 +249,14 @@ snap to 79.00 before you save (that's the onchange; remove the line again).
 
 ![The oil change service order: line subtotals (24.50 and 75.60), the Money group showing Parts Total 100.10, Labor Total 89.00 and Margin 139.10, and Customer reading Anna Keller](/screens/ch13-service-order-money.jpg)
 
-Now the same physics from the shell:
+Now the same physics from the shell. Open one:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+Everything from here through the break-it lab at the end of this chapter happens in
+this one session, paste each piece one after another, in order, without exiting.
 
 ```console
 >>> o1 = env["librefleet.service.order"].browse(1)
