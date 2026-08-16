@@ -38,9 +38,16 @@ they just have their own root tag and their own vocabulary inside it:
 
 ### Kanban: a card template, not a list
 
-A <Term k="kanban view">kanban view</Term>'s arch wraps a QWeb template named `card` (older tutorials and some
-still-unmigrated modules call it `kanban-box`, the name Odoo used before this
-release cycle; `card` is what 19.0 expects):
+A <Term k="kanban view">kanban view</Term> draws one card per record instead of one row per record, and the
+card's layout lives in a `<templates>` block inside the arch. What goes in that block is
+QWeb, Odoo's XML templating language: `<t>` is its placeholder element, a tag that carries
+instructions (the attributes starting with `t-`) and never renders as anything itself, and
+`t-name` gives the template a name the client can look up. Odoo 19 looks up exactly one
+name, `card`, and renders that template once per record (older tutorials and some
+still-unmigrated modules call it `kanban-box`, the name Odoo used before this release
+cycle; `card` is what 19.0 expects). Inside the card you write ordinary HTML with `<field>`
+tags dropped in wherever you want a value, which is why Bootstrap's utility classes work
+there: the `class="fw-bold"` below just means bold text.
 
 ```xml
 <kanban default_group_by="stage">
@@ -91,11 +98,17 @@ already refuses to let happen, but seeing it visually is still worth having).
 </pivot>
 ```
 
-A <Term k="pivot view">pivot view</Term>'s `row`/`col`/<Term k="measure">`measure`</Term> fields describe a table; a <Term k="graph view">graph view</Term> (`type="bar"`,
-`"line"` or `"pie"`) describes the same kind of aggregation as a chart. Both are thin
-UI layers over the exact `read_group` mechanism chapter 18 used for the Group By
-menu: rows and columns become `groupby`, measures become the fields being summed.
-That shared foundation is about to matter.
+A <Term k="pivot view">pivot view</Term>'s fields describe a table: `type="row"` fields become the labels
+running down the left, `type="col"` fields become the headers running across the top, and
+each cell holds the <Term k="measure">`measure`</Term> summed over the records that fall into that row and
+that column. A <Term k="graph view">graph view</Term> charts the same aggregation, so it has no row/col split: its
+`type` attribute picks the shape (`"bar"`, `"line"` or `"pie"`), the field marked
+`type="measure"` is the one summed, and any other field you list becomes an axis to group
+along, which is why `vehicle_id` carries no `type` in the graph you are about to write.
+
+Both are thin UI layers over the same grouped-read machinery chapter 18 met behind the
+Group By menu: rows and columns become the `groupby`, measures become the fields being
+summed. That shared foundation is about to matter.
 
 ## Hands-on
 
@@ -137,7 +150,10 @@ In `views/service_order_views.xml`, add a kanban grouped by stage:
   widget seems to do nothing, check which module defines it before you doubt your XML.
 </Callout>
 
-A calendar colored by vehicle:
+A calendar colored by vehicle. Two attributes here go past the Concepts snippet: `string`
+is the label the client shows for this view, and `event_limit="5"` caps how many events
+one day cell lists before the rest collapse behind a "more" link, so it limits what is
+drawn in a cell, not what is fetched:
 
 ```xml
 <record id="view_librefleet_service_order_calendar" model="ir.ui.view">
@@ -180,7 +196,11 @@ A pivot and a graph, both measuring `margin` by vehicle:
 </record>
 ```
 
-Add them all to the action:
+Four view records exist now, and not one of them is reachable yet: a view only becomes a
+tab when an action offers it. On the existing `action_librefleet_service_order` record,
+replace the whole `view_mode` line with all six types, keeping `list` first so the action
+still opens on the list and `form` in the list so clicking a card or a row still opens the
+one record:
 
 ```xml
 <field name="view_mode">list,kanban,calendar,pivot,graph,form</field>
@@ -201,8 +221,14 @@ a measure it cannot actually compute yet.**
 ### Watch it fail, but only when it's actually used
 
 Loading a view's arch (what `get_view` returns, what the upgrade just validated) is
-metadata. Rendering a pivot means *fetching aggregated data*, a separate step that
-calls `read_group` under the hood. Try it in the shell:
+metadata: a description of what the pivot should look like. Rendering a pivot is a
+separate step that *fetches aggregated data*, calling `read_group` under the hood. The
+upgrade only ever did the first of those two, which is why it told you nothing about the
+second. Open a shell and try both yourself:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
 
 ```console
 >>> arch = env["librefleet.service.order"].get_view(view_type="pivot")["arch"]
@@ -212,9 +238,14 @@ True
 ValueError: Cannot convert librefleet.service.order.margin to SQL because it is not stored
 ```
 
+That second call is chapter 18's `read_group` under the name Odoo 19 wants in backend
+code, `_read_group`, with the aggregates moved into an argument of their own. Each
+aggregate is written `field:function`, so `margin:sum` asks for the sum of `margin` in
+every `vehicle_id` bucket.
+
 The arch loaded fine (that check passed a second ago). The aggregation itself throws,
 because `margin` has been a computed, non-stored field since chapter 13, exactly as
-designed at the time: no column exists for `read_group`'s SQL to sum. This is the
+designed at the time: no column exists for the SQL behind `_read_group` to sum. This is the
 promise chapter 13 made you and didn't collect on yet: "non-stored fields can't be
 searched, grouped, or aggregated." Chapters 16 through 18 taught you three ways a
 mistake stays completely silent. This one is the opposite: loud, unambiguous, and
@@ -309,11 +340,13 @@ then Pivot to see the margin numbers actually render instead of crashing.
   writing it in a new 19.0 view produces a kanban with no template, not an error, so
   the card area just renders blank. If a kanban looks empty, check the template name
   first.
-- **A field the card template reads must also be declared at the kanban root.**
-  Same rule as list views: `<field name="technician_ids" .../>` inside `<t
-  t-name="card">` needs a matching plain `<field name="technician_ids"/>` sibling of
-  `<templates>`, or the client never fetches it and the template renders empty for
-  that field.
+- **Only a field the template never writes as a `<field>` needs a root declaration.**
+  The client walks the whole arch collecting `<field>` elements, including the ones
+  inside `<t t-name="card">`, so the four fields on your card are fetched without being
+  repeated at the root. What it cannot see is a field named only inside an expression (a
+  `t-if` condition, say) or inside an attribute such as `default_group_by`. Those need a
+  plain `<field name="..."/>` next to `<templates>`, which is exactly why `stage` is the
+  one field declared at the root here and the other four are not.
 - **Installing a pivot or graph view never validates its measures.** The arch is XML,
   loaded like any other view; nothing checks whether a `type="measure"` field can
   actually be aggregated until a real `read_group` call tries. Contrast this with the
