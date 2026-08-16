@@ -93,8 +93,16 @@ database can behave differently, as you are about to see.
 
 ### What Confirm actually runs
 
-The button calls `action_confirm`, which does the bookkeeping and then calls
-`_action_confirm`. In the `sale` module, that second method looks like this in full:
+The **Confirm** button in the form view is wired to a method called `action_confirm`,
+and that method does the visible work itself: it refuses to run unless the order is
+still `draft` or `sent`, then writes `state` to `sale` and stamps `date_order` with the
+current time. Only after that does it call a second method, `_action_confirm`. So the
+status change you see does not come from the method below; keep the two names apart, as
+the difference is the whole point of this section.
+
+The leading underscore is Odoo's convention for "internal": a method meant to be called
+from other Python code, not wired to a button or reachable over RPC. In the `sale`
+module, that second method looks like this in full:
 
 ```python
 def _action_confirm(self):
@@ -105,8 +113,18 @@ def _action_confirm(self):
 ```
 
 A docstring and nothing else. It is a deliberate, empty extension point, and the
-docstring tells you so. Every module that needs confirmation to produce another document
-overrides it and calls `super()`. In a stock-aware database, `sale_stock` is the one that
+docstring tells you so. Ignore its `not yet 'done'` aside: that is core's own leftover
+from the Odoo 18 state machine described above, never cleaned up after `done` was
+removed. Comments rot, field definitions do not.
+
+*Override* is the word for what happens next, and it is worth spelling out now. Another
+module declares a class for the same model and defines a method with the same name; from
+then on, that module's version is the one that runs when anything calls
+`_action_confirm`. Inside it, `super()` runs whichever version was there before, exactly
+as it did in chapter 15 when you overrode `create` on your own model. That is what lets
+several modules extend the same method and stack, each doing its bit, instead of the
+last one loaded wiping out the rest. Every module that needs confirmation to produce
+another document works this way. In a stock-aware database, `sale_stock` is the one that
 creates your delivery, in two lines:
 
 ```python
@@ -115,7 +133,19 @@ def _action_confirm(self):
     return super(SaleOrder, self)._action_confirm()
 ```
 
-That is the whole mechanism behind "confirming a sale creates a delivery order".
+Two lines, and the first one carries the whole mechanism behind "confirming a sale
+creates a delivery order". `_action_launch_stock_rule` is a method `sale_stock` adds to
+`sale.order.line` (it does not exist in `sale` at all), and its own docstring says what
+it is for: it launches *procurement* for each line, which is Odoo's phrase for "somebody
+needs this quantity, go and satisfy it". What that produces depends on the rules
+attached to the product, and the docstring names the three possibilities: `_run_pull`
+(take it out of the warehouse, so a delivery order), `_run_buy` (order it from a vendor,
+so a purchase order) or `_run_manufacture` (build it, so a manufacturing order). Chapter
+25 follows that machinery properly.
+
+The second line calls `super()`, handing control back to the `_action_confirm` that was
+there before `sale_stock` loaded, so every other module that overrode the same method
+still gets its turn.
 
 ## Hands-on
 
@@ -138,13 +168,30 @@ an opportunity and hides the conversion step this chapter is about. Turn it on f
 **CRM → Configuration → Settings**, tick **Leads** ("Add a qualification step before
 the creation of an opportunity"), **Save**. A new **Leads** menu appears in the top bar.
 
-In **CRM → Leads → New**, create a lead called `Fleet brake refresh` and set a
-customer on it.
+In **CRM → Leads → New**, fill in two things:
+
+- The big title field at the top of the form: `Fleet brake refresh`.
+- **Company Name**: `Acme Corporation`, the demo company you looked at in chapter 21.
+
+You will go looking for a **Customer** field and not find one. That is deliberate, not a
+missing app: while a record's `type` is still `lead`, Odoo hides that field unless it
+already holds a partner, on the reasoning that an unqualified lead usually has nobody
+attached yet. The next click is where the partner arrives. Save the lead.
 
 ![A CRM lead form: title field, Probability, Company Name, Contact Name, and a Convert to Opportunity button top left](/screens/ch22-lead-convert-to-opportunity.jpg)
 
-Then use **Convert to Opportunity**. Watch the breadcrumb: you are still on the same
-record.
+Now press **Convert to Opportunity**. Rather than converting on the spot it opens a
+dialog, which asks you two things:
+
+- **Conversion Action**: leave it on **Convert to opportunity**. (The other choice,
+  **Merge with existing opportunities**, folds this lead into one you already have.)
+- A second pair of radio buttons, **Create a new customer** and **Link to an existing
+  customer**. Choose **Link to an existing customer**, and pick `Acme Corporation` in
+  the **Customer** box that appears beside it. Reusing a partner that already exists is
+  what keeps the opportunity and the quotation you are about to write pointing at the
+  same `res.partner`.
+
+Press **Create Opportunity**. Watch the breadcrumb: you are still on the same record.
 
 #### 3. Quote four brake pads
 
@@ -156,7 +203,17 @@ In **Sales → Orders → Quotations → New**:
 
 #### 4. Confirm it
 
-Press **Confirm**. Two things happen that you did not ask for: a **Delivery** smart
+Movement 2 reads this order twice, once on each side of the button, so take both
+readings before you click anything. A `diff` always compares against your most recent
+snapshot, which fixes the order: first read what the lead and the quotation did, then
+reset the baseline so the next `diff` shows the confirmation on its own.
+
+- Run `python3 odoolings.py diff --db functional`. That is the output step 5 walks
+  through, so leave it on screen.
+- Run `python3 odoolings.py snapshot --db functional`. This makes "now" the new point
+  of comparison.
+
+Now press **Confirm**. Two things happen that you did not ask for: a **Delivery** smart
 button appears at the top of the order, and the order's status changes.
 
 ![The confirmed sales order S00025: a Delivery smart button reading 1 and an Invoices smart button reading 1, top right, with the statusbar past Quotation and Quotation Sent, at Sales Order](/screens/ch22-confirmed-order-delivery.jpg)
@@ -185,7 +242,9 @@ takes that apart.
 
 #### 6. Now the interesting diff
 
-Snapshot again, press Confirm, and diff:
+You took the fresh snapshot and pressed Confirm back in step 4, so all that is left is
+to diff again. Because the baseline was reset immediately before the button, this one
+shows the confirmation and nothing else:
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -199,7 +258,15 @@ stock.picking       +1
 ```
 
 One button, four consequences: the order advanced, it became invoiceable, a delivery
-order appeared, and a stock move appeared inside it. Chapter 25 is about those last two.
+order appeared, and a stock move appeared inside it.
+
+Pin down those two model names now, because every inventory chapter leans on them. A
+`stock.picking` is one transfer document, the thing a warehouse worker would print and
+walk around with: `WH/OUT/00044` is its reference, and `picking_type_id` says what kind
+of transfer it is (here `Delivery Orders`, so goods heading out of the warehouse). A
+`stock.move` is one product line inside that transfer, in this case four Brake Pad Sets.
+One picking, one or more moves. That is the **Delivery** smart button you saw on the
+order, seen from the database side. Chapter 25 takes both apart properly.
 
 #### 7. Find the code that made the delivery
 
@@ -232,9 +299,31 @@ $ docker compose exec odoo bash -lc 'grep -rl "def _action_confirm" \
 ```
 
 Seven files: the empty base plus six modules that each bolt their own document onto
-confirmation. Only some are installed here (`sale`, `sale_purchase` and `sale_stock`),
-which is why your order grew a delivery and not, say, a repair order. Read the one that
-did it:
+confirmation. Modules like these, whose whole job is to join two apps together, are
+called **bridge modules**, and their names usually say which two: `sale_stock` bridges
+Sales and Inventory, `sale_purchase` bridges Sales and Purchase.
+
+A file on disk is not the same as a module being installed, though, and only installed
+modules contribute code. That grep searched the whole addons directory, so ask the
+database which of the seven you actually have:
+
+```console
+$ docker compose exec db psql -U odoo -d functional -t -c \
+  "select string_agg(name,', ' order by name) from ir_module_module where state='installed' and name in ('sale','sale_stock','sale_purchase','sale_project','delivery','repair','website_sale_slides');"
+ sale, sale_purchase, sale_stock
+```
+
+Three of the seven, and you never asked for two of them. `sale_stock` and `sale_purchase`
+both carry `auto_install: True` in their manifest, which tells Odoo to install them the
+moment both apps they bridge are present. Chapter 21 installed Sales, Inventory and
+Purchase, so the bridges let themselves in. `repair` is not installed, which is why your
+order grew a delivery and no repair order.
+
+If your list has a fourth name, `delivery`, you have already run the website chapter:
+`website_sale` depends on it. Despite the name it is about shipping methods and carrier
+charges, not about the delivery order you just made.
+
+Read the one that did it:
 
 ```console
 $ docker compose exec odoo grep -n -A2 "def _action_confirm" \
@@ -244,9 +333,19 @@ $ docker compose exec odoo grep -n -A2 "def _action_confirm" \
 215-        return super(SaleOrder, self)._action_confirm()
 ```
 
-Two lines. This is the classic extension from chapter 31 (`_inherit` with no new
-`_name`), used by core on its own model, and it is the shape your chapter 32 work will
-take.
+Two lines, and the shape is worth naming. Open the top of that file and you will find
+`class SaleOrder(models.Model)` with `_inherit = "sale.order"` and no `_name` of its
+own. That combination means "I am not declaring a new model, I am adding to the
+`sale.order` that already exists": the fields and methods in this class merge into the
+same model, the same database table and the same override chain that `sale` defined.
+Chapter 31 gives this pattern its name and introduces its two siblings. For now, the
+thing to notice is that core is using it on its own model, and that it is the shape your
+chapter 32 work will take.
+
+One detail in that snippet: `super(SaleOrder, self)` is just the older, longer spelling
+of the bare `super()` you wrote in chapter 15. It means the same thing here, run the
+`_action_confirm` that existed before this module was loaded, and you will meet both
+forms in core.
 
 #### 8. Prove the invoice policy claim yourself
 
