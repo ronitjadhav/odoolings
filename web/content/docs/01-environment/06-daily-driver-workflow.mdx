@@ -27,18 +27,27 @@ inside the container, so the daily pattern is:
 $ docker compose exec odoo odoo <command> -c /etc/odoo/odoo.conf ...
 ```
 
-That's a mouthful, so put two aliases in your shell profile now:
+That's a mouthful. If you want to shorten it, two aliases cover almost everything:
 
 ```console
 $ alias oc='docker compose exec odoo odoo -c /etc/odoo/odoo.conf'
 $ alias ocdb='docker compose exec odoo odoo db -c /etc/odoo/odoo.conf'
 ```
 
-Two, not one, and the reason is a genuine sharp edge in Odoo's CLI: **`-c` belongs to
-whichever command you are running.** The server accepts it up front, so `oc -d tutorial
--u librefleet` works. The `db` command defines its own `-c`, so the config flag has to
-come *after* the word `db`. Get it wrong and you get a confusing error blaming the
-server for arguments it never asked for:
+An **alias** is just a nickname your shell expands before it runs anything: type `oc`
+and the shell swaps in the long command, then appends whatever else you typed. So
+`oc --version` runs the whole thing with `--version` on the end:
+
+```console
+$ oc --version
+Odoo Server 19.0-20260630
+```
+
+Two aliases, not one, and the reason is a genuine sharp edge in Odoo's CLI:
+**`-c` belongs to whichever command you are running.** The server accepts it up front,
+so `oc -d tutorial -u librefleet` works. The `db` command defines its own `-c`, so the
+config flag has to come *after* the word `db`. Get it wrong and you get a confusing
+error blaming the server for arguments it never asked for:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf db init scratch
@@ -47,10 +56,66 @@ odoo [--addons-path=PATH,...] server: error: unrecognized parameters: db init sc
 
 Odoo read `db init scratch` as stray server arguments, because with `-c` in front it
 never recognised `db` as a command at all. The `ocdb` alias puts the flag in the right
-place once, so if you set it up, you never think about it again. This tutorial's own
-commands still spell out the full form from here on, though, so every one of them stays
-copy-paste safe whether or not you bothered with the alias; treat it as a shortcut for
-your own terminal, not something the book leans on.
+place once, so if you set it up, you never think about it again.
+
+### Making an alias permanent (entirely optional)
+
+Typing `alias oc=...` at a prompt only lasts as long as that terminal window. Open a new
+one and it is gone:
+
+```console
+$ alias oc
+bash: alias: oc: not found
+```
+
+To keep it, put the same two lines in the file your shell reads when it starts. Which
+file depends on your shell, not on your operating system, so check which shell you are
+in first:
+
+```console
+$ echo $SHELL
+/usr/bin/zsh
+```
+
+That machine runs zsh, so its owner wants the `zsh` row below. Yours will very likely
+print a path ending in `bash` instead. Read the last word of the path, not the whole
+thing:
+
+| Your shell | File to add them to | Who has this by default |
+|---|---|---|
+| `bash` | `~/.bashrc` | most Linux (Ubuntu, Debian, Fedora), WSL2, Git Bash |
+| `zsh` | `~/.zshrc` | macOS since Catalina, and plenty of Linux users by choice |
+| `fish` | `~/.config/fish/config.fish` | only if you installed it deliberately |
+
+On Windows you are already in one of those, because chapter 5 has you running commands
+from WSL2 or Git Bash rather than PowerShell. Both are `bash`, so use the first row.
+PowerShell is a different story: `Set-Alias` there cannot carry arguments, so an `oc`
+that includes `-c /etc/odoo/odoo.conf` has to be written as a function instead. That is a
+detour the tutorial does not need you to take.
+
+Append and reload, in one go (bash shown; swap the filename for your shell):
+
+```console
+$ cat >> ~/.bashrc <<'EOF'
+alias oc='docker compose exec odoo odoo -c /etc/odoo/odoo.conf'
+alias ocdb='docker compose exec odoo odoo db -c /etc/odoo/odoo.conf'
+EOF
+$ source ~/.bashrc
+```
+
+`source` re-reads the file in the shell you already have open, so you do not have to
+close it. Every terminal you open from now on gets them for free. (fish is the exception
+to the syntax above: it spells aliases differently and has its own way of persisting
+them, so check `help alias` there rather than copying the bash form.)
+
+<Callout type="info" title="You can skip all of this">
+  Aliases are a convenience for *your* terminal, nothing more. **This tutorial always
+  spells out the full command**, in every chapter from here to the end, so nothing later
+  depends on you having set these up. Use them, use the long form, or set up your own
+  names entirely: every command in the book stays copy-paste safe either way. The one
+  thing worth taking from this section is the reason there are two of them, because that
+  `-c` placement rule bites whether or not you alias anything.
+</Callout>
 
 Run `docker compose exec odoo odoo help` once to see everything (`scaffold`,
 `populate`, `neutralize`, `cloc`...). Today we need three: the **server** (the default
