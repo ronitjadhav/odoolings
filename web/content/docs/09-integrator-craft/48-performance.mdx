@@ -194,7 +194,12 @@ customer_id = fields.Many2one(
 )
 ```
 
-Bump the version, upgrade, and confirm the index exists for real:
+Bump the version in `__manifest__.py`, editing the line that is already there, then
+upgrade and confirm the index exists for real:
+
+```python title="addons/librefleet/__manifest__.py"
+    "version": "19.0.1.30.0",     # was: 19.0.1.29.0
+```
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
