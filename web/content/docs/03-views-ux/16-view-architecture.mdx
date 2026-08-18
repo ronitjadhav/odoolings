@@ -175,11 +175,29 @@ file's `ref`:
         "views/vehicle_views_inherit.xml",
 ```
 
-Second, bump the version, as with every change to the module:
+Second, bump the version. This one is an **edit, not an addition**: the `version` line
+already exists near the top of the manifest, between `summary` and `category`, and you
+are changing its value. Coming from chapter 15 it currently reads `19.0.1.8.0`, so raise
+the third number by one:
 
-```python
-    "version": "19.0.1.9.0",
+```python title="addons/librefleet/__manifest__.py"
+    "version": "19.0.1.9.0",     # was: 19.0.1.8.0
 ```
+
+New views are a feature rather than a fix, which is why the minor number moves and not
+the patch (chapter 8 set out the `<odoo major>.<module major>.<module minor>.<patch>`
+scheme). If your number differs because you did the exercises, that is fine: what matters
+is that it goes up.
+
+<Callout type="info" title="The upgrade does not depend on this">
+  Worth knowing so you never chase a phantom bug: `-u librefleet` reloads your data files
+  whether or not you touched the version, exactly as chapter 18's step 4 says. Bumping is
+  a habit for other people's benefit, not a switch that makes the next command work. What
+  the number really drives is *Update Apps List*, which compares the manifest on disk
+  against the `latest_version` chapter 8 read out of `ir_module_module`, and the
+  deployment tooling that decides which modules changed. Skip it and this chapter still
+  works; skip it on a real project and nobody can tell your releases apart.
+</Callout>
 
 Then upgrade:
 
