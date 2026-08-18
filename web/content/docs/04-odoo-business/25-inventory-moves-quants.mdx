@@ -77,11 +77,14 @@ need to fire yourself.
 
 ## Hands-on
 
-Continuing in `functional`, with the brake pads from chapter 21.
+Continuing in `functional`, with the brake pads from chapter 21. This chapter runs the
+usual two movements in reverse: first you read what stock already believes, then you run
+a multi-step route and read what changed.
 
-### Movement 1: read what is already true
+<Steps>
 
-#### 1. On-hand versus forecast, before you touch anything
+<Step>
+### On-hand versus forecast, before you touch anything
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -99,9 +102,10 @@ customer is the forecast, 6.0, not the ten sitting in the warehouse. This is the
 most common inventory misunderstanding in a support ticket: the shelf count and the
 number you can safely promise are not the same field.
 
-### Movement 2: run a multi-step route, then read what it did
+</Step>
 
-#### 2. Switch to a two-step reception
+<Step>
+### Switch to a two-step reception
 
 The warehouse form does not show routing options until you turn them on. **Inventory →
 Configuration → Settings**, tick **Multi-Step Routes** under the Warehouse section, and
@@ -111,7 +115,10 @@ then Store (2 steps)*.
 
 ![The warehouse configuration tab with Incoming Shipments set to Receive then Store (2 steps), Outgoing Shipments still at Deliver (1 step)](/screens/ch25-warehouse-2step-config.jpg)
 
-#### 3. Raise and confirm a small purchase
+</Step>
+
+<Step>
+### Raise and confirm a small purchase
 
 Take a snapshot, then raise an RFQ for **5** more `Brake Pad Set (Front)` from a vendor
 and confirm it.
@@ -138,7 +145,10 @@ One transfer, not two. Confirm it from the shell:
 
 The second leg genuinely does not exist yet.
 
-#### 4. Validate the receipt, and watch the second leg appear
+</Step>
+
+<Step>
+### Validate the receipt, and watch the second leg appear
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -165,7 +175,10 @@ delivered, not whether the warehouse has finished putting the stock away. And th
 
 ![The second-leg internal transfer, source location WH/Input, destination WH/Stock, created only after the receipt was validated](/screens/ch25-second-leg-transfer.jpg)
 
-#### 5. Validate the internal transfer
+</Step>
+
+<Step>
+### Validate the internal transfer
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -187,7 +200,10 @@ now reads 15 (the 10 from chapter 24 plus these 5).
 15.0
 ```
 
-#### 6. Set a reordering rule
+</Step>
+
+<Step>
+### Set a reordering rule
 
 Reordering rules do not have a menu of their own. They live on the replenishment screen:
 **Inventory → Operations → Replenishment** (under the *Procurement* heading), then **New**.
@@ -209,12 +225,18 @@ Current stock sits exactly at 15, the maximum, so this rule is not due yet, and 
 should happen until forecast falls under 5. Chapter 35 covers the scheduled action that
 would notice.
 
-#### 7. Switch the route back
+</Step>
+
+<Step>
+### Switch the route back
 
 Set **Incoming Shipments** back to *Receive and Store (1 step)*. Later chapters
 assume the simple case unless they say otherwise, the same discipline chapter 23 used
 when it turned pricelists on deliberately and chapter 34 used reverting a price it had
 only bumped to prove a point.
+</Step>
+
+</Steps>
 
 ## Verify
 

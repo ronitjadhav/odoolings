@@ -110,9 +110,10 @@ book of entries (a **journal**), which is why they read `BILL/...` rather than `
 
 Continuing in `functional`.
 
-### Movement 1: run the flow
+<Steps>
 
-#### 1. Raise an RFQ
+<Step>
+### Raise an RFQ
 
 Movement 2 reads a separate diff for each of the four steps in this Movement, so take a
 fresh snapshot right before each one, starting now:
@@ -128,14 +129,20 @@ Then **Purchase → Orders → Requests for Quotation → New**:
 2. Add a line for `Brake Pad Set (Front)`, quantity **10**, unit price **42.00**.
 3. Save, and leave it as an RFQ.
 
-#### 2. Confirm it
+</Step>
+
+<Step>
+### Confirm it
 
 Press **Confirm Order**. Note the title changes from Request for Quotation to Purchase
 Order, and a **Receipt** smart button appears.
 
 ![The confirmed purchase order P00013: a Receipt smart button reading 1 and a Vendor Bills smart button reading 1, top right, with the statusbar past RFQ and RFQ Sent, at Purchase Order](/screens/ch24-purchase-order-receipt.jpg)
 
-#### 3. Receive the goods
+</Step>
+
+<Step>
+### Receive the goods
 
 Back on the purchase order:
 
@@ -148,7 +155,10 @@ Back on the purchase order:
 Demand is what the order asked for and Quantity is what you are saying actually turned up.
 They are two columns rather than one for exactly the reason this chapter is about.
 
-#### 4. Bill it
+</Step>
+
+<Step>
+### Bill it
 
 The purchase order's own **Upload Bill** button wants a real file (a scanned invoice) to
 attach before it will create anything, so that is not today's path. Instead, go to
@@ -163,9 +173,10 @@ PO's lines.
 
 Give it a **Bill Date**, then press **Confirm** to post it.
 
-### Movement 2: read what it did
+</Step>
 
-#### 5. The RFQ, and what it does not have yet
+<Step>
+### The RFQ, and what it does not have yet
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -189,7 +200,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 `receipt_status` is `False`, not `'pending'`. A draft RFQ has no receipt expectation at
 all, because nothing has been promised yet.
 
-#### 6. Confirming spawns a receipt
+</Step>
+
+<Step>
+### Confirming spawns a receipt
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -206,7 +220,10 @@ Compare that with chapter 22's confirmation, which produced `WH/OUT` and a Deliv
 Same mechanism, opposite direction: `purchase_stock` overrides confirmation the way
 `sale_stock` does, and each bridge module contributes the transfer its own direction needs.
 
-#### 7. The receipt, and the surprise
+</Step>
+
+<Step>
+### The receipt, and the surprise
 
 This is the diff worth reading twice.
 
@@ -247,7 +264,10 @@ separate apps.
 **And `invoice_status` moved to `to invoice`.** Receiving is what makes the order billable,
 which mirrors chapter 22's delivered-versus-ordered invoicing policy from the buying side.
 
-#### 8. The bill, mirrored
+</Step>
+
+<Step>
+### The bill, mirrored
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -272,7 +292,10 @@ Put that beside chapter 28's customer invoice and the symmetry is complete:
 Same model, same balance rule, opposite direction. And note the number: `BILL/2026/08/0002`
 comes from the Purchases journal, not the Sales one.
 
-#### 9. The match, closed
+</Step>
+
+<Step>
+### The match, closed
 
 If the shell from step 5 is still open, quit it with `Ctrl-D` and start a new one first. An
 Odoo shell holds a single database transaction open, so it keeps returning the values from
@@ -293,6 +316,9 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 
 Ordered, received and billed all agree. That is what a clean purchase looks like, and now
 you know which three numbers to compare when one does not.
+</Step>
+
+</Steps>
 
 ## Verify
 

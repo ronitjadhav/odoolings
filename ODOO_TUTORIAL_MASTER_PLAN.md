@@ -1114,6 +1114,29 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-18 (later) — ch21-26 retrofitted onto the `<Steps>`/`<Step>` house style
+
+Reader-reported gap: chapters 21-26 (all written 2026-08-05, before the 2026-08-09 ch1-10
+review made `<Steps>`/`<Step>` house style) still numbered their Hands-on with plain
+`#### N. Title` headings under `### Movement 1/2` sub-headers. The ch1-10 retrofit never
+swept forward into Part 4, so the gap sat there until a reader jumped straight to ch21 and
+noticed the UI was inconsistent with every chapter before and after it.
+
+Fixed by wrapping each chapter's Hands-on in `<Steps>`, one `<Step>` per former `#### N.`
+item, dropping the number from the heading text (the component supplies it) exactly as
+ch42 first proved works for a Movement-style Hands-on. The `### Movement N: ...`
+sub-headers are gone; where they carried chapter-specific framing rather than the generic
+"run the flow, then read what it did" (ch25's movements run in reverse, ch26's first
+movement builds the recipe as well as running it), that framing moved into the paragraph
+immediately above `<Steps>` instead of a header. ch27-30 still have the same gap and are
+unfixed for now, scope was deliberately capped at Part 4.
+
+Verified: `npm run test:ci` green, and ch21/ch25 eyeballed in the browser (localhost:3000)
+to confirm the numbered-circle rendering matches ch20's.
+
+Remaining, tracked here rather than fixed silently: **ch27-30 (Part 5) have the identical
+gap** and should get the same treatment in a follow-up pass.
+
 ### 2026-08-18 — the component appendix, built (§9 q6 answered yes)
 
 Written as `web/content/docs/appendix-components.mdx`, a root-level page slotted into
