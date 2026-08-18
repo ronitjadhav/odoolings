@@ -84,11 +84,13 @@ is recorded.
 ## Hands-on
 
 Continuing in `functional`. This chapter's product is the Brake Pad Set from chapter 21,
-now with a real recipe.
+now with a real recipe. The first movement builds that recipe and runs an order; the
+second reads what running it actually did.
 
-### Movement 1: build the recipe and run an order
+<Steps>
 
-#### 1. Stock two components
+<Step>
+### Stock two components
 
 Create two simple products, both tracking inventory: `Friction Material` (cost 8.00) and
 `Backing Plate` (cost 5.00). Give yourself 20 of each via **Inventory → Operations →
@@ -113,7 +115,10 @@ Even a manual stock count is double-entry: Odoo invents nothing, it moves the 20
 from a virtual **Inventory adjustment** location into your warehouse, the same pattern
 one more time.
 
-#### 2. Give the brake pads a bill of materials
+</Step>
+
+<Step>
+### Give the brake pads a bill of materials
 
 **Manufacturing → Products → Bills of Materials → New**:
 
@@ -124,7 +129,10 @@ one more time.
 
 ![The Brake Pad Set bill of materials, Components tab: Friction Material at 0.50 and Backing Plate at 1.00, BoM Type set to Manufacture this product](/screens/ch26-brake-pad-set-bom.jpg)
 
-#### 3. Manufacture 4 of them
+</Step>
+
+<Step>
+### Manufacture 4 of them
 
 **Manufacturing → Operations → Manufacturing Orders → New**, product
 `Brake Pad Set (Front)`, quantity **4**. Look at the order before you do anything else to it:
@@ -142,9 +150,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 Named, in draft. Press **Confirm**, then **Mark as Done** (skip the quality/work-order
 prompts if you are asked; a basic recipe like this one does not need them).
 
-### Movement 2: read what it did
+</Step>
 
-#### 4. Confirming reserved the components
+<Step>
+### Confirming reserved the components
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -160,7 +169,10 @@ Three moves for one order: two raw materials, already scaled to 4 units (0.5 x 4
 1 x 4 = 4), and one for the finished good. All three are only `assigned`, reserved, not
 yet moved.
 
-#### 5. Marking it done executes all three at once
+</Step>
+
+<Step>
+### Marking it done executes all three at once
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -196,6 +208,9 @@ the recipe: 0.5 and 1.0 per unit, times 4 produced.
 ```
 
 Two components in, one product out, every quantity accounted for.
+</Step>
+
+</Steps>
 
 ## Verify
 

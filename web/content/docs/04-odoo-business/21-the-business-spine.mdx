@@ -187,9 +187,10 @@ This chapter's Hands-on has two movements, and every chapter in Parts 4 and 5 fo
 the same shape. First you **run the flow** like a user. Then you **read what it did**,
 which is where the learning is.
 
-### Movement 1: run the flow
+<Steps>
 
-#### 1. Build the functional database
+<Step>
+### Build the functional database
 
 Once, and reused by chapters 22 to 30:
 
@@ -225,7 +226,10 @@ created from the command line rather than from the database manager, so it carri
 default credentials, login `admin` and password `admin`. Your `tutorial` database is
 untouched, and stays that way for the whole of Parts 4 and 5.
 
-#### 2. Take a snapshot before you touch anything
+</Step>
+
+<Step>
+### Take a snapshot before you touch anything
 
 This is the tool that makes the second movement possible. It records the current state of
 the models these two parts care about into a `.odoolings-snapshot.json` file in the
@@ -242,7 +246,10 @@ snapshot: 15 models, 705 records (database 'functional')
 Now do something in the interface, then: odoolings.py diff --db functional
 ```
 
-#### 3. Create a product with variants, in the interface
+</Step>
+
+<Step>
+### Create a product with variants, in the interface
 
 Go to **Sales → Products → Products → New** and build a brake pad set:
 
@@ -259,9 +266,10 @@ created one product and Odoo made two.
 
 ![The Brake Pad Set product form: a Variants smart button reading 2, Product Type set to Goods, and Sales Price $79.00](/screens/ch21-brake-pad-set-variants.jpg)
 
-### Movement 2: read what it did
+</Step>
 
-#### 4. Ask the database what that save actually changed
+<Step>
+### Ask the database what that save actually changed
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -283,7 +291,10 @@ price plus whatever extra that variant's attribute values add on top. You gave F
 Rear no extra, so both read 79.0, and they would part company the moment you priced one
 of them up.
 
-#### 5. Confirm the relationship from the shell
+</Step>
+
+<Step>
+### Confirm the relationship from the shell
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -309,7 +320,10 @@ True
 Stored on the template, *related* on the variant. Exactly the mechanism chapter 13
 taught you, used by core on the model you will meet most often.
 
-#### 6. See both tables in Postgres
+</Step>
+
+<Step>
+### See both tables in Postgres
 
 ```console
 $ docker compose exec db psql -U odoo -d functional -c "
@@ -327,7 +341,10 @@ Two rows, one `tmpl_id`. Your ids will differ from these. The `name->>'en_US'` i
 typo: translatable fields are stored as JSON, so a plain `where name = '...'` finds
 nothing. Worth remembering the first time a psql query on a name comes back empty.
 
-#### 7. Look at the partner model wearing all four hats
+</Step>
+
+<Step>
+### Look at the partner model wearing all four hats
 
 ```python
 >>> P = env["res.partner"]
@@ -355,7 +372,10 @@ climbs the moment you buy from someone you also sell to. Confirm the hierarchy t
 
 One model, one table, a company and its people.
 
-#### 8. Walk the unit tree and convert something
+</Step>
+
+<Step>
+### Walk the unit tree and convert something
 
 ```python
 >>> unit = env.ref("uom.product_uom_unit")
@@ -384,6 +404,9 @@ False
 >>> "uom_type" in env["uom.uom"]._fields
 False
 ```
+</Step>
+
+</Steps>
 
 ## Verify
 

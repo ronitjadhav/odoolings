@@ -118,9 +118,10 @@ silently.
 
 Continuing in `functional`.
 
-### Movement 1: run the flow
+<Steps>
 
-#### 1. Confirm the baseline before changing anything
+<Step>
+### Confirm the baseline before changing anything
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -138,7 +139,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 No pricelists exist, the order has none, and the line price is exactly the product price.
 That is the "no mechanism fired" state, and it is what you compare against.
 
-#### 2. Turn pricelists on
+</Step>
+
+<Step>
+### Turn pricelists on
 
 **Settings → Sales**, under the **Pricing** section, tick **Pricelists**, save.
 
@@ -173,7 +177,10 @@ company's. Whenever you go looking for "the" pricelist from a script, say which 
 you mean. That is what step 6 is doing with `("company_id", "=", env.company.id)`, and
 chapter 27 comes back to the problem properly.
 
-#### 3. Add two rules that compete
+</Step>
+
+<Step>
+### Add two rules that compete
 
 Ticking the setting also added a menu: **Sales → Products → Pricelists**. Open it. There
 are three Default pricelists, one per company (that is the 3 you just counted). Open the
@@ -209,7 +216,10 @@ telling you back the `applied_on` it derived.
 
 ![The Default pricelist's two rules: Variant Brake Pad Set (Front) at $60.00, and All Products at 10% discount on sales price](/screens/ch23-pricelist-two-rules.jpg)
 
-#### 4. Quote it and watch the price
+</Step>
+
+<Step>
+### Quote it and watch the price
 
 Snapshot first, so that the `diff` in step 7 shows this quotation and nothing else.
 `diff` always compares against the last snapshot you took, so without this it either
@@ -230,7 +240,10 @@ Then, in **Sales → Orders → Quotations → New**:
 
 Leave it as a draft quotation. Nothing in this chapter needs it confirmed.
 
-#### 5. Apply a promotion
+</Step>
+
+<Step>
+### Apply a promotion
 
 First install the promotions machinery, from the same screen you used in step 2. Go to
 **Settings → Sales**, and in the **Pricing** section tick **Promotions, Loyalty & Gift
@@ -255,9 +268,10 @@ enter that code in the "Enter Promotion or Coupon Code" dialog, and **Apply**.
 
 ![The quotation after both mechanisms: Brake Pad Set (Front) at the pricelist's $60.00 unit price, and a separate "10% on your order" line at -$12.00, total $124.20](/screens/ch23-quotation-pricelist-and-reward.jpg)
 
-### Movement 2: read what it did
+</Step>
 
-#### 6. Specificity, proved
+<Step>
+### Specificity, proved
 
 ```python
 >>> pl = env["product.pricelist"].search([("company_id", "=", env.company.id)], limit=1)
@@ -292,7 +306,10 @@ in two lines of output.
   line rather than asking the pricelist directly.
 </Callout>
 
-#### 7. What the quotation took
+</Step>
+
+<Step>
+### What the quotation took
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -316,7 +333,10 @@ customer reading this quote sees 60.00 with no visible reduction. Whether that i
 client wants is a configuration question, and it is a common source of "where did our
 discount go".
 
-#### 8. What the promotion did, which is different
+</Step>
+
+<Step>
+### What the promotion did, which is different
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -341,7 +361,10 @@ Brake Pad Set (Front) 60.0 120.0
 Ten percent of 120.00 is 12.00, and it arrived as its own row. If you were hunting for a
 missing discount on the product line, you would never have found it.
 
-#### 9. The two-step claim, seen once
+</Step>
+
+<Step>
+### The two-step claim, seen once
 
 Worth doing once so you recognise it later, but do it on a **different** order. Make a
 second draft quotation in the browser with the same product on it and no code applied,
@@ -378,6 +401,9 @@ second step is what appends the line:
 ```
 
 Call only the first and nothing happens, with no error to tell you why.
+</Step>
+
+</Steps>
 
 ## Verify
 
