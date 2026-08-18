@@ -204,6 +204,23 @@ Then upgrade:
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+
+A clean run ends with `Modules loaded.` and no traceback. If instead it stops with this,
+do not read past it:
+
+```text
+odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml:7
+Error while parsing or validating view:
+Element '<xpath expr="//field[@name='service_count']">' cannot be located in parent view
+```
+
+That means `service_count` is not on the vehicle form in `views/vehicle_views.xml`, so the
+xpath has nothing to attach to. Chapter 13 put it in the "Usage" group, after
+`mileage_km`; add it there and upgrade again. The reason this is worth catching now rather
+than later is that the failure is *file-wide*: both records in
+`vehicle_views_inherit.xml` are abandoned, so the step-2 query below comes back with two
+rows instead of four and nothing on screen says why. You are meeting this chapter's
+break-it lab four steps early, by accident.
 </Step>
 
 <Step>

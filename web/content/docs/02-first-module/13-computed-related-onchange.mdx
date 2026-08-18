@@ -204,8 +204,28 @@ as the whole module being broken rather than one missing word. Then the field it
             vehicle.service_count = len(vehicle.service_order_ids)
 ```
 
-(Chapter 17 dresses this as the stat button every Odoo form has; the field is the
-hard part and it's four lines.)
+Now put it on the vehicle form, because two later chapters need it to be there. In
+`views/vehicle_views.xml`, add it to the "Usage" group as the last field, after
+`mileage_km`:
+
+```xml
+                        <group string="Usage">
+                            <field name="year"/>
+                            <field name="mileage_km"/>
+                            <field name="service_count"/>
+                        </group>
+```
+
+Do not skip that line. Chapter 16 builds an extension view whose xpath searches the form
+for `service_count`, and a locator that matches nothing is a hard error: the upgrade
+aborts with `Element '<xpath expr="//field[@name='service_count']">' cannot be located in
+parent view`, and every record in that file fails to load, not just the one patch.
+Chapter 17 then *moves* this field into a smart button on purpose, which is how it teaches
+that anchoring an xpath on a field someone can move is fragile. Both of those need the
+plain field here first.
+
+(Chapter 17 is where this stops being a bare integer and becomes the stat button every
+Odoo form has; the field and its compute are the hard part, and they are four lines.)
 </Step>
 
 <Step>
