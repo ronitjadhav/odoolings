@@ -1,0 +1,445 @@
+---
+title: "Appendix: Component Architecture"
+description: Why Odoo's server side is not a component architecture, where inheritance runs out, and how OCA's component framework fills the gap.
+---
+
+**Goal:** be able to answer "do you know component architecture and adapters?" properly,
+and know when reaching for components beats reaching for `_inherit`. ·
+**Time:** ~1.5 h · **Checkpoint:** none, this appendix stands alone
+
+## Why this matters
+
+This appendix exists because of a question that gets asked in Odoo interviews and in
+project kickoffs: *"are you comfortable with component architecture and adapters?"* It is
+a fair question with a genuinely interesting answer, and the fifty chapters before this
+one give you every piece of it without ever naming the shape.
+
+The short version, which is worth being able to say out loud: **Odoo's server side is not
+a component architecture.** It is a module dependency graph plus ORM inheritance, all
+merged into one registry per database. That works beautifully until you need several
+implementations of the same behaviour living side by side and picked at runtime, at which
+point it stops working at all, and both core and OCA have answers for that.
+
+Knowing where the seam is separates "I can add a field to a form" from "I can architect
+an integration".
+
+## Concepts
+
+### What a component architecture is, in general
+
+Outside Odoo, the term means a system built from **pluggable units that are looked up at
+runtime by what they do**, rather than wired together by inheritance or imports. You do
+not import a concrete class and call it; you ask a registry for "whatever handles X for
+Y", and it hands you an implementation. Three properties travel with the idea:
+
+- **A contract separate from its implementations.** Several classes can satisfy the same
+  contract without knowing about each other.
+- **Lookup instead of hard-wiring.** The caller names the *role* it needs, not the class.
+- **Composition over inheritance.** You add behaviour by registering another unit, not by
+  extending a hierarchy.
+
+Be careful with the word, because it is badly overloaded. In Odoo alone "component" means
+at least three unrelated things: an OWL component (a piece of UI), an OCA
+<Term k="component (OCA)">`Component`</Term> (what this appendix is about), and loose talk
+about Odoo's addon system being "modular". If someone asks you about components, it is
+reasonable to ask which they mean.
+
+### Odoo's server side works the other way round
+
+You already know Odoo's real extension model from chapters 3 and 31. A module declares
+dependencies, and its classes are **merged into** the models they name:
+
+```python
+class SaleOrder(models.Model):
+    _inherit = "sale.order"      # no _name: I am not a new model, I am adding to that one
+```
+
+At startup, Odoo walks the dependency graph and folds every one of those classes into a
+single `sale.order` in the registry, one registry per database. That is class *merging*,
+not lookup. There is no contract, no registry query, and crucially **no way to have two
+of them**.
+
+<Mermaid
+  label="Odoo merges every inheriting class into one model in the registry, while a component architecture keeps implementations separate and picks one at runtime by role"
+  chart={`flowchart TD
+    subgraph ODOO["Odoo ORM inheritance: merging"]
+      A1["sale module<br/>class SaleOrder"] --> M["ONE sale.order<br/>in the registry"]
+      A2["sale_stock module<br/>class SaleOrder"] --> M
+      A3["your module<br/>class SaleOrder"] --> M
+      M --> R1["one winner, always"]
+    end
+    subgraph COMP["Component architecture: lookup"]
+      Q["caller asks for<br/>usage='backend.adapter'"] --> REG["registry"]
+      REG -- "collection=acme" --> C1["AcmeAdapter"]
+      REG -- "collection=zenith" --> C2["ZenithAdapter"]
+    end`}
+/>
+
+### Where inheritance runs out, and core's own workaround
+
+Here is the case that breaks it. Suppose two suppliers both sell you parts, and each has
+its own API. You want one line of calling code that fetches a price, and the right
+supplier's implementation to run. With `_inherit` you cannot: whichever module loads last
+wins, for everybody, for the whole database.
+
+Core hits this wall too, and its answer is worth seeing because it looks like a hack. This
+is real Odoo 19 code, from `delivery/models/delivery_carrier.py`:
+
+```python
+if hasattr(self, '%s_rate_shipment' % self.delivery_type):
+    res = getattr(self, '%s_rate_shipment' % self.delivery_type)(order)
+```
+
+It builds a method name out of a field value and calls it. The class docstring even
+documents that as the official way to plug in a new carrier: extend the `delivery_type`
+selection and add a matching `<my_provider>_rate_shipment` method. Payment providers use
+the same trick.
+
+Look at what that actually is: a registry with no registry, keyed by string, with no
+contract anywhere and no error until the moment `hasattr` quietly returns `False`. It
+works, core ships it, and it is exactly the itch a component system scratches.
+
+### You have already built one, on the JavaScript side
+
+Odoo does have a real component architecture, just not in Python. Chapters 40 and 41 had
+you write these:
+
+```js
+registry.category("fields").add("librefleet_margin", marginField);
+registry.category("actions").add("librefleet_dashboard", LibreFleetDashboard);
+```
+
+Lookup by string key, late binding, implementations that do not know about each other,
+swappable without touching the caller. That is a component architecture, and chapter 41's
+break-it lab showed you its characteristic failure mode: mistype the key and you get
+`KeyNotFoundError` at runtime, because nothing validates a registry key at install time.
+
+### OCA's component framework
+
+On the server, the answer is a module called `component`, written by Camptocamp and
+maintained by the OCA. Its own manifest describes it as adding "capabilities to register
+and use decoupled components, as an alternative to model classes", and it is the base
+block of the Connector framework, though it works perfectly well on its own.
+
+A component is a class registered under three coordinates:
+
+| Attribute | Question it answers |
+|---|---|
+| `_usage` | what role does this play? (`backend.adapter`, `import.mapper`...) |
+| `_collection` | which backend does it belong to? |
+| `_apply_on` | which Odoo model is it for? |
+
+You enter the system through a <Term k="collection (OCA component)">collection</Term>, which
+in connector terms is the backend, and get a
+<Term k="WorkContext">`WorkContext`</Term> back:
+
+```python
+with backend.work_on("res.partner") as work:
+    adapter = work.component(usage="backend.adapter")
+```
+
+Those two lines are the whole point. The caller says the role it wants; which class it
+gets depends on the backend it is working on.
+
+An <Term k="backend adapter">adapter</Term> is the component that talks to the outside
+world. The connector documentation defines it precisely: an external adapter "has a common
+interface to speak with the backend", and "translates the basic orders (search, read,
+write) to the protocol used by the backend". One adapter per external system, all
+answering the same method names.
+
+### The connector vocabulary, so you recognise it
+
+If a project mentions the connector, these are the words. You do not need to have built
+them all to be useful in the conversation:
+
+| Term | What it is |
+|---|---|
+| **Backend** | the external system, and the collection its components register into |
+| **Binding** | a record tying an Odoo record to its counterpart's external id |
+| **Mapper** | translates field by field between external data and Odoo values |
+| **Adapter** | speaks the backend's protocol, exposing search/read/write |
+| **Synchronizer** | orchestrates a job, calling mapper, adapter and binder |
+| **Job Queue** | `queue_job`, which runs the synchronizations asynchronously |
+
+## Hands-on
+
+You are going to build the two-supplier case that `_inherit` cannot express, in about
+forty lines, with no external API and no connector.
+
+<Steps>
+
+<Step>
+### Install the component module
+
+`component` lives in the OCA `connector` repository, alongside a dozen modules you do not
+need, so clone it sparsely and copy out the one folder. Run these from `code/`, the
+directory whose `addons/` Compose already mounts into the container:
+
+```console
+$ git clone --depth 1 --branch 19.0 --filter=blob:none --sparse \
+    https://github.com/OCA/connector.git /tmp/oca-connector
+$ git -C /tmp/oca-connector sparse-checkout set component
+$ cp -r /tmp/oca-connector/component addons/component
+```
+
+`--sparse` plus `sparse-checkout set` is worth knowing on its own: OCA repositories hold
+many modules per branch, and this pulls the tree without the file contents you will never
+read. Confirm you got the 19.0 module and not a backport:
+
+```console
+$ grep '"version"' addons/component/__manifest__.py
+    "version": "19.0.1.0.1",
+```
+
+Then the dependency, inside the container:
+
+```console
+$ docker compose exec odoo pip install --break-system-packages cachetools
+```
+
+Everything in this appendix runs in a throwaway database, so nothing here touches your
+`tutorial` work:
+
+```console
+$ docker compose exec odoo odoo db -c /etc/odoo/odoo.conf init scratch_comp
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d scratch_comp -i component --stop-after-init
+...
+INFO scratch_comp odoo.modules.loading: Module component loaded in 0.05s, 24 queries (+24 other)
+```
+
+<Callout type="warn" title="That pip install does not survive a rebuild">
+  It lands in the running container's filesystem, so `docker compose down` followed by
+  `up` gives you a fresh image without `cachetools`, and the module then refuses to load.
+  For anything beyond an experiment, put the dependency in an image you build yourself
+  rather than installing it by hand. Every OCA module with an `external_dependencies` key
+  in its manifest has this same requirement, and it is one of the first things that bites
+  when you move from core-only Odoo to the OCA ecosystem.
+</Callout>
+</Step>
+
+<Step>
+### Declare two backends
+
+A collection is an ordinary model that inherits `collection.base`. Two suppliers, two
+collections. Create `addons/lf_component_demo/` with a manifest depending on `component`,
+then `models/backend.py`:
+
+```python title="addons/lf_component_demo/models/backend.py"
+from odoo import fields, models
+
+
+class AcmeBackend(models.Model):
+    _name = "acme.backend"
+    _inherit = "collection.base"
+    _description = "ACME parts supplier"
+
+    name = fields.Char(required=True)
+
+
+class ZenithBackend(models.Model):
+    _name = "zenith.backend"
+    _inherit = "collection.base"
+    _description = "Zenith parts supplier"
+
+    name = fields.Char(required=True)
+```
+
+Note what these are: real models, with a table and records, exactly as chapter 9 taught.
+The `_name` of each is what components will name in their `_collection`.
+</Step>
+
+<Step>
+### Write the contract and two adapters
+
+Components live in their own folder by convention. In
+`addons/lf_component_demo/components/adapter.py`:
+
+```python title="addons/lf_component_demo/components/adapter.py"
+from odoo.addons.component.core import AbstractComponent, Component
+
+
+class PartsAdapter(AbstractComponent):
+    """Shared contract: every supplier adapter answers price_for()."""
+
+    _name = "parts.adapter"
+    _usage = "backend.adapter"
+
+    def price_for(self, code):
+        raise NotImplementedError
+
+
+class AcmePartsAdapter(Component):
+    _name = "acme.parts.adapter"
+    _inherit = "parts.adapter"
+    _collection = "acme.backend"
+    _apply_on = ["res.partner"]
+
+    def price_for(self, code):
+        return f"ACME REST /parts/{code}"
+
+
+class ZenithPartsAdapter(Component):
+    _name = "zenith.parts.adapter"
+    _inherit = "parts.adapter"
+    _collection = "zenith.backend"
+    _apply_on = ["res.partner"]
+
+    def price_for(self, code):
+        return f"Zenith SOAP getPrice({code})"
+```
+
+Read the shape carefully, because it deliberately rhymes with models and is not the same
+thing. `AbstractComponent` is the contract, the component world's equivalent of the
+`AbstractModel` mixin from chapter 31: no registration of its own, just shared behaviour
+and the `_usage` both children pick up. Each concrete component sets `_collection` to one
+backend, and that single line is what makes them selectable rather than conflicting.
+
+Install it, and notice the warning:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d scratch_comp -i lf_component_demo --stop-after-init
+...
+WARNING scratch_comp odoo.modules.loading: The models ['acme.backend', 'zenith.backend'] have no access rules in module lf_component_demo, consider adding some
+```
+
+Chapter 10's lesson, arriving on schedule. The *collections* are models and need ACLs; the
+*components* are not models at all, so they need nothing. That is the sharpest practical
+difference between the two worlds.
+</Step>
+
+<Step>
+### Watch one call site pick two implementations
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d scratch_comp --no-http
+```
+
+```python
+>>> acme = env["acme.backend"].create({"name": "ACME"})
+>>> zenith = env["zenith.backend"].create({"name": "Zenith"})
+>>> for backend in (acme, zenith):
+...     with backend.work_on("res.partner") as work:
+...         adapter = work.component(usage="backend.adapter")
+...         print(f"{backend._name:16} -> {type(adapter).__name__:22} {adapter.price_for('OF-102')}")
+...
+acme.backend     -> acme.parts.adapter     ACME REST /parts/OF-102
+zenith.backend   -> zenith.parts.adapter   Zenith SOAP getPrice(OF-102)
+```
+
+Those three lines inside the loop never change. The backend decides which class answers,
+and the caller does not know or care which one it got. Try to write that with `_inherit`
+and you will find there is nowhere to put the second implementation.
+</Step>
+
+</Steps>
+
+## Verify
+
+You have it working when the same `work.component(usage="backend.adapter")` returns
+`acme.parts.adapter` under one backend and `zenith.parts.adapter` under the other, as
+above. Two further checks worth running while the shell is open:
+
+```python
+>>> with acme.work_on("res.partner") as work:
+...     work.component(usage="backend.adapter")._name
+'acme.parts.adapter'
+```
+
+And confirm the contract really is abstract, meaning it never gets handed to a caller:
+ask for a usage no component claims and you get an error rather than a silent `None`,
+which is the component system's version of chapter 41's `KeyNotFoundError`.
+
+## Gotchas
+
+- **A component is not a model.** No table, no ACL, no record rules, nothing in
+  `ir.model`. Anything you know about models (fields, `search`, `create`, security) simply
+  does not apply. The *collection* is a model; the components hanging off it are not.
+- **`external_dependencies` is a real install step.** `component` needs `cachetools`, and
+  a hand-run `pip install` inside a container evaporates the next time the container is
+  recreated. This is the standard tax on OCA modules and it catches everybody once.
+- **Nothing validates a `_usage` string.** Ask for a role no component provides and you
+  find out at runtime, exactly like a mistyped JS registry key. The compile-time safety of
+  `_inherit`, where a bad model name fails the upgrade, is traded away for flexibility.
+- **Reach for components only when you need several coexisting implementations.** For
+  ordinary "add a field, change a method" work, `_inherit` remains the right tool and a
+  component system is pure overhead. The question to ask is whether two implementations
+  must live in the same database at the same time.
+- **`component` is not `connector`.** You can use the component system alone, as you just
+  did. The connector adds bindings, mappers, synchronizers and the job queue on top, and
+  that is a much larger commitment.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Why can two modules not each provide their own "export this partner" behaviour on res.partner using _inherit?',
+      options: [
+        'Odoo forbids two modules from inheriting the same model without a bridge module between them',
+        'Both classes merge into one model, so only the last-loaded definition survives',
+        'It works, but the ORM picks between them using the module dependency graph at request time',
+      ],
+      answer: 1,
+      why: 'Inheritance in Odoo is class merging into a single per-database registry entry, not registration of alternatives. Two modules inheriting the same model is completely normal and encouraged; what you cannot get is two coexisting versions of one method, because the merged model has exactly one. That is the gap components fill with _collection.',
+    },
+    {
+      q: 'What do _usage, _collection and _apply_on together decide?',
+      options: [
+        'the access rights, company and record rules that apply to the component',
+        'which class a runtime lookup returns: its role, its backend, its model',
+        'the order in which components run when several of them match the same request',
+      ],
+      answer: 1,
+      why: 'They are lookup coordinates, not security or ordering. A caller names a role with usage=..., the collection it is working on narrows that to one backend, and _apply_on ties it to a model. Components have no access rights at all, because they are not models.',
+    },
+    {
+      q: 'Core builds a method name with getattr(self, "%s_rate_shipment" % self.delivery_type). What is that, architecturally?',
+      options: [
+        'a registry lookup by string, with no registry and no contract',
+        'a deprecated pattern that Odoo 19 replaced with the component system',
+        'the ORM dispatching to whichever module most recently extended delivery.carrier',
+      ],
+      answer: 0,
+      why: 'It is dynamic dispatch keyed by a field value, and the delivery.carrier docstring documents it as the supported extension protocol, so it is current rather than deprecated. Nothing declares the contract and nothing checks it: a missing method just makes hasattr return False. Recognising that as a hand-rolled component lookup is the point.',
+    },
+    {
+      q: 'You need to add one field and one computed total to sale.order for a client. Components or _inherit?',
+      options: [
+        '_inherit, because only one implementation ever needs to exist',
+        'components, since they keep the customisation decoupled from core and easier to remove later',
+        'either works, so prefer components for consistency with the connector modules already installed',
+      ],
+      answer: 0,
+      why: 'The deciding question is whether two implementations must coexist in one database, and here they must not. A component system buys runtime selection at the cost of losing upgrade-time validation of model names, which is a bad trade when there is nothing to select between.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a third supplier with its own collection and adapter, and confirm the loop in
+   the last step picks it up without any change to the calling code. Then delete the
+   adapter but keep the backend, and see what asking for `usage="backend.adapter"` does.
+2. ⭐⭐ Give one supplier a second component with a different `_usage`, say
+   `import.mapper`, that turns an external dict into Odoo values. Call both from one
+   `work_on` block, and explain what `WorkContext` is carrying between them.
+3. ⭐⭐ Find a real adapter in the wild: clone an OCA connector module (`connector_magento`
+   or an EDI one) and locate its backend adapter. Identify its `_usage`, `_collection` and
+   `_apply_on`, and name which of the six connector vocabulary terms above each of its
+   other components implements.
+4. ⭐⭐⭐ Argue the other side. Take core's `delivery_type` dispatch and rewrite one carrier
+   as a component, then write down what you gained and what you lost. Include the thing
+   that gets worse: what happens to a typo in a `_usage` string versus a typo in a
+   `delivery_type` selection value, and when each fails.
+
+## Further reading
+
+- <Icon name="source" /> [OCA `component` on the 19.0 branch](https://github.com/OCA/connector/tree/19.0/component):
+  the module itself, and the shortest path to how it works is `core.py`, which is where
+  `Component`, `AbstractComponent` and `WorkContext` all live.
+- <Icon name="docs" /> [Connector concepts](https://odoo-connector.com/guides/concepts.html):
+  the canonical definitions of backend, binding, mapper, adapter and synchronizer, worth
+  reading once even if you never write a connector.
+- <Icon name="source" /> [`delivery/models/delivery_carrier.py`](https://github.com/odoo/odoo/blob/19.0/addons/delivery/models/delivery_carrier.py):
+  core's own string-dispatch extension point, and the class docstring that documents it as
+  the way to add a carrier.
