@@ -220,10 +220,14 @@ Restart the web server so it picks up the new database:
 $ docker compose restart odoo
 ```
 
-Then open [http://localhost:8069](http://localhost:8069). You have more than one database
-now, so Odoo shows a picker before the login form: choose `functional`. This one was
-created from the command line rather than from the database manager, so it carries core's
-default credentials, login `admin` and password `admin`. Your `tutorial` database is
+Now open [http://localhost:8069](http://localhost:8069). Your browser is still holding the
+logged-in session from the last twenty chapters, and that session, not the URL, decides
+which database you land in, so this drops you straight back into `tutorial`'s backend.
+Log out first (your avatar, top right → **Log out**): that lands you on a login form still
+showing `tutorial`, with a **Select** button next to the Database field. Click it, and you
+get the picker, every database this Odoo instance knows about; choose `functional`. This
+one was created from the command line rather than from the database manager, so it carries
+core's default credentials, login `admin` and password `admin`. Your `tutorial` database is
 untouched, and stays that way for the whole of Parts 4 and 5.
 
 </Step>
