@@ -60,6 +60,11 @@ share-a-row relationship a cron has with the action it schedules (chapter 35).
 asked: `id`, `create_uid`, `create_date`, `write_uid`, `write_date`, plus the
 computed (never stored) `display_name`.
 
+**backend adapter**: in OCA's connector, the component that speaks one external
+system's protocol. Per the connector docs it "has a common interface to speak with the
+backend" and "translates the basic orders (search, read, write)" into that system's API.
+One adapter per backend, all answering the same method names (appendix on components).
+
 **button box**: the `<div name="button_box">` at the top of a form sheet holding
 smart buttons. Extensions target it by name to add their own buttons.
 
@@ -97,6 +102,11 @@ the same name; a mismatch throws `KeyNotFoundError` in the browser console and n
 anywhere else. The component receives the action record as a prop, so it must spread
 `standardActionServiceProps` (chapter 41).
 
+**collection (OCA component)**: the model components register against, and the
+entry-point into the component system through its `work_on()` context manager. In the
+connector a collection is the backend. Unlike a component it *is* an ordinary model, so it
+has a table and needs access rights (appendix on components).
+
 **cron (scheduled action, `ir.cron`)**: a server action plus a schedule. `ir.cron`
 `_inherits` `ir.actions.server` through `ir_actions_server_id`, sharing that record's
 row rather than copying it, so a cron and the action it runs are, structurally, the
@@ -112,6 +122,12 @@ credited and the account named on the Customers location is debited (chapter 30)
 category. `standard` uses a cost you type, `fifo` consumes the oldest receipt first, and
 `average` (AVCO) keeps a running average recomputed on each receipt. Independent of
 whether the books hear about it, which is *inventory valuation* (chapter 30).
+
+**component (OCA)**: a class registered by `_usage`, `_collection` and `_apply_on` and
+resolved at runtime, from the OCA `component` module (written by Camptocamp). Not a model:
+no table, no ACL, nothing in `ir.model`. It exists to do the one thing `_inherit` cannot,
+namely let several implementations of the same behaviour coexist and be selected per
+backend (appendix on components).
 
 **command list (x2many commands)**: the tuple language for writing relational
 fields: `(0, 0, {vals})` create, `(4, id)` link, `(3, id)` unlink, `(2, id)`
@@ -741,6 +757,11 @@ an action requests them via `view_id`.
 **Weblate**: the OCA's translation platform. Contributors translate strings there,
 never by editing a module's `.po` files directly in a PR; edits made straight to
 `.po` get overwritten on the next sync (chapter 45).
+
+**WorkContext**: the object OCA's component system hands you from
+`backend.work_on(model_name)`, carrying the model, the collection and anything else the
+components in one work session need to share (an open API client, say). Components look
+each other up through it with `work.component(usage=...)` (appendix on components).
 
 **widget**: an attribute on a view field picking an alternative renderer for the
 same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17

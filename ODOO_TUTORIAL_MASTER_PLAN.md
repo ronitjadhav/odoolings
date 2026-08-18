@@ -1094,7 +1094,9 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 4. ~~Public from day 1?~~ **Answered 2026-07-10: public from day 1.**
 5. ~~Sign off on the §5.5 LibreFleet blueprint (models/fields/security)?~~
    **Answered 2026-07-13: approved as written. M2 unblocked.**
-6. **Add component architecture and the OCA connector vocabulary? (raised 2026-08-17)**
+6. ~~Add component architecture and the OCA connector vocabulary? (raised 2026-08-17)~~
+   **Answered 2026-08-18: yes, built as a root-level appendix, `appendix-components.mdx`,
+   no chapter renumbered. The reasoning below stands as the record of why.**
    The author's Odoo manager asked whether he knew "adapters / component architecture",
    both generally and as the named framework. The tutorial currently answers neither: the
    only occurrence of "component framework" in 50 chapters is OWL, and `connector`,
@@ -1112,7 +1114,47 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
-### 2026-08-17 (later) — proposal: an appendix on component architecture (§9 q6, undecided)
+### 2026-08-18 — the component appendix, built (§9 q6 answered yes)
+
+Written as `web/content/docs/appendix-components.mdx`, a root-level page slotted into
+`meta.json` between Part 9 and the glossary. **No chapter renumbered, no checkpoint
+invented, no odoolings check added.** Four glossary entries added (component (OCA),
+collection, backend adapter, WorkContext).
+
+**The hands-on is real and was run here before it was written.** That mattered, because it
+turned up two things the proposal had guessed at:
+
+- **`component` installs on Odoo 19 with no connector at all.** `depends: ["base"]`,
+  version 19.0.1.0.1, loaded on a scratch database in 0.05s. The proposal's claim that
+  components can be taught standalone holds up, which is what keeps this to one appendix.
+- **It needs `cachetools`, and the `odoo:19` image does not ship it.** A hand-run
+  `pip install --break-system-packages` inside the container works but dies with the
+  container, so that is now a Callout rather than a footnote. Any OCA module with
+  `external_dependencies` has the same tax, and it is the first real friction on leaving
+  core-only Odoo.
+
+The demo is two backends, two adapters, one call site, forty lines:
+
+```text
+acme.backend     -> acme.parts.adapter     ACME REST /parts/OF-102
+zenith.backend   -> zenith.parts.adapter   Zenith SOAP getPrice(OF-102)
+```
+
+Identical `work.component(usage="backend.adapter")` both times. That single output is the
+argument the whole appendix exists to make, and there is no way to write it with
+`_inherit`.
+
+A happy accident worth keeping: installing the demo emits Odoo's own
+"models have no access rules" warning for the two collection models, which lands chapter
+10's lesson exactly where the appendix needs to explain that collections *are* models and
+components are not. Real output, better than any prose about the distinction.
+
+Structure follows §4.3 with two deliberate omissions, both because this is an appendix
+rather than a chapter: no checkpoint (all forty lines are inline) and no `odoolings check`
+(the tutorial's checker keys on `chNN` and inventing an appendix key would be worse than
+leaving the Verify section to prove itself from the shell).
+
+### 2026-08-17 (later) — proposal: an appendix on component architecture (now built, see above)
 
 Raised by the author, whose Odoo manager asked whether he knew "adapters / component
 architecture", both as a general design idea and as the specific thing. Recorded as an
