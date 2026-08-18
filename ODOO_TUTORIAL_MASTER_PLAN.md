@@ -1094,10 +1094,91 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 4. ~~Public from day 1?~~ **Answered 2026-07-10: public from day 1.**
 5. ~~Sign off on the §5.5 LibreFleet blueprint (models/fields/security)?~~
    **Answered 2026-07-13: approved as written. M2 unblocked.**
+6. **Add component architecture and the OCA connector vocabulary? (raised 2026-08-17)**
+   The author's Odoo manager asked whether he knew "adapters / component architecture",
+   both generally and as the named framework. The tutorial currently answers neither: the
+   only occurrence of "component framework" in 50 chapters is OWL, and `connector`,
+   `component`, `Backend Adapter`, `Mapper` and `Binding` appear nowhere.
+   **Recommendation: yes, as ONE appendix, and deliberately not as an inserted chapter.**
+   Reasoning and the proposed spine are in the §10 entry for 2026-08-17. The decision the
+   author actually has to make is placement, because inserting into Part 8 renumbers ch44
+   to ch50, and §10's own D13 record shows what that costs: it silently falsified twelve
+   references and broke `main`. An appendix costs nothing to add and nothing to undo.
+   Blocking question for the author: is this expected knowledge for the team's client
+   work (Camptocamp maintains `component` and `connector`), or is it specialist knowledge
+   that belongs in a follow-up rather than in the tutorial's spine?
 
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-08-17 (later) — proposal: an appendix on component architecture (§9 q6, undecided)
+
+Raised by the author, whose Odoo manager asked whether he knew "adapters / component
+architecture", both as a general design idea and as the specific thing. Recorded as an
+open question rather than acted on, because it changes the syllabus and the syllabus is a
+signed-off decision.
+
+**The gap is real and total.** Grepped all 50 chapters plus the glossary: the only match
+for "component framework" is OWL, and `connector`, `component`, `Backend Adapter`,
+`Mapper`, `Binding` and `WorkContext` appear nowhere at all.
+
+**Two different questions hide inside the manager's one.** Worth separating, because the
+tutorial should answer both and they have different answers:
+
+1. *Component architecture as a general idea*: build a system from pluggable units that
+   are looked up at runtime by contract, rather than wired in by inheritance. **Odoo's
+   server side does not work this way.** Its extension model is a module dependency graph
+   plus ORM inheritance merged into one per-database registry, which is class *merging*,
+   not lookup. That is a genuinely interesting answer to give in an interview, and the
+   tutorial has taught every piece of it (ch31's three inheritance types, ch3's registry)
+   without ever naming the contrast.
+2. *The named framework*: OCA's `component` module, written by Camptocamp, alive on the
+   19.0 branch of `OCA/connector`. Components are resolved at runtime by `_usage`,
+   `_collection` and `_apply_on`, which is what lets several backends carry their own
+   implementation of the same operation side by side. An adapter, per the connector docs,
+   is the component with "a common interface to speak with the backend", translating
+   search/read/write into the backend's protocol.
+
+**Where inheritance runs out, with core's own workaround as the hook.** The honest reason
+components exist is that `_inherit` is global and singular: you cannot have a Magento
+export and a Prestashop export of `res.partner` coexist and be chosen per record. Core
+hits this too and solves it by building a method name out of a string, verified in
+`delivery/models/delivery_carrier.py`:
+
+```python
+if hasattr(self, '%s_rate_shipment' % self.delivery_type):
+    res = getattr(self, '%s_rate_shipment' % self.delivery_type)(order)
+```
+
+The class docstring even documents that as the extension protocol ("extend the selection
+of the field `delivery_type` with a pair `<my_provider>_rate_shipment`"). That is a
+registry with no registry, and it is the perfect way in: the reader sees the problem in
+core before meeting the framework that solves it properly.
+
+**The reader has already built one and does not know it.** ch40 and ch41 register into
+`registry.category("fields")` and `registry.category("actions")`, look-up-by-string with
+late binding, which is a component architecture in everything but name. Naming it
+retroactively costs one paragraph and makes the whole idea land.
+
+**Why one appendix and not four chapters.** The `component` README states it "can be used
+without using the full Connector", which is the unlock: components can be taught with a
+small standalone example, no Magento instance, no `queue_job`, no binding tables, no new
+environment axis. Teaching the full connector would need several chapters and a second
+addons stack, which is a different-sized commitment.
+
+**Why an appendix and not an inserted chapter.** Inserting into Part 8 renumbers ch44-50,
+and this plan already records what that costs: the D13 renumber silently falsified twelve
+"Part N" references and the ch45→ch46 stub bump broke `main`. Numbering also reaches
+`code/checkpoints/chNN`, `odoolings.py`'s `CHAPTERS` keys and `web/public/screens/chNN-*`.
+An appendix has none of that blast radius. If the author wants it numbered, ch51 is the
+cheap version.
+
+Proposed spine, if approved: the general idea and the inheritance contrast; core's
+string-dispatch workaround; the retroactive naming of the JS registries; `component`
+standalone with `_usage`/`_collection`/`_apply_on` and `WorkContext`; then the connector
+vocabulary (Backend, Binding, Mapper, Adapter, Synchronizer, `queue_job`) as recognition
+rather than hands-on. Nothing written yet, and nothing renumbered.
 
 ### 2026-08-17 — reader-clarity pass, ch14-24 (91 fixes, PRs #119-129)
 
