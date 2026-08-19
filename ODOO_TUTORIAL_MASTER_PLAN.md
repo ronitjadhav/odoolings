@@ -1114,6 +1114,25 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-19 — two reader-reported ch21/ch23 bugs, both verified against a fresh `functional` db
+
+- **ch21 step 1 assumed a session-less browser.** "Open localhost:8069, Odoo shows a
+  picker" is only true with no active session. A reader who just spent chapters 5-20
+  logged into `tutorial` gets dropped straight back into that database's backend instead,
+  because the session, not the URL, decides where you land. Added the missing **Log
+  out** first, which lands on a login form still showing `tutorial` with a **Select**
+  button, and that is what actually opens the picker.
+- **ch23 step 5 claimed the Pricelists list shows all three Default pricelists at once,
+  contradicting step 1's own multi-company visibility rule** (superuser shell sees all
+  three, the browser's record rules restrict you to your active company). Verified
+  against a genuinely fresh `functional` database, built with ch21's exact install
+  command: `admin.company_ids` does hold all three companies, but the UI's active-company
+  context defaults to just one until the company switcher is used, so the list shows
+  exactly one row. Reworded step 5 to say that plainly instead of asserting the opposite
+  of what step 1 already taught.
+
+Both fixed on `ch21-26-steps-retrofit` (PR #136), verified with `npm run test:ci`.
+
 ### 2026-08-18 (later) — ch21-26 retrofitted onto the `<Steps>`/`<Step>` house style
 
 Reader-reported gap: chapters 21-26 (all written 2026-08-05, before the 2026-08-09 ch1-10
