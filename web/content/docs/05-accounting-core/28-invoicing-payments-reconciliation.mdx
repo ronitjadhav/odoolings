@@ -101,11 +101,13 @@ a question about dates; unpaid is a question about reconciliation.
 
 ## Hands-on
 
-Continuing in `functional`, with the confirmed order from chapter 22.
+Continuing in `functional`, with the confirmed order from chapter 22. First you run the
+invoice through draft, partial and paid; then you read what each step actually posted.
 
-### Movement 1: run the flow
+<Steps>
 
-#### 1. Invoice the order
+<Step>
+### Invoice the order
 
 Snapshot, then open your confirmed order and press **Create Invoice**. In the wizard,
 keep **Regular invoice** and confirm. You land on a **draft** invoice: no number in the
@@ -117,23 +119,30 @@ Press **Confirm** to post it.
 
 ![The same invoice posted and numbered, Amount Due 276.00, nothing paid yet](/screens/ch28-posted-invoice-not-paid.jpg)
 
-#### 2. Pay part of it
+</Step>
+
+<Step>
+### Pay part of it
 
 On the posted invoice, press **Register Payment**. Change the amount to **200.00** (the
 invoice is 363.40) and confirm. The invoice does not say Paid.
 
 ![A PARTIAL ribbon across the invoice, Paid 200.00 against a 276.00 total, Amount Due 76.00](/screens/ch28-invoice-partial.jpg)
 
-#### 3. Pay the rest
+</Step>
+
+<Step>
+### Pay the rest
 
 Press **Register Payment** again. Leave the amount alone: it already defaults to what is
 still owed. Confirm.
 
 ![A PAID ribbon across the invoice, two payment lines totalling the invoice amount, Amount Due 0.00](/screens/ch28-invoice-paid.jpg)
 
-### Movement 2: read what it did
+</Step>
 
-#### 4. What invoicing created
+<Step>
+### What invoicing created
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -164,7 +173,10 @@ Confirm the draft-versus-posted rule from chapter 27 still holds:
 
 Posted, numbered, and the entire amount still outstanding.
 
-#### 5. What a partial payment created
+</Step>
+
+<Step>
+### What a partial payment created
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -189,7 +201,10 @@ The invoice is now `partial`:
 ('partial', 163.4)
 ```
 
-#### 6. The moment it becomes paid
+</Step>
+
+<Step>
+### The moment it becomes paid
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -215,7 +230,10 @@ That is **the invoice's own receivable line** flipping to reconciled. It stayed 
 through the first payment and only flipped once the second one covered the rest. The
 `payment_state: partial -> paid` on the line above it is the *consequence*.
 
-#### 7. Look at the links themselves
+</Step>
+
+<Step>
+### Look at the links themselves
 
 ```python
 >>> inv.payment_state, inv.amount_residual   # settled
@@ -228,6 +246,10 @@ through the first payment and only flipped once the second one covered the rest.
 Two reconciliation records, one per instalment, summing to 363.40. Those two rows are
 what "paid" actually means. Delete them and the invoice is unpaid again, whatever
 `payment_state` said a moment earlier.
+
+</Step>
+
+</Steps>
 
 ## Verify
 

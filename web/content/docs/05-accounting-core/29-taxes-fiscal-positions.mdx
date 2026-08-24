@@ -191,13 +191,13 @@ was `round_per_line`.
 
 ## Hands-on
 
-Two movements again, continuing in the `functional` database. Everything in the
-configuration menus below lives under **Invoicing** in Community, the app called Accounting
-being the Enterprise one, and the **Taxes** and **Fiscal Positions** entries are both
-ungated, so they are where you expect. **Chart of Accounts** is the exception, hidden behind
-the group chapter 27 ran into, so this chapter opens it by URL for the same reason.
-
-### Movement 1: run the flow
+Continuing in the `functional` database. Everything in the configuration menus below
+lives under **Invoicing** in Community, the app called Accounting being the Enterprise
+one, and the **Taxes** and **Fiscal Positions** entries are both ungated, so they are
+where you expect. **Chart of Accounts** is the exception, hidden behind the group chapter
+27 ran into, so this chapter opens it by URL for the same reason. First you build five
+different tax scenarios and run them through real documents; then you read what each one
+actually posted.
 
 Take a snapshot first, and take another one before each numbered step so the diffs stay
 readable:
@@ -207,7 +207,10 @@ $ python3 odoolings.py snapshot --db functional
 snapshot: 19 models, 1019 records (database 'functional')
 ```
 
-#### 1. Split one tax across two accounts
+<Steps>
+
+<Step>
+### Split one tax across two accounts
 
 First an account for the second half to land in. Open
 `http://localhost:8069/odoo/action-account.action_account_form` and press **New**: code
@@ -231,7 +234,10 @@ Then spend it. **Invoicing → Customers → Invoices → New**, customer **Acme
 one line for the **Brake Pad Set**, price `200.00`, and replace the line's tax with your
 new split tax. **Confirm**.
 
-#### 2. Watch a brand new tax put the money in the wrong place
+</Step>
+
+<Step>
+### Watch a brand new tax put the money in the wrong place
 
 Another tax, and this time leave the Definition tab completely alone. **Taxes → New**:
 
@@ -243,7 +249,10 @@ Invoice it: **Customers → Invoices → New**, Acme again, two Brake Pad Set li
 `115.00` and one at `100.00`, both carrying the new tax. **Confirm**, then read the diff
 before you read the next step. The totals will look right. The accounts will not.
 
-#### 3. Fix the distribution and do it again
+</Step>
+
+<Step>
+### Fix the distribution and do it again
 
 Back on `15% (Tax Included)`, Definition tab: set **Account** to **251000 Tax Received**
 on the **of tax** line in *both* tables. Save.
@@ -251,7 +260,10 @@ on the **of tax** line in *both* tables. Save.
 Then make the same invoice again: Acme, two lines at `115.00` and `100.00`, same tax.
 **Confirm**. Nothing you can see on the invoice has changed.
 
-#### 4. Ship abroad and watch the tax get replaced
+</Step>
+
+<Step>
+### Ship abroad and watch the tax get replaced
 
 A foreign customer: **Contacts → New**, name `Nordwerk Fahrzeugtechnik GmbH`, country
 **Germany**, city `Bremen`, zip `28195`. Save.
@@ -268,7 +280,10 @@ Sets. Do not touch the tax column. Look at three things before saving:
 Nobody configured that. The demo's Foreign Trade position auto-applies on country alone,
 and the swap happened as the line was created.
 
-#### 5. Make a cent appear, then put it back
+</Step>
+
+<Step>
+### Make a cent appear, then put it back
 
 A quotation for Acme with **three** lines, each one Brake Pad Set, quantity 1, price
 `10.10`, tax `15%`. Note the total.
@@ -281,9 +296,10 @@ Make the same quotation again: Acme, three lines, 10.10, 15%. Note the total.
 Then put **Rounding Method** back to **Round per Tax** before you go any further. The
 chapter's checks look for that, and so does every total computed after this point.
 
-### Movement 2: read what it did
+</Step>
 
-#### 6. One tax, two journal lines
+<Step>
+### One tax, two journal lines
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -305,7 +321,10 @@ Chapter 28's invoice had three lines. This one has four, and the two in the midd
 30.00. That is the whole idea of repartition lines, visible in one diff. Your invoice
 number will differ.
 
-#### 7. Where an unaccounted tax actually goes
+</Step>
+
+<Step>
+### Where an unaccounted tax actually goes
 
 The tax-included invoice from step 2:
 
@@ -353,7 +372,10 @@ right. Note what did **not** change: the invoice, the amounts, the receivable, t
 customer's experience. There is no report on the invoice itself that would have caught
 this, which is why it is worth being able to read a distribution table.
 
-#### 8. What the export did
+</Step>
+
+<Step>
+### What the export did
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -370,7 +392,10 @@ saying no tax. But zero tax and no tax are different situations and the differen
 matters: the line still carries a tax, `0% Exports`, so the sale still appears in the tax
 report at zero rather than vanishing from it. An export is taxed, at nothing.
 
-#### 9. The cent
+</Step>
+
+<Step>
+### The cent
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -392,7 +417,10 @@ thing to remember about this: `amount_tax` is a **stored** compute. Putting the 
 back does not retro-fix S00029, and it never will. Rounding changes apply to arithmetic
 that has not happened yet.
 
-#### 10. Read the records
+</Step>
+
+<Step>
+### Read the records
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -497,6 +525,10 @@ Finally, the rounding, verified rather than assumed:
 ```
 
 The setting is back where it belongs, and the two orders still disagree.
+
+</Step>
+
+</Steps>
 
 ## Verify
 
