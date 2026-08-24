@@ -17,6 +17,22 @@ screen" resolves to twenty lines of the XML you'll write in this chapter. Part 4
 extends core apps with exactly this mechanism; here you learn it safely inside
 LibreFleet, including how it breaks.
 
+Two words in this chapter are going to fight you, so deal with them up front.
+
+The first is **view**. You have been writing views as XML files, and a file feels like
+source code: something the program reads and obeys. It is not. The file is a loader, and
+what it loads is a row in a table.
+
+The second is **inheritance**, which here means almost nothing it means in Python. A
+Python subclass gets its own copy of the parent's behaviour and the parent carries on
+untouched. An Odoo extension view is a *list of edits* aimed at somebody else's XML, and
+the screen you end up looking at exists nowhere until the moment you ask for it. Same
+word, different machine.
+
+So here is the picture to hold, before any attribute names arrive: **Odoo does not store
+the screen you see.** It stores one base drawing, plus separate little lists of edits, and
+it redraws the screen from scratch on every single request.
+
 ## Concepts
 
 ### A view is a row in ir.ui.view
@@ -26,6 +42,15 @@ holding among other things: the `model` it renders, its `type` (list, form...), 
 <Term k="arch (view architecture)">`arch`</Term> (the XML you've been writing), a `priority`, a `mode`, and optionally an
 `inherit_id`. Your module's XML files don't "declare" views in some special sense;
 they just load records into this table, like any other data file.
+
+That sentence is easy to agree with and surprisingly hard to believe, so it is worth
+being blunt: **the file on disk is not the view.** It is a script that inserts a row, and
+once the row exists Odoo never reads your file again. It renders whatever the table holds.
+Two things at the end of this chapter fall straight out of that, and neither is arbitrary:
+view changes need an *upgrade* rather than a restart, because the upgrade is the thing that
+rewrites the row; and anyone with the right access can edit a view in the interface and
+quietly diverge from your file, because the interface and your file are writing to the same
+place.
 
 Look at LibreFleet's own rows (this is your database, after chapter 15):
 
@@ -45,7 +70,20 @@ when the record is created: a view with an `inherit_id` becomes an `extension`, 
 without stays `primary`. `priority` is a plain integer that defaults to 16. Those two
 columns are this chapter's levers.
 
+The two modes are the drawing and the edit list, in table form:
+
+| | `primary` | `extension` |
+|---|---|---|
+| What it is | a drawing in its own right | a list of edits to somebody's drawing |
+| Has an `inherit_id`? | usually not | always |
+| Competes for the default slot? | yes, by `priority` | no, it is never picked directly |
+| How you get one | leave `inherit_id` off (or set `mode` yourself, the rarer cousin below) | set `inherit_id` |
+
 ### How Odoo picks and builds the view you see
+
+Nothing about the finished screen is stored anywhere. Every time a client asks for one,
+Odoo chooses a starting drawing, gathers the edit lists that claim to modify it, applies
+them in order, hands the result over, and throws it away.
 
 When the web client asks for, say, the form view of `librefleet.vehicle`, the server:
 
@@ -298,6 +336,11 @@ True
 The base record's arch in the database still has neither change (check it in the psql
 `arch_db` column if you're curious); the merge happened at request time. That's why
 this mechanism is safe: nothing was edited, something was *composed*.
+
+**The sentence to carry out of this chapter:** Odoo does not keep the screen, it keeps the
+ingredients and cooks it to order. That is why your patch cannot damage the base view, why
+uninstalling your module leaves the original behind with nothing to clean up, and why Part
+4 can reach into core apps you do not own without ever editing them.
 </Step>
 
 <Step>

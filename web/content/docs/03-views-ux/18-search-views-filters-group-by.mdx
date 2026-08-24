@@ -17,13 +17,35 @@ list, form and (soon) kanban. It also comes with a footgun this chapter walks yo
 straight into: the mechanism that makes a filter apply automatically depends on
 spelling one string correctly, and Odoo will never tell you if you didn't.
 
+If "the search bar is a view" sounds odd, that is worth saying out loud, because it is
+what makes this chapter feel stranger than it is. The search bar reads as furniture: a
+strip that comes with the list, the same shape on every Odoo screen you have ever opened.
+Being told it is a *fourth view type*, its own record with its own XML that you write
+yourself, lands as a surprise.
+
+Here is what actually happened. **You have had a search bar on every list since chapter
+12, and you never wrote one.** Odoo made it for you: when a model has no search view,
+core generates a minimal one containing a single field, your model's `_rec_name`. You can
+read the whole of it in `_get_default_search_view` in
+`base/models/ir_ui_view.py`, and it is four lines long. So you have not been living
+without a search view, you have been living with the smallest possible one, which is
+exactly why the bar has only ever matched on name. This chapter is you taking that
+generated stub and writing a real one in its place.
+
+So here is the shape to carry in. **What you are shipping is a small control panel**, and
+it has exactly three kinds of control: the places the search bar is allowed to look, the
+switches a user can flip, and the ways they can pile records into stacks. That is the
+entire search view. Everything else in this chapter is one naming rule that connects your
+control panel to the screen that opens it.
+
 ## Concepts
 
 ### The search view is data too
 
 By now this shouldn't surprise you: a search view is just another `ir.ui.view` record,
 `type="search"`, loaded from XML like every view before it. Its arch holds three kinds
-of element:
+of element, and they are the three controls from a moment ago, in order: where to look,
+what to switch on, how to stack.
 
 - **`<field>`**: a field the user can search on. Type text into the search bar and the
   dropdown offers one "search Vehicle for..." line per `<field>` listed here, so this is
@@ -75,11 +97,13 @@ That is what `<separator/>` is for: it starts a new group, so it is how you say 
 filter must narrow the others, not join them".
 
 One warning about the word "group", because this chapter uses it for two unrelated
-things. A *group of filters* is just a run of adjacent `<filter>` elements between two
-separators; nothing in the XML marks it, you count separators to see where one ends. The
-`<group>` *element* is something else entirely: it is the container that turns the
-filters inside it into the Group By menu, and it has nothing to do with AND and OR. Both
-show up in the arch you are about to write.
+things, and both show up in the arch you are about to write:
+
+- A **group of filters** is just a run of adjacent `<filter>` elements between two
+  separators. Nothing in the XML marks it, you count separators to see where one ends.
+  This is the thing that decides AND versus OR.
+- The **`<group>` element** is something else entirely: it is the container that turns the
+  filters inside it into the Group By menu, and it has nothing to do with AND and OR.
 
 Now look ahead at the arch you write in step 1, because it has exactly one separator and
 that is **one too few**. "My Services" and "Exclude Cancelled" end up in the same group,
@@ -110,6 +134,14 @@ method, because Python methods have `self.env.uid` for the same thing, spelled
 differently.
 
 ### The default-filter convention, and where it can quietly fail
+
+Here is the division of labour that explains this whole section, footgun included. **The
+search view only ever *offers*. The action decides which of those offers is switched on
+when the page opens.** Those are two separate records. They can sit in different files,
+be written months apart by different people, and the only thing joining them is a string
+that has to match on both sides.
+
+Read the rest of this section as a consequence of that split rather than as a quirk.
 
 An action's `context` can pre-check a filter when the view first loads, using a naming
 convention: <Term k="`search_default_<name>`">`search_default_<name>`</Term> set to a truthy value, where `<name>` is a
@@ -214,6 +246,9 @@ Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would 
 the correct spelling, because nothing in the loading process ever reads a filter's
 `name` attribute against an action's context keys. They're unrelated strings that
 happen to follow a convention only the browser's JavaScript understands.
+
+That is the two-records split from Concepts, biting. Your action said "switch on the
+filter called `not_cancelld`". Nothing ever asked the search view whether it has one.
 </Step>
 
 <Step>
@@ -235,6 +270,10 @@ you, ever, which is exactly why the check exists. Note that it lists the filters
 find, which is usually enough to spot the typo without opening the XML, and that it reads
 the live arch rather than a fixed list, so filters you add yourself (exercises 1 and 3)
 count as real ones.
+
+**The sentence to carry out of this chapter:** the search view offers, the action decides,
+and nothing checks that the two agree. Whenever a default filter "does nothing", compare
+those two strings before you doubt anything else.
 </Step>
 
 <Step>
