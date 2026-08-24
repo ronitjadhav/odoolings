@@ -29,6 +29,23 @@ slogan and becomes something you can point at in the database.
 
 ## Concepts
 
+Three names, and almost everyone new to Odoo mixes them up, because the UI files them in
+three different menus and none of the names says what makes it different. Sort them by the
+only question that matters, **what makes the code run**, and they stop overlapping:
+
+| | What makes it run | You reach for it when |
+|---|---|---|
+| **server action** | a person, a button, or another action asking it to | the work needs a home that is not a Python file |
+| **scheduled action** (cron) | a clock | nothing and nobody will be there to ask |
+| **automated action** | a database event: a record created, a field written, a date arriving | the trigger is something happening to data |
+
+The one that dissolves the confusion is the middle column of the first row. **The server
+action is the code; the other two are only ways of starting it.** A cron is a server action
+with a schedule attached, and an automated action is a server action with a trigger
+attached. You are not choosing between three tools, you are writing one thing and then
+deciding what wakes it up. That is why this chapter builds the same feature three times and
+ends up pointing at a single database row.
+
 ### A server action is code Odoo can point at from three places
 
 `ir.actions.server` is a model, not a script file. A record with `state = "code"`
@@ -45,13 +62,6 @@ row checked, and `records` comes back empty. A server action meant to work both 
 needs to handle that itself.
 
 ### A cron is a server action wearing a schedule
-
-```mermaid
-flowchart LR
-    Manager["Manager clicks<br/>'LibreFleet: maintenance reminders'<br/>from the Vehicles list"] --> Row["one ir.actions.server row<br/>state = code"]
-    Scheduler["Scheduler<br/>(runs daily)"] --> CronRow["ir.cron row<br/>ir_actions_server_id"] --> Row
-    Row --> Method["Vehicle.action_send_maintenance_reminders()"]
-```
 
 <Mermaid label="A manager clicking the Vehicles list action and the daily scheduler both end up running the same ir.actions.server row, one directly and one through an ir.cron record that delegates to it." chart={`flowchart LR
     Manager["Manager clicks<br/>'LibreFleet: maintenance reminders'<br/>from the Vehicles list"] --> Row["one ir.actions.server row<br/>state = code"]
@@ -339,6 +349,12 @@ done" note with the feedback "Service completed." attached, because
 button knows the reminder exists; the automated action is what connects a business
 decision (this order is finished) to a completely different feature (retire a
 maintenance nudge) without either one importing the other.
+
+**The sentence to carry out of this chapter:** you did not build three features, you wrote
+two Python methods and then attached three different ways of starting them. A clock started
+one, a manager's click started the same one, and a field changing on a different model
+started the other. Whenever a ticket says "and it should also happen automatically", this
+is the question it is really asking: the code already exists, so what should wake it up?
 </Step>
 
 </Steps>

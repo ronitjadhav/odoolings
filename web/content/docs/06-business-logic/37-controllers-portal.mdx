@@ -14,8 +14,36 @@ client: Odoo's own JavaScript talking to the ORM over RPC. That conversation is 
 the only door into your data. Chapter 27's invoice landed as a PDF; chapter 22's sale
 order got paid; somewhere, a customer who never opens the backend needs to see their
 own history without becoming a Workshop user. That is what controllers are for: raw
-HTTP routes you write yourself, with their own auth rules, sitting next to (not
-instead of) the web client's usual RPC traffic.
+HTTP routes you write yourself, with their own auth rules, answering requests directly
+rather than through the web client.
+
+If URLs and HTTP suddenly appearing feels like a second framework bolted onto the side
+of Odoo, that is worth naming out loud, because it is the main thing that makes this
+chapter feel harder than it is. **A controller is just a Python method with a URL for a
+name.** You write a method, you put a decorator on it saying "answer requests at this
+address", and you return something. It runs in the same process as everything else, with
+the same `env`, and it can do anything you have been doing since chapter 9. Nothing here
+replaces the ORM or runs alongside it.
+
+Here is the reveal that should settle it: **you have been using controllers since chapter
+1 without knowing.** That RPC conversation the web client has been having is itself a
+controller. Open `web/controllers/dataset.py` in core and `/web/dataset/call_kw`, the route
+every form save and every list load goes through, is an ordinary method with an ordinary
+decorator on it:
+
+```python
+@http.route(['/web/dataset/call_kw', '/web/dataset/call_kw/<path:path>'], type='jsonrpc', auth="user", ...)
+def call_kw(self, model, method, args, kwargs, path=None):
+```
+
+Same `@http.route`, same `type=`, same `auth=` you are about to write yourself. There is no
+second framework here, and there never was: you are about to start writing the same kind of
+thing the web client has been talking to all along.
+
+What is actually new is narrower than it looks. Until now, something else decided who was
+allowed in and which records they were allowed to see: you inherited a logged-in session
+and the access rules from chapter 10. Write your own route and both of those become
+yours to state, once in the decorator and once in the code inside it.
 
 The customer portal, `/my/...`, is the specific, well-worn shape Odoo gives this
 problem, and you have been a portal user's *audience* since chapter 28's invoice
@@ -80,6 +108,19 @@ consistently everywhere from `/my/orders` (chapter 22's sales) to `/my/invoices`
    token has to reach the method at all before the token check can run.
 
 ### ACL and record rule are still the two-layer system from chapter 10
+
+Name this trap before you fall into it: **making a page public is not the same as making
+a record readable.** They are separate questions, decided in separate places. `auth`
+only settles whether a request is allowed to reach your method at all. Once execution is
+inside, the ordinary access rules from chapter 10 still apply exactly as they always
+have, to whoever the request turned out to be.
+
+That is why both public routes in the first hands-on step call `sudo()`: an anonymous
+visitor is nobody, and nobody has rights to read anything. Worth being clear that
+`sudo()` is a decision rather than a fix, because it stops the checks happening at all.
+On a marketing page listing service types that is fine. On a page showing one customer's
+history it would be a data leak, which is why the portal half of this chapter does the
+opposite and leans on real rules instead.
 
 Granting a portal group read access to a model is the ACL layer: it says portal users
 *can* read `librefleet.service.order` at all. It says nothing about *which* orders. A
@@ -283,7 +324,12 @@ access_librefleet_service_order_line_portal,librefleet.service.order.line portal
 </Step>
 
 <Step>
-### The portal controller: home tile, list, detail, and the report from chapter 36
+### The portal controller, in Python
+
+Four things go in this file, and they are worth reading as four separate jobs rather than
+one wall: a counter for the `/my` home tile, a list route, a detail route, and a download
+route serving chapter 36's PDF. The detail and download routes are the interesting pair,
+because they are the ones that have to work for a visitor with no session at all.
 
 ```python title="addons/librefleet/controllers/portal.py"
 from odoo.addons.portal.controllers.portal import CustomerPortal, pager as portal_pager
@@ -372,6 +418,10 @@ first version did not have it. Chapter 14's sequence gives orders references lik
 kind of thing that looks fine in a curl transcript and breaks quietly in a real
 browser (some read it as a path separator). Caught by actually downloading the file
 and inspecting the header, not by reading the code twice.
+</Step>
+
+<Step>
+### The portal templates
 
 The templates (`views/portal_templates.xml`) follow the exact shape core's own
 `sale`, `project` and `account` portal extensions use: a breadcrumb entry inherited
@@ -485,7 +535,7 @@ that carries the `portal_client_category_enable` xpath.
 </Step>
 
 <Step>
-### Grant a customer portal access, and test both access paths
+### Grant a customer portal access
 
 A real customer gets a portal account by an admin clicking "Grant Portal Access" on
 their contact form (Settings > Users > Portal Access Management, or the button on the
@@ -501,6 +551,13 @@ instead of following an email link, a shortcut you would never take in productio
 >>> pwu.action_grant_access()
 >>> anna.user_ids.sudo().write({"password": "portal123"})
 ```
+</Step>
+
+<Step>
+### Test the logged-in path
+
+Anna now has a session to log in with, so this is the ordinary route: a real user, a real
+cookie, and the record rule from step 4 deciding what she is allowed to see.
 
 Log in as her and confirm the record rule actually scopes what she sees:
 
@@ -526,8 +583,17 @@ $ curl -b cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:8069/my/
 
 `303` is a redirect back to `/my`, from the `except Exception: return
 request.redirect("/my")` in the controller, not a raw `AccessError` traceback.
+</Step>
 
-Now test the share-link path with no session at all, using the token from step 3:
+<Step>
+### Test the share-link path, with no session at all
+
+This is the other half of `_document_check_access`, and the reason the detail route had to
+be `auth="public"`. No cookie, no login, no user: just a URL with a token in it. The
+record rule cannot help here, because there is nobody for it to scope to. The token is
+the entire credential.
+
+Test it with no session at all, using the token from step 3:
 
 ```console
 >>> order = env["librefleet.service.order"].browse(1)

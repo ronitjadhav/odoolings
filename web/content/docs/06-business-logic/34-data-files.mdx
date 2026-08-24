@@ -20,7 +20,21 @@ where XML earns its place over CSV, what a module's `demo` key actually does (an
 when it very deliberately does nothing), and the exact rule that decides whether an
 upgrade overwrites a record or leaves it alone.
 
+The objection to get out of the way first: you have already made these records by
+clicking, so writing them again in a file feels like doing the same work twice. It is
+not the same work. **A record you click exists in one database, yours. A record in a
+data file exists in every database that ever installs the module.** The file is the
+definition; the row in Postgres is a copy of it that Odoo makes on your behalf, once
+per install, forever. That reversal is the whole chapter: from here on the file is the
+thing you maintain, and the database is downstream of it.
+
 ## Concepts
+
+Five ideas, and they answer five separate questions. Which format do I write, XML or CSV?
+Does this record ship to every install or only to demos? On the next upgrade, does my file
+overwrite what is in the database or leave it alone? How do records in different files
+point at each other? And what happens to all of it in a second language? The third one,
+`noupdate`, is the one people get wrong, so it gets the most room.
 
 ### XML and CSV are the same loader, two shapes
 
@@ -97,6 +111,23 @@ demo data: illustrative, disposable, never something a production install needs.
 
 ### `noupdate`: what it protects, and the one thing it never claimed to
 
+Before the loader source, the question `noupdate` exists to answer. Your file says the fee
+is 59. A manager has since changed it to 75 in the UI. You upgrade the module. **Who wins,
+the file or the database?**
+
+- **Without `noupdate`** (the default for a `"data"` XML file), the **file wins**. Every
+  upgrade rewrites the record to match the file exactly, and the manager's 75 is gone.
+- **With `noupdate`**, the **database wins**. The record is left exactly as it is, even
+  though the file in front of you says something different.
+
+That is the whole idea, and the choice is about ownership: config *you* own (a sequence
+prefix, a technical setting) should let the file win, so upgrades can correct it. Config
+*the customer* owns (prices, email wording, anything a manager is invited to edit) needs
+`noupdate`, or every upgrade silently undoes their work.
+
+The catch, and the thing `noupdate` never promised, is in the next paragraph: "the database
+wins" only applies to records that *already exist*.
+
 Chapter 14 wrapped the sequence in `<data noupdate="1">` and promised more detail
 here. Reading Odoo 19's own loader (`odoo/modules/loading.py`,
 `odoo/tools/convert.py`) settles it precisely instead of by folklore:
@@ -143,6 +174,13 @@ master-data record in a follow-up release without touching the first.
 />
 
 ### `ref()` and xml ids: one namespace, any format
+
+First, what an xml id is for, because the name says nothing useful. A record's real
+database id is a number Postgres hands out, and that number is **different in every
+install**: your Tire Rotation might be id 4, a customer's might be id 91. So a data file
+can never point at another record by number. An **xml id is a permanent nickname** you
+choose, stored next to the record in `ir.model.data`, and it is the same in every database
+forever. That is the only reason files can reference each other at all.
 
 Every record loaded from any data file, XML or CSV, register or row, gets an xml
 id in `ir.model.data`, and that id is addressable from anywhere in the same
@@ -289,10 +327,16 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
 
 Tire Rotation's flat_fee is still 59, the upgrade you just ran did not touch it,
 exactly as the loader code in Concepts said it wouldn't. Wheel Alignment, a
-brand-new xml id, was created normally in that same upgrade. Now put the price back
-to 59 in the XML, so the source file stops lying about what's actually in your
-database (it won't change anything in Postgres either way, but a chapter's source
-should say what's true):
+brand-new xml id, was created normally in that same upgrade.
+
+There is "who wins" settled by experiment, and both answers in one upgrade. For the record
+that already existed, the **database won**: your file says 75 and Postgres still says 59.
+For the xml id that did not exist yet, there was nothing to protect, so the **file won** and
+the record appeared. `noupdate` guards records, not files.
+
+Now put the price back to 59 in the XML, so the source file stops lying about what's
+actually in your database (it won't change anything in Postgres either way, but a chapter's
+source should say what's true):
 
 ```xml
             <field name="flat_fee">59.0</field>
@@ -564,7 +608,7 @@ reordered by the translator. The output is identical, `-210.90` either way, so c
   core mostly still looks like.
 </Callout>
 
-### 8. Install a language, then export what you just marked
+### 8. Install French
 
 Install French. Pass the **iso_code**, `fr`, not the locale code `fr_FR`:
 
@@ -595,6 +639,8 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from res_count
 ------------------------------------------
  {"en_US": "Andorra", "fr_FR": "Andorre"}
 ```
+
+### 9. Export what you just marked
 
 Now export your own module's terms as a template. The `.pot` is the untranslated master
 list a translator works from:
@@ -646,7 +692,7 @@ That is the *value* of a record, exportable only because the field became `trans
 in step 6 **and** the record has a stable xml id from the master data you shipped in step
 1. Data with no xml id has nothing for a `.po` to point at.
 
-### 9. Translate it, import it, prove it
+### 10. Write the French translations
 
 Write `i18n/fr.po` with three translations, keeping each `msgid` byte-identical to the
 template (that string *is* the lookup key) and the named placeholder intact:
@@ -689,8 +735,11 @@ The gettext header (that first `msgid ""` block) is boilerplate every `.po` file
 carries; write it once and never think about it again. The third message is the one
 with the named placeholder, `%(margin).2f`, sitting untouched in both `msgid` and
 `msgstr`: the translator moves it wherever French phrasing wants it, but never renames
-or drops it, since Python fills it in by name at raise time, not by position. Import
-it:
+or drops it, since Python fills it in by name at raise time, not by position.
+
+### 11. Import it, and prove both halves landed
+
+One command reads the file back in:
 
 ```console
 $ docker compose exec odoo odoo i18n import -c /etc/odoo/odoo.conf -d tutorial -l fr /mnt/extra-addons/librefleet/i18n/fr.po
@@ -698,7 +747,9 @@ $ docker compose exec odoo odoo i18n import -c /etc/odoo/odoo.conf -d tutorial -
 INFO ? odoo.tools.translate: translations are loaded successfully
 ```
 
-The field value went into the database, next to the English one:
+Now check both halves of the chapter's translation table separately, because they landed
+in two completely different places. First the **field value**, which went into the
+database, next to the English one:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select name from librefleet_service_type where name->>'en_US'='Tire Rotation';"
@@ -710,8 +761,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from libreflee
  {"en_US": "Tire Rotation", "fr_FR": "Rotation des pneus"}
 ```
 
-And the code string translates when the wizard actually raises it. Build the smallest
-thing that trips the first message, in both languages:
+And now the **code string**, which went nowhere near Postgres: it translates when the
+wizard actually raises it, read from the in-memory catalog. Build the smallest thing that
+trips the first message, in both languages:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -901,7 +953,7 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
    than renaming the old one in place.
 4. ⭐⭐ Translate the two remaining wizard strings (the field labels
    `Complete anyway (negative margin)` and `Completion Note`) into French. Neither needs
-   `_()`, so work out from step 8's three entry kinds which comment each one carries in the
+   `_()`, so work out from step 9's three entry kinds which comment each one carries in the
    `.pot`, add them to `fr.po`, re-import, and confirm in the UI with French selected.
 5. ⭐⭐ Add a second language of your choice with `i18n loadlang`, then read
    `librefleet_service_type.name` in psql. Explain why one column can now serve three
