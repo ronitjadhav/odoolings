@@ -135,9 +135,13 @@ stock.picking       +1
       new   WH/IN/00008              state=assigned  picking_type_id=YourCompany: Receipts
 ```
 
-One transfer, not two. Confirm it from the shell:
+One transfer, not two. Confirm it from the shell, rolling back first so your shell
+actually sees what the browser just committed. This is the stale-transaction problem
+from chapter 23 again: Odoo shell opens a `REPEATABLE READ` transaction, so anything you
+did in the browser after your shell's last query is invisible until you refresh it.
 
 ```python
+>>> env.cr.rollback()
 >>> po = env["purchase.order"].search([("name", "=", "P00014")])
 >>> po.picking_ids.mapped("name")
 ['WH/IN/00008']

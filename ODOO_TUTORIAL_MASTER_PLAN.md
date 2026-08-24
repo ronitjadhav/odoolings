@@ -1114,6 +1114,43 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-24 — two more reader-reported Part 4 gaps, ch25 and ch26
+
+Same reader, working ch21-26 in order, hit both of these live.
+
+- **ch25's "Raise and confirm a small purchase" step let a stale shell transaction look
+  like a missing picking.** The step has you confirm the PO in the browser and then read
+  `po.picking_ids` in a shell that has been open since the previous step. Odoo shell runs
+  in `REPEATABLE READ`, so the snapshot was taken before the browser committed, and the
+  reader got `[]` where the chapter prints `['WH/IN/00008']`. Worse, searching by name
+  returned nothing at all, which reads like "my PO number differs from the book's" and
+  sends you off diagnosing the wrong thing. ch23 step 6 already teaches exactly this
+  (`env.cr.rollback()` before re-querying), so the fix was to carry that forward: added
+  the rollback to the snippet, plus one sentence naming it as chapter 23's problem again.
+  Verified: with the rollback, the reader's shell returned `['WH/IN/00008']`.
+- **ch26's "Stock two components" step compressed a two-product creation and a full
+  inventory adjustment into two sentences.** It said "create two simple products, both
+  tracking inventory" and "setting the counted quantity for each and applying it", which
+  assumes the reader already knows that Product Type must stay **Goods** for **Track
+  Inventory** to even render, that Cost lives on the General Information tab while Sales
+  Price is deliberately left at its default, and, the actual blocker, that the Physical
+  Inventory screen lists only *existing* quants so two brand-new zero-stock products are
+  not on it and must be added with **New**. Rewritten field by field per the standing
+  multi-field rule, with the count sheet's three-field row spelled out.
+
+  Verified against the running `functional` db and the Odoo 19 source rather than
+  guessed: `is_storable`'s label really is **Track Inventory** and its form label carries
+  `invisible="type != 'consu'"`; `standard_price` ("Cost") sits inside the
+  `General Information` page; the inventory list view is `editable="bottom" create="1"`
+  with **Counted** = `inventory_quantity` and **Difference** = `inventory_diff_quantity`;
+  the per-row save-icon **Apply** calls `action_apply_inventory` directly while the header
+  **Apply All** goes through the Inventory Reason wizard, whose `action_apply` does
+  `self.quant_ids.filtered('inventory_quantity_set')`. That last one is why the step can
+  now promise that Apply All leaves the thirty-odd untouched demo rows alone, which is the
+  reassurance a reader staring at a full count sheet actually needs.
+
+Verified with `npm run test:ci` (green).
+
 ### 2026-08-19 — two reader-reported ch21/ch23 bugs, both verified against a fresh `functional` db
 
 - **ch21 step 1 assumed a session-less browser.** "Open localhost:8069, Odoo shows a

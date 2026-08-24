@@ -92,10 +92,48 @@ second reads what running it actually did.
 <Step>
 ### Stock two components
 
-Create two simple products, both tracking inventory: `Friction Material` (cost 8.00) and
-`Backing Plate` (cost 5.00). Give yourself 20 of each via **Inventory → Operations →
-Physical Inventory → New** (under the *Adjustments* heading), setting the counted quantity
-for each and applying it.
+A recipe needs ingredients, so build the two components before anything else. Both are
+ordinary stocked goods, nothing exotic about either.
+
+Go to **Inventory → Products → Products → New**, and fill in exactly these fields:
+
+- **Product Name**: `Friction Material`
+- **Product Type**: leave it at **Goods**, the default. Chapter 21's rule is the one that
+  matters here: there is no `storable` type any more, and the next field only exists while
+  the type is Goods.
+- **Track Inventory**: tick it. This is `is_storable`, the checkbox the Inventory app
+  contributes right under the product type, and it is what gives the product stock at all.
+  Leave it unticked and the product will never appear on the count sheet below, which is
+  the most likely way to get stuck on this step.
+- **Cost**: `8.00`, on the **General Information** tab.
+- **Sales Price**: leave it alone. These are components you never sell to anyone, which is
+  why the diff below still shows the default `list_price=1.0`.
+
+Save it, then do the whole thing again for `Backing Plate`, identical except **Cost** is
+`5.00`.
+
+Both products now exist with nothing on hand, so give yourself 20 of each with a manual
+count: **Inventory → Operations → Physical Inventory**, which sits under the *Adjustments*
+heading of that menu.
+
+What opens is a live list of the quants that already exist, which means your two new
+products are **not on it yet**: a product with no stock anywhere has no quant to list, so
+there is nothing for Odoo to show you. Click **New** and the list grows an editable row at
+the bottom. Fill in three fields:
+
+- **Location**: `WH/Stock`
+- **Product**: `Friction Material`
+- **Counted**: `20`. The **Difference** column appears the moment you type it, reading
+  +20.00 against an **On Hand** of zero.
+
+Click **New** again and repeat for `Backing Plate`, same location, same 20.
+
+Now post the count. Each row grows its own **Apply** button (the little save icon at the
+end of the row) as soon as it has a Counted value, so clicking that on both rows applies
+them one at a time. The header's **Apply All** does the whole sheet in one go instead,
+after asking you for an Inventory Reason. Despite the thirty-odd demo rows sitting around
+yours, Apply All is safe: it only posts rows where somebody actually entered a Counted
+value, so the untouched furniture is left exactly as it was.
 
 ![The Physical Inventory count screen, listing every stocked product with its On Hand, Counted and Difference columns; Backing Plate, Brake Pad Set (Front) and Friction Material appear among the rows](/screens/ch26-physical-inventory-count.jpg)
 
