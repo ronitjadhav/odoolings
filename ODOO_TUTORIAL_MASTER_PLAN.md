@@ -1114,6 +1114,45 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-24 (later) — ch27-30 retrofitted onto the `<Steps>`/`<Step>` house style
+
+Closes the gap the 2026-08-18 entry below flagged and deliberately left open: "ch27-30
+(Part 5) have the identical gap and should get the same treatment in a follow-up pass."
+Part 5 was still numbering its Hands-on with plain `#### N. Title` headings under
+`### Movement 1/2` sub-headers, the pre-2026-08-09 style every other part has since moved
+off of.
+
+Same mechanical transform as the ch21-26 pass: each chapter's two Movements collapsed
+into one flat `<Steps>...</Steps>` block, one `<Step>` per former `#### N.` item with the
+number dropped from the heading text (the component supplies it), and the `### Movement
+N: ...` sub-headers deleted. Where a Movement header carried real chapter-specific
+framing rather than generic "run the flow, then read what it did" boilerplate, that
+framing moved into the prose paragraph between `## Hands-on` and the opening `<Steps>`
+tag, same as ch25/ch26 established: ch27 now names what the two phases actually are
+(hand-write and post an entry, then read what posting did), ch29 names the five tax
+scenarios, ch30 names the Periodic-to-Perpetual switch and the delivery it unblocks.
+Body text, code blocks, screenshots, Callouts and Mermaid diagrams were carried through
+unchanged; this was a structural retrofit only, not a content edit.
+
+One real judgment call, worth recording: ch27's Hands-on opened with a large
+`<Callout type="warn">` about the accounting-readonly privilege, sitting between
+`### Movement 1: run the flow` and its first `#### 1.` item. The callout's own text names
+"step 2" specifically (the Journal Items tab you need to post a hand-written entry), but
+granting the group is a precondition for the chapter's write work generally, not a task
+that belongs to step 1's specific instructions. Kept it above `<Steps>`, alongside the
+framing paragraph, rather than nesting it inside the first `<Step>`, on the same logic
+ch27's own Gotchas already use: setup that gates more than one step is chapter-level, not
+step-level.
+
+`step N` cross-references inside these chapters' own prose (Verify, Gotchas, Exercises)
+were left untouched: ch21-26 already established that these numbers were global across
+both former Movements, not reset per Movement, so they still point at the correct
+position in the single flattened list without any renumbering.
+
+Verified: `npm run test:ci` green (all three of test, build, test:export). Not
+eyeballed in the browser this pass, unlike the ch21-26 retrofit, since the transform is
+now a proven mechanical pattern rather than a new one.
+
 ### 2026-08-24 — two more reader-reported Part 4 gaps, ch25 and ch26
 
 Same reader, working ch21-26 in order, hit both of these live.

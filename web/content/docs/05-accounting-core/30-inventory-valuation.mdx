@@ -133,11 +133,14 @@ move completes with a value and no journal entry.
 
 ## Hands-on
 
-Continuing in `functional`. Same two movements as the rest of Parts 4 and 5.
+Continuing in `functional`. First you flip the brake pads from Periodic to Perpetual and
+validate the delivery that has been waiting since chapter 22; then you read the journal
+entry that produced and what its arithmetic exposes about the switch.
 
-### Movement 1: run the flow
+<Steps>
 
-#### 1. Ask what you own, before changing anything
+<Step>
+### Ask what you own, before changing anything
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -172,7 +175,10 @@ Now ask the moves what they were worth:
 **630.00 of stock has moved and the ledger has heard nothing.** Both numbers are correct:
 `periodic` values every move and posts none of them. Hold on to the 630.00, it comes back.
 
-#### 2. Confirm what is not there any more
+</Step>
+
+<Step>
+### Confirm what is not there any more
 
 Worth thirty seconds if you have ever written valuation code:
 
@@ -186,7 +192,10 @@ False
 The layer model and the interim account fields are both gone. Anything you remember about
 either is Odoo 18 knowledge.
 
-#### 3. Give the product a category, and watch nothing happen
+</Step>
+
+<Step>
+### Give the product a category, and watch nothing happen
 
 ```python
 >>> goods = env["product.category"].search([("name", "=", "Goods")], limit=1)
@@ -200,7 +209,10 @@ Still zero. The category exists, but the demo's Goods category is itself on Stan
 Price and Periodic, so the product inherited a costing method that says "the cost is
 whatever you typed", and nobody has typed anything.
 
-#### 4. Throw both switches
+</Step>
+
+<Step>
+### Throw both switches
 
 ```python
 >>> goods.write({"property_valuation": "real_time", "property_cost_method": "average"})
@@ -221,7 +233,10 @@ That is the whole point of AVCO. The value was recorded on every move all along;
 for an average is what makes Odoo go and read it. Nothing was imported and no cost was
 typed.
 
-#### 5. Tell the Customers location what stock becomes when it leaves
+</Step>
+
+<Step>
+### Tell the Customers location what stock becomes when it leaves
 
 In the interface this is **Inventory → Configuration → Locations → Customers**, field
 **Stock Valuation Account**. From the shell:
@@ -234,7 +249,10 @@ In the interface this is **Inventory → Configuration → Locations → Custome
 ('500000', 'Cost of Goods Sold')
 ```
 
-#### 6. Validate the delivery that has been waiting since chapter 22
+</Step>
+
+<Step>
+### Validate the delivery that has been waiting since chapter 22
 
 `WH/OUT/00044` is the delivery chapter 22 created when you confirmed S00025, and which
 chapter 24's receipt quietly made reservable. It has been sitting at `assigned` ever
@@ -243,9 +261,10 @@ since. Open **Inventory → Deliveries**, find it, and **Validate**.
 Odoo may ask whether to send the customer an SMS. Decline; the demo has no SMS credits
 and it is not part of this lesson.
 
-### Movement 2: read what it did
+</Step>
 
-#### 7. The first stock journal entry in the database
+<Step>
+### The first stock journal entry in the database
 
 ```python
 >>> pick = env["stock.picking"].search([("name", "=", "WH/OUT/00044")])
@@ -272,7 +291,10 @@ this journal has ever received.
 Read it against chapter 27's rule and nothing is new. Value did not appear or vanish, it
 moved: out of an asset, into an expense, because the goods left the company.
 
-#### 8. Now look at the damage
+</Step>
+
+<Step>
+### Now look at the damage
 
 ```python
 >>> acc = env["account.account"].search([("code", "=", "110100")], limit=1)
@@ -296,7 +318,10 @@ somebody posts an opening entry for the stock already on hand. On a real migrati
 entry is planned work, not a surprise, and the way you catch it is exactly the comparison
 above: what the warehouse holds against what the account says.
 
-#### 9. Why one of your moves is worth nothing
+</Step>
+
+<Step>
+### Why one of your moves is worth nothing
 
 ```python
 >>> for m in env["stock.move"].search([("product_id", "=", prod.id), ("state", "=", "done")]):
@@ -319,6 +344,10 @@ The manufacturing order is worth a second look too. `WH/MO/00007` produced four 
 pads and valued them at 0.00, because at the time it ran the product was on Standard
 Price with a cost of zero. Manufacturing values its output at whatever the costing method
 says the product is worth, and back then that was nothing.
+
+</Step>
+
+</Steps>
 
 ## Verify
 

@@ -149,9 +149,9 @@ firing for real.
 
 ## Hands-on
 
-Two movements again, continuing in the `functional` database.
-
-### Movement 1: run the flow
+Continuing in the `functional` database. First you hand-write and post a journal entry,
+then you read what posting it actually did, and find the invoice from chapter 22 built
+from the exact same parts.
 
 <Callout type="warn" title="Half the accounting menus are missing, on purpose">
   Community's accounting app is called **Invoicing** (the one called Accounting is the
@@ -184,7 +184,10 @@ Two movements again, continuing in the `functional` database.
   groups does not, so a plain click-through still shows the old, line-free form.
 </Callout>
 
-#### 1. Look at the chart of accounts and the journals
+<Steps>
+
+<Step>
+### Look at the chart of accounts and the journals
 
 Open the chart of accounts at
 `http://localhost:8069/odoo/action-account.action_account_form`, sort by code and scroll.
@@ -225,7 +228,10 @@ this same `functional` database gets `point_of_sale` installed later, for chapte
 if you are working through the tutorial in order and have not reached that chapter yet,
 you will only see the first seven.
 
-#### 2. Try to post an entry that does not balance
+</Step>
+
+<Step>
+### Try to post an entry that does not balance
 
 Journal entries are the other gated screen, so open them the same way:
 `http://localhost:8069/odoo/action-account.action_move_journal_line`
@@ -255,16 +261,20 @@ draft, so `name` is not set yet):
 (False, 'draft')
 ```
 
-#### 3. Balance it and post
+</Step>
+
+<Step>
+### Balance it and post
 
 Back in the browser, change the credit to **250.00** and post. The entry gets a number,
 and the status becomes Posted.
 
 ![A posted journal entry MISC/2026/08/0003, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
 
-### Movement 2: read what it did
+</Step>
 
-#### 4. The number arrives on posting, not on creation
+<Step>
+### The number arrives on posting, not on creation
 
 Back in the shell, `mv` is the same recordset: re-read the same two fields and watch them
 change:
@@ -288,7 +298,10 @@ Then confirm the rule Odoo just enforced:
 'entry'
 ```
 
-#### 5. What the diff saw
+</Step>
+
+<Step>
+### What the diff saw
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -302,7 +315,10 @@ account.move.line   +2
 One document, two lines, one debit, one credit, equal amounts. That is a complete
 accounting transaction and there is nothing else hiding behind it.
 
-#### 6. Now go and look at an invoice
+</Step>
+
+<Step>
+### Now go and look at an invoice
 
 This is the payoff. Ask the model how many of each kind of document it is holding:
 
@@ -353,7 +369,10 @@ thing that made it look like "an invoice" was `move_type` and a different form v
 True
 ```
 
-#### 7. Lock the sales period, and watch the invoice defend itself
+</Step>
+
+<Step>
+### Lock the sales period, and watch the invoice defend itself
 
 `sale_lock_date` is the one that doesn't hit the unreconciled-lines check, so it's
 the cleanest way to see the actual edit-blocking behavior rather than the
@@ -374,6 +393,10 @@ shell session. Reset it before you move on, it's shared demo data:
 ```python
 >>> env.company.sale_lock_date = False
 ```
+
+</Step>
+
+</Steps>
 
 ## Verify
 
