@@ -19,18 +19,42 @@ done is the perfect candidate: it's the point where the workshop is telling itse
 "this job made money" or explicitly overriding that check, and that's a decision
 worth a small form, not a click.
 
+One thing about wizards catches nearly everyone, so here it is before you meet any
+code. A wizard *looks* like a popup, so you expect to build it the way you'd build a
+dialog anywhere else: a bit of markup, two buttons, done. That isn't what a wizard is.
+**A wizard is a model.** It has a `_name`, it has fields, it gets a real table in
+Postgres, and it needs access rights like anything else.
+
+Picture it as a scratch pad. Your real models are the ledger the workshop keeps
+forever; a wizard is a pad Odoo tears off, hands you to scribble on, and bins once
+you're done with it. Real paper, real ink, just not kept.
+
+That sounds like heavy machinery for a dialog, and it's the opposite: it's the reason
+the pattern is worth learning at all. Because a wizard is an ordinary model, every
+single thing you already know still works on it. Fields behave like fields. Defaults,
+`related=`, `groups=` and the form-view XML from chapter 16 all work unchanged. There
+is no second, popup-shaped API to learn, because the popup is just a form on a model,
+and a form on a model is the only kind of form Odoo has.
+
 ## Concepts
 
 ### TransientModel: a model that cleans up after itself
 
+**Transient** is just a long word for temporary, and Odoo means it literally: these
+rows really are created in a real table, and really are deleted later.
+
 A <Term k="wizard">wizard</Term> is a model like any other, `_name`, fields, methods, security, except it
 inherits `models.TransientModel` instead of `models.Model`. The difference is
 lifecycle: transient records aren't meant to live forever. Odoo runs a scheduled
-<Term k="vacuum">vacuum</Term> that deletes old transient rows automatically (a default cutoff measured in
+<Term k="vacuum">vacuum</Term>, a cleanup job on a timer, that deletes old transient rows automatically (a
+default cutoff measured in
 hours, configurable per model via `_transient_max_hours`), so a wizard's table never
 accumulates years of throwaway "I opened this popup once" records the way a real
 business model's table would. Everything else about a `TransientModel`, fields,
 `api.depends`, security, is identical to what you already know.
+
+So the scratch pad from a moment ago is exact, right down to the bin: every popup a
+user opens writes a row, and nobody ever has to clean up after them.
 
 ### A wizard's three-part shape
 
@@ -50,10 +74,29 @@ record's form opens a popup (`target="new"`) whose form is a different model
 entirely, pre-filled from context, and that popup's own button runs the validation
 and writes back to the record that opened it.
 
+Step C in that diagram is the part nobody guesses right, so it's worth stating on its
+own. **The popup has no idea which record opened it.** It is a form on a different
+model, and a fresh scratch pad starts blank; there is no hidden pointer back to the
+order, and Odoo will not supply one. If the wizard is going to act on that order, you
+have to hand the order over, and the context dict is the envelope you hand it in. That
+is the entire job of the `default_order_id` you'll write in a moment: it is not
+convenience pre-filling, it's the only thing connecting the popup to the record it
+came from.
+
 ### Where validation actually belongs
 
-You've now met three places a stage change can be gated, and this is the moment to
-line them up:
+There's a fair objection to answer first: you already know how to stop a bad write.
+Chapter 14 gave you `@api.constrains`. Why not put the margin rule there and skip the
+popup entirely?
+
+Because of what the two can *say*. **A constraint can only say no. A wizard can ask a
+question first.** A constraint has no way to offer a manager an override, and nowhere
+to put a completion note the order has no field for. It sees the finished write and
+votes on it. That is exactly what you want for a rule about data, and not enough for a
+decision somebody is making on purpose.
+
+With that in hand, you've now met three places a stage change can be gated, and this is
+the moment to line them up:
 
 | Mechanism | Enforces? | Where you met it |
 |---|---|---|
@@ -72,7 +115,7 @@ from a confirmation step and maybe some extra input first.
 <Steps>
 
 <Step>
-### Scaffold the wizard
+### Write the wizard model
 
 A new top-level `wizards/` directory, alongside `models/`. Create
 `wizards/__init__.py`:
@@ -128,8 +171,19 @@ works exactly the same way here: only Workshop Managers see the field in the for
 *and*, worth confirming for yourself below, only they're allowed to write to it at
 all, at the ORM level, not just hidden in the UI.
 
-The wizard needs a form view of its own: the same `ir.ui.view` record shape you have
-written since chapter 16, just pointed at the wizard model. Create
+Read back over that file and notice how little of it is new. A `_name`, some fields, a
+method that raises `UserError`, a `related=` mirror, a `groups=` restriction: you have
+written every one of those against a normal model already. The only unfamiliar token in
+the whole file is `TransientModel` on line one.
+
+</Step>
+
+<Step>
+### Give the wizard its own form
+
+A model with no view is unreachable, and that is as true of a scratch pad as of
+anything else. So the wizard needs a form view: the same `ir.ui.view` record shape you
+have written since chapter 16, just pointed at the wizard model. Create
 `wizards/service_order_approve_views.xml`:
 
 ```xml
@@ -243,7 +297,7 @@ $ docker compose restart odoo
 </Step>
 
 <Step>
-### Two warnings you'll actually see, and the fix
+### Two warnings you'll actually see
 
 Watch the upgrade output closely (or check it in the shell afterward) and you'll spot
 something new, and it's actually two distinct warnings, not one:
@@ -270,10 +324,21 @@ recomputes as superuser, bypassing record rules and field-level `groups=`; `Fals
 recomputes as whichever user triggered it, so the compute can fail or see less data
 than a superuser would. You never set it on any of these three fields, so each
 one fell back to the default Odoo uses when you leave it out, which is that field's
-own `store` value. `margin` is `store=True`, so it
+own `store` value. That default is not documented anywhere prominent, but it is one
+line of core you can go and read: `attrs['compute_sudo'] = attrs.get('compute_sudo',
+store)`, in `odoo/orm/fields.py`. `margin` is `store=True`, so it
 silently got `compute_sudo=True`; `parts_total` and `labor_total` are not stored, so
 they silently got `compute_sudo=False`. One method, three fields, two different
 privilege levels, which is exactly the inconsistency both warnings are naming.
+
+Note that nothing is broken. Both are warnings, the module runs, the numbers are right.
+What Odoo is objecting to is that one method is quietly operating at two privilege
+levels, which is fine until the day it isn't.
+
+</Step>
+
+<Step>
+### Split the compute method, and watch both warnings go
 
 One fix resolves both warnings at once: splitting the compute method by storage also
 gives each half a consistent `compute_sudo`, since that attribute defaults per field
@@ -357,6 +422,12 @@ the wizard, exactly the sequence the button and popup perform for a real user:
 >>> order.stage
 'done'
 ```
+
+Stop on that `create({})` for a second, because it is the whole chapter in one line.
+You just opened a wizard from a shell. No browser, no dialog, no click: you called
+`create` on a model and got a record back, then called a method on it. That is only
+possible because the popup was never really a popup. It is a model, and the browser was
+just drawing it. The scratch pad exists whether or not anyone is looking at it.
 
 `with_context(**act["context"])` is standing in for what the client does
 automatically when it opens the popup: applying `default_order_id` before the form's

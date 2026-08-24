@@ -19,6 +19,17 @@ chapter moves fast through four view types and slows down for the one place a re
 limitation from chapter 13 finally bites, loudly this time, not silently like the last
 three chapters.
 
+Four new view types in one chapter can read as four new syntaxes to memorise, which is the
+wrong shape to carry in. Here is a better one: **each view type asks your model a question,
+and your model has to be able to answer it.** A kanban asks "which pile does this record
+belong in?" A calendar asks "when does this happen?" A pivot asks "what is the total of
+this number?" Nearly all the XML you are about to write is just telling each view which
+field answers its own question.
+
+That framing is also why this chapter has a debt to collect. The pivot's question is the
+demanding one: to add a column of numbers up, the database has to be able to see those
+numbers, and `margin` has been a computed field with no column behind it since chapter 13.
+
 ## Concepts
 
 ### Four views, one pattern you already know
@@ -35,6 +46,20 @@ they just have their own root tag and their own vocabulary inside it:
     V --> P["pivot: rows x columns\nof aggregated measures"]
     V --> G["graph: pivot's data,\ncharted"]`}
 />
+
+The container is identical every time. What actually differs is what each type needs you
+to point it at before it can draw anything:
+
+| View | The question it asks | What it needs you to point at |
+|---|---|---|
+| Kanban | which pile does this record go in? | a field to group the columns by, plus a card template |
+| Calendar | when does this happen? | the date fields that place a record on the grid |
+| Pivot | what is the total, broken down two ways? | fields for the rows and columns, plus a measure it can aggregate |
+| Graph | what is the total, drawn as a picture? | a measure, plus any field to group along |
+
+Read the last column on the pivot and graph rows once more. "A measure it can aggregate"
+is carrying more weight than it looks, and it is what this chapter spends its second half
+on.
 
 ### Kanban: a card template, not a list
 
@@ -115,7 +140,7 @@ summed. That shared foundation is about to matter.
 <Steps>
 
 <Step>
-### Add all four views
+### Write the four view records
 
 In `views/service_order_views.xml`, add a kanban grouped by stage:
 
@@ -196,6 +221,14 @@ A pivot and a graph, both measuring `margin` by vehicle:
 </record>
 ```
 
+That is one `ir.ui.view` record per view type, each one pointing at the fields that answer
+its own question: `stage` for the kanban's columns, the two dates for the calendar, and
+`margin` as the measure for both the pivot and the graph.
+</Step>
+
+<Step>
+### Offer the four views on the action
+
 Four view records exist now, and not one of them is reachable yet: a view only becomes a
 tab when an action offers it. On the existing `action_librefleet_service_order` record,
 replace the whole `view_mode` line with all six types, keeping `list` first so the action
@@ -250,6 +283,10 @@ promise chapter 13 made you and didn't collect on yet: "non-stored fields can't 
 searched, grouped, or aggregated." Chapters 16 through 18 taught you three ways a
 mistake stays completely silent. This one is the opposite: loud, unambiguous, and
 delayed until the exact moment someone opens the pivot tab.
+
+In this chapter's own terms: the pivot asked your model for a total, and `margin` had no
+way to answer. The arch was never the problem, which is exactly why nothing about the arch
+warned you.
 </Step>
 
 <Step>
@@ -317,7 +354,7 @@ $ python3 odoolings.py check ch19
 ch19 complete! On to the next chapter 🔧
 ```
 
-The third check re-runs the exact `read_group` call from step 2 over RPC; if it still
+The third check re-runs the exact `read_group` call from step 3 over RPC; if it still
 raised, the check would fail the same way the shell did. For the eyeball version: open
 Service Orders, switch to Kanban and drag a card between stage columns (notice the
 technician tag rendering as a plain green initial, not an avatar, exactly the gotcha

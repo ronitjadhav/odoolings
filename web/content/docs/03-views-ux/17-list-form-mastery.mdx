@@ -16,6 +16,19 @@ long content, colored badges in lists) and readers of your module expect the sam
 vocabulary. This chapter installs it into your hands. It also delivers on chapter 16's
 warning: one of our own xpaths breaks today, silently, and you'll watch it happen.
 
+It is worth saying out loud why this chapter can feel skippable, because that reaction is
+the normal one. Everything in it is *appearance*, and appearance sounds like the job you do
+last if there is time left. That has it backwards. To the people using your module the
+appearance is the entire product: they cannot see your computes, your constraints or your
+record rules, and the screen is all they ever get.
+
+So treat these patterns as a **vocabulary rather than as decoration**. Your users have
+already learned, from every other Odoo app they touch, that a bar across the top of a form
+means "where this record is in its life", that a diagonal banner in the corner means "this
+one is not normal", and that a number in a box at the top right is both a fact and a link.
+Spell your screen with those words and it explains itself to somebody who has never opened
+it before. Invent your own and every user has to learn your dialect first.
+
 ## Concepts
 
 ### Anatomy of a grown-up form
@@ -51,6 +64,19 @@ renders it. You've used `many2many_tags` since chapter 12; today adds
 presented as one range picker). The full widget catalog is JavaScript, so the
 authoritative list lives in the web module's source; the reference below has the
 common ones.
+
+The third column is the one that matters, because it is what you are actually choosing
+when you pick a widget:
+
+| widget | renders the field as | what a user reads from it |
+|---|---|---|
+| `statusbar` | a bar of stages across the form header | where this record is in its life, and what comes next |
+| `badge` | a small coloured pill | one record's status, at a glance, in a crowded list |
+| `statinfo` | a number inside a smart button | a count that is also a way to go and see them |
+| `daterange` | two Datetime fields as a single range picker | one span of time, rather than two dates that happen to be near each other |
+| `many2many_tags` | tags, instead of rows in a sub-list | several small related things, compactly |
+
+Pick the wrong one and nothing breaks; the screen just stops explaining itself.
 
 ### Decorations: rows that explain themselves
 
@@ -180,7 +206,7 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 </Step>
 
 <Step>
-### The smart button, method first
+### The smart button and the ribbon, method first
 
 The button needs a destination. In `models/vehicle.py`:
 
@@ -207,7 +233,9 @@ Now the button and the ribbon, this time in `views/vehicle_views.xml` (the base
 vehicle form, not the reception extension you wrote in chapter 16). Three edits:
 
 - Delete the `<field name="service_count"/>` line from the "Usage" group. The count
-  is about to live in the button instead.
+  is about to live in the button instead. Notice what you are doing here, because the
+  next step is entirely about its consequence: chapter 16's extension anchored an xpath
+  on that exact field, and you are moving it. Do it anyway, on purpose.
 - As the very first thing inside `<sheet>`, before the existing `<group>`, add the
   button box with the stat button in it.
 - Right after the button box, still a direct child of `<sheet>`, add the ribbon
