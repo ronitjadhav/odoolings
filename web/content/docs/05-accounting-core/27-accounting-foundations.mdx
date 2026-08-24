@@ -17,9 +17,12 @@ close.
 
 There is exactly one idea to internalise, and it is this chapter's title. **An invoice
 and a journal entry are the same model.** Not similar, not related by a foreign key: the
-same table, the same class, told apart by one field. Every developer who has not
-internalised that eventually writes code that treats invoices as a special case and then
-cannot explain why the accounting is wrong.
+same table, the same class, told apart by one field.
+
+Put plainly: Odoo keeps one notebook for everything involving money, and an invoice is
+simply a page in it that Odoo draws nicely. Every developer who has not internalised that
+eventually goes hunting for an invoice model, does not find one, and ends up writing code
+that treats invoices as a special case, then cannot explain why the accounting is wrong.
 
 So this chapter does it in the honest order. First you hand-write a journal entry, which
 forces you to meet debits and credits with nothing else in the way. Then you go and look
@@ -87,7 +90,19 @@ from a moment ago is the example running through it.
 
 ### The duality, stated plainly
 
-`account.move` has a `move_type` field, and this is its entire selection:
+Before the field names, the picture. Odoo keeps **one notebook** for everything involving
+money, and every money event gets **one page** in it. A customer invoice is a page. A bill
+from a supplier is a page. A hand-written correction is a page. Each page carries a label
+at the top saying which kind it is, and underneath the label every page has the identical
+structure: money-in on one side, money-out on the other, the two sides equal.
+
+That label is the *only* difference between them. It is worth being blunt about why this
+surprises people. Open an invoice in Odoo and it looks like its own special thing: a
+customer name, a due date, a Send button, a PDF. It is not a special thing. It is an
+ordinary notebook page, and Odoo read the label, decided "this one is an invoice", and drew
+it prettier.
+
+The label is a field called `move_type`, and this is its entire selection:
 
 | `move_type` | What it is |
 |---|---|
@@ -396,9 +411,13 @@ accounting transaction and there is nothing else hiding behind it.
 </Step>
 
 <Step>
-### Now go and look at an invoice
+### Count the pages in the notebook
 
-This is the payoff. Ask the model how many of each kind of document it is holding:
+This step and the next one are the payoff, and they do two separate jobs. This one proves
+there is only one notebook. The next one opens a page and looks underneath.
+
+So: ask the model how many documents it is holding of each kind. The loop walks every
+possible label and counts the documents wearing it, skipping the labels nothing uses yet:
 
 ```python
 >>> M = env["account.move"]
@@ -414,16 +433,27 @@ in_invoice   4
 in_refund    2
 ```
 
-The exact counts are not the point and will not match yours: every sale, purchase and
-manufacturing order you have posted since chapter 21 added a document here, so this
-number only grows. What matters is that five different `move_type` values all show up
-against the same model.
+Five labels came back, and every one of those counts came out of **the same table**. Not
+five tables for five kinds of document: one table, holding customer invoices, credit notes,
+vendor bills, vendor refunds and plain hand-written entries side by side. Your own hand-made
+entry from three steps ago is one of the 26 `entry` records.
 
-Five different document types, one model, one table. (If you reach for `read_group`
-here instead, note that in Odoo 19 the count comes back under a key named after the
-grouping field, `move_type_count`, not the `__count` older code expects.) Now open a real customer invoice and
-check what it is made of. This one is pinned by name so the example stays this simple
-one regardless of how many invoices your own database has since accumulated:
+The counts themselves do not matter and will not match yours, because every sale, purchase
+and manufacturing order you have posted since chapter 21 added a document here. Only the
+shape of the result matters.
+
+(If you reach for `read_group` here instead, note that in Odoo 19 the count comes back
+under a key named after the grouping field, `move_type_count`, not the `__count` older code
+expects.)
+
+</Step>
+
+<Step>
+### Open one invoice and look underneath
+
+Now take a real customer invoice, one Odoo made for you back in chapter 22, and see what
+it is actually built from. It is pinned by name so the example stays this simple one no
+matter how many invoices your database has accumulated since:
 
 ```python
 >>> inv = env["account.move"].search([("name", "=", "INV/2026/00008"),
@@ -437,15 +467,35 @@ one regardless of how many invoices your own database has since accumulated:
 121000 Account Receivable 750.0 0.0
 ```
 
-Read those two lines like the entry you just wrote. The customer owes you 750.00, so
-**Account Receivable is debited** (an asset went up). You earned 750.00, so **Product
-Sales is credited** (income went up). Same structure, same balance, same model. The only
-thing that made it look like "an invoice" was `move_type` and a different form view.
+Underneath the invoice there are just two plain lines. Read them exactly like the tool
+cabinet you typed by hand:
+
+- You sold something for 750.00 and the customer has not paid yet, so **they owe you
+  750.00**. Money you are owed is an asset, and it went up, so **Account Receivable is
+  debited**.
+- You **earned** 750.00. Income went up, so **Product Sales is credited**.
+
+Put the two side by side and there is nothing to tell apart:
+
+| Your hand-written entry | Odoo's invoice |
+|---|---|
+| Equipment, debit 250.00 | Account Receivable, debit 750.00 |
+| Bank, credit 250.00 | Product Sales, credit 750.00 |
+
+Two lines, one debit, one credit, equal amounts, both of them an `account.move`. You wrote
+one of these yourself in a form with two boxes; Odoo generated the other one from a sales
+order and drew it with a customer name, a due date and a Send button. That difference is
+`move_type` plus a different form view, and it is the entire difference.
 
 ```python
 >>> sum(inv.line_ids.mapped('debit')) == sum(inv.line_ids.mapped('credit'))
 True
 ```
+
+**The sentence to carry out of this chapter:** an invoice is an ordinary journal entry that
+Odoo happens to draw nicely. When chapter 32 asks you to add a field to invoices, or to
+block confirmation on a credit limit, this is why you already know which model you are
+changing.
 
 </Step>
 
@@ -464,7 +514,7 @@ Traceback (most recent call last):
 odoo.exceptions.UserError: You cannot add/modify entries prior to and inclusive of: Sales Lock Date (08/10/2026).
 ```
 
-The invoice from step 6, dated `2026-08-05`, is now inclusive of that lock. Nobody
+The invoice from step 7, dated `2026-08-05`, is now inclusive of that lock. Nobody
 can reopen it, not through the UI, not through a script, not through this exact
 shell session. Reset it before you move on, it's shared demo data:
 
@@ -589,7 +639,7 @@ ch27 complete! On to the next chapter 🔧
    `account.move` in the active company, and show they are equal. Then explain why that
    result is guaranteed rather than lucky, and what it would mean about your database if
    it were ever false.
-3. ⭐⭐ Take the invoice from step 6 and work out, from its lines alone and without
+3. ⭐⭐ Take the invoice from step 7 and work out, from its lines alone and without
    opening any report, how much of it is revenue and how much the customer still owes.
    Then say which `account_type` values you used to decide, and why hard-coding account
    codes instead would be a bug waiting for the next client's chart of accounts.
