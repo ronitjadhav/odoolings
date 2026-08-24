@@ -236,12 +236,15 @@ you will only see the first seven.
 Journal entries are the other gated screen, so open them the same way:
 `http://localhost:8069/odoo/action-account.action_move_journal_line`
 
-Press **New**, pick the **Miscellaneous Operations** journal, and add two lines:
+Press **New**, pick the **Miscellaneous Operations** journal, and on the **Journal Items**
+tab (the one the callout above unlocked for you) add two lines:
 
-- Debit 250.00 to `611000 Purchase of Equipments`, labelled `Workshop tool cabinet`
-- Credit **200.00** to `101401 Bank`, labelled `Paid from bank`
+- Account `611000 Purchase of Equipments`, **Label** `Workshop tool cabinet`, **Debit**
+  `250.00`
+- Account `101401 Bank`, **Label** `Paid from bank`, **Credit** `200.00`
 
-Press **Post**. Odoo stops you:
+Deliberately 250 against 200, so the entry does not balance. Press **Post**. Odoo stops
+you:
 
 ```text
 The entry is not balanced.
@@ -252,42 +255,94 @@ The entry is not balanced.
 That is not a warning you can dismiss. Double-entry is enforced at the database boundary,
 not left to your good intentions.
 
-Before you fix it, grab a handle on this draft from the shell you opened in step 1 (still
-draft, so `name` is not set yet):
+Now read what just happened more carefully, because it is stronger than it looks. That
+refusal is **not** a rule about posting. It comes from `_check_balanced`, and if you go
+and read it in `account/models/account_move.py` you will find it runs on **create and
+write**, not inside `action_post`:
 
 ```python
->>> mv = env["account.move"].search([("journal_id.code", "=", "MISC")], order="id desc", limit=1)
->>> mv.name, mv.state
-(False, 'draft')
+@contextmanager
+def _check_balanced(self, container):
+    ''' Assert the move is fully balanced debit = credit.
+    An error is raised if it's not the case.
+    '''
 ```
+
+So an unbalanced entry cannot be *stored at all*, not even as a draft. Pressing Post is
+simply what made the browser try to save first, which is the moment the constraint fired.
+Click the save (cloud) icon instead of Post and you get the identical refusal a moment
+earlier. Prove it from the shell if you like, where there is no form in the way:
+
+```python
+>>> J = env["account.journal"].search([("code", "=", "MISC")], limit=1)
+>>> exp = env["account.account"].search([("code", "=", "611000")], limit=1)
+>>> bank = env["account.account"].search([("code", "=", "101401")], limit=1)
+>>> env["account.move"].create({
+...     "journal_id": J.id,
+...     "move_type": "entry",
+...     "line_ids": [
+...         (0, 0, {"account_id": exp.id,  "name": "x", "debit": 250.0, "credit": 0.0}),
+...         (0, 0, {"account_id": bank.id, "name": "y", "debit": 0.0,   "credit": 200.0}),
+...     ],
+... })
+odoo.exceptions.UserError: The entry is not balanced.
+```
+
+`create` never returned a record. Which means the important consequence: **there is no
+draft sitting in the database for you to go and inspect.** Nothing was written. That is a
+genuinely higher bar than "you may not post this", and it is why you will never find a
+half-finished, unbalanced entry in an Odoo database.
 
 </Step>
 
 <Step>
-### Balance it and post
+### Balance it, and save without posting
 
-Back in the browser, change the credit to **250.00** and post. The entry gets a number,
-and the status becomes Posted.
+Back in the browser, change the credit to **250.00**, then click **Save** (the cloud icon)
+and *stop there*. Do not post it yet: the next step is about the difference between a saved
+draft and a posted entry, and you need the draft to exist to see it.
 
-![A posted journal entry MISC/2026/08/0003, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
+This time the save succeeds, because the entry balances. Now grab a handle on it from the
+shell you opened in step 1:
+
+```python
+>>> env.cr.rollback()
+>>> mv = env["account.move"].search([("line_ids.name", "=", "Workshop tool cabinet")], order="id desc", limit=1)
+>>> mv.name, mv.state
+(False, 'draft')
+```
+
+Two details in that snippet earn their keep. The `env.cr.rollback()` is the stale-snapshot
+problem again: your shell has been open since step 1, so it cannot see what the browser
+just committed until you refresh it. And the search matches on the **line label** rather
+than just the journal, because searching `journal_id.code = MISC` with `order="id desc"`
+would happily hand you some *other* old draft that happens to be newest, and you would
+then spend the next two steps reading a record you never touched.
 
 </Step>
 
 <Step>
 ### The number arrives on posting, not on creation
 
-Back in the shell, `mv` is the same recordset: re-read the same two fields and watch them
-change:
+That draft has no number at all. Its `name` came back as `False`, not `"/"` and not an
+empty string: there was no number to show, because none had been requested yet.
+
+Now press **Post** in the browser.
+
+![A posted journal entry, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
+
+Back in the shell, `mv` is still the same recordset. Refresh and re-read the same two
+fields to watch them change:
 
 ```python
+>>> env.cr.rollback()
 >>> mv.name, mv.state          # after posting
-('MISC/2026/08/0002', 'posted')
+('MISC/2026/08/0004', 'posted')
 ```
 
-`False`, not `"/"` and not an empty string. There was no number to show, because none had
-been requested. Your own number will differ, and it encodes the journal code and the
-period: `MISC`, year, month, counter. This database has been through this exercise
-before, so its own counter keeps climbing; yours will start lower.
+The number arrived at posting time, and it encodes the journal code and the period: `MISC`,
+year, month, counter. Your own counter will differ from the one above, since this database
+has been through the exercise more than once.
 
 Then confirm the rule Odoo just enforced:
 
@@ -306,7 +361,7 @@ Then confirm the rule Odoo just enforced:
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
-      new   MISC/2026/08/0002        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
+      new   MISC/2026/08/0004        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
 account.move.line   +2
       new   Workshop tool cabinet    account_id=Purchase of Equipments  debit=250.0
       new   Paid from bank           account_id=Bank  credit=250.0
@@ -430,9 +485,14 @@ ch27 complete! On to the next chapter 🔧
 - **Do not look for `account.invoice`.** It does not exist. Searching core for it, or
   writing `env["account.invoice"]`, is the clearest sign of a tutorial or answer written
   for Odoo 8 or 9.
-- **Unbalanced means unpostable, so "my code posted a broken entry" is never the bug.**
-  If a move will not post, the arithmetic really is wrong, usually because a rounding
-  difference or a tax line was computed rather than taken from Odoo.
+- **Unbalanced means unsavable, not merely unpostable, so "my code posted a broken entry"
+  is never the bug.** `_check_balanced` is a create/write constraint rather than a check
+  inside `action_post`, so an unbalanced move cannot even be stored as a draft. If your
+  `create` or `write` raises `The entry is not balanced.`, the arithmetic really is wrong,
+  usually because a rounding difference or a tax line was computed by hand rather than
+  taken from Odoo. The corollary is useful when debugging: you will never find a
+  half-finished unbalanced entry sitting in the database, because there is no way to put
+  one there.
 - **Setting a broad lock date can fail before it ever touches your target entry.**
   `fiscalyear_lock_date` and `hard_lock_date` both check for unreconciled bank
   statement lines first and refuse to set at all if any exist in the period. That
@@ -460,7 +520,7 @@ ch27 complete! On to the next chapter 🔧
         'The journal has no sequence configured, so numbering silently returns nothing',
       ],
       answer: 1,
-      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0002", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
+      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0004", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
     },
     {
       q: 'Reading line.account_id.code in a script returns False, though the account clearly has a code in the interface. Why?',
