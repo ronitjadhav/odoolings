@@ -1114,6 +1114,92 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-24 (last) — the comprehension-first pattern, rolled across Parts 5 and 6
+
+ch27's rewrite (entry above) worked because of one move, and the reader said so
+explicitly: **the chapter had been asserting its central idea and then verifying it, which
+only works if you already believe it.** The fix was to name the reason the idea feels
+*wrong* before defending it, then give a picturable model before any field name appears.
+That pattern is now applied to ch28-30 and ch31-38.
+
+**The pattern, for reuse.** Four moves, in descending order of how much they helped:
+
+1. **Name the unspoken objection.** Every one of these chapters had a claim that sounds
+   false on first read, and none of them said so out loud. This was consistently the
+   highest-value edit. Examples: "surely *paid* is just a status somebody sets?" (ch28);
+   "you already know what inheritance means, and Odoo's commonest form does the opposite
+   of it" (ch31); "never modify core" reading as a contradiction in a chapter about
+   changing core (ch32); readers expecting a test runner when Odoo has none (ch38).
+2. **Give a picturable model before the jargon**, placed three times: `## Why this
+   matters`, the Concepts section where field names start, and the Hands-on payoff. One
+   notebook (ch27), a tray of slips and sticky notes (ch28), a machine with five dials
+   (ch29), money already spent and not yet earned back (ch30), a cabinet of blueprints
+   (ch31), two books (ch32), one shared drawer (ch33).
+3. **Split Hands-on steps doing two unrelated jobs.** A heading containing "then", or
+   listing three verbs, is the tell. ch29 went 10 to 16 steps, ch37 6 to 9, ch34 9 to 11.
+4. **One bullet per idea, plus a small table** where a comparison was implied but left for
+   the reader to assemble.
+
+**Gloss opaque jargon on sight.** "Fiscal position" tells a newcomer nothing and got "a
+swap list"; xml ids got "a permanent nickname, because real database ids differ per
+install". Worth sweeping for elsewhere.
+
+**Process finding, and it is the important one.** These passes were delegated with a
+standing instruction to **report suspected technical errors rather than fix them**, after
+an earlier pass silently "improved" ch29's fiscal-position resolution order into being
+wrong. That instruction paid for itself repeatedly. Agents flagged nine claims across the
+two parts; every one was checked against the running instance or core source before
+anything was decided, and the split was roughly even between "correct as written, leave
+it" and "genuinely broken, fix it". **Do not accept a prose pass over technical material
+without re-verifying every claim it touches.**
+
+Claims flagged, checked, and found correct (so left alone): `account.tax.group` does carry
+`tax_receivable_account_id` and `tax_payable_account_id`; `fiscal_position_ids` really is a
+many2many labelled "Fiscal Position" singular; `replacing_tax_ids` exists and is readonly;
+the Verify prose's `original_tax_ids` is on `account.tax`, which is what `odoolings.py:2441`
+reads; ch30's `Goods` category dependency resolves.
+
+Real defects found and fixed in the same passes:
+
+- **ch28 never assigned `inv`**, yet six python blocks read fields off it, so following the
+  chapter in a fresh shell raised `NameError` at the first one. Now derived from the ch22
+  sale order, not from "the newest customer invoice", per the standing lesson in the entry
+  above. Verified: S00025 has exactly one invoice, INV/2026/00010, total 363.4.
+- **ch31 said "Part 4 spends the next seven chapters extending things".** ch31 is in Part 6
+  and ch32-38 are exactly those seven chapters. Stale reference from before a part
+  renumber, and the only one in Part 6.
+- **ch35 shipped the same Mermaid diagram twice**, a raw ```mermaid fence plus the labelled
+  `<Mermaid>` component with byte-identical chart content, so readers saw it twice. Raw
+  fence removed; it was the only raw mermaid fence in the whole site.
+- **ch37 said controllers sit "next to (not instead of) the web client's usual RPC
+  traffic"**, implying the web client's endpoints are not themselves controllers. They are:
+  `/web/dataset/call_kw` in `web/controllers/dataset.py` is an ordinary `@http.route` with
+  `type='jsonrpc', auth="user"`. Reworded, and the reveal that actually dissolves the
+  objection was added: you have been using controllers since chapter 1 without knowing.
+- **ch30's `real_time` label reads "Perpetual (at invoicing)"** while the chapter's payoff
+  entry fires on validating a delivery with no invoice involved. Odoo's wording, actively
+  misleading here, so the chapter now says to disregard the parenthetical.
+
+**Two gaps found and deliberately tracked here rather than fixed:**
+
+1. **Part 6 ships zero screenshots across all eight chapters**, against §6 rule 4b's
+   expectation that capture happens as part of writing a chapter. ch31 also carried
+   "(author tour, screenshots pending)" in shipped prose, an internal marker leaking to
+   readers; that line is now reader-facing, but the images still do not exist. Blocked on
+   an authenticated browser session.
+2. **Part 6 is internally inconsistent on Hands-on structure: ch31-34 still use literal
+   `### N.` headings while ch35-38 use `<Steps>`/`<Step>`.** Half-retrofitted is worse than
+   uniformly old, since the inconsistency is visible to anyone reading the part in order.
+   The 2026-08-18 retrofit was capped at Part 4, the entry above extended it to Part 5, and
+   Part 6 was never swept. Note for whoever does it: the numbers in ch31-34 are literal
+   text, so they must be stripped, not just re-ordered.
+
+Also outstanding from the entry above: **two ch28 screenshots are of the wrong invoice**
+(they show 276.00 / Amount Due 76.00 from INV/2026/00014, order S00048, while the chapter
+follows 363.40 / INV/2026/00010, order S00025). Same blocker.
+
+Verified with `npm run test:ci` (green) after each part.
+
 ### 2026-08-24 (later still) — ch27's unbalanced-entry flow was wrong, plus a Part 5 readability pass
 
 Two pieces of the same reader session. The reader stopped at ch27 step 2 saying "I am
