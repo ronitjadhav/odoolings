@@ -1114,6 +1114,74 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-24 (later still) — ch27's unbalanced-entry flow was wrong, plus a Part 5 readability pass
+
+Two pieces of the same reader session. The reader stopped at ch27 step 2 saying "I am
+confused, not sure if it is correct". They were right, and the bug is instructive.
+
+**The chapter taught the wrong mechanism.** It said "Press **Post**. Odoo stops you",
+implying an unbalanced draft is saved and only posting is refused, then told the reader to
+"grab a handle on this draft from the shell". No such draft can exist. `_check_balanced`
+is a **create/write constraint** in `account_move.py`, not a check inside `action_post`,
+so an unbalanced move cannot be stored at all. Verified from the shell: `create()` with
+250.00 debit against 200.00 credit raises `UserError("The entry is not balanced.")` and
+returns nothing. Pressing Post only surfaced it because Post saves first; the save (cloud)
+icon raises the same error a moment earlier.
+
+**Why it looked correct when written**, which is the part worth remembering: step 2's
+snippet searched `journal_id.code = MISC` with `order="id desc", limit=1`. The authoring
+database had leftover drafts from earlier runs (ids 93, 94, 95, all `name=False`,
+`state='draft'`), so the search returned `(False, 'draft')` and the claim appeared to
+hold. It was reading an unrelated record the whole time. The same dirt explains why the
+step 3 screenshot said `MISC/2026/08/0003` while step 4's shell output said
+`MISC/2026/08/0002`: they were never the same entry. **Standing lesson: a Hands-on
+snippet that grabs "the newest record in X" is only verified if the database is clean.
+Prefer a domain that matches something the reader themselves typed** (here, the line
+label `Workshop tool cabinet`).
+
+Restructured to a flow that is real end to end: step 2 keeps the unbalanced attempt and
+now explains the save-time constraint, quoting `_check_balanced`'s docstring and showing
+`create()` refuse outright; step 3 becomes "balance it, and save without posting" so the
+draft genuinely exists before being read, takes its handle by line label, and adds the
+`env.cr.rollback()` the shell needs to see the browser's commit; step 4 posts and re-reads
+the same recordset, keeping the "number arrives at posting" lesson intact. Sequence
+numbers aligned on `0004` across shell, diff and quiz rationale. Matching Gotcha
+strengthened: unbalanced means **unsavable**, not merely unpostable.
+
+**Then a readability pass over all four Part 5 chapters**, prose only, prompted by the
+same reader calling the part overwhelming. `## Concepts` signposts added to each; ch27's
+"Lock dates" section rewritten from a five-field run-on into one bullet per field behind a
+plain-language on-ramp; ch29's `price_include` trio and fiscal-position resolution order
+broken into lists; ch28's "Two fields" corrected to three (it always listed three).
+
+Three technical claims were caught and fixed during review of that pass, all verified
+against core rather than reasoned about:
+
+- **ch29's fiscal-position resolution order was backwards.** The pass had promoted the
+  no-country short circuit above the manual position; `_get_fiscal_position` in
+  `account/models/partner.py` returns the manual position at line 272, *before* examining
+  the country at line 274. A hand-set position therefore applies even to a contact with no
+  country. The original chapter had it right (awkwardly phrased, hence the mis-edit), so
+  the order was restored and the trap named explicitly.
+- **ch27's `tax_lock_date` was named but never described**, which also left the "four of
+  five are soft" arithmetic resting on an unstated premise. It is **Tax Return Lock Date**,
+  blocks entries carrying taxes, and Odoo sets it automatically when a tax closing entry
+  is posted. The softness count is now cited to core's own `SOFT_LOCK_DATE_FIELDS`
+  constant, which holds exactly those four.
+- **ch27's multi-company Gotcha had stale counts**: three companies and fourteen journals
+  with seven active, contradicting step 1's eleven. Live counts are 3 / 18 / 11. The old
+  numbers predated ch42's `point_of_sale` install, which adds four journals to this
+  company. Now gives both counts and says which applies when.
+
+**Process note worth keeping:** the readability pass was delegated with instructions to
+report suspected technical errors rather than fix them. It reported two, and separately
+introduced one (the fiscal-position reordering) while trying to improve phrasing. Both
+categories were only caught because every touched claim was re-verified against core
+before merging. Prose passes over technical material are not safe to accept unreviewed.
+
+Verified with `npm run test:ci` (green). No screenshots retaken: the Chrome profile had no
+active session this session, and the existing images still match the flows they illustrate.
+
 ### 2026-08-24 (later) — ch27-30 retrofitted onto the `<Steps>`/`<Step>` house style
 
 Closes the gap the 2026-08-18 entry below flagged and deliberately left open: "ch27-30

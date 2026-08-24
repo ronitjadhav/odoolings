@@ -29,6 +29,12 @@ four are invisible on the invoice PDF. This chapter is about being able to look 
 
 ## Concepts
 
+There is a lot here, so it helps to know that the four bugs listed above map almost
+one-to-one onto the sections below. Where the money lands is the routing table. Totals
+being 15% out is included-versus-excluded pricing. The missing cent is rounding. The
+un-swapped export tax is fiscal positions. Tax groups get a section of their own mainly so
+you learn to stop blaming them.
+
 ### A tax is a rate plus a routing table
 
 The rate is the easy half. `account.tax` holds `amount` (15.0), `amount_type`
@@ -87,11 +93,18 @@ Same rate, same typed number, different money. Excluded adds on top. Included tr
 you typed as the total and works backwards: `100 / 1.15`, which is 86.9565…, and the
 first thing you learn about tax-included pricing is that it almost never divides cleanly.
 
-In Odoo 19, <Term k="price-included tax (`price_include`)">`price_include`</Term> is no longer the field you set.
-`price_include` is **computed**, so writing it does nothing. What you set is
-`price_include_override`, a selection of `tax_included` / `tax_excluded` shown as
-**Included in Price** on the tax's Advanced Options tab, and if you leave it empty the
-tax falls back to the company's `account_price_include`. Three fields, one answer:
+In Odoo 19, <Term k="price-included tax (`price_include`)">`price_include`</Term> is no longer the field you set. Three fields
+now cooperate to produce one answer, and knowing which is which saves you writing to the
+one that ignores you:
+
+- **`price_include`** is **computed**. Writing to it does nothing. Read it to find out what
+  Odoo decided.
+- **`price_include_override`** is the one you set, per tax: a selection of `tax_included` /
+  `tax_excluded`, shown as **Included in Price** on the tax's Advanced Options tab.
+- **`account_price_include`** on the company is the fallback, used when the per-tax
+  override is left empty.
+
+In code that is just:
 
 ```python
 price_include = (override == 'tax_included'
@@ -150,13 +163,24 @@ So there are three fields to read instead of one table:
 `map_tax()` applies it. Note the map's values are **lists**: one domestic tax can be
 replaced by more than one tax at once.
 
-Resolution order, when a document is created, is worth knowing precisely because "why did
-it pick that one" is a recurring question. A fiscal position set by hand on the contact
-wins outright. Otherwise Odoo takes every position with **Detect Automatically** on,
-sorts company-specific ones first and then by `sequence`, and returns the first one whose
-criteria all pass: VAT-required, zip range, federal state, country, country group. And
-before any of that, there is a short circuit worth remembering: **a contact with no
-country gets no fiscal position at all.**
+"Why did it pick that one" is a recurring question, so it is worth knowing the resolution
+order exactly. When a document is created, Odoo works through this:
+
+1. **A position set by hand on the contact wins outright.** Nothing else is consulted.
+   Odoo checks the delivery address first, then the invoiced contact.
+2. **Then a short circuit:** a contact with no country gets no fiscal position at all.
+   Worth remembering, because it looks like a broken rule rather than a missing field.
+3. **Otherwise Odoo goes looking.** It takes every position with **Detect Automatically**
+   on, sorts company-specific ones first and then by `sequence`, and returns the first one
+   whose criteria all pass. The criteria are VAT-required, zip range, federal state,
+   country, and country group.
+
+That order is worth reading in `_get_fiscal_position` yourself, because steps 1 and 2 are
+easy to assume backwards: the manual field returns before the country is ever looked at,
+so a hand-set position applies even to a contact with no country on file.
+
+The practical read: if a customer is getting the wrong tax, check in that order. Most of
+the time the answer is step 1 or step 2, not a subtle sorting problem in step 3.
 
 ### Rounding: per line, or per tax
 

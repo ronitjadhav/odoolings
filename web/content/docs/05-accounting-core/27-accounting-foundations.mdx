@@ -27,6 +27,11 @@ at the invoice chapter 22 produced, and find it is built from exactly the same p
 
 ## Concepts
 
+Four ideas, and they build on each other. First the one rule double-entry actually has,
+then the three models that implement it, then the single field that makes an invoice and a
+journal entry the same thing, and finally what happens when a period is closed for good.
+If you only keep one, keep the third.
+
 ### Double-entry, in the only two sentences you need
 
 Every transaction is recorded at least twice: once as a <Term k="debit / credit">**debit**</Term>, once as a **credit**,
@@ -50,6 +55,10 @@ unbalanced entry**, which you will see for yourself.
 
 ### The three models
 
+Odoo needs only three tables to hold everything above: a list of buckets, a book to write
+in, and the entries themselves. Here is how they hang together, and the 250.00 cabinet
+from a moment ago is the example running through it.
+
 <Mermaid
   label="The three accounting models: a journal owns a move, a move holds balanced debit and credit lines, and each line points at an account in the chart of accounts"
   chart={`flowchart TD
@@ -67,9 +76,10 @@ unbalanced entry**, which you will see for yourself.
 
 - The <Term k="chart of accounts (`account.account`)">`account.account`</Term> is the chart of accounts: the list of buckets value can sit in.
   Each carries an `account_type` (`asset_receivable`, `asset_cash`, `expense`, `income`,
-  `equity`, and so on) which is what reports group by. The demo database installs a
-  generic chart of accounts, 55 of them visible to this company (the same
-  multi-company visibility rule the Gotchas section below shows journals obeying too).
+  `equity`, and so on), and that type is what reports group by, which is how a report can
+  say "assets" without hard-coding account numbers. Your demo database ships a generic
+  chart with 55 accounts visible to this company. Only *this* company: the same
+  multi-company visibility rule that the Gotchas section below shows journals obeying.
 - A <Term k="journal (`account.journal`)">`account.journal`</Term> is the book an entry is written in, and it owns the numbering
   sequence. Sales, Purchases, Bank and Miscellaneous are the ones you will meet first.
 - **<Term k="account.move / account.move.line">`account.move`</Term>** is one accounting document, and **`account.move.line`** are its
@@ -114,26 +124,39 @@ are highest.
 
 ### Lock dates: closing a period for good
 
-Posting isn't the last word. A posted entry can still be reset to draft and edited,
-which is exactly what you don't want possible once a period's books are final and
-someone has filed a tax return against them. `res.company` carries five real lock
-date fields, confirmed live: `fiscalyear_lock_date`, `tax_lock_date`,
-`sale_lock_date`, `purchase_lock_date`, and `hard_lock_date` (new in Odoo 19). Each
-guards a different slice: `sale_lock_date` blocks edits to customer invoices and
-credit notes dated on or before it, `purchase_lock_date` does the same for the
-vendor side, and `fiscalyear_lock_date`/`hard_lock_date` both block everything, any
-move, any journal.
+Posting isn't the last word. A posted entry can still be reset to draft and edited, and
+that is fine in the middle of a month. It is not fine once the books for a period are
+final and somebody has filed a tax return against them. What you want at that point is a
+door that closes behind you.
 
-What actually makes `hard_lock_date` **the strictest of the five**, verified against
-`res.company`'s own field definitions in core, is not what it blocks but that nothing
-can get around it. The other four are "soft" locks: an `account.lock_exception`
-record can grant one user a temporary, logged override past any of them, fiscal year
-included. `hard_lock_date`'s own help text says it plainly: "irreversible and does
-not allow any exception." No model grants an exception against it, for anyone, ever.
-Setting it is the one lock in this list you cannot talk your way around later.
+That door is a **lock date**: a date on the company record, before which Odoo stops
+accepting edits. `res.company` carries five of them, confirmed live:
 
-Setting one isn't a bare field write, either. Odoo checks the books are actually
-clean first:
+- **`sale_lock_date`** blocks edits to customer invoices and credit notes dated on or
+  before it.
+- **`purchase_lock_date`** does the same for the vendor side.
+- **`fiscalyear_lock_date`** blocks everything: any move, any journal.
+- **`hard_lock_date`** (new in Odoo 19) also blocks everything, and is the interesting one.
+- **`tax_lock_date`**, labelled **Tax Return Lock Date**, blocks entries *that carry taxes*
+  dated on or before it. It is the one you rarely set by hand: Odoo sets it for you when a
+  tax closing entry is posted, which is the software saying "this period has been declared,
+  stop editing it". This chapter does not exercise it.
+
+Four of those five are "soft" locks, and softness here has a precise meaning: an
+`account.lock_exception` record can grant one user a temporary, logged override past any
+of them, fiscal year included. So a determined accountant with the right rights can always
+get back in. "Four" is not a judgement call, incidentally: core keeps the list in a
+constant called `SOFT_LOCK_DATE_FIELDS`, and those four are exactly its contents.
+
+`hard_lock_date` is the exception, and what makes it **the strictest of the five**
+(verified against `res.company`'s own field definitions in core) is not what it blocks but
+that nothing can get around it. Its own help text says so plainly: "irreversible and does
+not allow any exception." No model grants an exception against it, for anyone, ever. It is
+the one lock on this list you cannot talk your way around later, so it is also the one to
+be careful with.
+
+Setting any of them isn't a bare field write, either. Odoo checks the books are actually
+clean first, and refuses if they are not:
 
 ```text
 There are still unreconciled bank statement lines in the period you want to lock.
@@ -236,12 +259,15 @@ you will only see the first seven.
 Journal entries are the other gated screen, so open them the same way:
 `http://localhost:8069/odoo/action-account.action_move_journal_line`
 
-Press **New**, pick the **Miscellaneous Operations** journal, and add two lines:
+Press **New**, pick the **Miscellaneous Operations** journal, and on the **Journal Items**
+tab (the one the callout above unlocked for you) add two lines:
 
-- Debit 250.00 to `611000 Purchase of Equipments`, labelled `Workshop tool cabinet`
-- Credit **200.00** to `101401 Bank`, labelled `Paid from bank`
+- Account `611000 Purchase of Equipments`, **Label** `Workshop tool cabinet`, **Debit**
+  `250.00`
+- Account `101401 Bank`, **Label** `Paid from bank`, **Credit** `200.00`
 
-Press **Post**. Odoo stops you:
+Deliberately 250 against 200, so the entry does not balance. Press **Post**. Odoo stops
+you:
 
 ```text
 The entry is not balanced.
@@ -252,42 +278,94 @@ The entry is not balanced.
 That is not a warning you can dismiss. Double-entry is enforced at the database boundary,
 not left to your good intentions.
 
-Before you fix it, grab a handle on this draft from the shell you opened in step 1 (still
-draft, so `name` is not set yet):
+Now read what just happened more carefully, because it is stronger than it looks. That
+refusal is **not** a rule about posting. It comes from `_check_balanced`, and if you go
+and read it in `account/models/account_move.py` you will find it runs on **create and
+write**, not inside `action_post`:
 
 ```python
->>> mv = env["account.move"].search([("journal_id.code", "=", "MISC")], order="id desc", limit=1)
->>> mv.name, mv.state
-(False, 'draft')
+@contextmanager
+def _check_balanced(self, container):
+    ''' Assert the move is fully balanced debit = credit.
+    An error is raised if it's not the case.
+    '''
 ```
+
+So an unbalanced entry cannot be *stored at all*, not even as a draft. Pressing Post is
+simply what made the browser try to save first, which is the moment the constraint fired.
+Click the save (cloud) icon instead of Post and you get the identical refusal a moment
+earlier. Prove it from the shell if you like, where there is no form in the way:
+
+```python
+>>> J = env["account.journal"].search([("code", "=", "MISC")], limit=1)
+>>> exp = env["account.account"].search([("code", "=", "611000")], limit=1)
+>>> bank = env["account.account"].search([("code", "=", "101401")], limit=1)
+>>> env["account.move"].create({
+...     "journal_id": J.id,
+...     "move_type": "entry",
+...     "line_ids": [
+...         (0, 0, {"account_id": exp.id,  "name": "x", "debit": 250.0, "credit": 0.0}),
+...         (0, 0, {"account_id": bank.id, "name": "y", "debit": 0.0,   "credit": 200.0}),
+...     ],
+... })
+odoo.exceptions.UserError: The entry is not balanced.
+```
+
+`create` never returned a record. Which means the important consequence: **there is no
+draft sitting in the database for you to go and inspect.** Nothing was written. That is a
+genuinely higher bar than "you may not post this", and it is why you will never find a
+half-finished, unbalanced entry in an Odoo database.
 
 </Step>
 
 <Step>
-### Balance it and post
+### Balance it, and save without posting
 
-Back in the browser, change the credit to **250.00** and post. The entry gets a number,
-and the status becomes Posted.
+Back in the browser, change the credit to **250.00**, then click **Save** (the cloud icon)
+and *stop there*. Do not post it yet: the next step is about the difference between a saved
+draft and a posted entry, and you need the draft to exist to see it.
 
-![A posted journal entry MISC/2026/08/0003, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
+This time the save succeeds, because the entry balances. Now grab a handle on it from the
+shell you opened in step 1:
+
+```python
+>>> env.cr.rollback()
+>>> mv = env["account.move"].search([("line_ids.name", "=", "Workshop tool cabinet")], order="id desc", limit=1)
+>>> mv.name, mv.state
+(False, 'draft')
+```
+
+Two details in that snippet earn their keep. The `env.cr.rollback()` is the stale-snapshot
+problem again: your shell has been open since step 1, so it cannot see what the browser
+just committed until you refresh it. And the search matches on the **line label** rather
+than just the journal, because searching `journal_id.code = MISC` with `order="id desc"`
+would happily hand you some *other* old draft that happens to be newest, and you would
+then spend the next two steps reading a record you never touched.
 
 </Step>
 
 <Step>
 ### The number arrives on posting, not on creation
 
-Back in the shell, `mv` is the same recordset: re-read the same two fields and watch them
-change:
+That draft has no number at all. Its `name` came back as `False`, not `"/"` and not an
+empty string: there was no number to show, because none had been requested yet.
+
+Now press **Post** in the browser.
+
+![A posted journal entry, Debit 250.00 to Purchase of Equipments, Credit 250.00 to Bank](/screens/ch27-entry-posted.jpg)
+
+Back in the shell, `mv` is still the same recordset. Refresh and re-read the same two
+fields to watch them change:
 
 ```python
+>>> env.cr.rollback()
 >>> mv.name, mv.state          # after posting
-('MISC/2026/08/0002', 'posted')
+('MISC/2026/08/0004', 'posted')
 ```
 
-`False`, not `"/"` and not an empty string. There was no number to show, because none had
-been requested. Your own number will differ, and it encodes the journal code and the
-period: `MISC`, year, month, counter. This database has been through this exercise
-before, so its own counter keeps climbing; yours will start lower.
+The number arrived at posting time, and it encodes the journal code and the period: `MISC`,
+year, month, counter. Your own counter will differ from the one above, since this database
+has been through the exercise more than once.
 
 Then confirm the rule Odoo just enforced:
 
@@ -306,7 +384,7 @@ Then confirm the rule Odoo just enforced:
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
-      new   MISC/2026/08/0002        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
+      new   MISC/2026/08/0004        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
 account.move.line   +2
       new   Workshop tool cabinet    account_id=Purchase of Equipments  debit=250.0
       new   Paid from bank           account_id=Bank  credit=250.0
@@ -423,16 +501,23 @@ ch27 complete! On to the next chapter 🔧
   psql queries against a `code` column, because the value lives in
   `account.code.mapping` rather than on the account row.
 - **The shell does not apply the company filter the interface does.** This demo database
-  has three companies and fourteen journals, but only seven belong to the active one. A
+  has three companies and eighteen journals, but only eleven belong to the active one
+  (eleven is the count from step 1; it is seven if you have not yet reached chapter 42 and
+  installed `point_of_sale`, which adds four to this company). A
   bare `search([])` in a script crosses company boundaries in a way the same action in
   the interface would not, which is a genuinely dangerous difference when you are writing
   a fix against production data.
 - **Do not look for `account.invoice`.** It does not exist. Searching core for it, or
   writing `env["account.invoice"]`, is the clearest sign of a tutorial or answer written
   for Odoo 8 or 9.
-- **Unbalanced means unpostable, so "my code posted a broken entry" is never the bug.**
-  If a move will not post, the arithmetic really is wrong, usually because a rounding
-  difference or a tax line was computed rather than taken from Odoo.
+- **Unbalanced means unsavable, not merely unpostable, so "my code posted a broken entry"
+  is never the bug.** `_check_balanced` is a create/write constraint rather than a check
+  inside `action_post`, so an unbalanced move cannot even be stored as a draft. If your
+  `create` or `write` raises `The entry is not balanced.`, the arithmetic really is wrong,
+  usually because a rounding difference or a tax line was computed by hand rather than
+  taken from Odoo. The corollary is useful when debugging: you will never find a
+  half-finished unbalanced entry sitting in the database, because there is no way to put
+  one there.
 - **Setting a broad lock date can fail before it ever touches your target entry.**
   `fiscalyear_lock_date` and `hard_lock_date` both check for unreconciled bank
   statement lines first and refuse to set at all if any exist in the period. That
@@ -460,7 +545,7 @@ ch27 complete! On to the next chapter 🔧
         'The journal has no sequence configured, so numbering silently returns nothing',
       ],
       answer: 1,
-      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0002", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
+      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0004", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
     },
     {
       q: 'Reading line.account_id.code in a script returns False, though the account clearly has a code in the interface. Why?',
