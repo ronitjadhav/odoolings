@@ -27,6 +27,19 @@ configured to do, and a developer who cannot tell them apart cannot answer the q
 this chapter exists for: **why is the P&L wrong?** That ticket is nearly always one of
 these three, and they have different fixes.
 
+Before any of it makes sense, though, one idea has to land, and it is not really an
+accounting idea. **Stock on a shelf is not stuff. It is money you have already spent and
+not yet earned back.** You paid a supplier for those brake pads, and until you sell them
+that money is simply parked in a different shape: boxes instead of cash.
+
+That is what makes the rest of the chapter reasonable rather than arbitrary. The part that
+looks absurd at first is that *moving a box* can write a journal entry, because nobody
+bought or sold anything at the moment you validate a picking. It writes one because the
+money changed shape. Goods going out to a customer turn parked money into an expense you
+can set against the sale. Goods arriving from a vendor turn cash into parked money. And
+carrying a box from one of your own shelves to another changes nothing whatsoever, which is
+exactly why Odoo values those moves at zero.
+
 This is also where Part 4 and Part 5 finally join. The delivery you are about to validate
 has been sitting in your database since chapter 22.
 
@@ -39,8 +52,17 @@ other two follow.
 
 ### Two switches, and people conflate them constantly
 
-Valuation is quantity times cost, and Odoo splits the decision in two. They are set in
-the same place, on the product category, which is exactly why they get confused:
+Valuation is quantity times cost, and Odoo splits the decision in two. In plain words,
+before any field names, there are two entirely separate questions to answer about a
+product:
+
+- **What did this unit cost you?** You bought at different prices over the months, so
+  something has to decide what the one leaving the shelf today was worth.
+- **Does the ledger find out now, or later?** Either a person works it out at period end,
+  or Odoo posts an entry the instant each move happens.
+
+Those are independent. Answering the first tells you nothing about the second. They are set
+in the same place, on the product category, which is exactly why they get confused:
 
 | Question | Field | Values |
 |---|---|---|
@@ -51,18 +73,42 @@ The first is a <Term k="costing method (`property_cost_method`)">costing</Term> 
 run AVCO costing and still post nothing to the ledger until year end, which is what the
 demo database has been doing all along.
 
+The <Term k="costing method (`property_cost_method`)">costing method</Term> is the rule for answering "what was this unit worth?" when the
+units on the shelf were bought at different prices. One word deserves emphasis: this is
+what the goods cost **you**, and it has nothing whatsoever to do with what you charge a
+customer. That confusion is the single most common one here, and it matters because a wrong
+costing method shows up as a wrong *margin*, never as a wrong invoice.
+
 - **Standard Price**: a cost you type. Every movement is valued at that number until you
   change it. Predictable, and wrong the moment your supplier raises prices.
 - **FIFO**: each receipt keeps its own cost, and outgoing moves consume the oldest layer
   first. Odoo tracks what is left of each receipt in `stock.move.remaining_value`.
 - **AVCO**: one running average, recomputed on every receipt.
 
-And for the second switch:
+The second switch decides *when the ledger finds out*, and nothing else:
 
 - **`periodic`**, labelled **Periodic (at closing)**: moves are still valued, but no
   journal entry is created. Somebody posts the change in stock manually at period end.
 - **`real_time`**, labelled **Perpetual (at invoicing)**: every valued move posts its own
   journal entry as it happens.
+
+Ignore the words "at invoicing" in that second label. They are Odoo's, not this chapter's,
+and they are misleading: the entry fires when a **move** is validated, not when anything is
+invoiced. You are about to watch one appear from validating a delivery, with no invoice
+involved at all. Read the label as "Perpetual" and mentally drop the parenthesis.
+
+The distinction that readers miss is that **both of them value every move**. Only one of
+them tells the accounts:
+
+| | Periodic (at closing) | Perpetual (at invoicing) |
+|---|---|---|
+| Is every move given a value? | Yes | Yes |
+| Does a journal entry appear? | No | Yes, one per valued move |
+| Who updates the books, and when? | A person, at period end | Odoo, immediately |
+
+Keep that middle row in mind for the Hands-on, because the database you are about to open
+has been running on the left-hand column for nine chapters: every move carefully valued,
+not one of them posted.
 
 <Callout type="warn" title="On Odoo 18 this differs">
   Both the stored values and the labels changed. Odoo 18 stores `manual_periodic` and
@@ -106,8 +152,11 @@ Stock Output. **Those fields are gone in 19.** The routing now reads like a sent
 - each **location outside the company** says what value *becomes* when it arrives there,
   in `stock.location.valuation_account_id`
 
-So Customers means cost of goods sold, Inventory Loss means a shrinkage expense,
-Production means work in progress. One field per destination, and the entry writes itself:
+That second bullet is the parked-money idea expressed as a field. When goods cross out of
+the company, the money they stood for has to turn into something else, and each destination
+knows what it turns into: Customers means cost of goods sold, Inventory Loss means a
+shrinkage expense, Production means work in progress. One field per destination, and the
+entry writes itself:
 
 <Mermaid
   label="Stock leaving for a customer credits the category's stock asset account and debits the account named on the Customers location, which is cost of goods sold"
@@ -238,6 +287,18 @@ That is the whole point of AVCO. The value was recorded on every move all along;
 for an average is what makes Odoo go and read it. Nothing was imported and no cost was
 typed.
 
+Both switches moved in that single `write`, so be precise about which one did what. This
+is the exact spot where they get conflated:
+
+- **`property_cost_method` to `average`** produced the 33.16. That is the costing half, and
+  it acted on the *past*: it went and read movement history that was already sitting there.
+- **`property_valuation` to `real_time`** produced nothing you can see yet. That is the
+  accounting half, and it only acts on the *future*, on the next valued move. The rest of
+  this Hands-on is that move.
+
+Hold on to that asymmetry. One switch reached backwards and one only reaches forwards, and
+that is precisely why this chapter ends with a stock account showing a negative number.
+
 </Step>
 
 <Step>
@@ -288,13 +349,20 @@ and it is not part of this lesson.
 500000 Cost of Goods Sold 132.63 0.0
 ```
 
-Four units at the 33.16 average is 132.63, and it lands as a balanced pair: the asset
-account goes down, the expense account goes up. That is <Term k="COGS (cost of goods sold)">cost of goods sold</Term>, produced by
-validating a transfer rather than by anything on the invoice, and it is the first entry
-this journal has ever received.
+Four units at the 33.16 average is 132.63, and it lands as a balanced pair. Read the two
+lines as the parked money finally changing shape:
+
+- **Stock Valuation is credited 132.63.** The parked money left. You are holding 132.63
+  less stock than you were a moment ago.
+- **Cost of Goods Sold is debited 132.63.** That parked money became an expense: what those
+  four brake pads cost you, now sitting against the sale that took them out of the door.
+
+That is <Term k="COGS (cost of goods sold)">cost of goods sold</Term>, produced by validating a transfer rather than by anything on
+the invoice, and it is the first entry this journal has ever received.
 
 Read it against chapter 27's rule and nothing is new. Value did not appear or vanish, it
-moved: out of an asset, into an expense, because the goods left the company.
+moved: out of an asset, into an expense, because the goods left the company. Same notebook,
+same two sides, same requirement that they match.
 
 </Step>
 
@@ -326,7 +394,9 @@ above: what the warehouse holds against what the account says.
 </Step>
 
 <Step>
-### Why one of your moves is worth nothing
+### Why the internal transfer is worth nothing
+
+Lay every finished move for this product side by side:
 
 ```python
 >>> for m in env["stock.move"].search([("product_id", "=", prod.id), ("state", "=", "done")]):
@@ -339,16 +409,41 @@ WH/OUT/00044 WH/Stock -> Customers 4.0 132.63 True
 WH/MO/00007 Production -> WH/Stock 4.0 0.0 True
 ```
 
+Two of those five moves are worth `0.0`, and they are worth nothing for completely
+different reasons. The `is_valued` column is what tells them apart. This step is one of
+them, the next step is the other.
+
 `WH/STOR/00001` is the second leg of chapter 25's two-step receipt, and it is the only
 one with `is_valued` of `False`. Both of its locations are inside the company, so nothing
 economic happened: the goods were already yours before you moved them from Input to
 Stock. Valuing that move would double-count the 210.00 the receipt above it already
 recorded.
 
-The manufacturing order is worth a second look too. `WH/MO/00007` produced four brake
-pads and valued them at 0.00, because at the time it ran the product was on Standard
-Price with a cost of zero. Manufacturing values its output at whatever the costing method
-says the product is worth, and back then that was nothing.
+This is the parked money again. Carrying a box from Input to Stock does not change what the
+box is worth to you, so there is nothing for the ledger to hear about.
+
+</Step>
+
+<Step>
+### And why the manufactured units were worth nothing either
+
+Look at `WH/MO/00007` in the same output. It produced four brake pads and valued them at
+0.00, because at the time it ran the product was on Standard Price with a cost of zero.
+Manufacturing values its output at whatever the costing method says the product is worth,
+and back then that was nothing.
+
+Now compare the two zeros, because the difference is the point:
+
+| | `WH/STOR/00001` | `WH/MO/00007` |
+|---|---|---|
+| `value` | 0.0 | 0.0 |
+| `is_valued` | `False` | `True` |
+| Why | Odoo declined to value it, both ends being inside the company | Odoo valued it, and the honest answer was zero |
+
+Same number in the `value` column, opposite meanings. One move was never an economic event
+at all; the other genuinely was one, and happened to be worth nothing because nobody had
+told the product what it cost yet. If you ever write a report that treats a zero value as
+"missing data", `is_valued` is the field that keeps you honest.
 
 </Step>
 
