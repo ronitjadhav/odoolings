@@ -22,6 +22,11 @@ right and are not.
 
 ## Concepts
 
+The chain here is short and each link is a record you can go and look at: order, invoice,
+payment, and then the small record that ties the last two together. That final link,
+reconciliation, is the one people skip, and it is the one that decides whether an invoice
+reads as paid.
+
 ### Invoicing is a wizard, not a button on the order
 
 The **Create Invoice** button does not create the invoice itself. It opens a
@@ -82,14 +87,16 @@ instalments create two, and their amounts sum to the invoice total.
     R -.-> S["residual 0.00<br/>reconciled = True<br/>payment_state = paid"]`}
 />
 
-Two fields describe the result, and the difference between them is worth holding on to:
+Three fields describe the result, and the difference between them is the whole point of
+this chapter:
 
 - **`amount_residual`** on the move: how much is still unmatched, in currency.
 - **`reconciled`** on the line: a boolean, true once that line is fully matched.
 - **<Term k="payment_state">`payment_state`</Term>** on the move: the computed summary, one of `not_paid`,
   `partial`, `in_payment`, `paid`, `reversed`, `blocked` (plus a legacy value).
 
-`payment_state` is derived from the first two. That is the direction of causation, and
+The first two are the facts. The third is a *summary* of them: `payment_state` is derived
+from the first two, never the other way around. That is the direction of causation, and
 getting it backwards is the bug this chapter is trying to prevent.
 
 ### Payment terms decide *when*, not *whether*
