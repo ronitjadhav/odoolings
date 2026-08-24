@@ -20,6 +20,14 @@ until nothing is left over. Code that writes or trusts `payment_state` without
 understanding reconciliation is the source of a whole genre of bug where the books look
 right and are not.
 
+The objection to that is the right one, so let us say it out loud: surely "paid" is just a
+status? You pay an invoice, somebody marks it paid, done. That is how nearly every other
+system you have used works, and it is not how this one works. **In Odoo nobody ever marks
+an invoice paid.** Paid is a conclusion Odoo reaches by adding up which amounts have been
+matched against which, and if those matches cover the total then the invoice is paid by
+definition. The indirection is the whole point: a status somebody sets can disagree with
+the money, and a status derived from the money cannot.
+
 ## Concepts
 
 The chain here is short and each link is a record you can go and look at: order, invoice,
@@ -60,12 +68,35 @@ payment table holding money, just another balanced entry. Its two lines are a de
 **Outstanding Receipts** (cash is on its way in) and a credit to **Account Receivable**
 (the customer owes less now).
 
-Notice what has *not* happened yet: the invoice's receivable line and the payment's
-receivable line are two separate lines that happen to be on the same account. Something
-has to declare that they cancel out.
+Notice what has *not* happened yet, because this is exactly where most people's mental
+model breaks. You would expect the payment to point at the invoice it pays: some
+`invoice_id` field on one, linking it to the other. **There is no such field.** What you
+have instead is the invoice's receivable line and the payment's receivable line, two
+separate lines that happen to sit on the same account, with nothing whatsoever joining
+them. Something else has to declare that they cancel out.
 
 ### Reconciliation is that declaration
 
+Before the model name, get the picture. Think of the receivable account as a **tray**.
+Posting the invoice drops a slip into it reading "the customer owes 363.40". Registering a
+payment drops a second slip in reading "the customer paid 200.00". Both slips are now
+sitting in the same tray, and neither one knows the other exists.
+
+**Reconciliation is a sticky note joining two slips**, and the note carries an amount:
+"200.00 of this slip is cancelled by 200.00 of that one". Add enough notes to cover the
+363.40 and the invoice is settled. That is all "paid" means.
+
+Why notes rather than a simple pointer? Because the relationship is genuinely many-to-many
+with a figure attached to each pairing: one payment can settle three invoices, one invoice
+can take five payments, and every pairing needs its own amount. A field cannot carry that.
+A record can.
+
+| What you expect | What Odoo actually does |
+|---|---|
+| the payment points at the invoice it pays | nothing points at anything, a separate record says how much of one line cancels how much of another |
+| somebody marks the invoice paid | "paid" is computed from whether those records add up to the total |
+
+The sticky note has a real name.
 <Term k="reconciliation (`account.partial.reconcile`)">`account.partial.reconcile`</Term> is a record saying "this much of that debit is matched by
 this much of that credit". One payment against one invoice creates one of them. Two
 instalments create two, and their amounts sum to the invoice total.
@@ -167,7 +198,35 @@ There are the three lines, and 316.00 plus 47.40 is exactly the 363.40 debited t
 customer. The order's `invoice_status` moved to `invoiced`, closing the loop chapter 22
 opened. Your numbers will differ.
 
-Confirm the draft-versus-posted rule from chapter 27 still holds:
+</Step>
+
+<Step>
+### Draft versus posted, one more time
+
+Chapter 27's rule was that a draft has no number and no accounting effect. This invoice is
+a chance to watch that hold on a document you did *not* hand-write, one the wizard built
+for you.
+
+First get a handle on the invoice, because the rest of this chapter keeps reading fields
+off it. Do not reach for "the newest customer invoice": this database has plenty, and you
+would end up reading somebody else's. Come at it from the order you confirmed back in
+chapter 22, which is the one thing here you know is yours:
+
+```python
+>>> env.cr.rollback()
+>>> so = env["sale.order"].search([("name", "=", "S00025")], limit=1)   # your own order name
+>>> inv = so.invoice_ids[0]
+>>> inv.name, inv.amount_total
+('INV/2026/00010', 363.4)
+```
+
+Substitute your own order's name in that search. The `env.cr.rollback()` is the
+stale-snapshot habit from chapter 25: a shell that has been open since before you pressed
+Confirm cannot see the invoice until it refreshes.
+
+Now read the two lines below as **two different moments rather than one session**: the
+first is what the wizard handed you, before you pressed Confirm in step 1, and the second
+is that same record afterwards.
 
 ```python
 >>> inv.name, inv.state, inv.move_type      # created by the wizard, still draft
@@ -178,7 +237,9 @@ Confirm the draft-versus-posted rule from chapter 27 still holds:
 (363.4, 363.4)
 ```
 
-Posted, numbered, and the entire amount still outstanding.
+Posted, numbered, and the entire amount still outstanding. Note that last pair especially:
+`amount_residual` equals `amount_total`, because not one cent has been matched against it
+yet. There are no sticky notes in the tray.
 
 </Step>
 
@@ -253,6 +314,15 @@ through the first payment and only flipped once the second one covered the rest.
 Two reconciliation records, one per instalment, summing to 363.40. Those two rows are
 what "paid" actually means. Delete them and the invoice is unpaid again, whatever
 `payment_state` said a moment earlier.
+
+There are the two sticky notes, and there is the tray. The 200.00 and the 163.40 add up to
+the 363.40 slip they are attached to, which is the entire reason this invoice reads as
+settled.
+
+**The sentence to carry out of this chapter:** nobody marked this invoice paid. Two records
+covered the whole amount, so Odoo concluded it was paid. Next time someone says an invoice
+is wrongly showing as settled, you know there are exactly two rows to go and look at, and
+that `payment_state` is not one of them.
 
 </Step>
 
