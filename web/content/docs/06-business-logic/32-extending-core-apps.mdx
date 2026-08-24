@@ -18,6 +18,17 @@ The discipline has a name that every Odoo team says out loud during code review:
 modify core, always extend.** It sounds like style advice. It is actually the difference
 between a project that upgrades in an afternoon and one that quietly becomes unupgradeable.
 
+That rule reads like a contradiction the first time you meet it, and it is worth clearing
+up before anything else. This chapter is about changing how core behaves, so "never modify
+core" sounds like being told to do the thing you were just forbidden. The resolution is
+that you are **adding to core from outside it**, never editing it. Core's files come out of
+this chapter byte for byte identical to how they went in.
+
+Picture it as two books. Odoo ships its book and you never write in it. You keep your own
+book, and at load time Odoo reads both together, yours second, so your pages win where they
+overlap. That is why an upgrade can throw Odoo's book away and replace it wholesale: your
+book was never inside it, so your pages simply get read on top of the new one.
+
 ## Concepts
 
 ### The golden rule, and the three reasons behind it
@@ -47,7 +58,9 @@ Three concrete reasons, in the order they will bite you:
 
 ### Extending a model you do not own
 
-Mechanically this is exactly ch31's classic extension, aimed at somebody else's model:
+Mechanically this is exactly ch31's classic extension, aimed at somebody else's model. In
+the blueprint terms of that chapter: you are pencilling a line onto a blueprint Odoo filed,
+and no new blueprint gets created:
 
 ```python
 class ResPartner(models.Model):
@@ -244,7 +257,12 @@ telling them apart quickly is a genuinely useful skill:
 | `Model 'X' does not exist in registry` | X is in *your* module, imported too early in `__init__.py` | X is in *another* module, missing from `depends` |
 
 The rule of thumb: if `X` has your module's prefix, it is an import-order problem. If it is
-somebody else's model, it is a manifest problem. Fix it:
+somebody else's model, it is a manifest problem.
+
+### 4. Declare the dependency, and watch the chain arrive
+
+One line fixes it. You told Odoo you wanted to pencil on `product`'s blueprint, so now tell
+it that `product` has to be in the cabinet first:
 
 ```python
 "depends": ["base", "product"],
@@ -275,7 +293,7 @@ INFO tutorial odoo.modules.loading: 30 modules loaded in 6.15s, 13259 queries
   nothing needs fixing; it just looks alarming because it says ERROR.
 </Callout>
 
-### 4. Bridge the part to the catalogue
+### 5. Bridge the part to the catalogue
 
 `librefleet.part` has been deliberately self-contained since chapter 12: `name`, `code`,
 `standard_cost`, `list_price`, and no dependency on core's product model. That was the right
@@ -293,7 +311,7 @@ Note the `domain`: it filters the dropdown using the flag you just added to
 `product.template`. Optional on purpose too, because a workshop shelves a part long before
 anyone decides it deserves a product record.
 
-### 5. Ask what actually happened to the schema
+### 6. Ask what actually happened to the schema
 
 Extension talks about "the same table", so verify it rather than trusting the word:
 
@@ -317,7 +335,8 @@ order by f.model, f.name;"
  res.partner      | librefleet_vehicle_ids   | one2many | t     | librefleet
 ```
 
-Two things in that output deserve a second look.
+Two things in that output deserve a second look. Here is the first; the next step takes the
+second, because it is a bigger idea than it looks.
 
 **No new table exists.** Our partner fields are attributed to `librefleet` but they live on
 core's model, and there is no `librefleet_res_partner` anywhere:
@@ -332,8 +351,16 @@ where table_name like 'librefleet%partner%';"
 0
 ```
 
-**We never declared `librefleet_is_part` on `product.product`, yet there it is**, unstored.
-That is not a bug and not magic, it is chapter 31 paying you back. Ask the registry why:
+That `declared_by` column is the two books made visible. The field belongs to your book,
+Odoo's table holds it, and nothing in core's source mentions it. An upgrade can replace
+every core file on disk and this column's provenance still reads `librefleet`, because your
+book was never inside theirs.
+
+### 7. The field you never declared
+
+Look at the first row of that output again. **We never declared `librefleet_is_part` on
+`product.product`, yet there it is**, unstored. That is not a bug and not magic, it is
+chapter 31 paying you back. Ask the registry why:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -366,7 +393,7 @@ where column_name = 'librefleet_is_part' order by table_name;"
 This is why ch31 spent a whole chapter on three mechanisms that look alike: you do not only
 choose between them for your own models, you inherit the consequences of core's choices.
 
-### 6. Watch the computed count work
+### 8. Watch the computed count work
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http

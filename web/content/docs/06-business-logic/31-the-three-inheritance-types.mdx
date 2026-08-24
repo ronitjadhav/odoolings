@@ -15,12 +15,37 @@ this existing thing behaves, without touching its source*. Odoo gives you three
 different mechanisms for that, they look almost identical in Python, and they do
 completely different things to your schema. Choosing the wrong one is not a
 style mistake: it produces a second table full of records nobody wanted, or a
-field that silently never appears where you expected it. Part 4 spends the next
-seven chapters extending things, and all of it rests on getting this right.
+field that silently never appears where you expected it.
+
+Before the mechanisms, the thing nobody says out loud. You already know what
+inheritance means: you write a subclass, you get a new class, and the original is
+left alone. Odoo's most common form of inheritance does the **opposite**. It
+reaches back into a model somebody else wrote and edits it in place, for every
+module that uses it and every record that already exists. That is not subclassing
+in any sense Python taught you, and it is the reason these three keep feeling
+slippery: you are trying to map all three onto subclassing, and only one of them
+fits.
+
+Part 6 spends the next seven chapters extending things, and all of it rests on
+getting this right.
 
 ## Concepts
 
 ### One keyword, three behaviours
+
+Picture the registry as **a cabinet of blueprints**, one blueprint per model name.
+Each of the three mechanisms is a different thing you can do at that cabinet:
+
+- **Classic extension** walks up to a blueprint that is already filed and pencils an
+  extra line onto it. Nothing new gets filed.
+- **Prototype** photocopies a blueprint, files the copy under a new name, and edits
+  only the copy. The original never hears about it again.
+- **Delegation** files a new blueprint that says "for the chassis, see blueprint X",
+  keeping a pointer to it rather than a copy of it.
+
+Two questions tell them apart, and they are the only two that matter: **does a new
+blueprint get filed at all**, and if one does, **did it copy the original or point
+at it?**
 
 Everything hinges on two class attributes, `_inherit` and `_name` (and a third,
 `_inherits`, with an `s` that is very easy to misread):
@@ -32,6 +57,18 @@ Everything hinges on two class attributes, `_inherit` and `_name` (and a third,
     B -- "yes, a new one" --> D["PROTOTYPE<br/>new model, new table<br/>fields copied, then unrelated"]
     E["_inherits = {parent: field}"] --> F["DELEGATION<br/>two tables, linked<br/>parent's fields reachable through the link"]`}
 />
+
+All three side by side, which is the table worth coming back to:
+
+| | Classic extension | Prototype | Delegation |
+|---|---|---|---|
+| Written as | `_inherit`, no `_name` | `_inherit` **and** `_name` | `_inherits` and `_name` |
+| A new model name appears? | No | Yes | Yes |
+| A new table appears? | No | Yes | Yes |
+| The parent's fields are | the ones you are editing | copied once, then independent | reachable live, through a link |
+| Records that already exist | all gain the field at once | unaffected | unaffected |
+| Data shared with the parent? | same model, so the question is moot | No | Yes, one single copy |
+| Reach for it when | changing something that already exists | almost never, see the callout below | "an X **is a** Y, plus extra" |
 
 ### Classic extension: you are editing the original
 
@@ -98,9 +135,10 @@ and you want to reuse Y's data, not just its shape.
 
 ## Hands-on
 
-### 1. Write all three
+### 1. Write all three classes
 
-Create `models/loaner.py` with the three classes:
+One file, three classes, one of each mechanism, so you can compare them without
+switching context. Create `models/loaner.py`:
 
 ```python
 from odoo import fields, models
@@ -139,6 +177,12 @@ class Loaner(models.Model):
     available = fields.Boolean(default=True)
 ```
 
+Note what the classes do *not* include: the classic extension needs no ACL, no view
+and no menu, because `librefleet.vehicle` already has all three. Only the two brand
+new models need wiring, which is the next step.
+
+### 2. Wire up the two new models
+
 The two new models need ACLs, exactly as chapter 10 taught. Add four lines to
 `security/ir.model.access.csv`: read plus write for users and full CRUD for managers on
 loaners, read-only for users and full CRUD for managers on consumables.
@@ -154,7 +198,7 @@ Then a simple list/form view plus a menu item for loaners, in a new
 `views/loaner_views.xml`, and **register both new files**, which means two different
 places and forgetting either one bites:
 
-- `loaner.py` goes in `models/__init__.py` (last, for the reason step 2 is about to make
+- `loaner.py` goes in `models/__init__.py` (last, for the reason step 3 is about to make
   painfully clear).
 - `views/loaner_views.xml` goes in the manifest's `data` list, above
   `views/librefleet_menus.xml`. Miss this and the menu item you just wrote points at an
@@ -163,7 +207,7 @@ places and forgetting either one bites:
 
 Bump the version to `19.0.1.16.0` while you are in the manifest.
 
-### 2. Break-it lab: import order is not decorative
+### 3. Break-it lab: import order is not decorative
 
 Add the import alphabetically, the way the file is already sorted:
 
@@ -202,7 +246,7 @@ from . import loaner
 This bites people most often when they alphabetise imports out of tidiness, or
 when a linter does it for them.
 
-### 3. Ask Postgres what actually happened
+### 4. Ask Postgres what actually happened
 
 This is the part worth doing slowly. Three mechanisms, three completely
 different schema outcomes, all visible in one query each. First, the classic
@@ -259,7 +303,13 @@ Look at what is **missing**: no `license_plate`, no `model_name`, no `year`. The
 loaner table holds only its own fields plus the link. The vehicle data stays in
 the vehicle table, which is the entire point.
 
-### 4. Delegation from the inside
+Three trips to the blueprint cabinet, three different things in the schema: a
+pencil line on a blueprint already filed, a photocopy filed under a new name, and
+a new blueprint holding a pointer instead of a copy. **The sentence to carry out of
+this chapter:** `_inherit` alone edits what already exists, `_inherit` with `_name`
+copies it, and `_inherits` points at it.
+
+### 5. Delegation from the inside
 
 In the shell, watch one `create` write two rows:
 
@@ -295,7 +345,7 @@ everywhere vehicles do:
 True
 ```
 
-### 5. How delegation is actually implemented
+### 6. How delegation is actually implemented
 
 `_inherits` is not magic bolted into the ORM's read path. Ask the field itself
 what it is:
@@ -311,7 +361,7 @@ chapter 13, generated automatically for every field on the parent. That single
 line explains all the behaviour above: why there is no column, why reads and
 writes pass through, and why `related` points along `vehicle_id`.
 
-### 6. Prototype records are strangers
+### 7. Prototype records are strangers
 
 ```console
 >>> P, C = env["librefleet.part"], env["librefleet.consumable"]
@@ -326,7 +376,7 @@ The consumable has part's fields and its own `unit` default, but searching parts
 for it finds nothing. Two tables, no relationship. The copy happened once, at
 class definition time, and the models have been strangers ever since.
 
-### 7. The cascade only runs one way
+### 8. The cascade only runs one way
 
 Delete the backing vehicle and the loaner goes with it, which is what
 `ondelete="cascade"` on `vehicle_id` buys you:
@@ -369,9 +419,10 @@ ch31 complete! On to the next chapter 🔧
 The third check is the interesting one: it asserts that `license_plate` on the
 loaner exists but is **non-stored** and `related` to `vehicle_id.license_plate`,
 so it fails both if you forget `_inherits` and if you "helpfully" redeclare the
-parent's fields on the child. In the browser (author tour, screenshots pending):
+parent's fields on the child. Then see delegation from the outside, in the browser:
 Fleet → Loaner Cars, create one, then check Fleet → Vehicles and find the car you
-just created sitting there as an ordinary vehicle.
+just created sitting there as an ordinary vehicle. That second record is not a copy,
+it is the parent row your loaner points at.
 
 ## Gotchas
 
@@ -457,7 +508,7 @@ just created sitting there as an ordinary vehicle.
    taught you overriding `create`; the same shape applies) and prove both
    branches from the shell.
 4. ⭐⭐⭐ Find delegation in core: open `res.users` and identify the `_inherits`
-   line and the delegate field. Then work out, from what you learned in step 5,
+   line and the delegate field. Then work out, from what you learned in step 6,
    why `env["res.users"].search([("email", "=", "...")])` can work at all when
    `res_users` has no email column, and what that costs compared to a stored
    field. Chapter 48 will come back to the performance side of this.

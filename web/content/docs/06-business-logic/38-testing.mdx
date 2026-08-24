@@ -19,6 +19,24 @@ brand new database for every pull request. That is what this chapter's tests are
 for: the same behaviors, proven automatically, on any database, forever, not just on
 yours today.
 
+One thing will look wrong before it looks obvious, so take it head on. If you have
+tested code anywhere else, you expect a test runner: point a command at some files, it
+runs them, it prints dots. **Odoo has no such command.** There is no `odoo test`. What
+you do instead is install or upgrade the module and *ask the install to run the tests on
+its way past*, which is why every command in this chapter looks like a deployment with
+`--test-tags` bolted on.
+
+That seems heavyweight until you notice what a test here actually needs. Almost
+everything worth testing in Odoo is the ORM: a constraint, a computed field, a record
+rule, an `onchange`. None of that is importable Python you can exercise on its own,
+because none of it exists until a database has the tables and a module has been loaded
+into it. So the database is not test scaffolding, it is the thing under test. Odoo builds
+one, installs into it, and runs your assertions inside it.
+
+The good news is the sandbox that makes it safe: every test runs in a transaction that is
+thrown away afterwards, so you can create whatever you like and leave no trace. Think of
+each test as a rehearsal on a stage that is reset before the next one walks on.
+
 This is also where the tutorial's own house rule (chapter 4: readers get
 `--without-demo`, no demo data ships to production installs) stops being background
 noise and becomes a trap you can walk straight into. A test that reaches for a demo
@@ -29,6 +47,8 @@ watch that failure happen before showing you how to avoid it.
 ## Concepts
 
 ### TransactionCase: a whole test, one transaction, never committed
+
+The rehearsal-on-a-reset-stage idea, now with the real name on it.
 
 `odoo.tests.TransactionCase` wraps every test method in a database transaction that
 gets rolled back when the method ends. Nothing you create in a test method
@@ -225,6 +245,13 @@ class TestPublicControllers(HttpCase):
         self.assertIn(b"What we service", response.content)
 ```
 
+That is every test written. Now make them runnable, which is a separate job and the one
+where the "no test runner" point from the intro becomes concrete.
+</Step>
+
+<Step>
+### Wire the tests up, and run them
+
 Wire both files into the package (`tests/__init__.py` is what makes them
 discoverable, the same import-chain rule chapter 9 taught for models):
 
@@ -235,7 +262,12 @@ from . import test_controllers
 
 Test files never go in the manifest's `data` list, only Python files that get
 imported. Bump the version, then run the whole module's tests on a scratch
-database, `--without-demo` on purpose:
+database, `--without-demo` on purpose.
+
+Read the command that follows carefully, because it is the intro's point made real:
+there is no test subcommand anywhere in it. It installs `librefleet` (`-i`) into a
+brand new database (`-d test_ch38`) and `--test-tags` is the flag that says "and while
+you are in there, run these". The tests are a passenger on an install:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 --without-demo=True \

@@ -18,7 +18,32 @@ Odoo invoice. This is also the chapter where `_inherit` finally shows you its fo
 chapter 31 covered a single string, a new `_name`, and `_inherits` with an `s`, but never
 the form you will actually type the most in real modules, a **list**.
 
+It is worth saying out loud why this feels like overkill at first. On screen the chatter
+looks like a comment box, and a comment box should be one text field. Meeting two mixins,
+a separate message model, a follower table and an activity scheduler reads like a lot of
+machinery for somewhere to type notes.
+
+The picture that makes it make sense: **Odoo keeps one shared drawer for every message in
+the system.** Your model does not store its conversation. Every message in the whole
+database lives in one table, and each one carries a label saying which record it belongs
+to. Inheriting the mixin does not give your record a notes field, it makes your record
+*addressable*, so messages, followers and to-dos can point at it. That is why the machinery
+exists, and it is why the next section can promise that none of it touches your table.
+
 ## Concepts
+
+The panel you are about to add is really three separate things sharing one column of the
+form, and it helps to keep them apart from the start:
+
+| The piece | What it answers | Lives in |
+|---|---|---|
+| the **thread** | what happened to this record | `mail.message` |
+| the **followers** | who gets told about it | `mail.followers` |
+| the **activities** | what still needs doing, and by whom | `mail.activity` |
+
+Two mixins supply them: `mail.thread` gives you the first two, `mail.activity.mixin` the
+third. Everything below is those three ideas plus one rule about *when* a tracked change
+actually becomes a message, which is the part that costs people an evening.
 
 ### `_inherit` as a list: mixing in, not extending
 
@@ -60,6 +85,11 @@ $ docker compose exec db psql -U odoo -d tutorial -c "\d mail_message" | grep -E
  model               | character varying |
  res_id              | integer           |
 ```
+
+There is the shared drawer, literally: `model` holds the name of your model and `res_id`
+holds the id of the one record, so a single table can carry the conversation for every
+model in Odoo at once. Nothing about `mail_message` knows or cares that service orders
+exist.
 
 Followers (`mail.followers`) and activities (`mail.activity`) work the same way. The
 mixin gives your model the *fields and methods* to read and write that shared storage; it
@@ -221,6 +251,12 @@ record's activities.
 
 Refresh the order in the browser and the chatter panel shows all three: the tracked
 stage change from earlier, your note, and the scheduled call.
+
+That is the three pieces from the top of the chapter, now real on your own model: a thread
+carrying two messages, a follower list naming who hears about them, and one activity
+waiting to be done. Your table still has the same fourteen columns it had before you
+started. Everything you just created is sitting in the shared drawer with your record's
+name on the label.
 
 ### 5. A template that writes itself, correctly, per customer
 

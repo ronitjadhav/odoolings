@@ -12,15 +12,37 @@ in chapter 27. · **Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/ch36`
 Every business app eventually needs to hand someone a document: an invoice, a
 delivery slip, a service report a customer signs before driving off. You have
 printed exactly one of these already, chapter 27's and 28's invoice PDF, and never
-looked at how it is built. It is a QWeb template, the same rendering engine behind
-every view in this tutorial, run through `wkhtmltopdf` instead of a browser. Nothing
-about PDF generation is a separate skill from the templating you already know; it is
-the same `t-field`, `t-if`, `t-foreach` you have used since chapter 9's views, wrapped
-in two conventions that make it print correctly: a wrapper template Odoo calls once
-per selected record, and a document template that supplies the header and footer
-every company wants on every report without repeating the markup.
+looked at how it is built.
+
+Here is the part that catches people, and it is worth saying before anything else.
+"Generate a PDF" sounds like a separate discipline: a drawing library, coordinates,
+fonts, page geometry, the kind of code where you position a box 40 points in from the
+left margin. Odoo does none of that. **An Odoo report is a web page.** You write HTML,
+with the same `t-field`, `t-if` and `t-foreach` you have used since chapter 9's views.
+Odoo renders it exactly as it renders anything else. Then it hands the finished HTML to
+`wkhtmltopdf`, a browser engine whose only job is to print a page rather than display
+it. The PDF appears right at the end, as a consequence.
+
+So none of this is a new skill. It is the templating you already know, plus two
+conventions that make it print correctly: a wrapper template Odoo calls once per
+selected record, and a document template that supplies the header and footer every
+company wants on every report without repeating the markup.
 
 ## Concepts
+
+Before any of the field names, get the two layers straight, because merging them into
+one thing is the most common source of confusion here. A printable report is **a record
+plus a template**, and the two know almost nothing about each other:
+
+| | What it is | What it does |
+|---|---|---|
+| `ir.actions.report` | a row in the database | makes the **Print** entry exist, and names the template to render |
+| the QWeb template | XML in your module | produces the actual ink: headings, tables, totals |
+
+The record is the button. The template is the page. Nothing checks that the record's
+name for a template matches a template that actually exists, which is why a typo there
+installs perfectly and only breaks when somebody clicks Print. Keep the two layers apart
+in your head and that behaviour stops being mysterious.
 
 ### Two templates, not one
 
@@ -204,6 +226,12 @@ an accident of "web happens to already be there."
         </template>
 ```
 
+That is the whole page. Now go and look at it, because it is not right yet.
+</Step>
+
+<Step>
+### Render it, and meet a widget that lies
+
 Register the file in the manifest's `data` list and upgrade, then render it once
 from the shell to see it for real:
 
@@ -234,8 +262,12 @@ The layout is right, the header and footer are there. But "Technicians:
 res.users(5,)" is not a name, it is a recordset's `repr()`. `many2many_tags` is a
 **web client widget**, one of the little pills you see in a form view; it has no
 meaning to the QWeb report field converter, which silently falls back to printing
-whatever `str()` gives it instead of raising an error. Fix it with a plain `t-out`
-over the mapped names:
+whatever `str()` gives it instead of raising an error.
+
+This is the "a report is a web page, not a form view" idea collecting its first debt.
+Widgets are the web client's vocabulary, and the web client is not in the room when a
+report renders. Anything that only a browser-side widget knows how to draw, you have to
+spell out yourself. Fix it with a plain `t-out` over the mapped names:
 
 ```xml title="addons/librefleet/report/service_order_report.xml"
                         <div class="col-6">
@@ -353,6 +385,11 @@ Pages:           2
 
 Two orders, two pages, no page-count field anywhere in the code you wrote. That is
 the `<div class="page">` from Concepts, earning its keep.
+
+**The sentence to carry out of this chapter:** you did not write a PDF, you wrote a web
+page and let a browser engine print it. Every instinct that serves you in HTML and CSS
+serves you here, and every instinct that belongs to the web client, widgets most of all,
+does not travel.
 </Step>
 
 </Steps>
