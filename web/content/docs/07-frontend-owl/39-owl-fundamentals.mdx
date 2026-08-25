@@ -26,6 +26,16 @@ perfect component does nothing at all until it is listed in an **assets bundle**
 the failure mode when you get that wrong is silence, not an error. So this chapter
 spends as much time on the manifest as on the JavaScript.
 
+Here is the picture to carry in, because it is the one part you cannot guess from
+anything you have done so far. **The browser has never heard of your addons folder.** It
+cannot ask for `librefleet/static/src/workshop_clock/workshop_clock.js`, because it has
+no idea that path exists. All it can do is ask the server for a handful of big, pre-packed
+boxes, by name. Your manifest's `"assets"` key is the packing list: it says which of your
+files go into which box. Leave a file off the list and the box still ships, perfectly
+formed, with your code not in it. Nothing errors, because nobody asked for a file they
+never knew existed. That is why the failure mode is silence, and why "my JavaScript is not
+loading" is a manifest question before it is ever a JavaScript question.
+
 ## Concepts
 
 ### A component is a class, a template, and a setup method
@@ -56,10 +66,12 @@ Three things carry the weight:
 
 ### `useState` is the whole reactivity story
 
-`useState(obj)` returns a Proxy around `obj`. Reading a key inside a template
-subscribes that render to the key; assigning to the key marks the component dirty and
-schedules a re-render. That is the entire mechanism, and it explains the single most
-common beginner bug in OWL:
+`useState(obj)` returns a Proxy around `obj`. A **Proxy** is a plain JavaScript object
+that wraps another object and gets told about every read and every write passing through
+it, which is the whole trick: there is no magic here, just a middleman that notices. So
+reading a key inside a template subscribes that render to the key; assigning to the key
+marks the component dirty and schedules a re-render. That is the entire mechanism, and it
+explains the single most common beginner bug in OWL:
 
 ```js
 this.count = 0;              // a plain property, invisible to rendering
@@ -86,7 +98,9 @@ timers: a `setInterval` outlives its component unless you clear it.
 
 ### Assets bundles: the manifest key that makes any of this load
 
-Your JavaScript reaches the browser because the manifest says so:
+Back to the boxes, with the real name on them. A **bundle** is one of those named boxes: a
+list of files Odoo concatenates, minifies, and serves at a single URL. Where your file sits
+on disk has nothing to do with whether it gets into one. The manifest decides:
 
 ```python
 "assets": {
@@ -99,14 +113,31 @@ Your JavaScript reaches the browser because the manifest says so:
 
 `"assets"` is a **top-level manifest key, a sibling of `"data"`**, never a member of
 it. Files listed there are concatenated into a named bundle, minified, and served as
-one big file. The bundle name decides *where* the code loads: `web.assets_backend` is
-the web client, `web.assets_frontend` is the public website (chapter 37's portal
-pages).
+one big file. The bundle name decides *where* the code loads, so the three you will meet
+first are worth keeping straight:
 
-One wrinkle worth knowing before you go looking for your bundle in devtools: you
-declare into `web.assets_backend`, but the file the browser actually downloads is
-`web.assets_web`, because `web.assets_web` is defined in core as
-`('include', 'web.assets_backend')` plus a couple of entry points.
+| Bundle | What it is |
+|---|---|
+| `web.assets_backend` | the web client's box, where this chapter's component belongs |
+| `web.assets_frontend` | the public website's box, chapter 37's portal pages |
+| `web.assets_web` | the box the browser actually downloads |
+
+That third row is the wrinkle worth knowing before you go looking for your bundle in
+devtools: you declare into `web.assets_backend`, but the file the browser actually
+downloads is `web.assets_web`, because `web.assets_web` is defined in core as
+`('include', 'web.assets_backend')` plus a couple of entry points. It is three lines in
+`web/__manifest__.py` and worth reading once so the nesting stops being abstract:
+
+```python
+'web.assets_web': [
+    ('include', 'web.assets_backend'),
+    'web/static/src/main.js',
+    'web/static/src/start.js',
+],
+```
+
+A box packed inside a bigger box, in other words, which is why searching devtools for the
+name you wrote in your own manifest comes up empty.
 
 <Callout type="info" title="Official docs">
   [JavaScript reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html)
@@ -274,20 +305,35 @@ INFO tutorial odoo.registry: Registry loaded in 2.405s
 Notice what the log does **not** say: nothing about assets at all. A missing or
 misplaced `"assets"` key produces exactly this same clean output, which is why the
 next step matters.
+
+This is the box model paying out. Packing a file into a box is not an event the server
+has any reason to announce, and a box with your file missing is not a broken box, it is
+just a box. Every other mistake you have made since chapter 8 was reported in this
+terminal. This class of mistake never will be.
 </Step>
 
 <Step>
-### Look at it
+### See it in the navbar
 
 Reload `http://localhost:8069/odoo` and look at the top right of the navbar:
 
 ![The Odoo systray showing, left to right, the Discuss and activity icons, then LibreFleet's amber badge reading 2, a live clock reading 9:50:30 PM, and a refresh icon](/screens/ch39-workshop-clock-systray.jpg)
 
-The amber badge is the open-order count, the clock ticks once a second (proving
-`useState` re-renders on every assignment), and the refresh icon refetches.
+Three things to notice, one per piece of the component you wrote:
 
-To prove the count is genuinely live rather than baked in at page load, create an
-order from the shell *without touching the browser*, then click refresh:
+- the amber badge is the open-order count, fetched in `onWillStart` before the first
+  paint, which is why you never saw it flash a zero
+- the clock ticks once a second, which is `useState` re-rendering on every assignment
+- the refresh icon refetches on demand
+
+</Step>
+
+<Step>
+### Prove the count is live, not baked in
+
+A count that is correct on page load could just as easily have been rendered once by the
+server and frozen. To show it is genuinely live, create an order from the shell *without
+touching the browser*, then click refresh:
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -320,7 +366,15 @@ OwlError: Missing template: "librefleet.WorkshopClock" (for component "WorkshopC
     at new ComponentNode (.../web.assets_web.min.js:851:133)
 ```
 
-This is the chapter's real lesson about where frontend errors live. Every failure you
+Read that first line twice, because it looks like a mistake and is not. It names
+`WorkshopClock`, spelled correctly, which is not what you typed. That is because the error
+reports what the component **asked for**, not what it found: your component still requests
+the template by its correct name, and the thing that no longer exists under that name is
+the template itself. Errors of this shape always name the thing that is missing, never the
+typo that made it missing, which is why grepping your own code for the string in the error
+message finds it immediately.
+
+This is also the chapter's real lesson about where frontend errors live. Every failure you
 have debugged since chapter 8 announced itself in the terminal; this one only exists in
 the browser. **The console is now part of your debugging loop.** Put the `t-name` back
 before moving on.
