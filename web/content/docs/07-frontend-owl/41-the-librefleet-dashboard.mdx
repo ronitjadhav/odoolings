@@ -20,12 +20,33 @@ and counting in JavaScript works beautifully on your two demo orders and collaps
 client with forty thousand. The database already knows how to group and sum; the job is
 to ask it once and render the answer.
 
+If that sounds like premature optimisation, that is the objection worth having out loud,
+because counting in JavaScript is not a beginner's mistake. It is the *obvious* approach.
+You already know how to fetch records and you already know how to loop over an array, and
+the dashboard you build that way works, visibly and correctly, in front of you. Nothing
+about it looks wrong.
+
+So here is the picture that makes the difference concrete. You want to know how many open
+orders each technician has. You can have the database hand over every open order so the
+browser can sort them into piles and count each pile. Or you can ask the database the
+question and have it hand back one short row per technician. The two answers are
+identical. The first one moves the entire filing cabinet across the network to produce a
+number that fits on a napkin, and it does it again every time somebody opens the page.
+
 This chapter also walks straight into a counting trap that is genuinely easy to ship,
 and the finished dashboard displays the contradiction on its own face.
 
 ## Concepts
 
 ### A client action is a database record plus a registry entry
+
+"Client action" is opaque until somebody unpacks it, so: every screen you have opened in
+Odoo so far was drawn by the view engine. You handed it a list view or a form view, and it
+decided what the page looked like. **A client action is the menu item that skips all of
+that and hands the whole screen to your component instead.** Nothing renders on your
+behalf any more, which is both the freedom and the responsibility.
+
+Mechanically it is two halves that have to agree with each other:
 
 ```xml
 <record id="action_librefleet_dashboard" model="ir.actions.client">
@@ -57,6 +78,19 @@ Your component gets the action record itself as a prop, so spreading
 
 ### `formattedReadGroup`: let Postgres do the counting
 
+This is the method that puts the arithmetic in the right place. The two approaches, side
+by side:
+
+| | Count in JavaScript | Count in the database |
+|---|---|---|
+| What you ask for | every matching record | one row per group |
+| Where the counting happens | the browser, in a loop | Postgres, in a `GROUP BY` |
+| What crosses the network | all the records | just the answer |
+| What grows as the fleet grows | the payload, the parsing, the loop | nothing: still one row per technician |
+
+Only that last row is the reason to care, and it is the one row you cannot see while you
+are building against two demo orders.
+
 ```js
 const groups = await this.orm.formattedReadGroup(
     "librefleet.service.order",
@@ -73,11 +107,26 @@ One round trip, one `GROUP BY` in the database, and back comes one object per gr
 {'technician_ids': False, '__extra_domain': [('technician_ids', 'not any', [])], '__count': 1, 'margin:sum': 120.0}
 ```
 
-Three things to read off that output. Aggregates come back keyed by the exact string
-you asked for, so `group["margin:sum"]`, not `group.margin`. A grouped many2many yields
-an `[id, name]` pair, exactly like a many2one. And records with nobody assigned group
-under `False`, which is why the component maps that to a readable "Unassigned" rather
-than printing `false` at a workshop manager.
+Four things to read off that output, and the last one is the trap this chapter is going to
+put on screen:
+
+- **Aggregates come back keyed by the exact string you asked for**, so
+  `group["margin:sum"]`, not `group.margin`.
+- **A grouped many2many yields an `[id, name]` pair**, exactly like a many2one.
+- **Records with nobody assigned group under `False`**, which is why the component maps
+  that to a readable "Unassigned" rather than printing `false` at a workshop manager.
+- **Ask yourself now what happens to an order with two technicians on it.** Which group
+  does it belong to? Both of them, so it gets counted in both. Nothing has gone wrong
+  there, and that is exactly what makes it dangerous. Hold the thought.
+
+The mechanism behind that last bullet is worth knowing, because it makes the behaviour
+obvious instead of surprising. A many2many is stored as its own little table holding
+**one row per pair**: this order with that technician. Grouping by `technician_ids` joins
+through that table, so an order with two technicians contributes *two* rows to the query
+before any counting happens, and lands in both groups. The database is not confused and
+neither is Odoo. You asked "how many orders per technician", every technician's answer is
+right, and the only thing that is wrong is adding those answers together and expecting the
+number of orders.
 
 <Callout type="warn" title="On Odoo 18 this differs">
   This method was `read_group` (and `orm.readGroup` in JavaScript) up to Odoo 18. Odoo
@@ -205,6 +254,12 @@ export class LibreFleetDashboard extends Component {
 
 registry.category("actions").add("librefleet_dashboard", LibreFleetDashboard);
 ```
+
+The whole thesis of this chapter is the one call inside `load()`: `formattedReadGroup` is
+handed a domain, a field to group by, and the aggregates you want, and what comes back is
+already the answer. Read the component again and notice what is *not* in it. There is no
+array of service orders at any point, because no service order was ever sent to the
+browser.
 
 `useService("action")` is the counterpart to `useService("orm")`: where the ORM service
 reads data, the action service opens things. `doAction` takes an action *description*
@@ -338,11 +393,22 @@ This is worth internalising before you build a dashboard anyone makes decisions 
 "jobs per technician" table is a legitimate answer to "who is busy". A "total jobs"
 figure derived by adding that column up is simply wrong, and nothing in the framework
 will warn you.
+</Step>
 
-Now click one of the counts. The breadcrumb becomes "Workshop Load / Open orders: Tina
+<Step>
+### Click a number, and watch the list agree
+
+That is the trap dealt with. The dashboard's other half is the drill-down, and this is
+where the `__domain` decision from Concepts earns its keep.
+
+Click one of the counts. The breadcrumb becomes "Workshop Load / Open orders: Tina
 Technician" and the list holds exactly two records, one of which visibly carries both
 technicians as tags. The count and the list agree because both came from the same
 `__domain`.
+
+That agreement is the entire point, and it is the one thing a hand-built domain cannot
+promise you. The number and the list are two renderings of a single filter, so there is no
+version of this dashboard where a user clicks 2 and lands on a list of 3.
 </Step>
 
 <Step>

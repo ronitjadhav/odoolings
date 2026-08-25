@@ -22,6 +22,16 @@ add an entry, and nothing else in the system is affected. **Patching** is the fi
 escape: you reach into a core class and rewrite its methods in place, for every user of
 that class, everywhere. Both are legitimate. Only one of them is safe by default.
 
+It is worth saying out loud why the fire escape looks tempting, because "prefer the
+registry" otherwise sounds like arbitrary caution. Patching is the tool that can change
+*anything*, while a registry only lets you do what Odoo thought to publish a slot for, so
+restricting yourself to the front door can feel like working with one hand tied. The real
+difference is not power, it is who is on the hook for keeping your code working. **A
+registry entry is a promise Odoo made to you:** it published that slot and it will keep
+calling whatever sits in it. **A patch is a bet you made on Odoo:** that this method will
+still exist next version, still be called at the same moment, and still mean what it means
+today. Nobody promised you any of that. An upgrade keeps promises; it does not keep bets.
+
 ## Concepts
 
 ### A field widget is a component plus a descriptor plus a registry entry
@@ -100,6 +110,20 @@ Forget that line and you have quietly changed how the whole client behaves.
     Patch --> Guard["Guard inside the method:<br/>a patch is global"]
 `} />
 
+Side by side, which is the comparison this chapter is really about:
+
+| | Registry entry | Patch |
+|---|---|---|
+| What it changes | only code that asks for it by name | the class itself, for every user of it |
+| How you scope it | by naming it in one view | only by a check inside the method body |
+| Blast radius | nothing else is affected | every model, every app, the whole client |
+| When you get it wrong | the widget simply does not appear | nothing warns you at all |
+| Reach for it | whenever Odoo publishes a slot | only when no slot exists |
+
+The bottom two rows are the ones that decide it. A registry mistake announces itself the
+moment you look at the screen. A patch mistake is invisible, which is why the guard clause
+matters more than anything else in this chapter.
+
 <Callout type="info" title="Official docs">
   [Field widgets (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html#fields)
   for the descriptor's full option list, and
@@ -112,7 +136,7 @@ Forget that line and you have quietly changed how the whole client behaves.
 <Steps>
 
 <Step>
-### Build the margin widget
+### Write the widget component
 
 ```js title="addons/librefleet/static/src/margin_field/margin_field.js"
 import { Component } from "@odoo/owl";
@@ -169,6 +193,15 @@ registry.category("fields").add("librefleet_margin", marginField);
 settings (decimal separator, thousands separator) and the field's own `digits`
 precision. Formatting a number by hand with `toFixed` would look right in English and
 wrong in half the world.
+
+</Step>
+
+<Step>
+### Give the widget its template
+
+Same split as chapter 39's clock, and for the same reason: `static template` above names
+a template by string, and until something is registered under exactly that name the
+component throws at render time.
 
 ```xml title="addons/librefleet/static/src/margin_field/margin_field.xml"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -291,6 +324,14 @@ for instance) and save that contact again to watch a LibreFleet warning appear o
 screen that has nothing to do with LibreFleet. Then put the guard back. The lesson is
 not "this particular patch was dangerous", it is that **the blast radius of a patch is
 the whole client and nothing warns you**.
+
+Which is the bet from the start of this chapter, called in. Nothing here is wrong today:
+the guard is back, the coercion happened to be harmless, the tests pass. What you have no
+way to check is whether `onWillSaveRecord` still exists under that name in the next
+version, still runs at the same moment, and still means what you assumed. The widget you
+built in the first two steps carries none of that risk, because Odoo published the slot it
+sits in. That asymmetry, not the syntax, is why one of these is the default and the other
+is the fallback.
 </Step>
 
 </Steps>

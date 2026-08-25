@@ -20,11 +20,28 @@ as a drag-and-drop **snippet** library so nobody has to write a component for it
 the builder exists, and what it is actually built from, is worth more than a chapter
 building yet another widget.
 
+There is a real objection buried in that, and it deserves saying plainly. You have just
+spent three chapters learning to build OWL components, and this chapter opens by telling
+you that most of the work you would reach for them on does not need them. That can read as
+the tutorial undercutting what it just taught you.
+
+It is not. The skill here is the one nobody writes on a job description: recognising which
+of the two situations you are in *before* you start typing. A page that needs to **look**
+like something is a snippet, and building a component for it is a week spent redoing work
+Odoo already shipped. A page that needs to **know** something is a component, and reaching
+for a snippet there is a dead end you discover late. Telling those apart is the lesson.
+
 **Point of Sale** earns its place here for a sharper reason: it is Odoo's largest OWL
 application by far, and it is offline-first, meaning the till itself is a separate
 bootstrap that has to keep ringing up sales through a dropped connection and sync
 later. That combination, a real OWL SPA plus a completely different reliability model
 from the backend web client, makes it the natural case study to close Part 7 on.
+
+Notice what that implies about how you read the POS half of this chapter: you are not
+going to write POS, you are going to open a real one and watch it work. Reading a large
+codebase somebody else wrote, well enough to know where your change would go, is a
+different skill from writing a small one from scratch, and on a real client project it is
+the one that gets used.
 
 This chapter also finally closes the loop Parts 4 and 5 opened: sale, purchase,
 stock, manufacturing and accounting all met a customer who placed an order through a
@@ -102,7 +119,9 @@ would confirm automatically; a bank transfer, by its nature, can't.
 `closing_control` → `closed`, and it links to `pos.order` records the same way any
 parent links to its children. What makes POS different is what happens between
 "opened" and "closing control": the actual selling runs in a separate SPA
-(`/pos/ui/...`), backed by an in-browser database (IndexedDB) so a dropped Wi-Fi
+(`/pos/ui/...`), a *single-page application*, meaning one page that loads once and then
+redraws itself from then on rather than ever asking the server for another page, backed
+by an in-browser database (IndexedDB) so a dropped Wi-Fi
 connection does not stop a cashier from ringing up the next customer. Orders queue
 locally and sync to the server as connectivity allows, which is the offline-first part
 the plan calls out, and the reason POS cannot simply be "one more client action" like
@@ -278,12 +297,19 @@ uses:
 
 Each tile in that panel is one of the 191 `website.s_*` templates from Concepts.
 Dragging one onto a page and editing its text or image is the entire mechanism; there
-is no code to write for the large majority of a marketing site. Reach for an OWL
-component (chapters 39-41's territory) only when a page needs actual behaviour a
-snippet's static HTML cannot express: live data from your own models, a stateful
-widget, anything beyond arranging and restyling content. Try dragging one yourself,
-this chapter's screenshot stops at showing you the panel; the drag-and-drop itself is
-exercise 4 below.
+is no code to write for the large majority of a marketing site.
+
+Which makes this the place to state the rule this chapter has been circling, the one to
+carry out of Part 7:
+
+- The page needs to **look** like something: a hero image, a pricing table, content
+  arranged and restyled. Drag snippets. A component here redoes work Odoo already shipped.
+- The page needs to **know** something: live data from your own models, a stateful widget,
+  anything beyond arranging and restyling content. Write a component, chapters 39 to 41's
+  territory.
+
+Try dragging one yourself, this chapter's screenshot stops at showing you the panel; the
+drag-and-drop itself is the snippet exercise below.
 </Step>
 
 </Steps>
@@ -394,20 +420,20 @@ Register screen's default would produce if you clicked through without counting.
 1. ⭐ Place a second website order, this time adding the Conference Chair or
    Warranty cross-sell offered in the upsell dialog, and confirm both end up as
    separate `order_line` records on the same `sale.order`.
-3. ⭐ Open a second POS session on a different shop (Clothes or Furniture), sell one
+2. ⭐ Open a second POS session on a different shop (Clothes or Furniture), sell one
    order, and correctly close the register on the first attempt, using the numbers the
    Closing Register screen itself shows you rather than guessing.
-4. ⭐⭐ Read `POSS/.../0003`'s tax line, `251000 Tax Received`, against the two
+3. ⭐⭐ Read `POSS/.../0003`'s tax line, `251000 Tax Received`, against the two
    orders' totals and confirm by hand that 15% of the untaxed subtotal produces the
    exact tax figure posted.
-5. ⭐⭐ Find the `pos.payment.method` record backing the "Customer Account" payment
+4. ⭐⭐ Find the `pos.payment.method` record backing the "Customer Account" payment
    option and explain, from its `journal_id` (or lack of one), why paying by customer
    account does not need a settlement entry the way Card does.
-6. ⭐⭐⭐ Actually drag a snippet onto a page in the website editor (Edit > any block
+5. ⭐⭐⭐ Actually drag a snippet onto a page in the website editor (Edit > any block
    under Intro or Content), fill in real text and an image, and Save. Confirm from the
    shell that the page's `ir.ui.view.arch_db` now contains your edited copy of the
    snippet's markup, not a reference to the original template.
-7. ⭐⭐⭐ Break-it lab: open a POS session, ring up an order, and before paying, open
+6. ⭐⭐⭐ Break-it lab: open a POS session, ring up an order, and before paying, open
    devtools and go offline (Network tab > Offline). Complete the sale anyway, then go
    back online. Read what the POS SPA's IndexedDB-backed order queue does once
    connectivity returns, and explain why this would have been meaningfully harder to
