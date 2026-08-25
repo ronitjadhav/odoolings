@@ -114,7 +114,10 @@ view is a bet that no other module needed the node you deleted.
 
 ## Hands-on
 
-### 1. Give partners their vehicles
+<Steps>
+
+<Step>
+### Give partners their vehicles
 
 `librefleet.vehicle` already has an `owner_id` pointing at `res.partner` (chapter 12), so the
 inverse side is free. Create `addons/librefleet/models/res_partner.py`:
@@ -175,7 +178,10 @@ because they come from your dependencies. They are grouped last only to keep "ou
 
 `product_template.py` does not exist yet, so do not upgrade until step 3 creates it.
 
-### 2. Add the smart button to a form you do not own
+</Step>
+
+<Step>
+### Add the smart button to a form you do not own
 
 You need core's form id, and guessing is not a plan. Ask the database:
 
@@ -218,7 +224,10 @@ Core ships `<div class="oe_button_box" name="button_box"/>` empty, so `position=
 the right choice: there is no sibling node to anchor `before` or `after` against. Add the file
 to `data` in your manifest, above the menus.
 
-### 3. Break-it lab: extend a model you never declared
+</Step>
+
+<Step>
+### Break-it lab: extend a model you never declared
 
 Now the product side, and deliberately in the wrong order so you meet the error. Create
 `addons/librefleet/models/product_template.py`:
@@ -259,7 +268,10 @@ telling them apart quickly is a genuinely useful skill:
 The rule of thumb: if `X` has your module's prefix, it is an import-order problem. If it is
 somebody else's model, it is a manifest problem.
 
-### 4. Declare the dependency, and watch the chain arrive
+</Step>
+
+<Step>
+### Declare the dependency, and watch the chain arrive
 
 One line fixes it. You told Odoo you wanted to pencil on `product`'s blueprint, so now tell
 it that `product` has to be in the cabinet first:
@@ -293,7 +305,10 @@ INFO tutorial odoo.modules.loading: 30 modules loaded in 6.15s, 13259 queries
   nothing needs fixing; it just looks alarming because it says ERROR.
 </Callout>
 
-### 5. Bridge the part to the catalogue
+</Step>
+
+<Step>
+### Bridge the part to the catalogue
 
 `librefleet.part` has been deliberately self-contained since chapter 12: `name`, `code`,
 `standard_cost`, `list_price`, and no dependency on core's product model. That was the right
@@ -311,7 +326,10 @@ Note the `domain`: it filters the dropdown using the flag you just added to
 `product.template`. Optional on purpose too, because a workshop shelves a part long before
 anyone decides it deserves a product record.
 
-### 6. Ask what actually happened to the schema
+</Step>
+
+<Step>
+### Ask what actually happened to the schema
 
 Extension talks about "the same table", so verify it rather than trusting the word:
 
@@ -356,7 +374,10 @@ Odoo's table holds it, and nothing in core's source mentions it. An upgrade can 
 every core file on disk and this column's provenance still reads `librefleet`, because your
 book was never inside theirs.
 
-### 7. The field you never declared
+</Step>
+
+<Step>
+### The field you never declared
 
 Look at the first row of that output again. **We never declared `librefleet_is_part` on
 `product.product`, yet there it is**, unstored. That is not a bug and not magic, it is
@@ -393,7 +414,10 @@ where column_name = 'librefleet_is_part' order by table_name;"
 This is why ch31 spent a whole chapter on three mechanisms that look alike: you do not only
 choose between them for your own models, you inherit the consequences of core's choices.
 
-### 8. Watch the computed count work
+</Step>
+
+<Step>
+### Watch the computed count work
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -409,6 +433,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 >>> p.librefleet_vehicle_count
 2
 ```
+
+</Step>
+
+</Steps>
 
 ## Verify
 
