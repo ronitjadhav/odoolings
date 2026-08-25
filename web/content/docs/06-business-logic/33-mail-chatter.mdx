@@ -163,7 +163,10 @@ have to ask for it.
 
 ## Hands-on
 
-### 1. Inherit the mixins
+<Steps>
+
+<Step>
+### Inherit the mixins
 
 In `models/service_order.py`:
 
@@ -176,7 +179,10 @@ class ServiceOrder(models.Model):
     _order = "scheduled_start desc, id desc"
 ```
 
-### 2. Track the two fields worth an audit trail
+</Step>
+
+<Step>
+### Track the two fields worth an audit trail
 
 ```python
     customer_id = fields.Many2one(
@@ -196,7 +202,10 @@ class ServiceOrder(models.Model):
         default="draft", required=True, tracking=True)
 ```
 
-### 3. Add the chatter to the form
+</Step>
+
+<Step>
+### Add the chatter to the form
 
 In `views/service_order_views.xml`, right after the sheet closes:
 
@@ -219,7 +228,10 @@ INFO tutorial odoo.modules.loading: 30 modules loaded in 0.57s, 522 queries (+52
 No new module got pulled in this time, unlike chapter 32's `product`: `mail` was already
 installed, a side effect of `product` depending on it.
 
-### 4. Post, subscribe, schedule
+</Step>
+
+<Step>
+### Post, subscribe, schedule
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -258,7 +270,10 @@ waiting to be done. Your table still has the same fourteen columns it had before
 started. Everything you just created is sitting in the shared drawer with your record's
 name on the label.
 
-### 5. A template that writes itself, correctly, per customer
+</Step>
+
+<Step>
+### A template that writes itself, correctly, per customer
 
 Create `data/mail_template.xml`:
 
@@ -311,6 +326,10 @@ Upgrade, then render it against a real order without sending anything:
 
 Two different orders render two different subjects. That is the entire point of a
 template: write the wording once, let every send fill in its own facts.
+
+</Step>
+
+</Steps>
 
 ## Verify
 

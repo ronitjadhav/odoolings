@@ -135,7 +135,10 @@ and you want to reuse Y's data, not just its shape.
 
 ## Hands-on
 
-### 1. Write all three classes
+<Steps>
+
+<Step>
+### Write all three classes
 
 One file, three classes, one of each mechanism, so you can compare them without
 switching context. Create `models/loaner.py`:
@@ -181,7 +184,10 @@ Note what the classes do *not* include: the classic extension needs no ACL, no v
 and no menu, because `librefleet.vehicle` already has all three. Only the two brand
 new models need wiring, which is the next step.
 
-### 2. Wire up the two new models
+</Step>
+
+<Step>
+### Wire up the two new models
 
 The two new models need ACLs, exactly as chapter 10 taught. Add four lines to
 `security/ir.model.access.csv`: read plus write for users and full CRUD for managers on
@@ -207,7 +213,10 @@ places and forgetting either one bites:
 
 Bump the version to `19.0.1.16.0` while you are in the manifest.
 
-### 3. Break-it lab: import order is not decorative
+</Step>
+
+<Step>
+### Break-it lab: import order is not decorative
 
 Add the import alphabetically, the way the file is already sorted:
 
@@ -246,7 +255,10 @@ from . import loaner
 This bites people most often when they alphabetise imports out of tidiness, or
 when a linter does it for them.
 
-### 4. Ask Postgres what actually happened
+</Step>
+
+<Step>
+### Ask Postgres what actually happened
 
 This is the part worth doing slowly. Three mechanisms, three completely
 different schema outcomes, all visible in one query each. First, the classic
@@ -309,7 +321,10 @@ a new blueprint holding a pointer instead of a copy. **The sentence to carry out
 this chapter:** `_inherit` alone edits what already exists, `_inherit` with `_name`
 copies it, and `_inherits` points at it.
 
-### 5. Delegation from the inside
+</Step>
+
+<Step>
+### Delegation from the inside
 
 In the shell, watch one `create` write two rows:
 
@@ -345,7 +360,10 @@ everywhere vehicles do:
 True
 ```
 
-### 6. How delegation is actually implemented
+</Step>
+
+<Step>
+### How delegation is actually implemented
 
 `_inherits` is not magic bolted into the ORM's read path. Ask the field itself
 what it is:
@@ -361,7 +379,10 @@ chapter 13, generated automatically for every field on the parent. That single
 line explains all the behaviour above: why there is no column, why reads and
 writes pass through, and why `related` points along `vehicle_id`.
 
-### 7. Prototype records are strangers
+</Step>
+
+<Step>
+### Prototype records are strangers
 
 ```console
 >>> P, C = env["librefleet.part"], env["librefleet.consumable"]
@@ -376,7 +397,10 @@ The consumable has part's fields and its own `unit` default, but searching parts
 for it finds nothing. Two tables, no relationship. The copy happened once, at
 class definition time, and the models have been strangers ever since.
 
-### 8. The cascade only runs one way
+</Step>
+
+<Step>
+### The cascade only runs one way
 
 Delete the backing vehicle and the loaner goes with it, which is what
 `ondelete="cascade"` on `vehicle_id` buys you:
@@ -403,6 +427,10 @@ Deleting a loaner leaves an ordinary vehicle behind. That is defensible (the car
 still exists, it just is not a loaner any more) but it is rarely what people
 expect, and it quietly accumulates rows. Roll back when you are done
 experimenting.
+
+</Step>
+
+</Steps>
 
 ## Verify
 

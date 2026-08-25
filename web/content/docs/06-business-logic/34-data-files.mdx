@@ -237,7 +237,10 @@ module's terms, `import` reads one back in. Older tutorials use server flags ins
 
 ## Hands-on
 
-### 1. Ship a service type as master data, not a UI click
+<Steps>
+
+<Step>
+### Ship a service type as master data, not a UI click
 
 Create `data/service_type_master.xml`:
 
@@ -292,7 +295,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
 
 Shipped, alongside your three hand-clicked ones from chapter 11, untouched.
 
-### 2. Prove noupdate, both halves, on your own data
+</Step>
+
+<Step>
+### Prove noupdate, both halves, on your own data
 
 First, try to "fix" the price and see nothing happen. Edit the record you just
 wrote, bumping the fee, and add a second record in the same block:
@@ -342,7 +348,10 @@ source should say what's true):
             <field name="flat_fee">59.0</field>
 ```
 
-### 3. Build a small, self-contained demo dataset
+</Step>
+
+<Step>
+### Build a small, self-contained demo dataset
 
 Three files, chained by `ref()`, none of them touching anything you already
 created by hand. A demo customer, CSV:
@@ -389,7 +398,10 @@ needs the partner to exist first, the order needs the vehicle):
     ],
 ```
 
-### 4. Try the obvious thing, watch it do nothing, find out why
+</Step>
+
+<Step>
+### Try the obvious thing, watch it do nothing, find out why
 
 Upgrade your real tutorial database exactly like every other chapter so far:
 
@@ -456,7 +468,10 @@ Odoo 19 installs **without** demo unless you ask for `--with-demo` explicitly. I
 you remember older tutorials where demo just showed up, that default is why this
 one doesn't match your memory.
 
-### 5. See it load for real, in a database built to be thrown away
+</Step>
+
+<Step>
+### See it load for real, in a database built to be thrown away
 
 The only way to install-with-demo is a database that has never installed
 librefleet before, so build a scratch one:
@@ -491,7 +506,10 @@ job.
 $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
 ```
 
-### 6. Make a field translatable, and watch its column change type
+</Step>
+
+<Step>
+### Make a field translatable, and watch its column change type
 
 Service type names are shown to users, so a workshop with French staff wants them
 translated. That is one keyword in `models/service_type.py`:
@@ -574,7 +592,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name->>'en_US' as n
 The ORM needs none of this: a domain like `[("name", "=", "Tire Rotation")]` keeps working
 untouched, which is why this chapter's own checks did not change. Only raw SQL has to know.
 
-### 7. Mark your code strings for translation
+</Step>
+
+<Step>
+### Mark your code strings for translation
 
 `translate=True` covers data. Literals in your Python are the other half, and they need
 wrapping in `_()`. The wizard from chapter 20 has two user-facing messages, so open
@@ -608,7 +629,10 @@ reordered by the translator. The output is identical, `-210.90` either way, so c
   core mostly still looks like.
 </Callout>
 
-### 8. Install French
+</Step>
+
+<Step>
+### Install French
 
 Install French. Pass the **iso_code**, `fr`, not the locale code `fr_FR`:
 
@@ -640,7 +664,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from res_count
  {"en_US": "Andorra", "fr_FR": "Andorre"}
 ```
 
-### 9. Export what you just marked
+</Step>
+
+<Step>
+### Export what you just marked
 
 Now export your own module's terms as a template. The `.pot` is the untranslated master
 list a translator works from:
@@ -692,7 +719,10 @@ That is the *value* of a record, exportable only because the field became `trans
 in step 6 **and** the record has a stable xml id from the master data you shipped in step
 1. Data with no xml id has nothing for a `.po` to point at.
 
-### 10. Write the French translations
+</Step>
+
+<Step>
+### Write the French translations
 
 Write `i18n/fr.po` with three translations, keeping each `msgid` byte-identical to the
 template (that string *is* the lookup key) and the named placeholder intact:
@@ -737,7 +767,10 @@ with the named placeholder, `%(margin).2f`, sitting untouched in both `msgid` an
 `msgstr`: the translator moves it wherever French phrasing wants it, but never renames
 or drops it, since Python fills it in by name at raise time, not by position.
 
-### 11. Import it, and prove both halves landed
+</Step>
+
+<Step>
+### Import it, and prove both halves landed
 
 One command reads the file back in:
 
@@ -798,6 +831,10 @@ One `_()` call, two languages, and the rollback throws away the throwaway record
   exactly what the wizard call above proves. Test code translations by triggering the real
   code path, never by calling `_()` from the shell.
 </Callout>
+
+</Step>
+
+</Steps>
 
 ## Verify
 
