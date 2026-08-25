@@ -1186,12 +1186,17 @@ only to OCA's guidelines, not core) and ch45's missing rationale for the OCA's e
 (a legal claim about an organisation's reasoning, exactly the kind of plausible invention
 this sweep exists to avoid).
 
+**Part 6's `<Steps>` retrofit is now done** (ch31-34, the last four chapters anywhere still
+on literal `### N.` headings), so every part of the tutorial uses the same Hands-on
+structure. Converted in place with no reordering, so all ten `step N` cross-references in
+those chapters still resolve. The diff was mechanically confirmed to remove nothing but the
+32 old numbered headings and add nothing but tags, the same headings unnumbered, and blank
+lines.
+
 **Still open, both blocked on an authenticated browser session:** the two ch28 screenshots
 showing the wrong invoice (276.00 / INV/2026/00014 / order S00048, while the chapter follows
 363.40 / INV/2026/00010 / order S00025), and Part 6 shipping zero screenshots across all
-eight chapters. **Also still open and unblocked:** Part 6 is half-retrofitted to
-`<Steps>`/`<Step>`, ch31-34 still on literal `### N.` headings, where the numbers are text
-and must be stripped rather than reordered.
+eight chapters.
 
 Verified with `npm run test:ci` (green) after each part.
 
