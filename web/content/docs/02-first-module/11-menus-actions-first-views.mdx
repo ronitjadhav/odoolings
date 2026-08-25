@@ -40,8 +40,23 @@ When a user clicks "Vehicles", four layers cooperate:
   *how* to render the model. The web client turns it into components; the server
   uses it to know which fields to fetch.
 
+Four layers to put a list of vehicles on screen is a fair thing to raise an eyebrow at.
+Most frameworks would have you point a route at a template and be done. So it is worth
+knowing what the indirection buys, because it is not ceremony:
+
+- One model, **many actions**. "All Vehicles" and "Vehicles Due for Service" are two
+  actions with different domains over the same model and the same views.
+- One action, **different views**. Adding kanban to `view_mode` later changes how the
+  same menu opens, and you touch nothing else.
+- Menus **rearrange freely**, because a menu knows only which action it points at, not
+  what that action renders.
+
 All three are regular records loaded from your data files. Chapter 8's slogan ("the
-UI is data") stops being abstract today.
+UI is data") stops being abstract today, and it has a consequence worth flagging now
+even though you will not use it until Part 6: because each layer is a record rather than
+code, **somebody else's module can replace any one layer without editing your files.**
+That is what makes "never modify core, always extend" possible at all, and the seams
+you are building today are exactly where that happens.
 
 ### List and form, the two views you cannot skip
 

@@ -23,6 +23,19 @@ this call for real on client work.
 
 ### Why extract a working feature at all
 
+Say the uncomfortable part first: you are about to spend a couple of hours, and at the
+end the software will do **exactly** what it does right now. No new feature, no bug
+fixed, nothing a user could point at. Every refactor chapter in every book has to survive
+that objection and most of them dodge it.
+
+Here is the answer, and it is worth holding on to because you will have to make this
+argument to a client or a lead one day. What you gain is not a capability, it is
+**optionality**, and optionality is invisible on the day you buy it. Today both versions
+behave identically. The difference shows up on the day a shop wants LibreFleet without
+reminders, or the day a reviewer has to read your diff, or next October when somebody
+migrates this code and only has to migrate the parts that are actually in use. You are
+not making the software better, you are making the *next* decision cheaper.
+
 Nothing is broken. The reasons to split it out are all about the shape of the
 codebase, not a bug:
 

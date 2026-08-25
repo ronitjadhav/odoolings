@@ -1114,6 +1114,87 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-25 — the comprehension-first pass, finished across all 50 chapters
+
+Started as one reader-reported confusion in ch27 and ended as a sweep of the whole book:
+Parts 3-7 on 2026-08-24, then Parts 0, 1, 2, 8 and 9. **All 50 chapters have now had it.**
+
+**The pattern, in its final form.** Four moves, in the order they proved valuable:
+
+1. **Name the unspoken objection.** The reason the chapter's central claim sounds *false*,
+   arbitrary, or absurd on first read. This was the highest-value edit in every single
+   part. The tell that one is missing: the chapter asserts its thesis and then verifies it,
+   which only works on a reader who already believes it.
+2. **Give a picturable model before the jargon**, placed in `## Why this matters`, the
+   Concepts section where the names start, and the Hands-on payoff.
+3. **Split Hands-on steps doing two unrelated jobs.** Headings containing "then", or
+   listing several verbs, are the tell.
+4. **One bullet per idea, plus a table** where a comparison is implied but left for the
+   reader to assemble.
+
+**"No change needed" is a real answer.** Six chapters got it: ch07, ch08, ch14, ch50, and
+several where the honest finding was that the chapter already did all four moves. Adding
+the instruction explicitly to the final round stopped agents padding chapters that were
+finished. Worth keeping in any future brief.
+
+**Declining a split is also a real answer.** Across the last nineteen chapters, zero splits
+were made, every candidate considered and declined with a reason. Three legitimate reasons
+emerged and are worth reusing: the step is the book's write-then-register-then-upgrade
+rhythm; it is one continuous shell session that splitting would break; or it is one
+investigation whose "trap" is the point of the step rather than a second job.
+
+**Process, and this is the part that generalises.** Every pass was delegated with a standing
+instruction to **report suspected technical errors rather than fix them**, and, added later,
+**to say explicitly when a claim would make a better objection if it were true but could not
+be confirmed**. Both halves paid off repeatedly:
+
+- Agents flagged roughly twenty claims across the book. Every one was checked against the
+  running instance or core source. **The split was about even between "correct as written"
+  and "genuinely broken".** Neither half could have been guessed.
+- The second half of the instruction produced the best single edit of the sweep: ch18's
+  objection is now "you have had a search bar since ch12 and never wrote one", because
+  `_get_default_search_view` in `base/models/ir_ui_view.py` really does generate a
+  single-field search on `_rec_name`. The agent wanted that framing, could not assert it,
+  said so, and it was verified in one grep.
+
+**Standing rule, earned twice: do not accept a prose pass over technical material without
+re-verifying every claim it touches.** An early pass silently "improved" ch29's
+fiscal-position resolution order into being wrong. A later one nearly did the same to ch41's
+many2many explanation. Both were caught only by checking.
+
+**Citing core, where a claim is load-bearing but undocumented.** Four chapters now point at
+the exact line rather than asserting: ch27's `SOFT_LOCK_DATE_FIELDS`, ch20's
+`attrs['compute_sudo'] = attrs.get('compute_sudo', store)` in `odoo/orm/fields.py`, ch39's
+three-line `web.assets_web` from `web/__manifest__.py`, and ch18's default search view. This
+converts "trust me" into "check me" and is cheap. Prefer it wherever a default surprises.
+
+**Defects found and fixed along the way**, none of which were the point of the exercise:
+ch28 never assigned `inv` (six blocks read fields off it, `NameError` on a fresh shell);
+ch31 said "Part 4" while sitting in Part 6; ch35 rendered the same Mermaid diagram twice
+(the only raw ```mermaid fence in the site); ch37 implied the web client's RPC endpoints
+were not controllers, when `/web/dataset/call_kw` is an ordinary `@http.route`; ch42's
+exercises were numbered 1,3,4,5,6,7 with a pointer to the wrong one; ch01 used "OCA" cold
+on its first appearance in the whole tutorial, one chapter before ch02 defines it; ch06's
+new dev-mode table needed widening once core showed QWeb templates are stored as views too.
+
+**One claim deliberately left unasserted**, as the discipline requires: whether a plain `-u`
+drops the column for a field you removed from a class. It runs through
+`ir.model.fields._drop_column` via `unlink`, and establishing when that fires needs an
+add-then-remove experiment rather than a source read. ch09 stays additive-only. Also left
+alone: ch43's "Beta is the default when the key is absent" (an OCA convention, so citable
+only to OCA's guidelines, not core) and ch45's missing rationale for the OCA's emailed CLA
+(a legal claim about an organisation's reasoning, exactly the kind of plausible invention
+this sweep exists to avoid).
+
+**Still open, both blocked on an authenticated browser session:** the two ch28 screenshots
+showing the wrong invoice (276.00 / INV/2026/00014 / order S00048, while the chapter follows
+363.40 / INV/2026/00010 / order S00025), and Part 6 shipping zero screenshots across all
+eight chapters. **Also still open and unblocked:** Part 6 is half-retrofitted to
+`<Steps>`/`<Step>`, ch31-34 still on literal `### N.` headings, where the numbers are text
+and must be stripped rather than reordered.
+
+Verified with `npm run test:ci` (green) after each part.
+
 ### 2026-08-24 (last) — the comprehension-first pattern, rolled across Parts 5 and 6
 
 ch27's rewrite (entry above) worked because of one move, and the reader said so

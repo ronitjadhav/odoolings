@@ -17,9 +17,31 @@ it partway through, points it at code nobody was watching for style, and fixes w
 comes back. That's today's hands-on, not a contrived example: the findings below are
 what pre-commit genuinely found the first time it ran against this exact codebase.
 
+Worth naming the objection before you run any of it, because most developers have it and
+nobody says it out loud: **linting reads as style policing.** A tool is about to reformat
+twelve of your files over quote marks and whitespace, and none of that makes the software
+do anything it didn't do before. If that feels like a waste of an afternoon, the answer is
+that the reformatting is not the point, it is the part nobody should ever be arguing about
+again. Handing quote style to a machine is what buys you review conversations about
+substance instead of taste, which is the whole reason chapter 45's reviewers can be
+brief.
+
+The part that *is* the point is smaller and easy to miss in the noise. One of the findings
+below is that a `ValidationError` message isn't wrapped for translation, which means a
+French-speaking user reads an English error forever. That is a real bug in a real
+codebase, it has nothing to do with style, and no general-purpose Python linter could
+possibly have caught it.
+
 ## Concepts
 
 ### What each tool actually checks
+
+Which points at the shape of the whole setup: **two layers, and they know different
+things.** `ruff` knows Python, so it catches what would be a mistake in any Python
+project anywhere. `pylint-odoo` knows *Odoo*, so it catches what is only a mistake here:
+that this string needs translating, that this manifest key is wrong, that writing inside
+a compute will bite you. The first layer is portable and the second one is why this
+chapter exists.
 
 <CardGrid cols={2}>
   <Card tone="sage" icon={<Icon name="tool" />} title="ruff">

@@ -40,7 +40,11 @@ and the rest of the tutorial keeps confirming it.
   similar to React but its own thing. It renders list views, forms, kanbans and so on
   from *descriptions* it receives from the server.
 - **Logic.** A Python server. Business objects are Python classes; the **<Term k="ORM">ORM</Term>** maps
-  them to PostgreSQL tables and mediates every read and write. Alongside the RPC
+  them to PostgreSQL tables and mediates every read and write. "Mediates" is the word
+  doing the work there: access rights, computed fields and business rules all live on
+  that path, which is why the ORM is not a convenience layer you could reasonably skip
+  by writing SQL yourself. Skip it and you do not just lose some syntax sugar, you
+  silently lose the security checks with it. Alongside the RPC
   endpoints the web client uses, **controllers** serve classic HTTP routes (the
   website, the customer portal, PDF downloads).
 - **Data.** PostgreSQL, and only PostgreSQL. Odoo leans on it hard (constraints,
@@ -72,6 +76,19 @@ A form view, a list view, a menu item, an action: each is a *record in the datab
 (in models like `ir.ui.view`), typically loaded there from a module's XML files at
 install time. The web client asks the server "give me the form view for `res.partner`",
 receives an XML description, and renders it.
+
+It is worth saying why that takes so long to absorb, because the reason is not
+stupidity. In every other web framework you have used, a template *is* a file: you edit
+the file, refresh the page, and see the change. That habit is so deep it does not feel
+like an assumption. Odoo breaks it, and the way you find out is the second question in
+this chapter's opening list, "why did my change not appear?"
+
+So here is the picture to hold. **Your XML file is not the view. It is a delivery note
+for the view.** The view itself lives in the database, and it got there because someone
+handed the note over at install time. Edit the note sitting on your desk and the
+warehouse does not change; the file and the database have simply drifted apart. Handing
+the note over again is a deliberate act, the module *upgrade* of chapter 8, and that is
+the whole reason the upgrade step exists at all rather than being pointless ceremony.
 
 That's why customizing Odoo rarely means forking anything. You ship a module whose XML
 *adds records* (a new view, a menu) or *inherits existing ones* with targeted edits.

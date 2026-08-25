@@ -17,6 +17,19 @@ show this data" but "to exactly whom". Getting groups right early also means eve
 later chapter (views, wizards, reports) is built and tested against realistic
 permissions instead of superuser fantasy.
 
+If a chapter about permissions this early feels like paperwork standing between you and
+the interesting part, that is worth answering head on rather than asking you to take it
+on trust. **Security in Odoo is not a lock you add to finished work. It is the thing that
+makes the work visible at all.** Right now `librefleet.vehicle` exists, has columns, and
+holds the records you created in chapter 9, and yet no ordinary user can so much as read
+it. Not your colleague, not a technician, not even the admin account. Chapter 11 is going
+to put LibreFleet on screen with menus and views, and without what you write today those
+menus would open onto an error message.
+
+So this chapter is not a detour before the features. It is the step that lets the next
+chapter's features exist. Two files do it: one names the **teams**, the other hands out
+their **badges**.
+
 ## Concepts
 
 ### Deny by default

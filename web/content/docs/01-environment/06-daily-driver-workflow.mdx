@@ -174,6 +174,28 @@ errors.)
   code execution hole.
 </Callout>
 
+Now put both halves together, because the question you will actually ask twenty times a
+day is not "what does `-u` mean" but "I just changed a file, do I need to do anything?"
+
+| What you changed | What makes it take effect | What dev mode does about it |
+|---|---|---|
+| Python code (a model, a method) | a server restart | `reload` restarts for you, so usually nothing |
+| A view's XML architecture | `-u librefleet` | `xml` reads it from your file, covering many cases but not all |
+| Any other XML or data file | `-u librefleet` | nothing: `xml` covers view architectures only |
+
+"View architecture" in the second row is wider than it sounds: QWeb templates are stored
+as views too, so the reports of chapter 36 and the portal pages of chapter 37 fall in that
+row as well, not the third. (`xml` also switches off a few internal caches, which is why
+it can feel faster in general, but that has nothing to do with picking up your file
+changes.)
+
+The third row is the one that bites, because it looks like the second. Dev mode makes
+view edits feel instant, which quietly teaches you that XML is live, and then a data
+file changes and the lesson turns out to have been wrong. When something you edited is
+not showing up and you cannot immediately say which row you are in, run the upgrade:
+being in the first row and upgrading anyway costs you a few seconds, while being in the
+third row and not upgrading costs you the afternoon.
+
 ### Reading the log
 
 The log is your primary debugging instrument, so learn its grammar. A real line from

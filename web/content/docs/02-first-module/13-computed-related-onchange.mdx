@@ -16,7 +16,39 @@ and your app feels alive; do it badly and you ship the worst class of bug there 
 numbers that are *silently wrong*. This chapter builds all three derivation tools
 into LibreFleet and then breaks one on purpose so you recognize the failure forever.
 
+Here is the thing that makes this chapter harder than it should be, and it is worth
+saying before the code arrives. **All three tools look identical from the outside.**
+Computed, related and onchange each put a value into a field that the user never typed,
+so on screen they are indistinguishable, and a reader reasonably wonders why Odoo needs
+three of them at all.
+
+The question that separates them is not what they do, it is **who owns the value once
+it is there**:
+
+- A **computed** field is owned by the framework, forever. It recalculates whenever its
+  inputs change, and you cannot type over it.
+- A **related** field is owned by the record it points at. Change the source and every
+  copy follows.
+- An **onchange** value is owned by the **user**, the instant it appears. Odoo suggests
+  it, then lets go.
+
+That last one is the whole reason onchange cannot be a business rule, and it is why this
+chapter's final experiment is able to sidestep one.
+
 ## Concepts
+
+Keep this table in view while you read the three sections below. It is the same three
+tools, lined up on the questions that actually decide which one a ticket needs:
+
+| | Computed | Related | Onchange |
+|---|---|---|---|
+| Where the value comes from | a method you write, from other fields | a path to another record | a method you write, at typing time |
+| Who owns it afterwards | the framework, forever | the record it points at | the user, immediately |
+| Can the user type over it | no | no | yes, that is the point |
+| Fires outside a form (shell, RPC, import) | yes | yes | **no** |
+
+The bottom row is the one that causes production bugs, and this chapter ends by proving
+it on a real record.
 
 ### Computed fields: value = f(other fields)
 
