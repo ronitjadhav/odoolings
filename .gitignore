@@ -4,3 +4,9 @@ __pycache__/
 
 # odoolings snapshot/diff scratch state (ch21+), never worth committing.
 .odoolings-snapshot.json
+
+# Local-only compose tweaks (a remapped port, an extra mount). Docker Compose reads
+# this file automatically on top of code/docker-compose.yml, which is the whole point:
+# code/docker-compose.yml stays byte-identical to the starter's copy, as the deploy
+# workflow's drift check requires, while your machine keeps its own adjustments.
+code/docker-compose.override.yml
