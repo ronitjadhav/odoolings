@@ -17,6 +17,19 @@ read a model definition and picture the table (and vice versa), a large part of 
 framework stops being magic. The psql habit you build here is also how you'll debug
 real client databases for the rest of your career.
 
+If you have used Django, Rails, Laravel or SQLAlchemy, one question is already nagging
+at you: **where is the migration?** In those frameworks a model change is only half the
+job, and you write, review and commit a second file describing the schema change. Odoo
+has no such file. **The class is the schema.** You add a field to the Python, you run
+`-u`, and the upgrade issues the DDL needed to make the table match what the class now
+declares. There is nothing to generate and nothing to check in.
+
+That is a genuinely smaller mental model than you are used to, so the useful instinct to
+build is the reverse one: since nothing records your intent except the class itself,
+reading a class and picturing its table is the skill, and it is exactly what this chapter
+drills. (Restructuring *existing data*, as opposed to adding a column, is a real problem
+and it does get its own tooling; that is chapter 47.)
+
 ## Concepts
 
 ### A model is a class with a `_name`

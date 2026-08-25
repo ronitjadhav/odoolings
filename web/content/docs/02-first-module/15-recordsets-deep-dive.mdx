@@ -17,6 +17,19 @@ colleagues') and the framework stops feeling magic. It's also where you learn th
 tools that separate maintenance work from incidents: `with_user` to test as somebody
 else, and `sudo` used deliberately instead of sprinkled until the error goes away.
 
+Before any of it, one wrong idea to put down, because almost everybody arrives holding it
+and it is the source of the errors in this chapter. **A recordset looks like a list of
+records, and it is not one.** It iterates like a list, slices like a list and has a
+length like a list, so the intuition survives for a surprisingly long time before it
+fails.
+
+What it actually is: **one object pretending to be many.** A model name, a tuple of ids,
+and a cache, all in a single object. The consequence to hold on to is that when you loop
+over a recordset of ten orders, you do not get ten order objects. You get the same kind
+of object ten times, each holding one id. That is why `for line in self` is the shape of
+every compute you have written since chapter 13, and it is why the rule in the next
+section exists at all rather than being an arbitrary restriction.
+
 Everything below runs in `odoo shell` against your `tutorial` database. Open it and
 type along; the outputs shown are real:
 

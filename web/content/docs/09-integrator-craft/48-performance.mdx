@@ -15,6 +15,26 @@ see across a loop you wrote, and a query count that's fine on your four-row loca
 database can be the reason a client's production instance times out on a busy
 Monday. Reading the actual SQL, not guessing from the Python, is the skill.
 
+Most people arrive at a chapter called "Performance" reaching for two things: a cache and
+an index. Both are real, one of them has a section below, and neither is where the money
+usually is. The thing that actually rescues a slow Odoo screen is almost always **the
+number of queries**, not the speed of any one of them, and that number is something you
+can read off the screen rather than argue about. Performance work here is arithmetic, not
+intuition.
+
+Which sets the order the Concepts below deliberately run in, cheapest and most likely
+first:
+
+1. **Look at the SQL at all** (`--log-sql`). Free, and it usually ends the discussion.
+2. **Count the queries, and find the loop.** The N+1 pattern is the big win, and it is
+   visible as a number.
+3. **Batch what you create.**
+4. **Add an index**, for a query shape you know is coming.
+5. **Drop to raw SQL**, in the narrow case where it is genuinely justified.
+
+Work down that list, not up it. Nearly every real ticket is settled by the second item,
+counting the queries.
+
 ## Concepts
 
 ### Seeing the SQL at all: `--log-sql`

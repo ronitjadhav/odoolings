@@ -19,6 +19,16 @@ run client projects: same containers, same config file idea, same separation bet
 the Odoo image and *your* addons mounted into it. What changes in production is
 scale and secrets, not shape.
 
+If you already have Python and PostgreSQL on this machine, a reasonable objection is
+forming right now: why the detour, when you could install Odoo directly and skip
+learning a second tool? The honest answer is not that installing Odoo once is hard,
+because it is not. It is that you will not be running *one* Odoo. Chapter 1's release
+rhythm means three majors are supported at any moment, and a client on 18 does not care
+that your laptop is set up for 19. Installed system-wide, each version fights the last
+one over the machine's Python packages and database cluster. In containers, a second
+version costs you one more directory and nothing else. You are not learning Docker
+here as a prerequisite for Odoo; you are buying the ability to have several Odoos.
+
 ## Concepts
 
 ### Two containers, one file

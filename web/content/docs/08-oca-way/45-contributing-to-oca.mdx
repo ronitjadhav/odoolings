@@ -16,6 +16,20 @@ are expected to work, not a slogan, and the mechanics here (fork, branch off the
 right thing, PR shape, CI gate) are the same whether you're fixing a typo today or
 landing a real feature on a client-funded contribution next year.
 
+Read that list of mechanics again and the honest objection appears on its own: a signed
+legal document, a fork, two remotes, a rebase, a linter, several reviewers and a bot
+command, and the worked example is **fixing a typo**. That ratio looks absurd, and
+pretending otherwise would be dishonest.
+
+It is also the entire point. Nearly all of that cost is paid exactly once (the CLA, the
+fork, the remotes) and never again, and the reason to spend it on a typo is that a typo
+has no stakes. Something in the sequence below *will* surprise you: a push rejected, a
+base branch you picked wrong, CI red for a reason that has nothing to do with your
+change. Much better that it happens while the worst case is a misspelled word than while
+a client is waiting on the feature. **Treat your first PR as a dry run of the pipeline,
+not as a contribution to be proud of.** The contribution you are proud of goes second,
+once the machinery is boring.
+
 ## Concepts
 
 ### The CLA, signed once, and it isn't a bot click
@@ -135,6 +149,10 @@ something genuinely wrong and genuinely small: a typo in a README fragment, a
 missing detail in a `readme/DESCRIPTION.md`, a manifest `summary` that doesn't match
 what the module does. Small and real beats impressive and half-finished for a first
 PR.
+
+This is the dry-run principle in practice, so resist the urge to pick something
+worthier. The smaller the change, the more of your attention is free for the mechanics,
+and the mechanics are what you came here to learn.
 </Step>
 
 <Step>

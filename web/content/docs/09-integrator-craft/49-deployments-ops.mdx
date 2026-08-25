@@ -17,6 +17,21 @@ nginx today, you'll know what it's for and why the pieces exist, which is the le
 integrator work actually needs day to day; the ops team (or the client's, or
 odoo.sh's) usually owns the rest.
 
+Which invites the reasonable objection: if somebody else owns it, why spend an hour and a
+half here? Because **their configuration produces symptoms that get filed as your bug.**
+That is the honest reason, and it is worth keeping in mind as you read, because it turns
+each concept below from ops trivia into a diagnosis you will need:
+
+- A report that works locally and "randomly fails" in production is often a request being
+  killed at a CPU limit, not code that broke.
+- An automated action that "never runs" is sometimes a cron thread count, not your action.
+- Attachments that "vanished" after a restore are usually a database restored without its
+  filestore, which is not a data-loss bug in Odoo.
+
+None of those tickets arrive labelled as infrastructure. They arrive pointing at your
+module, and knowing these pieces is how you hand them back with an explanation instead of
+spending two days in your own code.
+
 ## Concepts
 
 ### What our own setup quietly skips

@@ -35,6 +35,22 @@ technicians to their own work.
   many orders, orders can need two mechanics. In Postgres this becomes a separate
   *relation table* of id pairs that Odoo names and manages for you.
 
+Those three bullets contain the whole story, but it is easier to hold as a grid. The
+column that matters most is the middle one, because it is the one readers guess wrong:
+
+| | What Postgres gets | Where the data actually lives | What you must declare |
+|---|---|---|---|
+| `Many2one` | an integer column, with a foreign key | on **this** table | the comodel |
+| `One2many` | **nothing at all** | on the other table's `Many2one` | the comodel *and* the inverse field |
+| `Many2many` | a separate relation table of id pairs | in that relation table | the comodel |
+
+Read the `One2many` row again, because it explains something that otherwise feels like a
+contradiction later in this chapter. A one2many has no column, no storage, nothing of its
+own. Yet you can assign to it, and this chapter will have you do exactly that with command
+lists. Both facts are true: **writing to a one2many is really writing the many2one on the
+records at the other end.** The field is a question ("which orders point at me?"), and
+answering it differently means changing what points at you.
+
 <Mermaid
   label="An owner has many vehicles, a vehicle has many service orders, each order has a service type, many order lines and many technicians, each line has one part"
   chart={`erDiagram

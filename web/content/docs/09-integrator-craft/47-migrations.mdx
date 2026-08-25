@@ -18,6 +18,21 @@ modules on the mature `16.0` branch, 34 on the young `19.0` one. That gap is not
 neglect, it's the queue, and "that developer will regularly be you" wasn't a throwaway
 line.
 
+One thing to settle before any of it, because the word itself is the problem.
+**"Migration" is one word for two completely unrelated jobs**, and a conversation where
+two people mean different ones goes badly for a surprisingly long time before anybody
+notices:
+
+- **Migrating code** means making a module *run* on the new Odoo version: renamed
+  methods, removed helpers, changed defaults. A human reads the code and fixes it.
+- **Migrating data** means moving an existing database's *records* into the new
+  version's table shapes. Scripts do that, and the tools are different ones.
+
+This chapter is about the first one, all the way through. If you came expecting a tool
+that moves your data, that exists and it is called OpenUpgrade, and the last Concepts
+section below places it. Say which of the two you mean whenever the word comes up on a
+real project.
+
 ## Concepts
 
 ### Why yearly releases force this at all

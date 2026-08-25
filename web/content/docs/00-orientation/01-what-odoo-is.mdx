@@ -15,6 +15,14 @@ thousands of other companies customize for their clients. Nearly every design ch
 you'll meet later (modules, inheritance everywhere, views stored as data) exists to
 make that customization industry possible.
 
+That sentence is easy to nod at and move past, so here is the sharp version. Almost
+every architectural decision in Odoo is an answer to one question: **how do you let a
+stranger change how this works, without them editing your code?** Modules, inheritance
+everywhere, views stored as data instead of written as files: those are not three
+separate design choices, they are three answers to that same question. Carry it with
+you and the rest of this book stops reading like a list of features and starts reading
+like one idea applied over and over.
+
 ## Concepts
 
 ### ERP, in one paragraph
@@ -95,7 +103,10 @@ Odoo comes in two <Term k="edition">editions</Term>:
 
 - **Community** is open source (LGPL-3): the complete framework and core apps. Its
   source lives publicly at [github.com/odoo/odoo](https://github.com/odoo/odoo). This
-  is what the OCA targets and what this tutorial uses.
+  is what the OCA targets and what this tutorial uses. (The **OCA** is the Odoo
+  Community Association, a nonprofit that maintains a large library of free modules;
+  the next chapter maps it out properly. It comes up here because which edition you
+  target decides whether its work is available to you.)
 - **Enterprise** is a paid subscription that adds apps and features on top of Community
   (Studio, full Accounting localizations, Field Service, upgrade service, mobile
   apps...). Its source is visible to partners and customers but is **not** freely
