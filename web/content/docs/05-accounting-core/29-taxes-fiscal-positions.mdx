@@ -277,9 +277,14 @@ anywhere else. You are going to build a single 15% tax whose money lands on two 
 accounts, 60% on one and 40% on the other, which is how a real state-plus-city sales tax
 is modelled.
 
-First an account for the second half to land in. Open
-`http://localhost:8069/odoo/action-account.action_account_form` and press **New**: code
-`251100`, Account Name `City Tax Received`, Type **Current Liabilities**.
+First an account for the second half to land in. **Invoicing → Configuration → Chart of
+Accounts** (under the *Accounting* heading in that dropdown) now works as a menu click,
+not just a URL: it only appears because chapter 27 granted your user the **Show
+Accounting Features - Readonly** group. Without that group the menu item does not render
+at all, which is why chapter 27 reached it by URL instead:
+`http://localhost:8069/odoo/action-account.action_account_form`. Either path lands on the
+same list. Press **New**: code `251100`, Account Name `City Tax Received`, Type
+**Current Liabilities**.
 
 Now the tax, and this menu is a normal one: **Invoicing → Configuration → Taxes → New**
 (under the *Accounting* heading in that dropdown):
