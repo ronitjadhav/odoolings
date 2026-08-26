@@ -162,7 +162,9 @@ Press **Confirm** to post it.
 <Step>
 ### Pay part of it
 
-On the posted invoice, press **Register Payment**. Change the amount to **200.00** (the
+On the posted invoice, press **Pay** (labelled **Register Payment** in older Odoo
+versions and in some documentation, but this is the same button: it still calls
+`action_register_payment` underneath). Change the amount to **200.00** (the
 invoice is 363.40) and confirm. The invoice does not say Paid.
 
 ![A PARTIAL ribbon across the invoice, Paid 200.00 against a 276.00 total, Amount Due 76.00](/screens/ch28-invoice-partial.jpg)
@@ -172,7 +174,7 @@ invoice is 363.40) and confirm. The invoice does not say Paid.
 <Step>
 ### Pay the rest
 
-Press **Register Payment** again. Leave the amount alone: it already defaults to what is
+Press **Pay** again. Leave the amount alone: it already defaults to what is
 still owed. Confirm.
 
 ![A PAID ribbon across the invoice, two payment lines totalling the invoice amount, Amount Due 0.00](/screens/ch28-invoice-paid.jpg)
