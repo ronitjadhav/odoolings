@@ -1193,10 +1193,25 @@ those chapters still resolve. The diff was mechanically confirmed to remove noth
 32 old numbered headings and add nothing but tags, the same headings unnumbered, and blank
 lines.
 
-**Still open, both blocked on an authenticated browser session:** the two ch28 screenshots
-showing the wrong invoice (276.00 / INV/2026/00014 / order S00048, while the chapter follows
-363.40 / INV/2026/00010 / order S00025), and Part 6 shipping zero screenshots across all
-eight chapters.
+**ch27's missing screenshot is done** (2026-08-29): step 3 ("Balance it, and save without
+posting") now has `ch27-entry-saved-draft.jpg`, captured live against a real balanced MISC
+entry and verified from the shell to match the surrounding text exactly
+(`name=False, state='draft'`, both lines 250.0) before the capture record was deleted.
+
+**ch28's two wrong screenshots: decided, not fixed, and that is deliberate.** They show
+276.00 / Amount Due 76.00 (`INV/2026/00014`, order S00048), while the chapter's prose and
+every diff follow 363.40 (`INV/2026/00010`, order S00025). Re-checked live: `INV/2026/00010`
+is `state=posted, payment_state=paid, amount_residual=0.0`, so the two states the chapter
+needs (posted-unpaid, then partial) no longer exist on that record. Three options were on
+the table: leave it, reset the invoice's payments and reconciliation to replay both states,
+or re-run the chapter's flow on a fresh order and update its recorded numbers to match.
+Took the first. The prose and every number a reader actually follows are correct; only two
+illustrative images are stale, and both replacement options spend real risk (churning
+reconciled accounting data other chapters depend on) or real time (re-executing a chapter)
+on images rather than instruction. Tracked here as accepted debt, not forgotten.
+
+**Still open, needing an authenticated browser session (now available as of 2026-08-29):**
+Part 6 shipping zero screenshots across all eight chapters.
 
 Verified with `npm run test:ci` (green) after each part.
 
@@ -1280,9 +1295,10 @@ Real defects found and fixed in the same passes:
    Part 6 was never swept. Note for whoever does it: the numbers in ch31-34 are literal
    text, so they must be stripped, not just re-ordered.
 
-Also outstanding from the entry above: **two ch28 screenshots are of the wrong invoice**
-(they show 276.00 / Amount Due 76.00 from INV/2026/00014, order S00048, while the chapter
-follows 363.40 / INV/2026/00010, order S00025). Same blocker.
+Also from the entry above: **the two ch28 screenshots showing the wrong invoice** (276.00 /
+Amount Due 76.00 from INV/2026/00014, order S00048, while the chapter follows 363.40 /
+INV/2026/00010, order S00025) were revisited once a browser session was available and left
+as accepted debt rather than fixed. See the 2026-08-29 entry above for the decision and why.
 
 Verified with `npm run test:ci` (green) after each part.
 
