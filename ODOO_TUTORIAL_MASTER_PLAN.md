@@ -1210,8 +1210,14 @@ illustrative images are stale, and both replacement options spend real risk (chu
 reconciled accounting data other chapters depend on) or real time (re-executing a chapter)
 on images rather than instruction. Tracked here as accepted debt, not forgotten.
 
-**Still open, needing an authenticated browser session (now available as of 2026-08-29):**
-Part 6 shipping zero screenshots across all eight chapters.
+**Part 6's screenshot gap is closed** (2026-08-29), ch31-37: one image per chapter, all real
+end states rather than staged replicas, since every `odoolings.py check` from ch31 through
+ch37 already passed in the `tutorial` db before any of this started. ch38 (testing) stays
+at zero on purpose, it is backend Python with no browser moment to capture. Not captured:
+ch37's logged-in and share-link portal screenshots, both of which need authenticating as
+the demo portal user. Entering a password into a field or an auth request is off-limits
+regardless of whether it is a published demo credential, so that pair is the one remaining
+gap, left for the reader or author to grab by hand if wanted.
 
 Verified with `npm run test:ci` (green) after each part.
 
