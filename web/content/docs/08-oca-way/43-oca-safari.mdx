@@ -9,13 +9,15 @@ research, not code.
 
 ## Why this matters
 
-Chapter 2 drew the map: Odoo SA, integrators, the OCA, each source good for something
-different. From here on you live in the OCA corner of it. Part 8 is about working the
-OCA way, and that starts before you write a single line: an experienced integrator
-developer's first move on a new requirement isn't "how do I build this," it's "has
-someone already built this, and is it any good." Skipping that step is how projects
-end up with three different in-house modules doing what one well-maintained OCA
-repository already does, each one now your team's problem to maintain forever.
+Chapter 2 drew the map: Odoo SA, integrators, and the OCA (the Odoo Community
+Association, the nonprofit whose volunteers maintain thousands of free modules). From
+here on you live in the OCA corner of it.
+
+Part 8 is about working the OCA way, and that starts before you write a single line. An
+experienced integrator's first move on a new requirement isn't "how do I build this," it's
+"has someone already built this, and is it any good?" Skip that step and projects end up
+with three in-house modules doing what one well-maintained OCA repository already does,
+each one now your team's problem to maintain forever.
 
 LibreFleet is vehicle-workshop and service-booking software. The OCA has a real
 `fleet` repository covering exactly this domain. Today you go find it, and use it as
@@ -34,11 +36,13 @@ Chapter 2 named these; here's when to reach for which.
 | <Icon name="source" /> [github.com/OCA](https://github.com/OCA) | Once you know the repo: browsing branches, issues, PR history, reading source in context. |
 | <Icon name="store" /> [apps.odoo.com](https://apps.odoo.com) | Third-party modules the OCA doesn't cover, paid add-ons, and a wider (much more variable quality) net. |
 
-The catalog site is the one piece chapter 2 didn't cover, because chapter 2 was
-teaching you the map, not yet sending you shopping. It's OCA's own search engine, and
-it's worth bookmarking: `odoo-community.org/apps` redirects there. Search it by
-keyword the way you'd search apps.odoo.com, except every result is peer-reviewed,
-CI-tested, and AGPL-3 or LGPL-3, never a mystery license.
+The catalog site is OCA's own search engine, and it's worth bookmarking:
+`odoo-community.org/apps` redirects there. Chapter 2 skipped it because chapter 2 was
+drawing the map, not sending you shopping.
+
+Search it by keyword the way you'd search apps.odoo.com. The difference is that every
+result is peer-reviewed, tested by CI (the automated checks that run on every proposed
+change), and licensed AGPL-3 or LGPL-3, never a mystery license.
 
 <Callout type="info" title="In the field">
   Camptocamp's rule of thumb, and most integrators': before estimating a feature,
@@ -53,14 +57,14 @@ CI-tested, and AGPL-3 or LGPL-3, never a mystery license.
 Finding a module is easy. Trusting it takes one more habit: read its declared
 maturity before you read a line of code.
 
-The obvious objection first, because it is a fair one: this is a string somebody typed
-into their own manifest. Nobody audited it, nothing enforces it, and an author who is
-proud of their module can write `Mature` on the day they push it. So treat it as what it
-is, not a certificate but **a statement of intent**: the author telling you how much they
-think you should rely on this. That is still worth reading, because it is free, it is the
-author's own honest guess, and a module that has bothered to declare anything at all has
-had someone thinking about who depends on it. What it is not is evidence, which is why
-every judgement below pairs it with something you can check independently.
+The obvious objection first, and it is a fair one: this is a string somebody typed into
+their own manifest. Nobody audited it, nothing enforces it, and a proud author can write
+`Mature` on the day they push.
+
+So treat it as what it is. Not a certificate, but **a statement of intent**: the author
+telling you how much they think you should rely on this. That is still worth reading,
+because it is free and it is their own honest guess. What it is not is evidence, which is
+why every judgement below pairs it with something you can check independently.
 
 The manifest key is `development_status`, one of four values:
 
@@ -86,18 +90,21 @@ generated file opens with a comment telling you not to bother editing it by hand
    !! source digest: sha256:... !!
 ```
 
-That digest lets the tool detect a hand-edit versus a source-fragment edit: touch
-the generated file directly and the digest goes stale, and the next `pre-commit` run
-in that repo (chapter 44 lives here) flags it. If you ever contribute an OCA README
-fix, it's the `readme/` fragment you edit, never `README.rst`.
+That digest is how the tool catches a hand-edit. Touch the generated file directly and
+the digest goes stale, and the next `pre-commit` run (the automated checks chapter 44
+sets up) flags it. If you ever contribute an OCA README fix, edit the `readme/` fragment,
+never `README.rst`.
 
-Below that comment sits a row of badges, and one of them is the maturity level
-rendered as a color, linking to the OCA's own explanation of what each level means.
-The rest of the row is worth knowing at a glance too: a license badge, a GitHub badge
-linking straight to that module's folder on its branch, a Weblate "Translate me" badge
-(chapter 45; OCA translations happen there, never by hand-editing a `.po` file in a
-PR), and a Runboat "Try me" badge that spins up a live instance of that exact module
-with no install step on your end.
+Below that comment sits a row of badges, all worth recognising:
+
+- **Maturity**, the level above rendered as a color, linking to OCA's own explanation of
+  what each level promises.
+- **License**.
+- **GitHub**, linking straight to that module's folder on its branch.
+- **Weblate "Translate me"**, pointing at the translation website OCA uses (chapter 45).
+  Translations happen there, never by hand-editing a `.po` file in a pull request.
+- **Runboat "Try me"**, which spins up a live instance of that exact module, with no
+  install step on your end.
 
 <Mermaid
   label="Deciding where to get a feature: check the OCA catalog first, judge what you find by its development status, and only build custom when nothing fits"
@@ -112,18 +119,18 @@ with no install step on your end.
 ### Reading OCA source as study material
 
 The OCA holds itself to real review standards: CI, peer review, `pre-commit` linting,
-a PSC (Project Steering Committee, chapter 2) signing off on what merges. That makes
-its modules some of the best real-world code you can read, and unlike Odoo's own core,
-it's written by working integrators solving the exact kind of ticket you'll get.
+and a PSC (Project Steering Committee, chapter 2) signing off on what merges. That makes
+its modules some of the best real-world code you can read. Unlike Odoo's own core, it's
+written by working integrators solving the exact kind of ticket you'll get.
 
-`OCA/fleet`, the repository covering vehicle management, is LibreFleet's direct real-
-world parallel. Its `19.0` branch holds modules like `fleet_vehicle_service_kanban`,
-`fleet_vehicle_service_services`, `fleet_vehicle_inspection`, and
-`fleet_vehicle_log_fuel`, small, single-purpose additions on top of Odoo's core
-`fleet` module. That's an OCA convention worth internalizing on sight: many small
-modules that each do one thing and declare narrow `depends`, rather than one large
-module doing everything. It composes better and migrates easier, one small diff at a
-time instead of one large one.
+`OCA/fleet`, the repository covering vehicle management, is LibreFleet's direct
+real-world parallel. Its `19.0` branch holds modules like `fleet_vehicle_service_kanban`,
+`fleet_vehicle_service_services`, `fleet_vehicle_inspection` and `fleet_vehicle_log_fuel`:
+small, single-purpose additions on top of Odoo's core `fleet` module.
+
+That's an OCA convention worth spotting on sight. Many small modules, each doing one thing
+with narrow `depends`, beat one large module doing everything. They compose better and
+migrate easier, one small diff at a time.
 
 ## Hands-on
 

@@ -9,31 +9,33 @@ important fields, and send a real templated email. · **Time:** ~2 h ·
 
 ## Why this matters
 
-Open almost any record in Odoo, a partner, an invoice, a lead, and there is a column of
+Open almost any record in Odoo (a partner, an invoice, a lead) and there is a column of
 messages and log entries down the right side: who changed what, who was notified, what
-still needs doing. That is the **chatter**, and it is not a plugin bolted onto a handful
-of special models. It is two mixins any model can inherit, and by the end of this chapter
-your service orders have the same audit trail, follower list and to-do scheduler as a core
-Odoo invoice. This is also the chapter where `_inherit` finally shows you its fourth face:
-chapter 31 covered a single string, a new `_name`, and `_inherits` with an `s`, but never
-the form you will actually type the most in real modules, a **list**.
+still needs doing. That is the **chatter**. It is not a plugin bolted onto a few special
+models. It is two mixins any model can inherit.
 
-It is worth saying out loud why this feels like overkill at first. On screen the chatter
-looks like a comment box, and a comment box should be one text field. Meeting two mixins,
-a separate message model, a follower table and an activity scheduler reads like a lot of
-machinery for somewhere to type notes.
+By the end of this chapter your service orders have the same audit trail, follower list
+and to-do scheduler as a core Odoo invoice. This is also where `_inherit` shows its fourth
+face. Chapter 31 covered a single string, a new `_name`, and `_inherits` with an `s`, but
+never the form you type most often in real modules: a **list**.
 
-The picture that makes it make sense: **Odoo keeps one shared drawer for every message in
-the system.** Your model does not store its conversation. Every message in the whole
-database lives in one table, and each one carries a label saying which record it belongs
-to. Inheriting the mixin does not give your record a notes field, it makes your record
-*addressable*, so messages, followers and to-dos can point at it. That is why the machinery
-exists, and it is why the next section can promise that none of it touches your table.
+Why this feels like overkill at first, said out loud: on screen the chatter looks like a
+comment box, and a comment box should be one text field. Two mixins, a separate message
+model, a follower table and an activity scheduler is a lot of machinery for somewhere to
+type notes.
+
+Here is the picture that fixes it. **Odoo keeps one shared drawer for every message in the
+system.** Your model does not store its conversation. Every message in the database lives
+in one table, each carrying a label saying which record it belongs to.
+
+So inheriting the mixin does not give your record a notes field. It makes your record
+*addressable*, so messages, followers and to-dos can point at it. That is why the
+machinery exists, and why the next section can promise none of it touches your table.
 
 ## Concepts
 
 The panel you are about to add is really three separate things sharing one column of the
-form, and it helps to keep them apart from the start:
+form. Keep them apart from the start:
 
 | The piece | What it answers | Lives in |
 |---|---|---|
@@ -41,9 +43,9 @@ form, and it helps to keep them apart from the start:
 | the **followers** | who gets told about it | `mail.followers` |
 | the **activities** | what still needs doing, and by whom | `mail.activity` |
 
-Two mixins supply them: `mail.thread` gives you the first two, `mail.activity.mixin` the
-third. Everything below is those three ideas plus one rule about *when* a tracked change
-actually becomes a message, which is the part that costs people an evening.
+Two mixins supply them. `mail.thread` gives you the first two, `mail.activity.mixin` the
+third. Everything below is those three ideas, plus one rule about *when* a tracked change
+actually becomes a message. That last one is the part that costs people an evening.
 
 ### `_inherit` as a list: mixing in, not extending
 
@@ -52,11 +54,12 @@ _inherit = ["mail.thread", "mail.activity.mixin"]
 ```
 
 This is still classic extension (chapter 31), just aimed at more than one target at once,
-and with `_name` still present. Read it as "this model *is* `librefleet.service.order`,
-and it also picks up everything `mail.thread` and `mail.activity.mixin` contribute." Both
-of those are `AbstractModel`, a model with no table of its own that exists purely to be
-mixed into others this way, which is exactly the alternative chapter 31 pointed you at
-when prototype inheritance felt like the wrong tool.
+with `_name` still present. Read it as: "this model *is* `librefleet.service.order`, and it
+also picks up everything `mail.thread` and `mail.activity.mixin` contribute."
+
+Both of those are an `AbstractModel`: a model with no table of its own, existing purely to
+be mixed into others this way. It is exactly the alternative chapter 31 pointed you at when
+prototype inheritance felt like the wrong tool.
 
 <Mermaid
   chart={`flowchart LR
@@ -86,14 +89,13 @@ $ docker compose exec db psql -U odoo -d tutorial -c "\d mail_message" | grep -E
  res_id              | integer           |
 ```
 
-There is the shared drawer, literally: `model` holds the name of your model and `res_id`
-holds the id of the one record, so a single table can carry the conversation for every
-model in Odoo at once. Nothing about `mail_message` knows or cares that service orders
-exist.
+There is the shared drawer, literally. `model` holds the name of your model, `res_id` holds
+the id of the one record, so a single table carries the conversation for every model in
+Odoo at once. Nothing about `mail_message` knows or cares that service orders exist.
 
-Followers (`mail.followers`) and activities (`mail.activity`) work the same way. The
-mixin gives your model the *fields and methods* to read and write that shared storage; it
-never touches your table.
+Followers (`mail.followers`) and activities (`mail.activity`) work the same way. The mixin
+gives your model the *fields and methods* to read and write that shared storage. It never
+touches your table.
 
 ### `tracking=True`: the field decides, the framework writes the message
 
@@ -137,9 +139,9 @@ changelog. Write a tracked field in the shell and check `message_ids` right away
 0
 ```
 
-Nothing. Not a bug, and not something `env.flush_all()` fixes either, flushing writes
-your pending changes to the database but tracking messages are built by a **precommit**
-hook, which only runs when the transaction actually commits:
+Nothing. Not a bug, and not something `env.flush_all()` fixes either. Flushing writes your
+pending changes to the database, but tracking messages are built by a **precommit** hook,
+which only runs when the transaction actually commits:
 
 ```console
 >>> env.cr.commit()
@@ -154,12 +156,13 @@ hook, which only runs when the transaction actually commits:
 ('stage', 'Draft', 'Confirmed')
 ```
 
-That message did not exist a moment ago; the commit is what materialized it, complete
-with the exact before and after values. This is precisely why the odoolings check for
-this chapter tests it over XML-RPC rather than a bare recordset write: every RPC call is
-its own transaction, so by the time the call returns, the commit already happened and the
-message is really there. In the shell, where you control the transaction yourself, you
-have to ask for it.
+That message did not exist a moment ago. The commit is what materialised it, complete with
+the exact before and after values.
+
+This is exactly why this chapter's odoolings check tests over XML-RPC rather than a bare
+recordset write. Every RPC call is its own transaction, so by the time the call returns
+the commit already happened and the message is really there. In the shell you control the
+transaction yourself, so you have to ask for it.
 
 ## Hands-on
 

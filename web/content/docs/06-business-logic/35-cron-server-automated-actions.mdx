@@ -16,22 +16,27 @@ that has not been serviced in six months does not send itself a reminder. An ord
 stuck in draft for a week does not escalate itself. A digest email does not compose
 itself at 7 a.m.
 
-Odoo answers this with three mechanisms that look separate from the UI but share one
-foundation. A **scheduled action** (cron) runs code on a timer. A **server action** is
-that code, stored as a record instead of a Python file, runnable from a menu, a
-button, or a cron. An **automated action** wires a server action to a *database event*
-instead of a clock: a field changing, a record being created, a date arriving. You
-already met the mechanism that ties two of these together in chapter 31:
-`_inherits`. `ir.cron` uses the exact same delegation trick against
-`ir.actions.server` that `librefleet.loaner` used against `librefleet.vehicle`. Once
-you see that, "a cron is a server action with a schedule bolted on" stops being a
-slogan and becomes something you can point at in the database.
+Odoo answers this with three mechanisms. They look separate in the UI but share one
+foundation:
+
+- A **scheduled action** (also called a **cron**, after the classic Unix timer) runs code
+  on a schedule.
+- A **server action** is that code, stored as a database record instead of a Python file,
+  runnable from a menu, a button, or a cron.
+- An **automated action** wires a server action to a *database event* instead of a clock:
+  a field changing, a record being created, a date arriving.
+
+You already met the mechanism tying two of these together, back in chapter 31:
+`_inherits`. `ir.cron` uses the same delegation trick against `ir.actions.server` that
+`librefleet.loaner` used against `librefleet.vehicle`. Once you see that, "a cron is a
+server action with a schedule bolted on" stops being a slogan and becomes something you
+can point at in the database.
 
 ## Concepts
 
-Three names, and almost everyone new to Odoo mixes them up, because the UI files them in
-three different menus and none of the names says what makes it different. Sort them by the
-only question that matters, **what makes the code run**, and they stop overlapping:
+Almost everyone new to Odoo mixes these three up. The UI files them in three different
+menus, and none of the names says what makes it different. Sort them by the only question
+that matters, **what makes the code run**, and they stop overlapping:
 
 | | What makes it run | You reach for it when |
 |---|---|---|
@@ -39,27 +44,27 @@ only question that matters, **what makes the code run**, and they stop overlappi
 | **scheduled action** (cron) | a clock | nothing and nobody will be there to ask |
 | **automated action** | a database event: a record created, a field written, a date arriving | the trigger is something happening to data |
 
-The one that dissolves the confusion is the middle column of the first row. **The server
-action is the code; the other two are only ways of starting it.** A cron is a server action
-with a schedule attached, and an automated action is a server action with a trigger
-attached. You are not choosing between three tools, you are writing one thing and then
-deciding what wakes it up. That is why this chapter builds the same feature three times and
-ends up pointing at a single database row.
+The first row is the one that dissolves the confusion. **The server action is the code;
+the other two are only ways of starting it.** A cron is a server action with a schedule
+attached. An automated action is a server action with a trigger attached.
+
+You are not choosing between three tools. You are writing one thing, then deciding what
+wakes it up. That is why this chapter builds the same feature three times and ends up
+pointing at a single database row.
 
 ### A server action is code Odoo can point at from three places
 
-`ir.actions.server` is a model, not a script file. A record with `state = "code"`
-holds a Python string in its `code` field, run through `safe_eval` against a small,
-fixed set of names: `env`, `model` (the model class, e.g. `librefleet.vehicle`),
-`record` / `records` (whatever this run is bound to), and a few date/time helpers.
-Setting a return value works by assigning to a variable named `action` inside that
-code, which is how a server action can itself open a window.
+`ir.actions.server` is a model, not a script file. A record with `state = "code"` holds a
+Python string in its `code` field. That string runs through `safe_eval` against a small,
+fixed set of names: `env`, `model` (the model class, e.g. `librefleet.vehicle`), `record`
+/ `records` (whatever this run is bound to), and a few date/time helpers. To return
+something, assign to a variable named `action` inside the code. That is how a server
+action can open a window.
 
-The eval context's `records` is the detail that trips people up: it is only
-populated when the action runs *bound to a selection*, something with specific ids in
-mind. Run the same action from a cron, which has no selection, no button clicked, no
-row checked, and `records` comes back empty. A server action meant to work both ways
-needs to handle that itself.
+`records` is the detail that trips people up. It is only filled in when the action runs
+*bound to a selection*, meaning something with specific ids in mind. Run the same action
+from a cron, which has no selection and no rows ticked, and `records` comes back empty. A
+server action meant to work both ways has to handle that itself.
 
 ### A cron is a server action wearing a schedule
 
@@ -75,29 +80,31 @@ needs to handle that itself.
 _inherits = {'ir.actions.server': 'ir_actions_server_id'}
 ```
 
-That is delegation inheritance, chapter 31's `librefleet.loaner` pattern, applied by
-core Odoo itself. A cron record does not *have* a server action the way an order
-*has* lines; it **is** one, plus `interval_number`, `interval_type`, `nextcall`, and
-the rest of the scheduling fields. Read or write `cron.code`, `cron.model_id`,
-`cron.state`, even `cron.name`, and you are reading or writing the exact same
-database row the linked `ir.actions.server` record points at. There is one row, two
-models looking at it.
+That is delegation inheritance, chapter 31's `librefleet.loaner` pattern, applied by core
+Odoo itself. A cron record does not *have* a server action the way an order *has* lines.
+It **is** one, plus `interval_number`, `interval_type`, `nextcall` and the other
+scheduling fields.
 
-Binding an action to a menu works through two fields on the *action*, not the cron:
-`binding_model_id` (which model's views it should show up on) and
-`binding_view_types` (list, form, or both). Set those and the action appears in that
-model's Action menu, runnable on a selection, with no separate menu record to build.
+Read or write `cron.code`, `cron.model_id`, `cron.state`, even `cron.name`, and you are
+touching the exact same database row the linked `ir.actions.server` record points at. One
+row, two models looking at it.
+
+Binding an action to a menu uses two fields on the *action*, not the cron:
+`binding_model_id` (which model's views it shows up on) and `binding_view_types` (list,
+form, or both). Set those and the action appears in that model's Action menu, runnable on
+a selection, with no separate menu record to build.
 
 ### An automated action is a server action with a trigger instead of a clock
 
-`base.automation` (module `base_automation`, a separate dependency from `base`)
-watches one model for an event and runs a linked server action when it fires. The
-trigger vocabulary is wide: `on_create`, `on_create_or_write`, `on_unlink`, `on_time`
-(a date field arriving), `on_stage_set` (a `stage_id` many2one reaching a specific
-value, built for kanban-pipeline models), and a few mail-specific ones. Two domain
-fields narrow it further: `filter_pre_domain` (must have matched *before* the write)
-and `filter_domain` (must match *after*). Both together is how you catch a
-*transition* rather than every write to an already-matching record.
+`base.automation` (module `base_automation`, a separate dependency from `base`) watches
+one model for an event and runs a linked server action when it fires. The trigger
+vocabulary is wide: `on_create`, `on_create_or_write`, `on_unlink`, `on_time` (a date
+field arriving), `on_stage_set` (a `stage_id` many2one reaching a specific value, built
+for kanban-pipeline models), and a few mail-specific ones.
+
+Two domain fields narrow it further: `filter_pre_domain` (must have matched *before* the
+write) and `filter_domain` (must match *after*). Using both together is how you catch a
+*transition*, rather than firing on every write to an already-matching record.
 
 <Callout type="info" title="Official docs">
   [Server & scheduled actions (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/actions.html#server-actions-ir-actions-server):
@@ -126,10 +133,9 @@ Automated Actions live in their own module. Add it to `librefleet`'s dependencie
     "depends": ["base", "product", "base_automation"],
 ```
 
-Installing it pulls in `digest`, `resource` and `sms`, `base_automation`'s own
-dependencies. That is normal and not a sign you depended on the wrong thing;
-Automation Rules ship as part of the same functional area as digest emails and SMS
-reminders in core Odoo.
+Installing it pulls in `digest`, `resource` and `sms`, which are `base_automation`'s own
+dependencies. That is normal, not a sign you depended on the wrong thing. Automation
+Rules ship in the same functional area as digest emails and SMS reminders.
 </Step>
 
 <Step>
@@ -154,12 +160,14 @@ class Vehicle(models.Model):
     _rec_name = "license_plate"
 ```
 
-`mail.activity.mixin` alone looks like it should be enough, vehicles get reminder
-activities, not a discussion thread. It is not: `action_feedback()`, the method that
-marks an activity done, logs its completion note through `message_post_with_source()`,
-which lives on `mail.thread`. Ship with only `mail.activity.mixin` and marking a
-reminder done throws `AttributeError: 'librefleet.vehicle' object has no attribute
-'message_post_with_source'` the first time anyone tries. Both mixins, from the start.
+`mail.activity.mixin` alone looks like it should be enough: vehicles get reminder
+activities, not a discussion thread. It is not enough. `action_feedback()`, the method
+that marks an activity done, logs its completion note through
+`message_post_with_source()`, which lives on `mail.thread`.
+
+Ship with only `mail.activity.mixin` and marking a reminder done throws
+`AttributeError: 'librefleet.vehicle' object has no attribute 'message_post_with_source'`
+the first time anyone tries. Take both mixins from the start.
 </Step>
 
 <Step>
@@ -212,12 +220,13 @@ cron, the button and the automated action can all call the same code:
             open_reminders.action_feedback(feedback="Service completed.")
 ```
 
-The overdue check walks `service_order_ids` in Python rather than a clever domain.
-LibreFleet's dataset is small enough that this is the right call: a domain over a
-related field's aggregate would be harder to read for no real performance gain here.
-The duplicate check (`has_open_reminder`) matters more than it looks: without it, a
-daily cron creates a fresh "Schedule maintenance" activity every single day for the
-same vehicle, forever.
+The overdue check walks `service_order_ids` in Python rather than using a clever domain.
+LibreFleet's dataset is small enough that this is the right call: a domain over a related
+field's aggregate would be harder to read for no real performance gain.
+
+The duplicate check (`has_open_reminder`) matters more than it looks. Without it, a daily
+cron creates a fresh "Schedule maintenance" activity every single day for the same
+vehicle, forever.
 </Step>
 
 <Step>
@@ -248,14 +257,12 @@ same vehicle, forever.
 </odoo>
 ```
 
-`noupdate="1"` for the same reason chapter 34 used it on `ir_sequence.xml`: a manager
-may retune the schedule or disable the cron, and an upgrade must not silently reset
-that.
+`noupdate="1"` for the same reason chapter 34 used it on `ir_sequence.xml`: a manager may
+retune the schedule or disable the cron, and an upgrade must not silently reset that.
 
-Notice the cron record sets no `name`. That is deliberate, not an oversight:
-`ir.cron` delegates `name` to the same row as the action, so setting it again here
-would silently rename the "LibreFleet: maintenance reminders" entry in the Vehicles
-list's Action menu too. One row, one name.
+Notice the cron record sets no `name`. That is deliberate. `ir.cron` delegates `name` to
+the same row as the action, so setting it here would also rename the "LibreFleet:
+maintenance reminders" entry in the Vehicles list's Action menu. One row, one name.
 
 Register the file, upgrade, and use Settings > Technical > Scheduled Actions >
 "LibreFleet: maintenance reminders" > **Run Manually** (the UI button for
@@ -270,8 +277,9 @@ ValueError: AttributeError("'NoneType' object has no attribute 'action_send_main
 'action = records.action_send_maintenance_reminders()'
 ```
 
-This is the eval-context detail from Concepts, made concrete. Run Manually, like the
-real scheduler, passes no selection: `records` is `None`, and `None.anything` fails.
+This is the eval-context detail from Concepts, made concrete. Run Manually, like the real
+scheduler, passes no selection. So `records` is `None`, and `None.anything` fails.
+
 The code needs to fall back to every vehicle when nothing specific was picked:
 
 ```xml title="addons/librefleet/data/maintenance_reminder_cron.xml"
@@ -323,17 +331,18 @@ built-ins Odoo ships for every model.
 </odoo>
 ```
 
-`trigger` is `on_create_or_write`, not the `on_stage_set` you'll see listed in the
-trigger dropdown. `on_stage_set` only applies to a `stage_id` many2one on a
-kanban-pipeline model; `librefleet.service.order.stage` is a plain `Selection`, the
-kind chapter 17 built. The `filter_pre_domain` / `filter_domain` pair is what makes
-this fire exactly once, on the transition into `done`, instead of on every save of an
-order that is already done: before the write it must **not** match `done`, after the
-write it must.
+`trigger` is `on_create_or_write`, not the `on_stage_set` you will see in the trigger
+dropdown. `on_stage_set` only applies to a `stage_id` many2one on a kanban-pipeline
+model, and `librefleet.service.order.stage` is a plain `Selection`, the kind chapter 17
+built.
 
-Register the file in the manifest's `data` list and upgrade. Then take one order
-through the flow you built in chapter 20, the statusbar to `in_progress`, then Mark
-Done in the approve wizard, and watch its vehicle:
+The `filter_pre_domain` / `filter_domain` pair makes this fire exactly once, on the
+transition into `done`, instead of on every save of an order that is already done. Before
+the write it must **not** match `done`; after the write it must.
+
+Register the file in the manifest's `data` list and upgrade. Then take one order through
+chapter 20's flow (statusbar to `in_progress`, then Mark Done in the approve wizard) and
+watch its vehicle:
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http

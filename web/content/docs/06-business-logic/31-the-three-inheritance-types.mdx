@@ -9,22 +9,22 @@ predict, before running anything, what each one does to the database. ·
 
 ## Why this matters
 
-This is the chapter that makes you dangerous in someone else's codebase. Nearly
-every ticket an integrator picks up ends with the same instruction: *change how
-this existing thing behaves, without touching its source*. Odoo gives you three
-different mechanisms for that, they look almost identical in Python, and they do
-completely different things to your schema. Choosing the wrong one is not a
-style mistake: it produces a second table full of records nobody wanted, or a
-field that silently never appears where you expected it.
+This is the chapter that makes you dangerous in someone else's codebase. Nearly every
+ticket an integrator picks up ends with the same instruction: *change how this existing
+thing behaves, without touching its source*.
 
-Before the mechanisms, the thing nobody says out loud. You already know what
-inheritance means: you write a subclass, you get a new class, and the original is
-left alone. Odoo's most common form of inheritance does the **opposite**. It
-reaches back into a model somebody else wrote and edits it in place, for every
-module that uses it and every record that already exists. That is not subclassing
-in any sense Python taught you, and it is the reason these three keep feeling
-slippery: you are trying to map all three onto subclassing, and only one of them
-fits.
+Odoo gives you three mechanisms for that. They look almost identical in Python, and they
+do completely different things to your schema. Choosing the wrong one is not a style
+mistake. It produces a second table full of records nobody wanted, or a field that
+silently never appears where you expected it.
+
+First, the thing nobody says out loud. You already know what inheritance means: write a
+subclass, get a new class, leave the original alone. Odoo's most common form does the
+**opposite**. It reaches back into a model somebody else wrote and edits it in place, for
+every module that uses it and every record that already exists.
+
+That is not subclassing in any sense Python taught you. It is also why these three keep
+feeling slippery: you are trying to map all three onto subclassing, and only one fits.
 
 Part 6 spends the next seven chapters extending things, and all of it rests on
 getting this right.
@@ -47,8 +47,9 @@ Two questions tell them apart, and they are the only two that matter: **does a n
 blueprint get filed at all**, and if one does, **did it copy the original or point
 at it?**
 
-Everything hinges on two class attributes, `_inherit` and `_name` (and a third,
-`_inherits`, with an `s` that is very easy to misread):
+Everything hinges on three class attributes. `_inherit` names a model to build on;
+`_name` names a new model; and `_inherits` (with an `s`, very easy to misread) is the
+delegation one:
 
 <Mermaid
   chart={`flowchart TD
@@ -79,12 +80,12 @@ class Vehicle(models.Model):
     is_loanable = fields.Boolean()
 ```
 
-No `_name`, so this class **is** `librefleet.vehicle`. The field lands on the
-existing model and the existing table, as if it had been written in the original
-file. Every existing record gets the new column, every existing view can show it,
-and any other module that touches vehicles sees it too. This is the mechanism you
-will use for about ninety percent of real work, and it is what chapter 32 uses to
-add fields to core models like `res.partner`.
+No `_name`, so this class **is** `librefleet.vehicle`. The field lands on the existing
+model and the existing table, as if it had been written in the original file.
+
+Every existing record gets the new column, every existing view can show it, and any other
+module touching vehicles sees it too. You will use this for about ninety percent of real
+work. It is also what chapter 32 uses to add fields to core models like `res.partner`.
 
 ### Prototype: a copy that then goes its own way
 
@@ -102,13 +103,13 @@ definitions. The two models share no data and no records: a consumable is not a
 part, and a part is not a consumable.
 
 <Callout type="info" title="In the field">
-  Of the three, prototype is by far the rarest in real integrator work, and if
-  you find yourself reaching for it, pause. Wanting "the same fields again"
-  usually means you actually want one model with a category field on it, or an
-  `AbstractModel` mixin holding the shared fields. Recognise prototype mostly so
-  that you notice when you have written one **by accident**, which is how it almost
-  always shows up: someone copies a class as a starting point, keeps its `_inherit`,
-  and changes the `_name`.
+  Prototype is by far the rarest of the three in real integrator work. If you find
+  yourself reaching for it, pause. Wanting "the same fields again" usually means you want
+  one model with a category field, or an `AbstractModel` mixin holding the shared fields.
+
+  Recognise prototype mostly so you notice when you have written one **by accident**. That
+  is how it almost always shows up: someone copies a class as a starting point, keeps its
+  `_inherit`, and changes the `_name`.
 </Callout>
 
 ### Delegation: composition, wearing inheritance's clothes
@@ -123,12 +124,13 @@ class Loaner(models.Model):
     daily_rate = fields.Float()
 ```
 
-`_inherits` is not really inheritance at all, it is composition with automatic
-forwarding. A loaner **has a** vehicle (via a required many2one) and Odoo makes
-that vehicle's fields readable and writable straight off the loaner, as though
-they belonged to it. Two tables, two rows, one logical thing. Core uses this for
-`res.users`, which delegates to `res.partner`: that is why a user has a `name`
-and an `email` without `res_users` having those columns.
+`_inherits` is not really inheritance at all. It is composition with automatic forwarding.
+A loaner **has a** vehicle, through a required many2one, and Odoo makes that vehicle's
+fields readable and writable straight off the loaner, as though they belonged to it. Two
+tables, two rows, one logical thing.
+
+Core uses this for `res.users`, which delegates to `res.partner`. That is why a user has a
+`name` and an `email` without `res_users` having those columns.
 
 Use delegation when the sentence "an X **is a** Y, plus extra" is genuinely true
 and you want to reuse Y's data, not just its shape.

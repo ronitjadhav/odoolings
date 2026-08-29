@@ -9,20 +9,19 @@ single line of Odoo's source. · **Time:** ~2 h · **Checkpoint:** `code/checkpo
 ## Why this matters
 
 Almost nothing you are paid to do in Odoo is greenfield. The ticket is "customers need to
-see their vehicles on the contact form", or "products need a workshop flag", and the model
-in question was written by Odoo SA years ago and is used by forty other modules. Chapter 31
-gave you the mechanism. This chapter gives you the discipline that has to come with it,
-because the mechanism is the easy part.
+see their vehicles on the contact form", or "products need a workshop flag". The model in
+question was written by Odoo SA years ago and is used by forty other modules.
 
-The discipline has a name that every Odoo team says out loud during code review: **never
-modify core, always extend.** It sounds like style advice. It is actually the difference
-between a project that upgrades in an afternoon and one that quietly becomes unupgradeable.
+Chapter 31 gave you the mechanism. This chapter gives you the discipline that goes with
+it, because the mechanism is the easy part. That discipline has a name every Odoo team
+says out loud in code review: **never modify core, always extend.** It sounds like style
+advice. It is the difference between a project that upgrades in an afternoon and one that
+quietly becomes unupgradeable.
 
-That rule reads like a contradiction the first time you meet it, and it is worth clearing
-up before anything else. This chapter is about changing how core behaves, so "never modify
-core" sounds like being told to do the thing you were just forbidden. The resolution is
-that you are **adding to core from outside it**, never editing it. Core's files come out of
-this chapter byte for byte identical to how they went in.
+The rule reads like a contradiction at first. This chapter is about changing how core
+behaves, so "never modify core" sounds like being told to do the thing you were just
+forbidden. The resolution: you are **adding to core from outside it**, never editing it.
+Core's files come out of this chapter byte for byte identical to how they went in.
 
 Picture it as two books. Odoo ships its book and you never write in it. You keep your own
 book, and at load time Odoo reads both together, yours second, so your pages win where they
@@ -82,16 +81,16 @@ you reach for `product.template` you need this:
 "depends": ["base", "product"],
 ```
 
-Skip it and the module does not merely misbehave, it refuses to load. You will trigger that
-error on purpose in the hands-on, and the message is worth memorising because it is the same
-one ch31's import-order lab produced, from a completely different cause.
+Skip it and the module does not merely misbehave, it refuses to load. You will trigger
+that error on purpose in the hands-on. The message is worth memorising, because ch31's
+import-order lab produced the same one from a completely different cause.
 
 ### Obligation 2: namespace everything you add
 
-Core has no idea your module exists, and neither does the next module that extends the same
-model. A field called `vehicle_ids` on `res.partner` is a landmine: if any other addon adds
-`vehicle_ids` too, one of you wins and the other breaks in a way that is genuinely painful to
-diagnose. So prefix with your module name:
+Core has no idea your module exists, and neither does the next module extending the same
+model. A field called `vehicle_ids` on `res.partner` is a landmine. If any other addon adds
+`vehicle_ids` too, one of you wins and the other breaks, in a way that is genuinely painful
+to diagnose. So prefix with your module name:
 
 ```python
 librefleet_vehicle_ids = fields.One2many(...)     # yes
@@ -99,9 +98,9 @@ vehicle_ids = fields.One2many(...)                # no
 ```
 
 <Callout type="info" title="In the field">
-  This is not merely a convention, it is an OCA review requirement, and integrators enforce
-  it on client projects too. The prefix also makes `grep` honest: every field that belongs to
-  your module is findable by name, which matters enormously three years later when someone
+  This is not merely a convention. It is an OCA review requirement, and integrators enforce
+  it on client projects too. The prefix also makes `grep` honest: every field belonging to
+  your module is findable by name. That matters enormously three years later, when someone
   asks what a module actually touches.
 </Callout>
 
@@ -263,8 +262,8 @@ Traceback (most recent call last):
 TypeError: Model 'product.template' does not exist in registry.
 ```
 
-Read that message next to ch31's. They are **identical in shape and different in cause**, and
-telling them apart quickly is a genuinely useful skill:
+Read that message next to ch31's. They are **identical in shape and different in cause**.
+Telling them apart quickly is a genuinely useful skill:
 
 | The message says | ch31's cause | this chapter's cause |
 |---|---|---|
@@ -297,7 +296,7 @@ INFO tutorial odoo.modules.loading: 30 modules loaded in 6.15s, 13259 queries
 
 <Callout type="info" title="You just installed three apps by adding one word">
   `product` needs `uom` and `mail`, so all three arrived. This is what "an integrator project
-  is mostly an assembly" (chapter 7) feels like in practice: dependencies are transitive, and
+  is mostly an assembly" (chapter 7) feels like in practice. Dependencies are transitive, so
   one line in a manifest can change what is installed on a client's production database.
   Convenient here, and a very good reason to read a module's `depends` before adding it.
   `mail` landing early is harmless, and chapter 33 puts it to work.

@@ -9,30 +9,31 @@ in chapter 27. · **Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/ch36`
 
 ## Why this matters
 
-Every business app eventually needs to hand someone a document: an invoice, a
-delivery slip, a service report a customer signs before driving off. You have
-printed exactly one of these already, chapter 27's and 28's invoice PDF, and never
-looked at how it is built.
+Every business app eventually needs to hand someone a document: an invoice, a delivery
+slip, a service report a customer signs before driving off. You have printed exactly one
+of these already, chapter 27's and 28's invoice PDF, without looking at how it is built.
 
-Here is the part that catches people, and it is worth saying before anything else.
-"Generate a PDF" sounds like a separate discipline: a drawing library, coordinates,
-fonts, page geometry, the kind of code where you position a box 40 points in from the
-left margin. Odoo does none of that. **An Odoo report is a web page.** You write HTML,
-with the same `t-field`, `t-if` and `t-foreach` you have used since chapter 9's views.
-Odoo renders it exactly as it renders anything else. Then it hands the finished HTML to
-`wkhtmltopdf`, a browser engine whose only job is to print a page rather than display
-it. The PDF appears right at the end, as a consequence.
+Here is the part that catches people. "Generate a PDF" sounds like a separate discipline:
+a drawing library, coordinates, fonts, page geometry, the kind of code where you position
+a box 40 points in from the left margin.
+
+Odoo does none of that. **An Odoo report is a web page.** You write HTML using the same
+`t-field`, `t-if` and `t-foreach` you have used since chapter 9's views. (That templating
+language is called **QWeb**: Odoo's own template syntax, where every directive is an XML
+attribute starting with `t-`.) Odoo renders it exactly as it renders anything else, then
+hands the finished HTML to `wkhtmltopdf`, a browser engine whose only job is to print a
+page rather than display it. The PDF appears at the very end, as a consequence.
 
 So none of this is a new skill. It is the templating you already know, plus two
-conventions that make it print correctly: a wrapper template Odoo calls once per
-selected record, and a document template that supplies the header and footer every
-company wants on every report without repeating the markup.
+conventions that make it print correctly: a wrapper template Odoo calls once per selected
+record, and a document template supplying the header and footer every company wants,
+without repeating the markup.
 
 ## Concepts
 
-Before any of the field names, get the two layers straight, because merging them into
-one thing is the most common source of confusion here. A printable report is **a record
-plus a template**, and the two know almost nothing about each other:
+Before any of the field names, get the two layers straight. Merging them into one thing
+is the most common source of confusion here. A printable report is **a record plus a
+template**, and the two know almost nothing about each other:
 
 | | What it is | What it does |
 |---|---|---|
@@ -40,9 +41,9 @@ plus a template**, and the two know almost nothing about each other:
 | the QWeb template | XML in your module | produces the actual ink: headings, tables, totals |
 
 The record is the button. The template is the page. Nothing checks that the record's
-name for a template matches a template that actually exists, which is why a typo there
-installs perfectly and only breaks when somebody clicks Print. Keep the two layers apart
-in your head and that behaviour stops being mysterious.
+template name matches a template that actually exists. That is why a typo there installs
+perfectly and only breaks when somebody clicks Print. Keep the two layers apart in your
+head and that behaviour stops being mysterious.
 
 ### Two templates, not one
 
@@ -61,11 +62,12 @@ short **wrapper** template that loops over the records you selected and calls a
 </template>
 ```
 
-`docs` is the recordset the report was called on, whatever you selected before
-clicking Print. `web.html_container` is what turns a plain HTML string into the
-document wkhtmltopdf will accept; you always call it once, at the top, never per
-record. The interesting content lives in the document template, called once per
-record inside the loop.
+`docs` is the recordset the report was called on, whatever you selected before clicking
+Print. `web.html_container` turns a plain HTML string into the document wkhtmltopdf will
+accept. Always call it once, at the top, never per record.
+
+The interesting content lives in the document template, called once per record inside the
+loop.
 
 ### `web.external_layout`: header, footer, one call
 
@@ -83,16 +85,16 @@ template knowing anything about them:
 </template>
 ```
 
-`external_layout` looks for `o.company_id` on whatever record it is wrapping, and
-falls back to the current company if the model has no such field, which is exactly
-`librefleet.service.order`'s situation: no `company_id` anywhere on it, and the
-report still renders the right header because of that fallback.
+`external_layout` looks for `o.company_id` on whatever record it wraps, and falls back to
+the current company if the model has no such field. That is exactly
+`librefleet.service.order`'s situation: no `company_id` anywhere on it, and the report
+still renders the right header thanks to the fallback.
 
 The `<div class="page">` matters for more than styling. Wrap each record's content in
-one and the wrapper template's loop produces one `<div class="page">` per record,
-which is what makes printing three selected orders come out as a three-page PDF
-instead of three orders squeezed onto whatever pages fit. You are not managing page
-breaks by hand; the class does it.
+one, and the wrapper's loop produces one `<div class="page">` per record. That is what
+makes printing three selected orders come out as a three-page PDF, instead of three
+orders squeezed onto whatever pages fit. You are not managing page breaks by hand; the
+class does it.
 
 <Mermaid label="A printable report is a wrapper template calling web.html_container once, looping over the selected records, and calling a document template that wraps each record's content in web.external_layout for the header and footer." chart={`flowchart TB
     Print["User selects records,<br/>clicks Print"] --> Wrapper["wrapper template<br/>t-call web.html_container"]
@@ -258,16 +260,17 @@ Oil filter
 ...
 ```
 
-The layout is right, the header and footer are there. But "Technicians:
-res.users(5,)" is not a name, it is a recordset's `repr()`. `many2many_tags` is a
-**web client widget**, one of the little pills you see in a form view; it has no
-meaning to the QWeb report field converter, which silently falls back to printing
-whatever `str()` gives it instead of raising an error.
+The layout is right and the header and footer are there. But "Technicians: res.users(5,)"
+is not a name, it is a recordset's `repr()`.
+
+`many2many_tags` is a **web client widget**, one of the little pills you see in a form
+view. It means nothing to the QWeb report field converter, which silently prints whatever
+`str()` gives it rather than raising an error.
 
 This is the "a report is a web page, not a form view" idea collecting its first debt.
 Widgets are the web client's vocabulary, and the web client is not in the room when a
-report renders. Anything that only a browser-side widget knows how to draw, you have to
-spell out yourself. Fix it with a plain `t-out` over the mapped names:
+report renders. Anything only a browser-side widget knows how to draw, you spell out
+yourself. Fix it with a plain `t-out` over the mapped names:
 
 ```xml title="addons/librefleet/report/service_order_report.xml"
                         <div class="col-6">
@@ -314,12 +317,13 @@ Do the same for `line.subtotal` and, in the totals row you'll add next, for
                 </div>
 ```
 
-`parts_total` and `labor_total` are what the customer paid for. `margin`, chapter
-13's computed field, is what the workshop keeps after paying for the parts, and it
-has no business on a document you hand to the person who booked the service. Nothing
-in Odoo stops you from adding `t-field="o.margin"` here; the only thing that catches
-it is knowing not to, which is exactly why this chapter's odoolings checks include one
-that fails if that field ever shows up in the template's arch.
+`parts_total` and `labor_total` are what the customer paid for. `margin`, chapter 13's
+computed field, is what the workshop keeps after paying for the parts. It has no business
+on a document you hand to the person who booked the service.
+
+Nothing in Odoo stops you adding `t-field="o.margin"` here. The only thing that catches
+it is knowing not to, which is why this chapter's odoolings checks include one that fails
+if that field ever appears in the template's arch.
 </Step>
 
 <Step>
