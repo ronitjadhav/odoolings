@@ -794,6 +794,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from libreflee
  {"en_US": "Tire Rotation", "fr_FR": "Rotation des pneus"}
 ```
 
+The same row from the interface: open the service type list and click the small **EN**
+badge next to the name, and the translate dialog shows exactly what the column holds, one
+language per line.
+
+![The Translate: name dialog, English (US) reading Tire Rotation and French / Français reading Rotation des pneus, both editable in the same small form](/screens/ch34-translate-dialog.jpg)
+
 And now the **code string**, which went nowhere near Postgres: it translates when the
 wizard actually raises it, read from the in-memory catalog. Build the smallest thing that
 trips the first message, in both languages:
