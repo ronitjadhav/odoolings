@@ -13,44 +13,45 @@ database with core Odoo apps, no `librefleet` code changes.
 ## Why this matters
 
 Chapters 39 to 41 built OWL components by hand: a systray widget, a field, a client
-action. That is the right tool when the behaviour is genuinely custom. Most of what a
-business needs from its public-facing pages is not custom at all, it is a hero image,
-a pricing table, a contact form, arranged and restyled, and Odoo ships that entire job
-as a drag-and-drop **snippet** library so nobody has to write a component for it. Knowing
-the builder exists, and what it is actually built from, is worth more than a chapter
-building yet another widget.
+action. That is the right tool when the behaviour is genuinely custom.
 
-There is a real objection buried in that, and it deserves saying plainly. You have just
-spent three chapters learning to build OWL components, and this chapter opens by telling
-you that most of the work you would reach for them on does not need them. That can read as
-the tutorial undercutting what it just taught you.
+Most of what a business needs from its public pages is not custom at all. A hero image,
+a pricing table, a contact form, arranged and restyled. Odoo ships that entire job as a
+drag-and-drop **snippet** library, so nobody has to write a component for it. Knowing the
+builder exists, and what it is built from, is worth more than a chapter building yet
+another widget.
 
-It is not. The skill here is the one nobody writes on a job description: recognising which
-of the two situations you are in *before* you start typing. A page that needs to **look**
-like something is a snippet, and building a component for it is a week spent redoing work
-Odoo already shipped. A page that needs to **know** something is a component, and reaching
-for a snippet there is a dead end you discover late. Telling those apart is the lesson.
+There is a real objection buried in that. You have just spent three chapters learning to
+build OWL components, and this chapter opens by saying most of the work you would reach
+for them on does not need them. That can read as the tutorial undercutting what it just
+taught you.
 
-**Point of Sale** earns its place here for a sharper reason: it is Odoo's largest OWL
-application by far, and it is offline-first, meaning the till itself is a separate
-bootstrap that has to keep ringing up sales through a dropped connection and sync
-later. That combination, a real OWL SPA plus a completely different reliability model
-from the backend web client, makes it the natural case study to close Part 7 on.
+It is not. The skill here is the one nobody writes on a job description: recognising
+which situation you are in *before* you start typing. A page that needs to **look** like
+something is a snippet, and building a component for it is a week redoing work Odoo
+already shipped. A page that needs to **know** something is a component, and reaching for
+a snippet there is a dead end you discover late. Telling those apart is the lesson.
 
-Notice what that implies about how you read the POS half of this chapter: you are not
-going to write POS, you are going to open a real one and watch it work. Reading a large
-codebase somebody else wrote, well enough to know where your change would go, is a
-different skill from writing a small one from scratch, and on a real client project it is
-the one that gets used.
+**Point of Sale** earns its place here for a sharper reason. It is Odoo's largest OWL
+application by far, and it is offline-first: the till is a separate bootstrap that keeps
+ringing up sales through a dropped connection and syncs later. A real OWL single-page
+app, plus a completely different reliability model from the backend web client, makes it
+the natural case study to close Part 7 on.
 
-This chapter also finally closes the loop Parts 4 and 5 opened: sale, purchase,
-stock, manufacturing and accounting all met a customer who placed an order through a
-screen. Two screens close it, both covered here. POS is the screen for a customer
-standing at a counter, and its session close is where cash and card sales become the
-same kind of journal entry chapter 27 taught you to read. The website's shop is the
-screen for a customer who never walks in at all, and it produces the exact same
-`sale.order` chapter 22 taught you to read, just created by a stranger on the
-internet instead of a salesperson at a desk.
+That changes how you read the POS half of this chapter. You are not going to write POS,
+you are going to open a real one and watch it work. Reading a large codebase somebody
+else wrote, well enough to know where your change would go, is a different skill from
+writing a small one from scratch. On a real client project it is the one that gets used.
+
+This chapter also closes the loop Parts 4 and 5 opened. Sale, purchase, stock,
+manufacturing and accounting all met a customer who placed an order through a screen.
+Two screens close it, both covered here.
+
+POS is the screen for a customer standing at a counter. Its session close is where cash
+and card sales become the same kind of journal entry chapter 27 taught you to read. The
+website's shop is the screen for a customer who never walks in at all, and it produces
+the exact same `sale.order` chapter 22 taught you to read, just created by a stranger on
+the internet instead of a salesperson at a desk.
 
 ## Concepts
 
@@ -77,12 +78,13 @@ reports, rendered as HTML instead of piped through wkhtmltopdf.
 ```
 
 Every draggable block in the editor is one more `ir.ui.view` under the `website.s_*`
-naming convention, the same registration idea chapters 39 to 41 used for the
-`fields`, `actions` and `systray` registries, just expressed as a naming convention in
-`ir.ui.view` rather than a JS `registry.category(...).add(...)` call. Dragging a
-snippet onto a page copies its arch into the page's own `arch_db`; editing it
-afterward edits that copy, not the shared template, which is why customizing one
-page's hero section never touches any other page using the same snippet.
+naming convention. Same registration idea chapters 39 to 41 used for the `fields`,
+`actions` and `systray` registries, just expressed as a naming convention in
+`ir.ui.view` rather than a JS `registry.category(...).add(...)` call.
+
+Dragging a snippet onto a page copies its arch into the page's own `arch_db`. Editing it
+afterward edits that copy, not the shared template, which is why customizing one page's
+hero section never touches any other page using the same snippet.
 
 <Mermaid label="A website page is one ir.ui.view record whose arch is built by copying snippet templates into it; the backend web client and the public website load through two different asset bundles of the same OWL framework." chart={`flowchart LR
     Snippet["ir.ui.view<br/>key: website.s_*"] -->|"dragged onto a page,<br/>arch copied in"| Page["website.page<br/>-> ir.ui.view (the page)"]
@@ -92,19 +94,20 @@ page's hero section never touches any other page using the same snippet.
 
 This matters for a detail chapters 39 to 41 did not have to think about: **your OWL
 components do not automatically run on the website.** They loaded into
-`web.assets_backend`, and the public site boots a different bundle,
-`web.assets_frontend`. A systray widget or a field widget has no meaning outside the
-backend it was built for.
+`web.assets_backend`, and the public site boots a different bundle (a different
+pre-packed box of JavaScript), `web.assets_frontend`. A systray widget or a field widget
+has no meaning outside the backend it was built for.
 
 ### The online store is `website_sale`, and it still just makes a `sale.order`
 
 Everything chapter 22 taught about `sale.order` (states, order lines, the quote-to-
-order lifecycle) applies unchanged to an order a customer places through the
-website. `website_sale` is the app that adds the shop, cart, and checkout flow on
-top of `website` and `sale`; installing it is what turns product pages from static
-content into something with an **Add to cart** button at all. What it produces is
-not a new kind of document, it's the same `sale.order` model, with `website_id` set
-and, if a payment provider handled it, a linked `payment.transaction`.
+order lifecycle) applies unchanged to an order placed through the website.
+
+`website_sale` adds the shop, cart, and checkout flow on top of `website` and `sale`.
+Installing it is what turns product pages from static content into something with an
+**Add to cart** button at all. What it produces is not a new kind of document. It is the
+same `sale.order` model, with `website_id` set and, if a payment provider handled it, a
+linked `payment.transaction`.
 
 One real wrinkle worth knowing before you check out for the first time: a
 manual payment method like Wire Transfer doesn't confirm the order immediately.
@@ -115,16 +118,18 @@ would confirm automatically; a bank transfer, by its nature, can't.
 
 ### A POS session is a normal Odoo record with an offline app in front of it
 
-`pos.session` is a plain model: `state` moves through `opening_control` → `opened` →
+`pos.session` is a plain model. `state` moves through `opening_control` → `opened` →
 `closing_control` → `closed`, and it links to `pos.order` records the same way any
-parent links to its children. What makes POS different is what happens between
-"opened" and "closing control": the actual selling runs in a separate SPA
-(`/pos/ui/...`), a *single-page application*, meaning one page that loads once and then
-redraws itself from then on rather than ever asking the server for another page, backed
-by an in-browser database (IndexedDB) so a dropped Wi-Fi
-connection does not stop a cashier from ringing up the next customer. Orders queue
-locally and sync to the server as connectivity allows, which is the offline-first part
-the plan calls out, and the reason POS cannot simply be "one more client action" like
+parent links to its children.
+
+What makes POS different is what happens between "opened" and "closing control". The
+actual selling runs in a separate SPA (`/pos/ui/...`), a *single-page application*: one
+page that loads once and then redraws itself, rather than ever asking the server for
+another page. It is backed by an in-browser database (IndexedDB), so a dropped Wi-Fi
+connection does not stop a cashier ringing up the next customer.
+
+Orders queue locally and sync to the server as connectivity allows. That is the
+offline-first part, and the reason POS cannot simply be "one more client action" like
 chapter 41's dashboard.
 
 <Callout type="info" title="Official docs">
@@ -167,10 +172,10 @@ Now shop for real: `http://localhost:8069/shop`, pick any product, choose a vari
 
 ![The Customizable Desk product page with Color (White selected) and Legs (Steel selected, Aluminium +$50.40) options, $675.00 price, and an Add to cart button](/screens/ch42-shop-product-variants.jpg)
 
-**Add to cart**, then **Go to Checkout** on the upsell dialog that appears (skip the
-cross-sell offers, Conference Chair and Warranty, unless you want to see how they
-attach to the same order). Confirm the address chapter's own account already has on
-file, pick **Wire Transfer** as the payment method, and **Pay now**:
+**Add to cart**, then **Go to Checkout** on the upsell dialog (skip the cross-sell
+offers, Conference Chair and Warranty, unless you want to see how they attach to the
+same order). Confirm the address already on file, pick **Wire Transfer**, and
+**Pay now**:
 
 ![The order confirmation page reading "Thank you for your order, Order S00047" with real Wire Transfer bank account details and a $675.00 total](/screens/ch42-shop-order-confirmation.jpg)
 
@@ -190,12 +195,13 @@ That's a real order, `S00047`, not a sandbox mockup.
 [('S00047', 'pending', 'Wire Transfer')]
 ```
 
-`state` reads `sent`, not `sale`, exactly as the Concepts section predicted: Wire
-Transfer can't confirm itself, a human has to see the money land and validate the
-transaction by hand (Invoicing → Customers → Payments, or directly on the
-transaction record) before this becomes a confirmed sale. The order line, the
-delivery line, the linked transaction, all of it is the ordinary `sale.order` shape
-chapter 22 already taught you to read.
+`state` reads `sent`, not `sale`, exactly as Concepts predicted. Wire Transfer cannot
+confirm itself: a human has to see the money land and validate the transaction by hand
+(Invoicing → Customers → Payments, or directly on the transaction record) before this
+becomes a confirmed sale.
+
+The order line, the delivery line, the linked transaction: all of it is the ordinary
+`sale.order` shape chapter 22 already taught you to read.
 </Step>
 
 <Step>
@@ -237,12 +243,13 @@ counted:
 
 ![The Closing Register screen showing Cash expected 167.24, opening 150.00, payments in cash 17.24, but Counted 0.00 and Difference -167.24 in red](/screens/ch42-pos-closing-discrepancy.jpg)
 
-**Counted reads $0.00 and Difference reads -$167.24, in red.** Nobody stole anything;
-the Cash Count field simply defaults to `0`, not to the amount the drawer should
-hold, and the screen takes that literally. This is worth doing once with real numbers
-in front of you: leave a self-service closing screen at its default and you generate
-a shortfall report for the full opening float plus every cash sale of the day, for a
-till that is not actually short a cent.
+**Counted reads $0.00 and Difference reads -$167.24, in red.** Nobody stole anything.
+The Cash Count field defaults to `0`, not to the amount the drawer should hold, and the
+screen takes that literally.
+
+Worth doing once with real numbers in front of you. Leave a self-service closing screen
+at its default and you generate a shortfall report for the full opening float plus every
+cash sale of the day, for a till that is not short a cent.
 
 Type the real total into **Cash Count** (`167.24`, the opening float plus your one
 cash sale) and the **Card Count** already shows `16.10` from the card payment. Every
@@ -268,23 +275,27 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --
 101300 Account Receivable (PoS) 17.24 0.0
 ```
 
-That first entry, `POSS/...`, is the session's sales summary: total revenue, total
-tax, and one receivable line per order, all of it consolidated across every order in
-the session rather than posted order by order. Then, one move per payment method,
-clearing that receivable into the account each method actually settles to:
+That first entry, `POSS/...`, is the session's sales summary: total revenue, total tax,
+and one receivable line per order. All of it consolidated across every order in the
+session, rather than posted order by order.
+
+Then one move per payment method, clearing that receivable into the account each method
+actually settles to:
 
 ```console
 >>> env["account.move"].search([("ref", "like", "Bakery Shop/00001")]).mapped("name")
 ['POSS/2026/08/0003', 'PBNK1/2026/00003', 'CSH3/2026/00001']
 ```
 
-`PBNK1/...` ("Combine Card POS payments") moves the card receivable into an
-Outstanding Receipts account, the same holding account chapter 28's invoice payments
-used before bank reconciliation. `CSH3/...` moves the cash receivable straight into
-the shop's own cash account, because a physical drawer needs no bank statement to
-reconcile against; you just counted it. Three small, single-purpose entries instead
-of one large one is the same "smallest correct unit" instinct chapter 27's manual
-journal entries taught, applied by the framework itself this time.
+`PBNK1/...` ("Combine Card POS payments") moves the card receivable into an Outstanding
+Receipts account, the same holding account chapter 28's invoice payments used before
+bank reconciliation. `CSH3/...` moves the cash receivable straight into the shop's own
+cash account: a physical drawer needs no bank statement to reconcile against, you just
+counted it.
+
+Three small, single-purpose entries instead of one large one. The same "smallest correct
+unit" instinct chapter 27's manual journal entries taught, applied by the framework
+itself this time.
 </Step>
 
 <Step>
@@ -296,11 +307,10 @@ uses:
 ![The website editor's Blocks panel: categories Intro, Columns, Content, Images, People, Text, Contact & Forms, Social, Catalog, Blogs, Events, and an Inner Content section with Text, Button, Image, Video, Separator, Accordion, Alert, Rating and Card entries](/screens/ch42-website-snippet-panel.jpg)
 
 Each tile in that panel is one of the 191 `website.s_*` templates from Concepts.
-Dragging one onto a page and editing its text or image is the entire mechanism; there
-is no code to write for the large majority of a marketing site.
+Dragging one onto a page and editing its text or image is the entire mechanism. For the
+large majority of a marketing site there is no code to write.
 
-Which makes this the place to state the rule this chapter has been circling, the one to
-carry out of Part 7:
+So here is the rule this chapter has been circling, the one to carry out of Part 7:
 
 - The page needs to **look** like something: a hero image, a pricing table, content
   arranged and restyled. Drag snippets. A component here redoes work Odoo already shipped.

@@ -10,16 +10,17 @@ fix something two chapters back. · **Time:** ~2.5 h · **Checkpoint:**
 
 ## Why this matters
 
-List and form get work done; kanban, calendar, pivot and graph are how a workshop
-manager actually runs the floor. A pipeline board answers "what's stuck in
-confirmed?" at a glance. A calendar answers "is Tuesday overbooked?" A pivot answers
-"which vehicle costs us the most to service?" without anyone opening a spreadsheet.
+List and form get work done. Kanban, calendar, pivot and graph are how a workshop manager
+actually runs the floor. A pipeline board answers "what's stuck in confirmed?" at a
+glance. A calendar answers "is Tuesday overbooked?" A pivot answers "which vehicle costs
+us the most to service?" without anyone opening a spreadsheet.
+
 You already know the pattern (another `ir.ui.view`, another `type` attribute), so this
-chapter moves fast through four view types and slows down for the one place a real
+chapter moves fast through four view types. Then it slows down for the one place a real
 limitation from chapter 13 finally bites, loudly this time, not silently like the last
 three chapters.
 
-Four new view types in one chapter can read as four new syntaxes to memorise, which is the
+Four new view types in one chapter can read as four new syntaxes to memorize, which is the
 wrong shape to carry in. Here is a better one: **each view type asks your model a question,
 and your model has to be able to answer it.** A kanban asks "which pile does this record
 belong in?" A calendar asks "when does this happen?" A pivot asks "what is the total of
@@ -64,15 +65,18 @@ on.
 ### Kanban: a card template, not a list
 
 A <Term k="kanban view">kanban view</Term> draws one card per record instead of one row per record, and the
-card's layout lives in a `<templates>` block inside the arch. What goes in that block is
-QWeb, Odoo's XML templating language: `<t>` is its placeholder element, a tag that carries
-instructions (the attributes starting with `t-`) and never renders as anything itself, and
-`t-name` gives the template a name the client can look up. Odoo 19 looks up exactly one
-name, `card`, and renders that template once per record (older tutorials and some
-still-unmigrated modules call it `kanban-box`, the name Odoo used before this release
-cycle; `card` is what 19.0 expects). Inside the card you write ordinary HTML with `<field>`
-tags dropped in wherever you want a value, which is why Bootstrap's utility classes work
-there: the `class="fw-bold"` below just means bold text.
+card's layout lives in a `<templates>` block inside the arch.
+
+What goes in that block is QWeb, Odoo's XML templating language. `<t>` is its placeholder
+element: a tag that carries instructions (the attributes starting with `t-`) and never
+renders as anything itself. `t-name` gives the template a name the client can look up.
+Odoo 19 looks up exactly one name, `card`, and renders that template once per record.
+(Older tutorials and some still-unmigrated modules call it `kanban-box`, the name Odoo
+used before this release cycle. `card` is what 19.0 expects.)
+
+Inside the card you write ordinary HTML with `<field>` tags dropped in wherever you want a
+value. That is why Bootstrap's utility classes work there: the `class="fw-bold"` below
+just means bold text.
 
 ```xml
 <kanban default_group_by="stage">
@@ -90,12 +94,14 @@ there: the `class="fw-bold"` below just means bold text.
 one column per value, and dragging a card between columns writes that field, the
 same write a status bar button would make.
 
-A `<field>` written inside the card template counts as a declaration in its own right,
-which is why the arch below lists only `stage` at the kanban root while the card happily
-renders four other fields. The root declaration exists for fields the client needs but
-which never appear as a `<field>` element: the `default_group_by` target, and anything
-referenced only inside an expression such as a `t-if` condition. `stage` is there because
-it is grouped on, not because the template mentions it.
+A `<field>` written inside the card template counts as a declaration in its own right.
+That is why the arch below lists only `stage` at the kanban root while the card happily
+renders four other fields.
+
+The root declaration exists for fields the client needs but which never appear as a
+`<field>` element: the `default_group_by` target, and anything referenced only inside an
+expression such as a `t-if` condition. `stage` is there because it is grouped on, not
+because the template mentions it.
 
 The habit worth keeping from list views is narrower than "declare everything": if a field
 is used but never written as a `<field>`, say so at the root.
@@ -108,10 +114,11 @@ is used but never written as a `<field>`, say so at the root.
 </calendar>
 ```
 
-A <Term k="calendar view">calendar view</Term>'s `date_start`/`date_stop` place each record on the grid; `color` buckets events by
-another field's value so records sharing that value get the same color band, handy
-here for spotting a vehicle booked twice at a glance (which chapter 14's constraint
-already refuses to let happen, but seeing it visually is still worth having).
+A <Term k="calendar view">calendar view</Term>'s `date_start`/`date_stop` place each record on the grid. `color`
+buckets events by another field's value, so records sharing that value get the same color
+band. That is handy for spotting a vehicle booked twice at a glance. (Chapter 14's
+constraint already refuses to let that happen, but seeing it visually is still worth
+having.)
 
 ### Pivot and graph: the same aggregation, two renderings
 
@@ -123,13 +130,15 @@ already refuses to let happen, but seeing it visually is still worth having).
 </pivot>
 ```
 
-A <Term k="pivot view">pivot view</Term>'s fields describe a table: `type="row"` fields become the labels
+A <Term k="pivot view">pivot view</Term>'s fields describe a table. `type="row"` fields become the labels
 running down the left, `type="col"` fields become the headers running across the top, and
 each cell holds the <Term k="measure">`measure`</Term> summed over the records that fall into that row and
-that column. A <Term k="graph view">graph view</Term> charts the same aggregation, so it has no row/col split: its
-`type` attribute picks the shape (`"bar"`, `"line"` or `"pie"`), the field marked
+that column.
+
+A <Term k="graph view">graph view</Term> charts the same aggregation, so it has no row/col split. Its `type`
+attribute picks the shape (`"bar"`, `"line"` or `"pie"`), the field marked
 `type="measure"` is the one summed, and any other field you list becomes an axis to group
-along, which is why `vehicle_id` carries no `type` in the graph you are about to write.
+along. That is why `vehicle_id` carries no `type` in the graph you are about to write.
 
 Both are thin UI layers over the same grouped-read machinery chapter 18 met behind the
 Group By menu: rows and columns become the `groupby`, measures become the fields being
@@ -167,18 +176,21 @@ In `views/service_order_views.xml`, add a kanban grouped by stage:
 <Callout type="warn" title="Gotcha">
   `widget="many2many_avatar_user"` is registered by the **mail** module, which LibreFleet
   does not depend on yet (`depends` is still just `["base"]`; `mail` arrives in chapter 32
-  as a side effect of adding `product`). Widget names are not validated server-side, so
-  nothing errors: the view loads and the field quietly falls back to plain tags, with only
-  a browser-console warning to tell you. So expect tags rather than avatars here, and take
-  the lesson with you, because it generalises. A widget from an undeclared module fails
-  silently and only in the UI, which is a genuinely annoying class of bug to chase. If a
-  widget seems to do nothing, check which module defines it before you doubt your XML.
+  as a side effect of adding `product`).
+
+  Widget names are not validated server-side, so nothing errors. The view loads and the
+  field quietly falls back to plain tags, with only a browser-console warning to tell you.
+  Expect tags rather than avatars here.
+
+  Take the lesson with you, because it generalizes: a widget from an undeclared module
+  fails silently and only in the UI, which is a genuinely annoying class of bug to chase.
+  If a widget seems to do nothing, check which module defines it before you doubt your XML.
 </Callout>
 
-A calendar colored by vehicle. Two attributes here go past the Concepts snippet: `string`
-is the label the client shows for this view, and `event_limit="5"` caps how many events
-one day cell lists before the rest collapse behind a "more" link, so it limits what is
-drawn in a cell, not what is fetched:
+A calendar colored by vehicle. Two attributes here go past the Concepts snippet. `string`
+is the label the client shows for this view. `event_limit="5"` caps how many events one
+day cell lists before the rest collapse behind a "more" link, so it limits what is drawn
+in a cell, not what is fetched:
 
 ```xml
 <record id="view_librefleet_service_order_calendar" model="ir.ui.view">
@@ -229,11 +241,12 @@ its own question: `stage` for the kanban's columns, the two dates for the calend
 <Step>
 ### Offer the four views on the action
 
-Four view records exist now, and not one of them is reachable yet: a view only becomes a
-tab when an action offers it. On the existing `action_librefleet_service_order` record,
-replace the whole `view_mode` line with all six types, keeping `list` first so the action
-still opens on the list and `form` in the list so clicking a card or a row still opens the
-one record:
+Four view records exist now, and not one of them is reachable yet. A view only becomes a
+tab when an action offers it.
+
+On the existing `action_librefleet_service_order` record, replace the whole `view_mode`
+line with all six types. Keep `list` first so the action still opens on the list, and keep
+`form` in the list so clicking a card or a row still opens the one record:
 
 ```xml
 <field name="view_mode">list,kanban,calendar,pivot,graph,form</field>
@@ -255,9 +268,10 @@ a measure it cannot actually compute yet.**
 
 Loading a view's arch (what `get_view` returns, what the upgrade just validated) is
 metadata: a description of what the pivot should look like. Rendering a pivot is a
-separate step that *fetches aggregated data*, calling `read_group` under the hood. The
-upgrade only ever did the first of those two, which is why it told you nothing about the
-second. Open a shell and try both yourself:
+separate step that *fetches aggregated data*, calling `read_group` under the hood.
+
+The upgrade only ever did the first of those two, which is why it told you nothing about
+the second. Open a shell and try both yourself:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -278,11 +292,13 @@ every `vehicle_id` bucket.
 
 The arch loaded fine (that check passed a second ago). The aggregation itself throws,
 because `margin` has been a computed, non-stored field since chapter 13, exactly as
-designed at the time: no column exists for the SQL behind `_read_group` to sum. This is the
-promise chapter 13 made you and didn't collect on yet: "non-stored fields can't be
-searched, grouped, or aggregated." Chapters 16 through 18 taught you three ways a
-mistake stays completely silent. This one is the opposite: loud, unambiguous, and
-delayed until the exact moment someone opens the pivot tab.
+designed at the time: no column exists for the SQL behind `_read_group` to sum. This is
+the promise chapter 13 made you and didn't collect on yet, that "non-stored fields can't
+be searched, grouped, or aggregated."
+
+Chapters 16 through 18 taught you three ways a mistake stays completely silent. This one
+is the opposite: loud, unambiguous, and delayed until the exact moment someone opens the
+pivot tab.
 
 In this chapter's own terms: the pivot asked your model for a total, and `margin` had no
 way to answer. The arch was never the problem, which is exactly why nothing about the arch
@@ -300,10 +316,10 @@ The fix is one attribute, in `models/service_order.py`:
                                "fee, minus what the parts cost the workshop.")
 ```
 
-Leave `parts_total` and `labor_total` exactly as chapter 13 left them, non-stored.
-Only `margin` needs to be queryable as a pivot measure; storing the other two would
-just be two more columns to keep in sync for no benefit, the same store-vs-not
-judgment call chapter 13 taught you to make per field, not once for the whole model.
+Leave `parts_total` and `labor_total` exactly as chapter 13 left them, non-stored. Only
+`margin` needs to be queryable as a pivot measure. Storing the other two would just be two
+more columns to keep in sync for no benefit. This is the same store-vs-not judgment call
+chapter 13 taught you to make per field, not once for the whole model.
 
 Bump to `19.0.1.13.0`, upgrade, and restart (new Python, chapter 14's rule):
 
@@ -382,7 +398,7 @@ then Pivot to see the margin numbers actually render instead of crashing.
   inside `<t t-name="card">`, so the four fields on your card are fetched without being
   repeated at the root. What it cannot see is a field named only inside an expression (a
   `t-if` condition, say) or inside an attribute such as `default_group_by`. Those need a
-  plain `<field name="..."/>` next to `<templates>`, which is exactly why `stage` is the
+  plain `<field name="..."/>` next to `<templates>`. That is exactly why `stage` is the
   one field declared at the root here and the other four are not.
 - **Installing a pivot or graph view never validates its measures.** The arch is XML,
   loaded like any other view; nothing checks whether a `type="measure"` field can

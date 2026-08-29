@@ -10,18 +10,18 @@ module outside LibreFleet entirely.
 
 ## Why this matters
 
-Chapter 1's October cadence and chapter 7's branch-per-version model both pointed
-here without quite arriving: a new Odoo major ships every year, each OCA repo grows
-a new version branch for it, and every module on the old branch has to get ported,
-by someone, eventually. Chapter 7 measured this for real on `OCA/server-tools`: 73
-modules on the mature `16.0` branch, 34 on the young `19.0` one. That gap is not
-neglect, it's the queue, and "that developer will regularly be you" wasn't a throwaway
-line.
+Chapter 1's October cadence and chapter 7's branch-per-version model both pointed here
+without quite arriving. A new Odoo major ships every year, each OCA repo grows a new
+version branch for it, and every module on the old branch has to get ported by someone,
+eventually.
 
-One thing to settle before any of it, because the word itself is the problem.
-**"Migration" is one word for two completely unrelated jobs**, and a conversation where
-two people mean different ones goes badly for a surprisingly long time before anybody
-notices:
+Chapter 7 measured this for real on `OCA/server-tools`: 73 modules on the mature `16.0`
+branch, 34 on the young `19.0` one. That gap is not neglect, it's the queue. And "that
+developer will regularly be you" wasn't a throwaway line.
+
+One thing to settle first, because the word itself is the problem. **"Migration" is one
+word for two unrelated jobs**, and a conversation where two people mean different ones
+goes badly for a long time before anybody notices:
 
 - **Migrating code** means making a module *run* on the new Odoo version: renamed
   methods, removed helpers, changed defaults. A human reads the code and fixes it.
@@ -29,20 +29,20 @@ notices:
   version's table shapes. Scripts do that, and the tools are different ones.
 
 This chapter is about the first one, all the way through. If you came expecting a tool
-that moves your data, that exists and it is called OpenUpgrade, and the last Concepts
-section below places it. Say which of the two you mean whenever the word comes up on a
-real project.
+that moves your data, it exists, it is called OpenUpgrade, and the last Concepts section
+places it. On a real project, always say which of the two you mean.
 
 ## Concepts
 
 ### Why yearly releases force this at all
 
-Each Odoo major is supported for a fixed window (three years past its release, per
-chapter 1), and OCA repos mirror that with one branch per version. A fix landed on
-`19.0` never automatically reaches `16.0`, and a `16.0`-only module never automatically
-gains a `19.0` branch. Someone has to do the work, every module, every year, which is
-exactly why the OCA treats migration as first-class, tracked activity rather than an
-occasional chore.
+Each Odoo major is supported for a fixed window (three years past its release, per chapter
+1), and OCA repos mirror that with one branch per version.
+
+A fix landed on `19.0` never automatically reaches `16.0`, and a `16.0`-only module never
+automatically gains a `19.0` branch. Someone has to do the work, every module, every year.
+That is exactly why the OCA treats migration as tracked, first-class activity rather than
+an occasional chore.
 
 ### The OCA's migration process: a tracking issue, claimed module by module
 
@@ -51,9 +51,11 @@ module on the old branch, one checkbox each, filled in with the contributor's na
 and PR link the moment someone claims it. Real, live, right now:
 [`OCA/server-tools` "Migration to version 19.0"](https://github.com/OCA/server-tools/issues/3400)
 lists `auditlog` done, `base_exception` done, `attachment_unindex_content` still
-open. This is the shape chapter 45's contribution mechanics point straight at: find
-an unclaimed line, comment to claim it, then fork, branch, and PR exactly as chapter
-45 walked through, this time with `[MIG]` as the tag.
+open.
+
+This is exactly what chapter 45's contribution mechanics point at. Find an unclaimed line,
+comment to claim it, then fork, branch and PR exactly as chapter 45 walked through, this
+time with `[MIG]` as the tag.
 
 <MigrationChecklist
   items={[
@@ -120,15 +122,17 @@ what building LibreFleet on Odoo 19 hit for real, chapter by chapter:
 ### OpenUpgrade and the Enterprise upgrade service: migrating data, not code
 
 Everything above is about a module's *code* surviving a version bump. A running
-*database* is a separate problem entirely: existing records, in old table shapes,
-need to land correctly in the new version's schema. [OpenUpgrade](https://github.com/OCA/OpenUpgrade)
-is the OCA's own project for exactly this, a fork of Odoo carrying migration
-scripts release to release, community-maintained the same way any OCA repo is.
-Odoo SA sells the same problem solved as a service for Enterprise customers
-(the "upgrade" offering on odoo.com), concept-level knowledge worth having even if
-your own projects run OpenUpgrade or a client-specific migration script instead:
-know that data migration and code migration are two different problems with two
-different tools before a project conflates them.
+*database* is a separate problem: existing records, in old table shapes, need to land
+correctly in the new version's schema.
+
+[OpenUpgrade](https://github.com/OCA/OpenUpgrade) is the OCA's own project for exactly
+this, a fork of Odoo carrying migration scripts release to release, community-maintained
+like any OCA repo. Odoo SA sells the same problem solved as a service for Enterprise
+customers, the "upgrade" offering on odoo.com.
+
+This is worth knowing at concept level even if your own projects run OpenUpgrade or a
+client-specific script instead. Data migration and code migration are two different
+problems with two different tools, and projects do conflate them.
 
 ## Hands-on
 

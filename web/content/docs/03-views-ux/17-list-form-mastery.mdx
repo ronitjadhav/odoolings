@@ -9,23 +9,25 @@ Odoo, and survive your first anchored-xpath breakage. · **Time:** ~2.5 h ·
 
 ## Why this matters
 
-Users never see your models, constraints or record rules; they judge the whole system
-by whether the order screen *feels* like Odoo. Core apps earned that feel with a small
+Users never see your models, constraints or record rules. They judge the whole system by
+whether the order screen *feels* like Odoo. Core apps earned that feel with a small
 vocabulary of patterns (a statusbar in the header, smart buttons up top, tabs for the
-long content, colored badges in lists) and readers of your module expect the same
+long content, colored badges in lists), and readers of your module expect the same
 vocabulary. This chapter installs it into your hands. It also delivers on chapter 16's
 warning: one of our own xpaths breaks today, silently, and you'll watch it happen.
 
-It is worth saying out loud why this chapter can feel skippable, because that reaction is
-the normal one. Everything in it is *appearance*, and appearance sounds like the job you do
-last if there is time left. That has it backwards. To the people using your module the
-appearance is the entire product: they cannot see your computes, your constraints or your
-record rules, and the screen is all they ever get.
+This chapter can feel skippable, and that reaction is the normal one. Everything in it is
+*appearance*, and appearance sounds like the job you do last if there is time left. That
+has it backwards. To the people using your module the appearance is the entire product:
+they cannot see your computes, your constraints or your record rules, and the screen is
+all they ever get.
 
-So treat these patterns as a **vocabulary rather than as decoration**. Your users have
-already learned, from every other Odoo app they touch, that a bar across the top of a form
-means "where this record is in its life", that a diagonal banner in the corner means "this
-one is not normal", and that a number in a box at the top right is both a fact and a link.
+So treat these patterns as a **vocabulary rather than as decoration**. From every other
+Odoo app they touch, your users have already learned three words: a bar across the top of
+a form means "where this record is in its life", a diagonal banner in the corner means
+"this one is not normal", and a number in a box at the top right is both a fact and a
+link.
+
 Spell your screen with those words and it explains itself to somebody who has never opened
 it before. Invent your own and every user has to learn your dialect first.
 
@@ -57,13 +59,14 @@ designated slot in it:
 
 ### Widgets: same field, different rendering
 
-A field's *type* fixes how it's stored; the <Term k="widget">`widget`</Term> attribute picks how one view
-renders it. You've used `many2many_tags` since chapter 12; today adds
+A field's *type* fixes how it's stored. The <Term k="widget">`widget`</Term> attribute picks how one view
+renders it. You've used `many2many_tags` since chapter 12; today adds four more:
 `statusbar` (Selection as a stage bar), `badge` (Selection as a colored pill),
 `statinfo` (a number inside a smart button) and `daterange` (two Datetime fields
-presented as one range picker). The full widget catalog is JavaScript, so the
-authoritative list lives in the web module's source; the reference below has the
-common ones.
+presented as one range picker).
+
+The full widget catalog is JavaScript, so the authoritative list lives in the web
+module's source. The reference below has the common ones.
 
 The third column is the one that matters, because it is what you are actually choosing
 when you pick a widget:
@@ -81,11 +84,12 @@ Pick the wrong one and nothing breaks; the screen just stops explaining itself.
 ### Decorations: rows that explain themselves
 
 List views accept <Term k="decoration-*">`decoration-*`</Term> attributes whose value is a Python-ish expression
-over the row's fields: `decoration-muted="stage == 'cancelled'"` greys cancelled
-orders out. The palette is semantic and fixed (`muted`, `info`, `success`,
-`warning`, `danger`, plus `bf`/`it` for bold/italic). One rule to remember:
-**the expression can only use fields present in the list view**. A field you don't
-want shown can still power a decoration via `column_invisible="1"`.
+over the row's fields. So `decoration-muted="stage == 'cancelled'"` greys cancelled
+orders out. The palette is semantic and fixed: `muted`, `info`, `success`, `warning`,
+`danger`, plus `bf`/`it` for bold/italic.
+
+One rule to remember: **the expression can only use fields present in the list view**. A
+field you don't want shown can still power a decoration via `column_invisible="1"`.
 
 ### Buttons that compute their own destination
 
@@ -223,11 +227,13 @@ The button needs a destination. In `models/vehicle.py`:
         }
 ```
 
-Chapter 15's `ensure_one` earns its keep (a button click always targets one record,
-say so), the `domain` filters the list to this vehicle, and the `context`'s
-`default_vehicle_id` means an order created from that filtered list is pre-filled
-with the right vehicle. Returning the dict is all it takes: the client executes
-whatever action a button method returns.
+Three things earn their keep there. Chapter 15's `ensure_one` says out loud that a button
+click always targets one record. The `domain` filters the list to this vehicle. And the
+context's `default_vehicle_id` means an order created from that filtered list arrives
+pre-filled with the right vehicle.
+
+Returning the dict is all it takes: the client executes whatever action a button method
+returns.
 
 Now the button and the ribbon, this time in `views/vehicle_views.xml` (the base
 vehicle form, not the reception extension you wrote in chapter 16). Three edits:
@@ -263,10 +269,10 @@ Three details in that snippet are conventions rather than anything you could gue
   from the Font Awesome set bundled with the web module, `oi-` from Odoo's own icon
   set, and anything else is treated as an image path.
 - `invisible="active"` reads "hide this while `active` is true", so the ribbon shows
-  exactly when the vehicle is archived. That is `invisible` in its dynamic form, an
-  expression over the record's fields rather than the flat `1` you gave
-  `scheduled_end`. `bg_color` takes a Bootstrap color class (`text-bg-danger` for
-  red); leave it out and the ribbon is green.
+  exactly when the vehicle is archived. That is `invisible` in its dynamic form: an
+  expression over the record's fields, rather than the flat `1` you gave
+  `scheduled_end`. `bg_color` takes a Bootstrap color class (`text-bg-danger` for red);
+  leave it out and the ribbon is green.
 
 Bump the manifest to `19.0.1.10.0`, then upgrade and restart the running server so it
 loads the new Python (Python changes need the restart; the upgrade alone runs in a
@@ -305,12 +311,13 @@ class="oe_button_box" name="button_box">
     </button>
 ```
 
-The xpath still *matches* (first `service_count` in document order is now the one in
-the button), so the archive toggle quietly moved inside the stat button. No
-traceback, no warning, just a wrong screen: this is the "breaks silently, or worse,
-matches the wrong node" case from chapter 16's gotchas, live in your own module two
-chapters later. Imagine it across module boundaries after a version migration and
-you understand a whole category of integrator tickets.
+The xpath still *matches*: the first `service_count` in document order is now the one
+inside the button, so the archive toggle quietly moved in there with it. No traceback, no
+warning, just a wrong screen.
+
+This is the "breaks silently, or worse, matches the wrong node" case from chapter 16's
+gotchas, live in your own module two chapters later. Imagine it across module boundaries
+after a version migration and you understand a whole category of integrator tickets.
 
 Fix the anchor in `views/vehicle_views_inherit.xml` to a field that still lives in
 the Usage group:
@@ -381,7 +388,7 @@ vehicle from the new toggle raises the red ribbon.
 
 - **A clickable statusbar enforces nothing.** Any user who can write the record can
   click any stage: no checks, no side effects. It's the right tool early on and a
-  liability once stages mean something; chapter 20's buttons and wizard add the
+  liability once stages mean something. Chapter 20's buttons and wizard add the
   guardrails.
 - **Decorations only see the list's own fields.** An expression over a field that
   isn't a column fails; add the field with `column_invisible="1"` if you need it
@@ -390,11 +397,11 @@ vehicle from the new toggle raises the red ribbon.
   extension and it failed *silently* (the locator matched a different occurrence).
   Before relocating any field in a view others may extend, grep for its name.
 - **`invisible` is not "not loaded".** The hidden `scheduled_end` still travels to
-  the client on every form load; that's what lets the daterange widget write it.
+  the client on every form load, and that's what lets the daterange widget write it.
   Keep it in mind when a form feels heavy (chapter 48 measures this properly).
 - **`statinfo` needs its field inside the button.** The count is an ordinary form
-  field that happens to render inside the button; delete it from the button and the
-  button shows nothing, keep a second copy elsewhere and you're loading it twice.
+  field that happens to render inside the button. Delete it from the button and the
+  button shows nothing; keep a second copy elsewhere and you're loading it twice.
 
 ## Quick check
 

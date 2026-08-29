@@ -8,13 +8,14 @@ without touching its source. · **Time:** ~2 h · **Checkpoint:** `code/checkpoi
 
 ## Why this matters
 
-Chapter 3 planted the idea that the UI is data; Part 2 had you writing views as XML
-records without dwelling on what happens to them. Now it becomes the whole subject,
-because **view inheritance is the single most-used skill in professional Odoo work**.
-Client wants a field on the sales order form? Extension view. Hide a button for one
-group? Extension view. Nearly every integrator ticket that says "can we see X on the Y
-screen" resolves to twenty lines of the XML you'll write in this chapter. Part 4
-extends core apps with exactly this mechanism; here you learn it safely inside
+**View inheritance is the single most-used skill in professional Odoo work.** Client
+wants a field on the sales order form? Extension view. Hide a button for one group?
+Extension view. Nearly every integrator ticket that says "can we see X on the Y screen"
+resolves to twenty lines of the XML you'll write in this chapter.
+
+Chapter 3 planted the idea that the UI is data, and Part 2 had you writing views as XML
+records without dwelling on what happens to them. Now it becomes the whole subject.
+Part 4 extends core apps with exactly this mechanism; here you learn it safely inside
 LibreFleet, including how it breaks.
 
 Two words in this chapter are going to fight you, so deal with them up front.
@@ -43,14 +44,13 @@ holding among other things: the `model` it renders, its `type` (list, form...), 
 `inherit_id`. Your module's XML files don't "declare" views in some special sense;
 they just load records into this table, like any other data file.
 
-That sentence is easy to agree with and surprisingly hard to believe, so it is worth
-being blunt: **the file on disk is not the view.** It is a script that inserts a row, and
-once the row exists Odoo never reads your file again. It renders whatever the table holds.
-Two things at the end of this chapter fall straight out of that, and neither is arbitrary:
-view changes need an *upgrade* rather than a restart, because the upgrade is the thing that
-rewrites the row; and anyone with the right access can edit a view in the interface and
-quietly diverge from your file, because the interface and your file are writing to the same
-place.
+**The file on disk is not the view.** It is a script that inserts a row. Once the row
+exists, Odoo never reads your file again; it renders whatever the table holds.
+
+Two things at the end of this chapter fall straight out of that. View changes need an
+*upgrade* rather than a restart, because the upgrade is what rewrites the row. And anyone
+with the right access can edit a view in the interface and quietly diverge from your file,
+because the interface and your file write to the same place.
 
 Look at LibreFleet's own rows (this is your database, after chapter 15):
 
@@ -65,10 +65,11 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, pri
 
 Two views, both `primary`, both at the default priority of 16. `mode` has exactly two
 values: `primary` means "a view in its own right", and `extension` means "a bundle of
-patches applied on top of another view". You never type it yourself, Odoo derives it
-when the record is created: a view with an `inherit_id` becomes an `extension`, one
-without stays `primary`. `priority` is a plain integer that defaults to 16. Those two
-columns are this chapter's levers.
+patches applied on top of another view".
+
+You never type `mode` yourself. Odoo derives it when the record is created: a view with
+an `inherit_id` becomes an `extension`, one without stays `primary`. `priority` is a plain
+integer that defaults to 16. Those two columns are this chapter's levers.
 
 The two modes are the drawing and the edit list, in table form:
 
@@ -104,9 +105,9 @@ Two consequences worth engraving:
   original is back, unchanged.
 - **<Term k="view priority">Priority</Term> is a golf score.** Among <Term k="primary view">primary views</Term>, the *lowest* number wins the
   default slot. Base views sit at 16, so a view with priority 8 hijacks the default,
-  and one at 99 never wins the contest. It can still be reached: a window action
-  (chapter 11) has a `view_id` field pointing at one specific `ir.ui.view` record, and
-  when that field is set, the action opens that view instead of the priority winner.
+  and one at 99 never wins the contest. A losing view is still reachable: a window
+  action (chapter 11) has a `view_id` field pointing at one specific `ir.ui.view`
+  record. Set that field and the action opens that view instead of the priority winner.
 
 ### The patch language
 
@@ -119,12 +120,14 @@ insert (or the attributes to change):
 </xpath>
 ```
 
-XPath is a small query language for pointing at a node inside an XML document, and this
+XPath is a small query language for pointing at a node inside an XML document. This
 `expr` reads left to right: `//` means "anywhere below the root, at any depth", `field`
 is the tag to look for, and `[@name='service_count']` keeps only the tags whose `name`
 attribute is `service_count`. Put together: the `service_count` field, wherever it sits
-in the parent's form. Odoo evaluates the expression against the parent's arch and takes
-the first node it finds; `position` says what to do there:
+in the parent's form.
+
+Odoo evaluates the expression against the parent's arch and takes the first node it
+finds. `position` says what to do there:
 
 | position | Effect |
 |---|---|
@@ -156,12 +159,11 @@ below.
 
 ### Primary inheritance, the other mode
 
-`mode="primary"` with an `inherit_id` is the rarer cousin: it produces a *new
-standalone view* that starts from a copy of the parent and applies patches, leaving
-the parent's own default rendering alone. Core uses it when a specialized flavor of a
-form is needed for one particular action. You'll recognize it when you meet it while
-reading core; for day-to-day extension work, the default `extension` mode is what you
-want.
+`mode="primary"` with an `inherit_id` is the rarer cousin. It produces a *new standalone
+view*: it starts from a copy of the parent, applies patches, and leaves the parent's own
+rendering alone. Core uses it when one particular action needs a specialized flavor of a
+form. You'll recognize it when you meet it in core. For day-to-day extension work, the
+default `extension` mode is what you want.
 
 ## Hands-on
 
@@ -198,11 +200,12 @@ Create `views/vehicle_views_inherit.xml`:
 </odoo>
 ```
 
-`inherit_id` points at the base form through its XML id (same-module `ref`, no
-`librefleet.` prefix needed), which makes this an extension view automatically. The
-arch holds two patches: one XPath locator inserting `active` after the service
-counter, one shorthand locator relabeling `mileage_km` for this form only (the field
-itself, and every other view, keeps its model-level label).
+`inherit_id` points at the base form through its XML id (same-module `ref`, so no
+`librefleet.` prefix needed). That alone makes this an extension view.
+
+The arch holds two patches: an XPath locator inserting `active` after the service
+counter, and a shorthand locator relabeling `mileage_km` for this form only. The field
+itself, and every other view, keeps its model-level label.
 
 Two edits in `__manifest__.py`. First, add the new file to `data`, right after
 `vehicle_views.xml`, so the base form record already exists when Odoo resolves this
@@ -213,7 +216,7 @@ file's `ref`:
         "views/vehicle_views_inherit.xml",
 ```
 
-Second, bump the version. This one is an **edit, not an addition**: the `version` line
+Second, bump the version. This one is an **edit, not an addition**. The `version` line
 already exists near the top of the manifest, between `summary` and `category`, and you
 are changing its value. Coming from chapter 15 it currently reads `19.0.1.8.0`, so raise
 the third number by one:
@@ -230,9 +233,10 @@ is that it goes up.
 <Callout type="info" title="The upgrade does not depend on this">
   Worth knowing so you never chase a phantom bug: `-u librefleet` reloads your data files
   whether or not you touched the version, exactly as chapter 18's step 4 says. Bumping is
-  a habit for other people's benefit, not a switch that makes the next command work. What
-  the number really drives is *Update Apps List*, which compares the manifest on disk
-  against the `latest_version` chapter 8 read out of `ir_module_module`, and the
+  a habit for other people's benefit, not a switch that makes the next command work.
+
+  The number really drives two things: *Update Apps List*, which compares the manifest on
+  disk against the `latest_version` chapter 8 read out of `ir_module_module`, and the
   deployment tooling that decides which modules changed. Skip it and this chapter still
   works; skip it on a real project and nobody can tell your releases apart.
 </Callout>
@@ -254,10 +258,11 @@ Element '<xpath expr="//field[@name='service_count']">' cannot be located in par
 
 That means `service_count` is not on the vehicle form in `views/vehicle_views.xml`, so the
 xpath has nothing to attach to. Chapter 13 put it in the "Usage" group, after
-`mileage_km`; add it there and upgrade again. The reason this is worth catching now rather
-than later is that the failure is *file-wide*: both records in
+`mileage_km`; add it there and upgrade again.
+
+Catch this now, because the failure is *file-wide*. Both records in
 `vehicle_views_inherit.xml` are abandoned, so the step-2 query below comes back with two
-rows instead of four and nothing on screen says why. You are meeting this chapter's
+rows instead of four, and nothing on screen says why. You are meeting this chapter's
 break-it lab four steps early, by accident.
 </Step>
 
@@ -282,14 +287,17 @@ Reception also wants a stripped-down vehicle list. In the same file, before
     </record>
 ```
 
-No `inherit_id`, so it's a full view in its own right, competing for the default slot
+No `inherit_id`, so this is a full view in its own right, competing for the default slot
 through priority. `eval="99"` is how that number gets set: `eval` runs the attribute as
-Python, so the field receives the integer 99 rather than text. At 99 the view
-deliberately loses to the original's 16, and that is the point. Nobody's Vehicles menu
-changes today, you gain a second primary view to run step 4's experiment against, and
-it matches how real modules ship an alternative screen: parked at a high priority,
-opened only by an action that names it with `view_id`. It lives in the same
-already-registered file, so no new manifest entry and no version bump, just:
+Python, so the field receives the integer 99 rather than text.
+
+At 99 the view deliberately loses to the original's 16, and that is the point. Nobody's
+Vehicles menu changes today. You gain a second primary view to run step 4's experiment
+against, and it matches how real modules ship an alternative screen: parked at a high
+priority, opened only by an action that names it with `view_id`.
+
+It lives in the same already-registered file, so no new manifest entry and no version
+bump, just:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -403,17 +411,20 @@ View error context:
  'xmlid': 'view_librefleet_vehicle_form'}
 ```
 
-Your ids will not match this transcript, because Postgres hands them out per database
-as records are created, so read the names rather than the numbers. And read this one
-carefully, because its `file` and `line` lie to you a little. They point
-at `vehicle_views.xml`, the *base* form's file, not `vehicle_views_inherit.xml` where
-your broken xpath actually lives. That's because the base form isn't `noupdate`, so
-every upgrade rewrites its record, and that write is what triggers Odoo to recombine
-it with every extension and validate the result, while `vehicle_views.xml` is still
-the file the loader is nominally "in". The `name`, `view` and `view.parent` keys don't
-lie, though: `name` is your extension's own name, `view` is its record id, and
-`view.parent` is the base form it failed to patch. When file and line point somewhere
-that looks innocent, trust those three instead; they name the real culprit every time.
+Your ids will not match this transcript. Postgres hands them out per database as records
+are created, so read the names rather than the numbers.
+
+**The `file` and `line` here lie to you a little.** They point at `vehicle_views.xml`,
+the *base* form's file, not `vehicle_views_inherit.xml` where your broken xpath actually
+lives. The base form isn't `noupdate`, so every upgrade rewrites its record. That write
+is what triggers Odoo to recombine it with every extension and validate the result, while
+`vehicle_views.xml` is still the file the loader is nominally "in".
+
+The `name`, `view` and `view.parent` keys don't lie: `name` is your extension's own name,
+`view` is its record id, and `view.parent` is the base form it failed to patch. When file
+and line point somewhere innocent-looking, trust those three instead. They name the real
+culprit every time.
+
 You will meet this shape again whenever a version migration renames a field your xpath
 anchored on (chapter 47's bread and butter). Restore `service_count`, upgrade, and
 confirm the module loads clean.
@@ -444,9 +455,9 @@ unchanged.
 ## Gotchas
 
 - **Your xpath is a contract with the parent's structure.** Anchor on stable,
-  semantic nodes (a named field) rather than positional paths (`/form/sheet/group[2]`),
-  because the parent WILL be reorganized someday and positional paths break silently
-  or, worse, match the wrong node.
+  semantic nodes (a named field) rather than positional paths (`/form/sheet/group[2]`).
+  The parent WILL be reorganized someday, and positional paths break silently or,
+  worse, match the wrong node.
 - **Only the first match is patched.** An `expr` matching several nodes applies to
   the first one. If a field appears twice in a form (it happens: once visible, once
   invisible), be more specific or you'll edit the wrong occurrence.

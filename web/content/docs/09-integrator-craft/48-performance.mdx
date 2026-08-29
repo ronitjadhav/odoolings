@@ -9,25 +9,26 @@ query count rather than by guessing, and know the few cases where SQL beats the 
 
 ## Why this matters
 
-Every chapter so far trusted the ORM to turn a Python expression into reasonable
-SQL, and it usually does. "Usually" is the word this chapter earns: the ORM can't
-see across a loop you wrote, and a query count that's fine on your four-row local
-database can be the reason a client's production instance times out on a busy
-Monday. Reading the actual SQL, not guessing from the Python, is the skill.
+Every chapter so far trusted the ORM to turn a Python expression into reasonable SQL, and
+it usually does. "Usually" is the word this chapter earns.
+
+The ORM can't see across a loop you wrote, and a query count that's fine on your four-row
+local database can be why a client's production instance times out on a busy Monday.
+Reading the actual SQL, instead of guessing from the Python, is the skill.
 
 Most people arrive at a chapter called "Performance" reaching for two things: a cache and
-an index. Both are real, one of them has a section below, and neither is where the money
-usually is. The thing that actually rescues a slow Odoo screen is almost always **the
-number of queries**, not the speed of any one of them, and that number is something you
-can read off the screen rather than argue about. Performance work here is arithmetic, not
-intuition.
+an index. Both are real, one has a section below, and neither is where the money usually
+is. What actually rescues a slow Odoo screen is almost always **the number of queries**,
+not the speed of any one of them. That number is something you can read off the screen
+rather than argue about, so performance work here is arithmetic, not intuition.
 
 Which sets the order the Concepts below deliberately run in, cheapest and most likely
 first:
 
 1. **Look at the SQL at all** (`--log-sql`). Free, and it usually ends the discussion.
-2. **Count the queries, and find the loop.** The N+1 pattern is the big win, and it is
-   visible as a number.
+2. **Count the queries, and find the loop.** The N+1 pattern (one extra query per row,
+   where one query for all of them would do) is the big win, and it is visible as a
+   number.
 3. **Batch what you create.**
 4. **Add an index**, for a query shape you know is coming.
 5. **Drop to raw SQL**, in the narrow case where it is genuinely justified.
@@ -94,11 +95,12 @@ querying per record. Proven the same way, iterating all 63 lines and reading
 LINE COUNT: 63
 ```
 
-Real query count against `account_move` and `res_partner` combined for all 63
-accesses: **4**, not 126. The loop-with-`search()`-inside version from above breaks
-this entirely, because a fresh `search()` call each iteration is a brand new
-recordset with nothing to batch, prefetch has no batch to work with. The fix isn't
-"avoid loops", it's "don't re-query inside one."
+Real query count against `account_move` and `res_partner` combined, for all 63 accesses:
+**4**, not 126.
+
+The loop-with-`search()`-inside version breaks this entirely. A fresh `search()` each
+iteration is a brand new recordset with nothing to batch, so prefetch has nothing to work
+with. The fix isn't "avoid loops", it's "don't re-query inside one."
 
 ### `read_group` became `_read_group` / `formatted_read_group`
 
@@ -142,9 +144,11 @@ batched version pays it once.
 
 ### Indexes: real, but the planner decides, not you
 
-`index=True` on a field creates a real Postgres btree index; nothing hypothetical
-about it. What's easy to get wrong is expecting the planner to always use one.
-Same filter, two tables, two real `EXPLAIN` outputs:
+`index=True` on a field creates a real Postgres btree index; nothing hypothetical about
+it. What's easy to get wrong is expecting the planner to always use one.
+
+Same filter, two tables, two real `EXPLAIN` outputs. (`EXPLAIN` is Postgres's own command
+for showing how it plans to run a query, without actually running it.)
 
 ```text
 -- librefleet_service_order, 4 rows, customer_id indexed
@@ -161,26 +165,28 @@ explain select * from account_move_line where move_id = 73;
    ->  Bitmap Index Scan on account_move_line__move_id_index  (cost=0.00..4.17 rows=4 width=0)
 ```
 
-The index on `librefleet_service_order` exists, and Postgres ignores it, correctly:
-on 4 rows a sequential scan is cheaper than the overhead of using the index at all.
-The `account_move_line` table, with more rows, gets the bitmap index scan. Same
-mechanism, different verdict, purely from row count. Add indexes for the query
-shape you know is coming (a portal record rule that filters every request, a
-search field readers will actually filter by), not because you can watch the
-`EXPLAIN` output change on your own small database, you usually can't.
+The index on `librefleet_service_order` exists, and Postgres ignores it, correctly: on 4
+rows a sequential scan is cheaper than the overhead of using the index at all. The
+`account_move_line` table, with more rows, gets the bitmap index scan. Same mechanism,
+different verdict, purely from row count.
+
+So add indexes for the query shape you know is coming: a portal record rule that filters
+every request, a search field users will actually filter by. Don't add them because you
+watched the `EXPLAIN` output change on your own small database, because usually you can't.
 
 ### When dropping to SQL is actually justified
 
-The OCA's own guidance (chapter 44's `.pylintrc` enables `sql-injection` for
-exactly this reason) is blunt: don't bypass the ORM. It exists for a reason,
-security rules, `_read()` triggers, computed fields, all of it. The narrow,
-legitimate case is read-only bulk reporting where the ORM's per-record Python
-overhead genuinely dominates and no business logic needs to run, always through
-`env.cr.execute()` with parameterized placeholders, **never** string
-interpolation into the query, that's the SQL injection chapter 44's linter is
-watching for. If a raw query result needs to become real records with real
-security applied, hand it back to the ORM immediately, don't keep working in SQL
-past the one query that needed it.
+The OCA's own guidance is blunt: don't bypass the ORM. It exists for a reason, security
+rules, `_read()` triggers, computed fields, all of it. Chapter 44's `.pylintrc` enables
+`sql-injection` for exactly this reason.
+
+The narrow, legitimate case is read-only bulk reporting, where the ORM's per-record Python
+overhead genuinely dominates and no business logic needs to run. Always go through
+`env.cr.execute()` with parameterized placeholders, **never** string interpolation into
+the query. That is the SQL injection chapter 44's linter watches for.
+
+If a raw query result needs to become real records with real security applied, hand it
+back to the ORM immediately. Don't keep working in SQL past the one query that needed it.
 
 ## Hands-on
 

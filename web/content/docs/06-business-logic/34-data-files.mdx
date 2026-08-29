@@ -10,38 +10,39 @@ French. · **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch34`
 
 ## Why this matters
 
-Back in chapter 11 you created three service types by clicking "New" in the list
-view. That was the right call at the time, you were learning views, not data files.
-But it does not scale: a fresh install of LibreFleet should not depend on someone
-remembering to click New three times in the right order. `ir_sequence.xml` (chapter
-14) and `mail_template.xml` (chapter 33) already shipped two pieces of config as data
-files, both promising "chapter 34 goes deeper on `noupdate`." This is that chapter:
-where XML earns its place over CSV, what a module's `demo` key actually does (and
-when it very deliberately does nothing), and the exact rule that decides whether an
-upgrade overwrites a record or leaves it alone.
+In chapter 11 you created three service types by clicking "New". That was fine then: you
+were learning views, not data files. But it does not scale. A fresh install should not
+depend on someone remembering to click New three times in the right order.
 
-The objection to get out of the way first: you have already made these records by
-clicking, so writing them again in a file feels like doing the same work twice. It is
-not the same work. **A record you click exists in one database, yours. A record in a
-data file exists in every database that ever installs the module.** The file is the
-definition; the row in Postgres is a copy of it that Odoo makes on your behalf, once
-per install, forever. That reversal is the whole chapter: from here on the file is the
-thing you maintain, and the database is downstream of it.
+Writing those records again in a file feels like doing the same work twice. It is not.
+**A record you click exists in one database, yours. A record in a data file exists in
+every database that ever installs the module.** The file is the definition; the Postgres
+row is a copy Odoo makes from it, once per install, forever.
+
+That reversal is the whole chapter. From here on you maintain the file, and the database
+follows. You will also learn when XML beats CSV, what a module's `demo` key really does
+(and when it deliberately does nothing), and the exact rule deciding whether an upgrade
+overwrites a record or leaves it alone. Chapter 14's `ir_sequence.xml` and chapter 33's
+`mail_template.xml` both promised "chapter 34 goes deeper on `noupdate`". This is that
+chapter.
 
 ## Concepts
 
-Five ideas, and they answer five separate questions. Which format do I write, XML or CSV?
-Does this record ship to every install or only to demos? On the next upgrade, does my file
-overwrite what is in the database or leave it alone? How do records in different files
-point at each other? And what happens to all of it in a second language? The third one,
-`noupdate`, is the one people get wrong, so it gets the most room.
+Five ideas, one per question:
+
+1. XML or CSV, which do I write?
+2. Does this record ship to every install, or only to demos?
+3. On the next upgrade, does my file overwrite the database or leave it alone?
+4. How do records in different files point at each other?
+5. What happens to all of it in a second language?
+
+Number 3, `noupdate`, is the one people get wrong, so it gets the most room.
 
 ### XML and CSV are the same loader, two shapes
 
-Every data file, XML or CSV, ends up creating or updating records through the same
-mechanism: a Python `<record>`-equivalent that resolves an xml id, builds a `vals`
-dict from fields, and calls `create` or `write`. The format you pick is about shape,
-not capability.
+XML and CSV both end up in the same place. Each resolves an xml id, builds a `vals` dict
+from its fields, and calls `create` or `write`. The format you pick is about shape, not
+capability.
 
 Your own module already has one of each. `security/ir.model.access.csv`:
 
@@ -55,11 +56,12 @@ access_librefleet_vehicle_user,librefleet.vehicle user,model_librefleet_vehicle,
 access_librefleet_vehicle_manager,librefleet.vehicle manager,model_librefleet_vehicle,group_librefleet_manager,1,1,1,1
 ```
 
-Sixteen rows, all with the same six fields. CSV is that: a uniform table, one row
-per record, nothing that varies in shape from row to row. `data/mail_template.xml`
-is the opposite case, one record with a nested HTML field and nothing else like it
-in the file: XML is for records whose shape isn't a table, or where there is only
-one or two of them and a header row would be overkill.
+Sixteen rows, all with the same six fields. That is what CSV is for: a uniform table,
+one row per record, no variation in shape.
+
+`data/mail_template.xml` is the opposite case, a single record with a nested HTML field
+and nothing else like it in the file. Reach for XML when the shape is not a table, or
+when there are only one or two records and a header row would be overkill.
 
 <Callout type="info" title="Official docs">
   The [data files reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/data.html)
@@ -69,16 +71,15 @@ one or two of them and a header row would be overkill.
 
 ### A CSV file's name is not a label, it's the model
 
-The single fact that will burn you if you skip it: **the filename before `.csv` is
-the model's technical name**, not a description you chose. Odoo's loader takes the
-part of the filename before the first `-` and looks up a model with that exact
-name. `ir.model.access.csv` works because `ir.model.access` is a real model. Need a
-second data file for the same model, or a descriptive suffix? Add a dash: core's
-Kuwait localization ships `account.account-kw.csv`, model `account.account`, suffix
-`kw`.
+**The filename before `.csv` is the model's technical name**, not a description you
+chose. Skip this and it will burn you.
 
-The chapter's own transcript, first attempt, named more like a description than a
-model:
+Odoo's loader takes the part of the filename before the first `-` and looks up a model
+with that exact name. `ir.model.access.csv` works because `ir.model.access` is a real
+model. Need a second file for the same model, or a descriptive suffix? Add a dash. Core's
+Kuwait localization ships `account.account-kw.csv`: model `account.account`, suffix `kw`.
+
+Here is this chapter's own first attempt, named like a description instead of a model:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial_demo_test2 -i librefleet --with-demo --stop-after-init
@@ -111,38 +112,42 @@ demo data: illustrative, disposable, never something a production install needs.
 
 ### `noupdate`: what it protects, and the one thing it never claimed to
 
-Before the loader source, the question `noupdate` exists to answer. Your file says the fee
-is 59. A manager has since changed it to 75 in the UI. You upgrade the module. **Who wins,
-the file or the database?**
+Here is the question `noupdate` exists to answer. Your file says the fee is 59. A manager
+has since changed it to 75 in the UI. You upgrade the module. **Who wins, the file or the
+database?**
 
 - **Without `noupdate`** (the default for a `"data"` XML file), the **file wins**. Every
   upgrade rewrites the record to match the file exactly, and the manager's 75 is gone.
 - **With `noupdate`**, the **database wins**. The record is left exactly as it is, even
   though the file in front of you says something different.
 
-That is the whole idea, and the choice is about ownership: config *you* own (a sequence
-prefix, a technical setting) should let the file win, so upgrades can correct it. Config
-*the customer* owns (prices, email wording, anything a manager is invited to edit) needs
-`noupdate`, or every upgrade silently undoes their work.
+The choice is about ownership. Config *you* own (a sequence prefix, a technical setting)
+should let the file win, so upgrades can correct it. Config *the customer* owns (prices,
+email wording, anything a manager is invited to edit) needs `noupdate`, or every upgrade
+silently undoes their work.
 
-The catch, and the thing `noupdate` never promised, is in the next paragraph: "the database
-wins" only applies to records that *already exist*.
+Now the catch, which `noupdate` never promised to cover: "the database wins" only applies
+to records that *already exist*.
 
-Chapter 14 wrapped the sequence in `<data noupdate="1">` and promised more detail
-here. Reading Odoo 19's own loader (`odoo/modules/loading.py`,
-`odoo/tools/convert.py`) settles it precisely instead of by folklore:
+Chapter 14 wrapped the sequence in `<data noupdate="1">` and promised more detail here.
+Odoo 19's own loader (`odoo/modules/loading.py`, `odoo/tools/convert.py`) settles it
+precisely, instead of by folklore:
 
 ```python
 convert_file(env, package.name, filename, idref, mode, noupdate=kind == 'demo')
 ```
 
-Every file listed under `"demo"` loads with `noupdate=True` automatically,
-regardless of format. A `"data"`-listed **XML** file defaults to `noupdate=False`,
-but a `<data noupdate="1">` block inside it can raise that for just its own
-records, exactly what `ir_sequence.xml` and `mail_template.xml` do. A **CSV** file
-has no such block to write, so a `"data"`-listed CSV can never become noupdate, and
-a `"demo"`-listed CSV can never opt out of it. The manifest list you put a file in
-decides its default; only XML can override that default per file.
+That one line decides a lot:
+
+- Every file under `"demo"` loads with `noupdate=True` automatically, whatever its format.
+- A `"data"`-listed **XML** file defaults to `noupdate=False`, but a `<data noupdate="1">`
+  block inside it can raise that for just its own records. That is what `ir_sequence.xml`
+  and `mail_template.xml` do.
+- A **CSV** file has no such block to write. So a `"data"`-listed CSV can never become
+  noupdate, and a `"demo"`-listed CSV can never opt out of it.
+
+The manifest list you put a file in decides its default. Only XML can override that
+default per file.
 
 What noupdate actually does on an upgrade, from `_tag_record` in the same file:
 
@@ -156,12 +161,14 @@ if self.noupdate and self.mode != 'init':
     # else create it normally
 ```
 
-Two branches, and only the first one is "protection": if a record with this
-exact xml id **already exists**, its field values are left untouched, full stop,
-even if the XML in front of you now says something different. But if the xml id
-**does not exist yet**, the record is created normally, noupdate or not. `noupdate`
-protects existing records from being silently rewritten. It has never claimed to
-block new records from a later upgrade, which is exactly what lets you add a second
+Two branches, and only the first is protection:
+
+- **xml id already exists?** Its field values are left untouched, full stop, even if the
+  XML in front of you now says something different.
+- **xml id does not exist yet?** The record is created normally, noupdate or not.
+
+So `noupdate` protects existing records from being silently rewritten. It never claimed to
+block new records from a later upgrade. That is exactly what lets you add a second
 master-data record in a follow-up release without touching the first.
 
 <Mermaid
@@ -175,39 +182,41 @@ master-data record in a follow-up release without touching the first.
 
 ### `ref()` and xml ids: one namespace, any format
 
-First, what an xml id is for, because the name says nothing useful. A record's real
-database id is a number Postgres hands out, and that number is **different in every
-install**: your Tire Rotation might be id 4, a customer's might be id 91. So a data file
-can never point at another record by number. An **xml id is a permanent nickname** you
-choose, stored next to the record in `ir.model.data`, and it is the same in every database
-forever. That is the only reason files can reference each other at all.
+First, what an xml id is for, because the name says nothing useful.
 
-Every record loaded from any data file, XML or CSV, register or row, gets an xml
-id in `ir.model.data`, and that id is addressable from anywhere in the same
-namespace regardless of which file or format originally created it. XML spells a
-lookup as `ref="xmlid"` on a `<field>`, or `ref('xmlid')` in a Python `eval`; CSV
-spells the same lookup as a `field_name:id` column holding the xmlid string. Same
-module, bare id (`vehicle_demo_ag_12_345`); another module, dotted
-(`base.group_user`, already in your own `security/librefleet_security.xml` from
-chapter 10). The demo data below chains all three: a CSV row references another
-CSV row's id, and an XML record references both a CSV row's id and a master-data
-XML record's id, four files deep, one shared namespace.
+A record's real database id is a number Postgres hands out, and that number is
+**different in every install**. Your Tire Rotation might be id 4; a customer's might be id
+91. So a data file can never point at another record by number. An **xml id is a permanent
+nickname** you choose, stored next to the record in `ir.model.data`, identical in every
+database forever. That is the only reason files can reference each other at all.
+
+Every record from any data file gets one, and any file can then address it, whatever
+format created it. The spelling differs:
+
+- **XML**: `ref="xmlid"` on a `<field>`, or `ref('xmlid')` inside a Python `eval`.
+- **CSV**: a `field_name:id` column holding the xmlid string.
+
+Same module, use the bare id (`vehicle_demo_ag_12_345`). Another module, use the dotted
+form (`base.group_user`, already in your `security/librefleet_security.xml` from chapter
+10). The demo data below chains all of it: a CSV row references another CSV row, and an
+XML record references both a CSV row and a master-data XML record. Four files, two
+formats, one shared namespace.
 
 ### Translations are data files too, in two very different places
 
-A `.po` file is a data file, which is why it belongs in this chapter. But translations
-split into two halves that are stored nothing alike, and knowing which half you are
-looking at saves a lot of confusion.
+A `.po` file is a data file, which is why it belongs here. But translations split into two
+halves stored nothing alike. Knowing which half you are looking at saves a lot of
+confusion.
 
 | | What it covers | Marked with | Stored in |
 |---|---|---|---|
 | **Code strings** | literals in Python and XML: error messages, button labels | `_("...")` | the module's `i18n/*.po` on disk, cached in memory |
 | **Field values** | data a user typed or you shipped: a service type's name | `translate=True` on the field | the database, as a `jsonb` column |
 
-Read the right-hand column again, because it is the part that surprises people:
-**code translations never enter the database at all.** They are read from your module's
-`.po` files and held in memory. Field translations are the opposite: they live in
-Postgres, one JSON key per language, in the very same column as the original.
+Read the right-hand column again. This is the part that surprises people: **code
+translations never enter the database at all.** They are read from your module's `.po`
+files and held in memory. Field translations are the opposite. They live in Postgres, one
+JSON key per language, in the very same column as the original.
 
 <Callout type="warn" title="ir.translation is gone">
   If you have read older Odoo tutorials, you know a model called `ir.translation` that
@@ -217,10 +226,9 @@ Postgres, one JSON key per language, in the very same column as the original.
   write `ir.translation` was written for Odoo 15 or earlier.
 </Callout>
 
-`translate=True` is the interesting one for a data-files chapter, because turning it on
-**changes the column type**. Chapter 21 warned you that a translatable field is JSON in
-Postgres, using a core product as the example. Below you do it to your own model and
-watch the migration happen.
+`translate=True` is the interesting one here, because turning it on **changes the column
+type**. Chapter 21 warned you that a translatable field is JSON in Postgres, using a core
+product as the example. Below you do it to your own model and watch the migration happen.
 
 ### The i18n CLI, which moved in Odoo 19
 
@@ -331,18 +339,21 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
 (2 rows)
 ```
 
-Tire Rotation's flat_fee is still 59, the upgrade you just ran did not touch it,
-exactly as the loader code in Concepts said it wouldn't. Wheel Alignment, a
-brand-new xml id, was created normally in that same upgrade.
+Tire Rotation's flat_fee is still 59. The upgrade did not touch it, exactly as the loader
+code in Concepts said it would not. Wheel Alignment, a brand-new xml id, was created
+normally in that same upgrade.
 
-There is "who wins" settled by experiment, and both answers in one upgrade. For the record
-that already existed, the **database won**: your file says 75 and Postgres still says 59.
-For the xml id that did not exist yet, there was nothing to protect, so the **file won** and
-the record appeared. `noupdate` guards records, not files.
+That is "who wins" settled by experiment, with both answers in a single upgrade:
 
-Now put the price back to 59 in the XML, so the source file stops lying about what's
-actually in your database (it won't change anything in Postgres either way, but a chapter's
-source should say what's true):
+- **Record that already existed:** the database won. Your file says 75, Postgres still
+  says 59.
+- **xml id that did not exist yet:** nothing to protect, so the file won and the record
+  appeared.
+
+`noupdate` guards records, not files.
+
+Now put the price back to 59 in the XML. It changes nothing in Postgres either way, but a
+chapter's source should not lie about what is in your database:
 
 ```xml
             <field name="flat_fee">59.0</field>
@@ -419,9 +430,8 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from res_p
      0
 ```
 
-Nothing. Not an error, not a warning, just silently absent, and the log from that
-upgrade never even mentions the three new files. The reason lives in
-`ir_module_module`:
+Nothing. Not an error, not a warning, just silently absent. The upgrade log never even
+mentions the three new files. The reason lives in `ir_module_module`:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select demo from ir_module_module where name='librefleet';"
@@ -433,11 +443,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select demo from ir_module
  f
 ```
 
-Odoo remembers, per module, whether demo was ever loaded for it, in that one
-column. Chapter 8 installed librefleet with plain `-i librefleet`, no demo flag,
-and back then the module had no `demo` key at all, so `demo` was set to `false` and
-persisted. Reading `odoo/modules/loading.py`'s upgrade branch shows why that
-persisted value is the only thing that matters now:
+That one column is Odoo's per-module memory of whether demo was ever loaded. Chapter 8
+installed librefleet with plain `-i librefleet`, no demo flag, and back then the module
+had no `demo` key at all. So `demo` was set to `false`, and stayed there.
+
+`odoo/modules/loading.py`'s upgrade branch shows why that stored value is the only thing
+that matters now:
 
 ```python
 else:  # 'upgrade' or 'reinit'
@@ -446,13 +457,12 @@ else:  # 'upgrade' or 'reinit'
         package.demo = load_demo(env, package, idref, mode)
 ```
 
-An upgrade checks `package.demo`, the value **already sitting in the database**,
-not whether your manifest now has demo files. Install-time is the only moment that
-flag can flip from false to true, and adding demo files months later does not
-retroactively flip it.
+An upgrade checks `package.demo`, the value **already sitting in the database**, not
+whether your manifest now has demo files. Install time is the only moment that flag can
+flip from false to true. Adding demo files months later does not flip it retroactively.
 
-There's a second, version-specific reason install-time itself needs an explicit
-ask. Checking the actual flag rather than trusting an old habit:
+There is a second, version-specific reason install time itself needs an explicit ask.
+Check the actual flag rather than trusting an old habit:
 
 ```console
 $ docker compose exec odoo odoo server --help | grep -A2 without-demo
@@ -496,11 +506,11 @@ $ docker compose exec db psql -U odoo -d tutorial_demo_check -c "select so.refer
 (1 row)
 ```
 
-Every ref resolved: the order to the vehicle, the vehicle to its owner, the order
-to the master-data service type from step 1, four files and two formats, one
-namespace. Even the sequence from chapter 14 ran normally against a record it had
-never seen before. Once you've confirmed it, drop the scratch database; it did its
-job.
+Every ref resolved: the order to the vehicle, the vehicle to its owner, the order to the
+master-data service type from step 1. Four files, two formats, one namespace. Even chapter
+14's sequence ran normally against a record it had never seen.
+
+Once you have confirmed it, drop the scratch database. It did its job.
 
 ```console
 $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
@@ -559,13 +569,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
 
 Odoo rewrote the column *and* moved every existing value under an `en_US` key, including
 the three you hand-clicked back in chapter 11. No migration script, no data loss. This is
-the single best demonstration in the book of what an upgrade will do for you when a field
-definition changes underneath existing rows.
+the book's best demonstration of what an upgrade does for you when a field definition
+changes underneath existing rows.
 
-It also means every psql query earlier in this chapter that touched that column reads
-differently from here on. Step 5's join now shows `{"en_US": "Tire Rotation"}` where it
-used to show `Tire Rotation`, and step 1's filter stops working outright, which is worth
-seeing rather than reading:
+It also means every earlier psql query touching that column now reads differently. Step
+5's join shows `{"en_US": "Tire Rotation"}` where it used to show `Tire Rotation`, and
+step 1's filter stops working outright. Worth seeing rather than reading:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from librefleet_service_type where name = 'Tire Rotation';"
@@ -589,7 +598,7 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name->>'en_US' as n
  Tire Rotation |       59
 ```
 
-The ORM needs none of this: a domain like `[("name", "=", "Tire Rotation")]` keeps working
+The ORM needs none of this. A domain like `[("name", "=", "Tire Rotation")]` keeps working
 untouched, which is why this chapter's own checks did not change. Only raw SQL has to know.
 
 </Step>
@@ -615,12 +624,13 @@ from odoo import _, fields, models
                   "tick the override to complete it anyway.", margin=order.margin))
 ```
 
-Two things about that second one. The interpolation moved *inside* `_()` and became a
-**named** placeholder, `%(margin).2f` with `margin=` passed as a keyword. Formatting
-outside the call (`_("...") % value`) would hand translators a string with a bare `%.2f`
-in it and no clue what it holds; a named placeholder survives translation and can even be
-reordered by the translator. The output is identical, `-210.90` either way, so chapter
-20's transcript still reads exactly as it did.
+Two things about that second one. The interpolation moved *inside* `_()`, and it became a
+**named** placeholder: `%(margin).2f`, with `margin=` passed as a keyword.
+
+Why it matters: formatting outside the call (`_("...") % value`) hands translators a
+string with a bare `%.2f` in it and no clue what it holds. A named placeholder survives
+translation, and the translator can even reorder it. The output is identical, `-210.90`
+either way, so chapter 20's transcript still reads exactly as it did.
 
 <Callout type="info" title="Two spellings of the same helper">
   `from odoo import _` is what you will meet almost everywhere: 990 files under
@@ -681,8 +691,8 @@ $ wc -l addons/librefleet/i18n/librefleet.pot
 869 addons/librefleet/i18n/librefleet.pot
 ```
 
-146 terms, and the interesting part is *where they came from*. Three different kinds of
-entry, each with a comment saying its source:
+146 terms, and the interesting part is *where they came from*. Three kinds of entry, each
+with a comment naming its source:
 
 ```console
 $ grep -B2 -A1 "Only an order that is in progress" addons/librefleet/i18n/librefleet.pot
@@ -761,11 +771,13 @@ msgstr ""
 "la dérogation pour le terminer malgré tout."
 ```
 
-The gettext header (that first `msgid ""` block) is boilerplate every `.po` file
-carries; write it once and never think about it again. The third message is the one
-with the named placeholder, `%(margin).2f`, sitting untouched in both `msgid` and
-`msgstr`: the translator moves it wherever French phrasing wants it, but never renames
-or drops it, since Python fills it in by name at raise time, not by position.
+The gettext header (that first `msgid ""` block) is boilerplate every `.po` file carries.
+Write it once and never think about it again.
+
+The third message is the one with the named placeholder, `%(margin).2f`, sitting untouched
+in both `msgid` and `msgstr`. The translator moves it wherever French phrasing wants it,
+but never renames or drops it, because Python fills it in by name at raise time, not by
+position.
 
 </Step>
 
@@ -832,7 +844,7 @@ One `_()` call, two languages, and the rollback throws away the throwaway record
   ```
 
   Not a bug. `_()` works out *which module's* catalog to search from the file its caller
-  lives in, and shell input belongs to no module, so there is nothing to search. Inside
+  lives in. Shell input belongs to no module, so there is nothing to search. Inside
   `wizards/service_order_approve.py` it resolves to `librefleet` and translates, which is
   exactly what the wizard call above proves. Test code translations by triggering the real
   code path, never by calling `_()` from the shell.

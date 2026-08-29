@@ -13,24 +13,26 @@ Every list you've built so far opens showing everything, sorted however the mode
 `_order` says. Real users don't want everything: a technician wants their own jobs, a
 manager wants to see progress by vehicle, and nobody wants to see cancelled orders on
 the happy path. That's the search view's job, and it's a fourth view type alongside
-list, form and (soon) kanban. It also comes with a footgun this chapter walks you
-straight into: the mechanism that makes a filter apply automatically depends on
-spelling one string correctly, and Odoo will never tell you if you didn't.
+list, form and (soon) kanban.
 
-If "the search bar is a view" sounds odd, that is worth saying out loud, because it is
-what makes this chapter feel stranger than it is. The search bar reads as furniture: a
-strip that comes with the list, the same shape on every Odoo screen you have ever opened.
-Being told it is a *fourth view type*, its own record with its own XML that you write
-yourself, lands as a surprise.
+It also comes with a footgun this chapter walks you straight into. The mechanism that
+makes a filter apply automatically depends on spelling one string correctly, and Odoo
+will never tell you if you didn't.
+
+"The search bar is a view" sounds odd, and that is what makes this chapter feel stranger
+than it is. The search bar reads as furniture: a strip that comes with the list, the same
+shape on every Odoo screen you have ever opened. Being told it is a *fourth view type*,
+its own record with its own XML that you write yourself, lands as a surprise.
 
 Here is what actually happened. **You have had a search bar on every list since chapter
 12, and you never wrote one.** Odoo made it for you: when a model has no search view,
 core generates a minimal one containing a single field, your model's `_rec_name`. You can
-read the whole of it in `_get_default_search_view` in
-`base/models/ir_ui_view.py`, and it is four lines long. So you have not been living
-without a search view, you have been living with the smallest possible one, which is
-exactly why the bar has only ever matched on name. This chapter is you taking that
-generated stub and writing a real one in its place.
+read the whole of it in `_get_default_search_view` in `base/models/ir_ui_view.py`, and it
+is four lines long.
+
+So you have not been living without a search view. You have been living with the smallest
+possible one, which is exactly why the bar has only ever matched on name. This chapter is
+you taking that generated stub and writing a real one in its place.
 
 So here is the shape to carry in. **What you are shipping is a small control panel**, and
 it has exactly three kinds of control: the places the search bar is allowed to look, the
@@ -58,13 +60,12 @@ what to switch on, how to stack.
   matters more than it looks like it should.
 - **`<group>`** wrapping filters with `context="{'group_by': '...'}"`: the <Term k="group-by">Group By</Term>
   menu. Grouping never ships every record to the browser to be counted there. The web
-  client calls `web_read_group`, the web module's entry point for loading grouped data
-  in list and kanban views, and underneath it sits `_read_group`, the ORM call that
-  turns your grouping into a single SQL `GROUP BY`: one bucket per distinct value, plus
-  its count. A pivot's cells and a kanban's column counts come from the same machinery.
-  The older public name, `read_group`, still works and is the one you'll call from the
-  shell later in this chapter, though Odoo 19 marks it deprecated in favour of
-  `_read_group`.
+  client calls `web_read_group`, the web module's entry point for loading grouped data in
+  list and kanban views. Underneath it sits `_read_group`, the ORM call that turns your
+  grouping into a single SQL `GROUP BY`: one bucket per distinct value, plus its count. A
+  pivot's cells and a kanban's column counts come from the same machinery. The older
+  public name, `read_group`, still works and is the one you'll call from the shell later
+  in this chapter, though Odoo 19 marks it deprecated in favor of `_read_group`.
 
 <Callout type="warn" title="Gotcha">
   Don't confuse a search view's `<filter>` element with the `ir.filters` model.
@@ -76,12 +77,13 @@ what to switch on, how to stack.
 
 ### Ticking two filters: the rule that surprises everyone
 
-Chapter 15 drilled that the conditions in a domain are **ANDed** by default. Search
-views break that expectation on purpose, and this is the single most common Odoo search
-surprise, so get it now rather than from a confused user. One word of vocabulary first:
-every condition currently narrowing a list shows up in the search bar as a **facet**,
-the rounded chip sitting there that you can remove with a click. Facets are what the
-table below is really counting:
+Chapter 15 drilled that the conditions in a domain are **ANDed** by default. Search views
+break that expectation on purpose. This is the single most common Odoo search surprise, so
+get it now rather than from a confused user.
+
+One word of vocabulary first. Every condition currently narrowing a list shows up in the
+search bar as a **facet**: the rounded chip sitting there that you can remove with a
+click. Facets are what the table below is really counting:
 
 | What the user ticks | How it combines | Why |
 |---|---|---|
@@ -93,11 +95,11 @@ So `Draft` plus `Confirmed` ticked together shows you both, not nothing. If they
 `stage = 'draft' AND stage = 'confirmed'` could never match a record, which is exactly
 what a reader who trusts chapter 15 predicts.
 
-That is what `<separator/>` is for: it starts a new group, so it is how you say "this
+That is what `<separator/>` is for. It starts a new group, so it is how you say "this
 filter must narrow the others, not join them".
 
-One warning about the word "group", because this chapter uses it for two unrelated
-things, and both show up in the arch you are about to write:
+One warning about the word "group". This chapter uses it for two unrelated things, and
+both show up in the arch you are about to write:
 
 - A **group of filters** is just a run of adjacent `<filter>` elements between two
   separators. Nothing in the XML marks it, you count separators to see where one ends.
@@ -105,13 +107,15 @@ things, and both show up in the arch you are about to write:
 - The **`<group>` element** is something else entirely: it is the container that turns the
   filters inside it into the Group By menu, and it has nothing to do with AND and OR.
 
-Now look ahead at the arch you write in step 1, because it has exactly one separator and
-that is **one too few**. "My Services" and "Exclude Cancelled" end up in the same group,
-so ticking both shows you *your* orders plus *everyone's* non-cancelled ones, which is
-not what either label promises. The stage filters below the separator are correctly
-ANDed against them. Exercise 4 has you fix it, and it is worth leaving wrong for one
-read: this is precisely the bug you will meet in real modules, where the label says
-"exclude" and the behaviour says "include as well".
+Now look ahead at the arch you write in step 1. It has exactly one separator, and that is
+**one too few**. "My Services" and "Exclude Cancelled" end up in the same group, so
+ticking both shows you *your* orders plus *everyone's* non-cancelled ones, which is not
+what either label promises. The stage filters below the separator are correctly ANDed
+against them.
+
+Exercise 4 has you fix it, and it is worth leaving wrong for one read. This is precisely
+the bug you will meet in real modules, where the label says "exclude" and the behavior
+says "include as well".
 
 Each group's facets appear as one chip in the search bar, which is the visual tell:
 one chip means OR inside it, two chips mean AND between them.
@@ -127,21 +131,22 @@ The "My Services" filter you're about to write uses `uid` inside a domain string
 
 <Term k="uid">`uid`</Term> isn't a Python variable, an import, or anything you'd find defined anywhere in
 the codebase. It's a magic name the web client substitutes with **the current logged-in
-user's id** when it evaluates the domain, client-side, right before sending the
-search request. It only works inside domain and context strings written in XML (or
-passed as literal context dicts); you'll never see `uid` used this way inside a Python
-method, because Python methods have `self.env.uid` for the same thing, spelled
-differently.
+user's id**, client-side, right before it sends the search request.
+
+It only works inside domain and context strings written in XML (or passed as literal
+context dicts). You'll never see `uid` used this way inside a Python method, because
+Python methods have `self.env.uid` for the same thing, spelled differently.
 
 ### The default-filter convention, and where it can quietly fail
 
-Here is the division of labour that explains this whole section, footgun included. **The
+Here is the division of labor that explains this whole section, footgun included. **The
 search view only ever *offers*. The action decides which of those offers is switched on
-when the page opens.** Those are two separate records. They can sit in different files,
-be written months apart by different people, and the only thing joining them is a string
-that has to match on both sides.
+when the page opens.**
 
-Read the rest of this section as a consequence of that split rather than as a quirk.
+Those are two separate records. They can sit in different files, be written months apart
+by different people, and the only thing joining them is a string that has to match on both
+sides. Read the rest of this section as a consequence of that split rather than as a
+quirk.
 
 An action's `context` can pre-check a filter when the view first loads, using a naming
 convention: <Term k="`search_default_<name>`">`search_default_<name>`</Term> set to a truthy value, where `<name>` is a
@@ -159,10 +164,11 @@ filter's `name` attribute:
     B -- no, typo --> D["nothing happens.\nno error, no warning,\nlist just opens unfiltered"]`}
 />
 
-Here's the part worth sitting with: **this convention is enforced by nobody.** There's
-no schema linking an action's context keys to a search view's filter names. If you
-write `search_default_not_cancelld` (typo) and the filter is actually named
-`not_cancelled`, the module installs cleanly, the server starts, the list opens, and
+Here's the part worth sitting with: **this convention is enforced by nobody.** There's no
+schema linking an action's context keys to a search view's filter names.
+
+Write `search_default_not_cancelld` (typo) when the filter is actually named
+`not_cancelled`, and the module installs cleanly, the server starts, the list opens, and
 it just... doesn't filter. No traceback, no log line, nothing. You'll build this bug on
 purpose in a minute so you recognize the shape of it forever.
 
@@ -174,10 +180,11 @@ purpose in a minute so you recognize the shape of it forever.
 ### Build the search view
 
 In `views/service_order_views.xml`, add a new `ir.ui.view` record before the action.
-You will notice there is no `<field name="type">search</field>` in it: leave `type`
-out of a standalone view and Odoo reads the arch's root tag to decide, so a `<search>`
-root makes this a search view. (Extension views like chapter 16's skip that guess
-entirely: they take their parent's type through `inherit_id`.)
+
+Notice there is no `<field name="type">search</field>` in it. Leave `type` out of a
+standalone view and Odoo reads the arch's root tag to decide, so a `<search>` root makes
+this a search view. (Extension views like chapter 16's skip that guess entirely: they take
+their parent's type through `inherit_id`.)
 
 ```xml
 <record id="view_librefleet_service_order_search" model="ir.ui.view">
@@ -209,13 +216,15 @@ entirely: they take their parent's type through `inherit_id`.)
 </record>
 ```
 
-Notice the `<group>` around the group-by filters has no attributes at all in Odoo 19,
-just a comment above it for readability. (On Odoo 18 you may see `expand="0"` used to
-collapse the group-by section by default; on 19 that attribute is rejected by the view
-schema and the group-by list is always collapsed.) Four searchable fields, six
-toggleable filters, three group-by options: this is already a working search view. You
-don't need to reference it anywhere yet, the client finds a model's search view
-automatically the same way it finds the lowest-priority list and form.
+The `<group>` around the group-by filters has no attributes at all in Odoo 19, just a
+comment above it for readability. (On Odoo 18 you may see `expand="0"` used to collapse
+the group-by section by default. On 19 that attribute is rejected by the view schema, and
+the group-by list is always collapsed.)
+
+Four searchable fields, six toggleable filters, three group-by options: this is already a
+working search view. You don't need to reference it anywhere yet. The client finds a
+model's search view automatically, the same way it finds the lowest-priority list and
+form.
 </Step>
 
 <Step>
@@ -242,10 +251,10 @@ upgrade:
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would with
-the correct spelling, because nothing in the loading process ever reads a filter's
-`name` attribute against an action's context keys. They're unrelated strings that
-happen to follow a convention only the browser's JavaScript understands.
+Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would with the
+correct spelling. Nothing in the loading process ever reads a filter's `name` attribute
+against an action's context keys: they're unrelated strings that happen to follow a
+convention only the browser's JavaScript understands.
 
 That is the two-records split from Concepts, biting. Your action said "switch on the
 filter called `not_cancelld`". Nothing ever asked the search view whether it has one.
@@ -264,12 +273,13 @@ $ python3 odoolings.py check ch18
 ```
 
 That check works the only way this bug *can* be caught outside a human eyeballing the
-list: read the action's `context` dict, read the filter names out of the search view's
-own arch, and compare the two strings yourself. Nothing in Odoo does this comparison for
-you, ever, which is exactly why the check exists. Note that it lists the filters it did
-find, which is usually enough to spot the typo without opening the XML, and that it reads
-the live arch rather than a fixed list, so filters you add yourself (exercises 1 and 3)
-count as real ones.
+list: read the action's `context` dict, read the filter names out of the search view's own
+arch, and compare the two strings yourself. Nothing in Odoo does this comparison for you,
+ever, which is exactly why the check exists.
+
+Two details make it useful. It lists the filters it did find, which is usually enough to
+spot the typo without opening the XML. And it reads the live arch rather than a fixed
+list, so filters you add yourself (exercises 1 and 3) count as real ones.
 
 **The sentence to carry out of this chapter:** the search view offers, the action decides,
 and nothing checks that the two agree. Whenever a default filter "does nothing", compare
@@ -314,7 +324,7 @@ and keep it open:
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
 
-Grouping is not the browser slicing up a list it already downloaded: the server does the
+Grouping is not the browser slicing up a list it already downloaded. The server does the
 counting and hands back one row per bucket. Call that aggregation yourself with
 `read_group` and you get exactly the buckets the Group By menu draws:
 
@@ -346,16 +356,16 @@ write:
 
 Tina's own filter, evaluated as Tina, returns exactly the one order she's assigned to
 (from chapter 12). In the browser, the exact same domain runs when she clicks "My
-Services", with `uid` standing in for `tina.id` because the client fills it in from
-her session.
+Services", with `uid` standing in for `tina.id`, because the client fills it in from her
+session.
 </Step>
 
 <Step>
 ### Prove that two ticked filters OR
 
 The Concepts claim is easy to state and easier to disbelieve, so measure it. Your orders
-are all in `draft` right now, so flip one to `confirmed` first, and note that we never
-commit, so the flip evaporates when the shell exits (chapter 6's lesson, put to work):
+are all in `draft` right now, so flip one to `confirmed` first. We never commit, so the
+flip evaporates when the shell exits (chapter 6's lesson, put to work):
 
 ```console
 >>> O = env["librefleet.service.order"]
@@ -398,11 +408,11 @@ and toggle My Services as tina to see the list narrow to her own booking.
 
 ## Gotchas
 
-- **A missing `<separator/>` inverts a filter's meaning.** Adjacent filters OR, so a
-  filter meant to *narrow* the list (an "Exclude Cancelled") that sits next to your
-  stage filters instead *widens* it. Nothing errors, the label still reads correctly,
-  and the filter appears to do nothing. If a filter behaves backwards, count the
-  separators before you touch the domain.
+- **A missing `<separator/>` inverts a filter's meaning.** Adjacent filters OR. So a
+  filter meant to *narrow* the list (an "Exclude Cancelled") instead *widens* it when it
+  sits next to your stage filters. Nothing errors, the label still reads correctly, and
+  the filter appears to do nothing. If a filter behaves backwards, count the separators
+  before you touch the domain.
 - **`search_default_<name>` has no validation anywhere.** A typo installs clean,
   upgrades clean, and produces a list that silently ignores your intended default.
   Nothing short of reading both strings side by side (or a check like today's) catches

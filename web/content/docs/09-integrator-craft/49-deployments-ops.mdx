@@ -9,18 +9,18 @@ real production deployment, and why each change exists. · **Time:** ~1.5 h ·
 
 ## Why this matters
 
-`code/docker-compose.yml` has run this entire tutorial: one Postgres container, one
-Odoo container, hot reload on, hardcoded credentials, a single process. That's
-exactly right for learning and exactly wrong for a business's actual traffic. This
-chapter is concept-level on purpose, per the plan that shaped it: you won't stand up
-nginx today, you'll know what it's for and why the pieces exist, which is the level
-integrator work actually needs day to day; the ops team (or the client's, or
-odoo.sh's) usually owns the rest.
+`code/docker-compose.yml` has run this entire tutorial: one Postgres container, one Odoo
+container, hot reload on, hardcoded credentials, a single process. That's exactly right
+for learning and exactly wrong for a business's actual traffic.
 
-Which invites the reasonable objection: if somebody else owns it, why spend an hour and a
+This chapter is concept-level on purpose. You won't stand up nginx today. You'll know what
+it's for and why the pieces exist, which is the level integrator work actually needs day
+to day; the ops team (or the client's, or odoo.sh's) usually owns the rest.
+
+Which invites a reasonable objection: if somebody else owns it, why spend an hour and a
 half here? Because **their configuration produces symptoms that get filed as your bug.**
-That is the honest reason, and it is worth keeping in mind as you read, because it turns
-each concept below from ops trivia into a diagnosis you will need:
+Keep that in mind as you read, because it turns each concept below from ops trivia into a
+diagnosis you will need:
 
 - A report that works locally and "randomly fails" in production is often a request being
   killed at a CPU limit, not code that broke.
@@ -58,20 +58,22 @@ Real flags this tutorial's `odoo.conf` never sets:
 | `--limit-time-real` | `120` | Max wall-clock seconds per request |
 | `--limit-memory-soft` | `2048MiB` | Per-worker memory ceiling, worker recycled after the current request |
 
-`--workers=0`, our default, means one process handling one request at a time,
-which is exactly right for a lone developer clicking around and exactly wrong for
-concurrent users. Production sets a real worker count (a common starting rule of
-thumb is `2 × cpu_count + 1`, a convention, not a law) so multiple requests run in
-parallel processes instead of queueing behind each other.
+`--workers=0`, our default, means one process handling one request at a time. Exactly
+right for a lone developer clicking around, exactly wrong for concurrent users.
+
+Production sets a real worker count so multiple requests run in parallel processes instead
+of queueing behind each other. A common starting rule of thumb is `2 × cpu_count + 1`, a
+convention rather than a law.
 
 ### The gevent worker (what "longpolling" used to mean)
 
-A normal HTTP worker handles a request and returns. The live chatter notifications,
-Discuss, the bus, all of it depends on connections held open far longer than any
-normal request, exactly what would starve a small worker pool if handled the same
-way. Odoo runs those on a separate process instead: `--gevent-port` names the port
-it listens on. Older docs and tutorials call this "longpolling"; Odoo's own
-`--help` output now just calls it the gevent worker, same job, current name.
+A normal HTTP worker handles a request and returns. Live chatter notifications, Discuss
+and the bus all depend on connections held open far longer than any normal request, which
+would starve a small worker pool if handled the same way.
+
+Odoo runs those on a separate process instead, and `--gevent-port` names the port it
+listens on. Older docs and tutorials call this "longpolling"; Odoo's own `--help` output
+now calls it the gevent worker. Same job, current name.
 
 ### Reverse proxy and `--proxy-mode`
 
@@ -82,12 +84,15 @@ $ docker compose exec odoo odoo server --help | grep -A2 "proxy-mode"
                      trusted web proxy!
 ```
 
-nginx (or any reverse proxy) sits in front in production: terminates TLS, routes
-normal traffic to the HTTP workers and bus traffic to the gevent port, and adds
-`X-Forwarded-*` headers so Odoo knows the real client IP and scheme instead of the
-proxy's own. `--proxy-mode` is what makes Odoo trust those headers, which is
-exactly why the warning says "only... behind a *trusted*" one: enabling it without
-an actual proxy in front lets anyone forge those headers.
+A **reverse proxy** is a server that sits in front of Odoo and forwards requests to it.
+nginx is the usual choice. In production it terminates TLS (it holds the HTTPS
+certificate, so Odoo itself only speaks plain HTTP behind it), routes normal traffic to
+the HTTP workers and bus traffic to the gevent port, and adds `X-Forwarded-*` headers so
+Odoo knows the real client IP and scheme instead of the proxy's own.
+
+`--proxy-mode` is what makes Odoo trust those headers. That is exactly why the warning
+says "only... behind a *trusted*" one: enable it with no real proxy in front and anyone
+can forge them.
 
 ### Filestore and backups: two things that must travel together
 
@@ -150,9 +155,10 @@ than treating as interchangeable:
 
 <CardGrid cols={2}>
   <Card tone="sage" icon={<Icon name="rocket" />} title="odoo.sh">
-    Odoo SA's own PaaS: push to a git branch, it builds and deploys, with
-    staging and production branches as a first-class concept and most of this
-    chapter's ops surface managed for you.
+    Odoo SA's own hosting platform, a PaaS: they run the servers, you just push
+    code. Push to a git branch and it builds and deploys, with staging and
+    production branches as a first-class concept and most of this chapter's ops
+    surface managed for you.
   </Card>
   <Card tone="sand" icon={<Icon name="tool" />} title="Docker / self-hosted">
     What this tutorial's own environment already models, scaled up: you own
@@ -166,13 +172,16 @@ Real integrator work uses both, chosen per client, not a universal "better" answ
 ### Multi-company and localization awareness
 
 Chapter 27 already found two real traps here, worth carrying forward rather than
-re-deriving: `account.account.code` is computed and **company-dependent**, reading
-it under the wrong active company silently returns `False` rather than erroring,
-and a bare `search([])` in a script or shell session crosses company boundaries
-that the equivalent UI action would never cross. Every ops script (a report, a bulk
-fix, a migration helper) needs the same discipline chapter 27 taught firsthand:
-`with_company()` or an explicit `company_id` domain, always, the moment more than
-one company might exist in the database you're pointed at.
+re-deriving:
+
+- `account.account.code` is computed and **company-dependent**. Read it under the wrong
+  active company and it silently returns `False` rather than erroring.
+- A bare `search([])` in a script or shell session crosses company boundaries that the
+  equivalent UI action would never cross.
+
+Every ops script (a report, a bulk fix, a migration helper) needs the discipline chapter
+27 taught firsthand: `with_company()` or an explicit `company_id` domain, always, the
+moment more than one company might exist in the database you're pointed at.
 
 ## Hands-on
 

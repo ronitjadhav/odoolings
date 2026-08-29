@@ -9,32 +9,34 @@ behind real validation, closing the loophole chapter 17 left open on purpose.
 
 ## Why this matters
 
-Chapter 17 gave service orders a clickable statusbar and said, plainly, that
-clicking enforces nothing: any user who can write the record can click any stage,
-no checks, no side effects, and that "chapter 20's buttons and wizard add the
-guardrails." This is that chapter. A wizard exists for exactly one reason: some
-transitions need a moment of confirmation, extra input, or a validation pass before
-they commit, and a raw field write can't ask for any of that. Marking a service order
-done is the perfect candidate: it's the point where the workshop is telling itself
-"this job made money" or explicitly overriding that check, and that's a decision
-worth a small form, not a click.
+Chapter 17 gave service orders a clickable statusbar and said, plainly, that clicking
+enforces nothing: any user who can write the record can click any stage, no checks, no
+side effects, and that "chapter 20's buttons and wizard add the guardrails." This is that
+chapter.
 
-One thing about wizards catches nearly everyone, so here it is before you meet any
-code. A wizard *looks* like a popup, so you expect to build it the way you'd build a
-dialog anywhere else: a bit of markup, two buttons, done. That isn't what a wizard is.
-**A wizard is a model.** It has a `_name`, it has fields, it gets a real table in
-Postgres, and it needs access rights like anything else.
+A wizard exists for exactly one reason. Some transitions need a moment of confirmation,
+extra input, or a validation pass before they commit, and a raw field write can't ask for
+any of that. Marking a service order done is the perfect candidate: it's the point where
+the workshop is telling itself "this job made money" or explicitly overriding that check,
+and that's a decision worth a small form, not a click.
+
+One thing about wizards catches nearly everyone, so here it is before you meet any code. A
+wizard *looks* like a popup, so you expect to build it the way you'd build a dialog
+anywhere else: a bit of markup, two buttons, done. That isn't what a wizard is. **A wizard
+is a model.** It has a `_name`, it has fields, it gets a real table in Postgres, and it
+needs access rights like anything else.
 
 Picture it as a scratch pad. Your real models are the ledger the workshop keeps
 forever; a wizard is a pad Odoo tears off, hands you to scribble on, and bins once
 you're done with it. Real paper, real ink, just not kept.
 
-That sounds like heavy machinery for a dialog, and it's the opposite: it's the reason
-the pattern is worth learning at all. Because a wizard is an ordinary model, every
-single thing you already know still works on it. Fields behave like fields. Defaults,
-`related=`, `groups=` and the form-view XML from chapter 16 all work unchanged. There
-is no second, popup-shaped API to learn, because the popup is just a form on a model,
-and a form on a model is the only kind of form Odoo has.
+That sounds like heavy machinery for a dialog, and it's the opposite: it's the reason the
+pattern is worth learning at all. Because a wizard is an ordinary model, every single
+thing you already know still works on it. Fields behave like fields. Defaults, `related=`,
+`groups=` and the form-view XML from chapter 16 all work unchanged.
+
+There is no second, popup-shaped API to learn, because the popup is just a form on a
+model, and a form on a model is the only kind of form Odoo has.
 
 ## Concepts
 
@@ -44,14 +46,16 @@ and a form on a model is the only kind of form Odoo has.
 rows really are created in a real table, and really are deleted later.
 
 A <Term k="wizard">wizard</Term> is a model like any other, `_name`, fields, methods, security, except it
-inherits `models.TransientModel` instead of `models.Model`. The difference is
-lifecycle: transient records aren't meant to live forever. Odoo runs a scheduled
-<Term k="vacuum">vacuum</Term>, a cleanup job on a timer, that deletes old transient rows automatically (a
-default cutoff measured in
-hours, configurable per model via `_transient_max_hours`), so a wizard's table never
-accumulates years of throwaway "I opened this popup once" records the way a real
-business model's table would. Everything else about a `TransientModel`, fields,
-`api.depends`, security, is identical to what you already know.
+inherits `models.TransientModel` instead of `models.Model`.
+
+The difference is lifecycle: transient records aren't meant to live forever. Odoo runs a
+scheduled <Term k="vacuum">vacuum</Term>, a cleanup job on a timer, that deletes old transient rows
+automatically (a default cutoff measured in hours, configurable per model via
+`_transient_max_hours`). So a wizard's table never accumulates years of throwaway "I
+opened this popup once" records the way a real business model's table would.
+
+Everything else about a `TransientModel`, fields, `api.depends`, security, is identical to
+what you already know.
 
 So the scratch pad from a moment ago is exact, right down to the bin: every popup a
 user opens writes a row, and nobody ever has to clean up after them.
@@ -67,21 +71,23 @@ user opens writes a row, and nobody ever has to clean up after them.
     D --> E["wizard method validates,\nwrites to the real record"]`}
 />
 
-You've built every piece of this before, separately. Chapter 17 taught you a button
-that calls a Python method and returns an action dict; chapter 15 taught you
-`default_<field>` in a context dict. A wizard just chains them: a button on the real
-record's form opens a popup (`target="new"`) whose form is a different model
-entirely, pre-filled from context, and that popup's own button runs the validation
-and writes back to the record that opened it.
+You've built every piece of this before, separately. Chapter 17 taught you a button that
+calls a Python method and returns an action dict. Chapter 15 taught you `default_<field>`
+in a context dict.
 
-Step C in that diagram is the part nobody guesses right, so it's worth stating on its
-own. **The popup has no idea which record opened it.** It is a form on a different
-model, and a fresh scratch pad starts blank; there is no hidden pointer back to the
-order, and Odoo will not supply one. If the wizard is going to act on that order, you
-have to hand the order over, and the context dict is the envelope you hand it in. That
-is the entire job of the `default_order_id` you'll write in a moment: it is not
-convenience pre-filling, it's the only thing connecting the popup to the record it
-came from.
+A wizard just chains them: a button on the real record's form opens a popup
+(`target="new"`) whose form is a different model entirely, pre-filled from context, and
+that popup's own button runs the validation and writes back to the record that opened it.
+
+Step C in that diagram is the part nobody guesses right, so it's worth stating on its own.
+**The popup has no idea which record opened it.** It is a form on a different model, and a
+fresh scratch pad starts blank. There is no hidden pointer back to the order, and Odoo
+will not supply one.
+
+If the wizard is going to act on that order, you have to hand the order over, and the
+context dict is the envelope you hand it in. That is the entire job of the
+`default_order_id` you'll write in a moment: not convenience pre-filling, but the only
+thing connecting the popup to the record it came from.
 
 ### Where validation actually belongs
 
@@ -90,13 +96,13 @@ Chapter 14 gave you `@api.constrains`. Why not put the margin rule there and ski
 popup entirely?
 
 Because of what the two can *say*. **A constraint can only say no. A wizard can ask a
-question first.** A constraint has no way to offer a manager an override, and nowhere
-to put a completion note the order has no field for. It sees the finished write and
-votes on it. That is exactly what you want for a rule about data, and not enough for a
-decision somebody is making on purpose.
+question first.** A constraint has no way to offer a manager an override, and nowhere to
+put a completion note the order has no field for. It sees the finished write and votes on
+it.
 
-With that in hand, you've now met three places a stage change can be gated, and this is
-the moment to line them up:
+That is exactly what you want for a rule about data, and not enough for a decision
+somebody is making on purpose. You've now met three places a stage change can be gated,
+so line them up:
 
 | Mechanism | Enforces? | Where you met it |
 |---|---|---|
@@ -104,11 +110,12 @@ the moment to line them up:
 | `@api.constrains` | Yes, but only after the write already happened, and it rolls the whole transaction back on failure | Chapter 14 |
 | Wizard button | Yes, and it can ask for more information (a note, an override) before ever attempting the write | This chapter |
 
-A constraint is the right tool when the rule is about *data*, no matter how it got
-written (chapter 14's no-overlapping-bookings rule fires whether you changed the
-date from the form, an import, or the shell). A wizard is the right tool when the
-rule is about *process*, a specific action a user takes on purpose, that benefits
-from a confirmation step and maybe some extra input first.
+A constraint is the right tool when the rule is about *data*, no matter how it got written.
+Chapter 14's no-overlapping-bookings rule fires whether you changed the date from the form,
+an import, or the shell.
+
+A wizard is the right tool when the rule is about *process*: a specific action a user takes
+on purpose, that benefits from a confirmation step and maybe some extra input first.
 
 ## Hands-on
 
@@ -158,18 +165,21 @@ class ServiceOrderApproveWizard(models.TransientModel):
         return {"type": "ir.actions.act_window_close"}
 ```
 
-Two business rules, both things a raw statusbar click could never ask about: the
-order must actually be `in_progress` (you can't "complete" a draft), and a
-money-losing order needs a manager's explicit override. The last line returns
-`{"type": "ir.actions.act_window_close"}`, the "nothing more to show" action: that
-return value is what closes the popup and drops the user back on the order form once
-the write went through. `related="order_id.margin"`
-gives the wizard a read-only mirror of the order's margin for free, no separate
-compute needed. `override_negative_margin` carries `groups=`, the same
-group-restriction mechanism chapter 10 taught you for regular model fields, and it
-works exactly the same way here: only Workshop Managers see the field in the form,
-*and*, worth confirming for yourself below, only they're allowed to write to it at
-all, at the ORM level, not just hidden in the UI.
+Two business rules there, both things a raw statusbar click could never ask about: the
+order must actually be `in_progress` (you can't "complete" a draft), and a money-losing
+order needs a manager's explicit override.
+
+The last line returns `{"type": "ir.actions.act_window_close"}`, the "nothing more to
+show" action. That return value is what closes the popup and drops the user back on the
+order form once the write went through.
+
+`related="order_id.margin"` gives the wizard a read-only mirror of the order's margin for
+free, no separate compute needed.
+
+`override_negative_margin` carries `groups=`, the same group-restriction mechanism chapter
+10 taught you for regular model fields, and it works exactly the same way here. Only
+Workshop Managers see the field in the form. And, worth confirming for yourself below,
+only they're allowed to write to it at all, at the ORM level, not just hidden in the UI.
 
 Read back over that file and notice how little of it is new. A `_name`, some fields, a
 method that raises `UserError`, a `related=` mirror, a `groups=` restriction: you have
@@ -181,10 +191,11 @@ the whole file is `TransientModel` on line one.
 <Step>
 ### Give the wizard its own form
 
-A model with no view is unreachable, and that is as true of a scratch pad as of
-anything else. So the wizard needs a form view: the same `ir.ui.view` record shape you
-have written since chapter 16, just pointed at the wizard model. Create
-`wizards/service_order_approve_views.xml`:
+A model with no view is unreachable, and that is as true of a scratch pad as of anything
+else. So the wizard needs a form view: the same `ir.ui.view` record shape you have written
+since chapter 16, just pointed at the wizard model.
+
+Create `wizards/service_order_approve_views.xml`:
 
 ```xml
 <record id="view_librefleet_service_order_approve_wizard_form" model="ir.ui.view">
@@ -208,15 +219,18 @@ have written since chapter 16, just pointed at the wizard model. Create
 </record>
 ```
 
-`invisible="margin &gt;= 0"` (the escaped `>=`, XML doesn't allow a bare `>`) hides
-the override checkbox entirely on the common path, a healthy job made money, nobody
-needs to see a checkbox that never applies. `special="cancel"` is the standard way
-to close a wizard popup without running any action. Two other bits of this form are
-wizard shapes you haven't met: everything inside `<footer>` is lifted out by the
-client and rendered as the popup's own button bar (which is why the buttons sit there
-rather than in a `<header>`), and `order_id` is declared `invisible="1"` instead of
-being left out, because the popup still has to carry the order it was opened from
-even though there is nothing for the user to do with it.
+`invisible="margin &gt;= 0"` (the escaped `>=`, XML doesn't allow a bare `>`) hides the
+override checkbox entirely on the common path. A healthy job made money, and nobody needs
+to see a checkbox that never applies. `special="cancel"` is the standard way to close a
+wizard popup without running any action.
+
+Two other bits of this form are wizard shapes you haven't met:
+
+- Everything inside `<footer>` is lifted out by the client and rendered as the popup's own
+  button bar, which is why the buttons sit there rather than in a `<header>`.
+- `order_id` is declared `invisible="1"` instead of being left out, because the popup
+  still has to carry the order it was opened from, even though there is nothing for the
+  user to do with it.
 </Step>
 
 <Step>
@@ -258,12 +272,13 @@ part that actually closes chapter 17's loophole, remove `done` from
 ```
 
 The button only shows once an order is `in_progress`. And `done` is gone from the
-visible-steps list: a user can still click their way through draft, confirmed and
-in_progress (chapter 17's original tradeoff stands for those, nothing about them
-needs a wizard), but there is no clickable step left that jumps straight to done.
-The statusbar widget always displays whatever the field's *current* value is, even
-one absent from `statusbar_visible`, so once an order reaches done it still shows
-correctly; the field just stops offering it as somewhere to click *into*.
+visible-steps list. A user can still click their way through draft, confirmed and
+in_progress (chapter 17's original tradeoff stands for those, nothing about them needs a
+wizard), but there is no clickable step left that jumps straight to done.
+
+The statusbar widget always displays whatever the field's *current* value is, even one
+absent from `statusbar_visible`. So once an order reaches done it still shows correctly.
+The field just stops offering it as somewhere to click *into*.
 </Step>
 
 <Step>
@@ -285,10 +300,10 @@ access_librefleet_service_order_approve_wizard_user,librefleet.service.order.app
 access_librefleet_service_order_approve_wizard_manager,librefleet.service.order.approve.wizard manager,model_librefleet_service_order_approve_wizard,group_librefleet_manager,1,1,1,1
 ```
 
-Bump the manifest to `19.0.1.14.0`, then upgrade and restart. The upgrade loads the
-new view and the new ACL rows; the restart is what makes the long-running server pick
-up the new Python, since the upgrade runs in a separate throwaway process (chapter
-17's rule, and it matters here because the wizard is a whole new Python package):
+Bump the manifest to `19.0.1.14.0`, then upgrade and restart. The upgrade loads the new
+view and the new ACL rows. The restart is what makes the long-running server pick up the
+new Python, since the upgrade runs in a separate throwaway process. That is chapter 17's
+rule, and it matters here because the wizard is a whole new Python package:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -313,23 +328,25 @@ compute methods for stored and non-stored fields.
 ```
 
 This is chapter 19's `store=True` on `margin` catching up with you. All three fields,
-`parts_total`, `labor_total`, `margin`, still shared one `_compute_totals` method,
-but only `margin` got a real column. Odoo 19 now warns explicitly, twice, that mixing
-stored and non-stored (and, separately, sudoed and non-sudoed) fields in a single
-compute method is a bad pattern, because each pairing has genuinely different
-behavior under the hood.
+`parts_total`, `labor_total`, `margin`, still shared one `_compute_totals` method, but
+only `margin` got a real column. Odoo 19 now warns explicitly, twice, that mixing stored
+and non-stored (and, separately, sudoed and non-sudoed) fields in a single compute method
+is a bad pattern, because each pairing has genuinely different behavior under the hood.
 
-`compute_sudo` decides *whose* access rights the compute method runs under: `True`
-recomputes as superuser, bypassing record rules and field-level `groups=`; `False`
-recomputes as whichever user triggered it, so the compute can fail or see less data
-than a superuser would. You never set it on any of these three fields, so each
-one fell back to the default Odoo uses when you leave it out, which is that field's
-own `store` value. That default is not documented anywhere prominent, but it is one
-line of core you can go and read: `attrs['compute_sudo'] = attrs.get('compute_sudo',
-store)`, in `odoo/orm/fields.py`. `margin` is `store=True`, so it
-silently got `compute_sudo=True`; `parts_total` and `labor_total` are not stored, so
-they silently got `compute_sudo=False`. One method, three fields, two different
-privilege levels, which is exactly the inconsistency both warnings are naming.
+`compute_sudo` decides *whose* access rights the compute method runs under. `True`
+recomputes as superuser, bypassing record rules and field-level `groups=`. `False`
+recomputes as whichever user triggered it, so the compute can fail or see less data than a
+superuser would.
+
+You never set it on any of these three fields, so each one fell back to the default Odoo
+uses when you leave it out, which is that field's own `store` value. That default is not
+documented anywhere prominent, but it is one line of core you can go and read:
+`attrs['compute_sudo'] = attrs.get('compute_sudo', store)`, in `odoo/orm/fields.py`.
+
+So `margin` is `store=True` and silently got `compute_sudo=True`, while `parts_total` and
+`labor_total` are not stored and silently got `compute_sudo=False`. One method, three
+fields, two different privilege levels, which is exactly the inconsistency both warnings
+are naming.
 
 Note that nothing is broken. Both are warnings, the module runs, the numbers are right.
 What Odoo is objecting to is that one method is quietly operating at two privilege
@@ -340,11 +357,13 @@ levels, which is fine until the day it isn't.
 <Step>
 ### Split the compute method, and watch both warnings go
 
-One fix resolves both warnings at once: splitting the compute method by storage also
-gives each half a consistent `compute_sudo`, since that attribute defaults per field
-and both fields in each half share the same default. In `models/service_order.py`,
-repoint the three fields at two new compute methods and delete chapter 13's
-`_compute_totals` (nothing references it once the fields name the new methods):
+One fix resolves both warnings at once. Splitting the compute method by storage also gives
+each half a consistent `compute_sudo`, since that attribute defaults per field and both
+fields in each half share the same default.
+
+In `models/service_order.py`, repoint the three fields at two new compute methods and
+delete chapter 13's `_compute_totals` (nothing references it once the fields name the new
+methods):
 
 ```python
     parts_total = fields.Float(compute="_compute_parts_labor")
@@ -370,12 +389,13 @@ repoint the three fields at two new compute methods and delete chapter 13's
             order.margin = order.parts_total + order.labor_total - parts_cost
 ```
 
-Two methods now: one computes the two non-stored fields, one computes the stored
-one. Notice `_compute_margin`'s `@api.depends` includes `"parts_total"` and
-`"labor_total"` directly, a computed field can depend on another computed field,
-same as any stored field, so the dependency chain still cascades correctly when a
-line's quantity changes. Bump to `19.0.1.15.0`, upgrade, and confirm both warnings
-are gone:
+Two methods now: one computes the two non-stored fields, one computes the stored one.
+
+Notice `_compute_margin`'s `@api.depends` includes `"parts_total"` and `"labor_total"`
+directly. A computed field can depend on another computed field, same as any stored field,
+so the dependency chain still cascades correctly when a line's quantity changes.
+
+Bump to `19.0.1.15.0`, upgrade, and confirm both warnings are gone:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -423,19 +443,20 @@ the wizard, exactly the sequence the button and popup perform for a real user:
 'done'
 ```
 
-Stop on that `create({})` for a second, because it is the whole chapter in one line.
-You just opened a wizard from a shell. No browser, no dialog, no click: you called
-`create` on a model and got a record back, then called a method on it. That is only
-possible because the popup was never really a popup. It is a model, and the browser was
-just drawing it. The scratch pad exists whether or not anyone is looking at it.
+Stop on that `create({})` for a second, because it is the whole chapter in one line. You
+just opened a wizard from a shell. No browser, no dialog, no click: you called `create` on
+a model and got a record back, then called a method on it. That is only possible because
+the popup was never really a popup. It is a model, and the browser was just drawing it.
+The scratch pad exists whether or not anyone is looking at it.
 
-`with_context(**act["context"])` is standing in for what the client does
-automatically when it opens the popup: applying `default_order_id` before the form's
-first `create`. `invalidate_recordset()` is a shell-only detail: the wizard wrote the
-new stage through its own `order_id` recordset, so the `order` variable you are
-holding still has the old value in its cache, and invalidating throws that cache away
-so the next read goes back to the database. The web client never needs it, because a
-button action reloads the record once the popup closes.
+`with_context(**act["context"])` stands in for what the client does automatically when it
+opens the popup: applying `default_order_id` before the form's first `create`.
+
+`invalidate_recordset()` is a shell-only detail. The wizard wrote the new stage through
+its own `order_id` recordset, so the `order` variable you are holding still has the old
+value in its cache. Invalidating throws that cache away, so the next read goes back to the
+database. The web client never needs it, because a button action reloads the record once
+the popup closes.
 
 Now break the two rules on purpose. First, wrong stage:
 
@@ -477,9 +498,9 @@ data matches the real chapter demonstration, not your break-it experiments:
 <BreakIt />
 ### Break-it lab: is `groups=` on a field a real security boundary, or just UI polish?
 
-You might reasonably assume `groups=` on a field only hides it from the form, the
-way many admin tools work, and that anyone with API access could still set it. Test
-that assumption directly, as tina, a Workshop User, not a manager:
+You might reasonably assume `groups=` on a field only hides it from the form, the way many
+admin tools work, and that anyone with API access could still set it. Test that assumption
+directly, as tina, a Workshop User rather than a manager:
 
 ```console
 >>> tina = env["res.users"].search([("login", "=", "tina")])
@@ -495,15 +516,16 @@ User: 5
 Groups: allowed for groups 'Workshop / Manager'
 ```
 
-The answer is no, `groups=` on a field is enforced at the ORM level, an `AccessError`,
-not merely stripped from the rendered view. Tina cannot set that field through the
-UI *or* through a raw RPC call bypassing it entirely. This is a genuinely reassuring
-result: a field-level `groups=` restriction is a real access-control boundary, the
-same category of guarantee as the ACLs from chapter 10, not cosmetic hiding you could
-defeat with a well-aimed API call.
+The answer is no. `groups=` on a field is enforced at the ORM level, an `AccessError`, not
+merely stripped from the rendered view. Tina cannot set that field through the UI *or*
+through a raw RPC call bypassing it entirely.
 
-Now notice what "the same category as an ACL" cuts both ways on. Open a wizard as Tina
-and try the same write twice, once plainly and once through `sudo()`:
+That is a genuinely reassuring result: a field-level `groups=` restriction is a real
+access-control boundary, the same category of guarantee as the ACLs from chapter 10, not
+cosmetic hiding you could defeat with a well-aimed API call.
+
+Now notice what "the same category as an ACL" cuts both ways on. Open a wizard as Tina and
+try the same write twice, once plainly and once through `sudo()`:
 
 ```console
 >>> act = as_tina.action_open_approve_wizard()
@@ -519,9 +541,11 @@ True
 exists on the wizard model, so aiming it at the order raises
 `ValueError: Invalid field 'override_negative_margin' in 'librefleet.service.order'`.)
 
-The plain write is refused and the sudo'd one succeeds. `sudo()` spreads (chapter 15),
-and a sudo'd recordset walks through field `groups=` exactly as it walks through an ACL,
-because it *is* the same machinery. So hold both halves of the result at once:
+The plain write is refused and the sudo'd one succeeds. `sudo()` spreads (chapter 15), and
+a sudo'd recordset walks through field `groups=` exactly as it walks through an ACL,
+because it *is* the same machinery.
+
+So hold both halves of the result at once:
 
 - Against a **user**, including one hand-crafting RPC calls, `groups=` is a real
   boundary. That is what the lab just proved.
@@ -560,7 +584,7 @@ and confirm the order lands on Done only after clicking the wizard's own button.
 ## Gotchas
 
 - **A wizard is a normal model with a different lifecycle, not a different
-  language.** Fields, `api.depends`, security, all identical to what you already
+  language.** Fields, `api.depends` and security are all identical to what you already
   know. The only new thing is `TransientModel` and the automatic vacuum that comes
   with it.
 - **`groups=` on a field stops users, not code.** You proved both halves: a non-manager
@@ -574,11 +598,11 @@ and confirm the order lands on Done only after clicking the wizard's own button.
   category, and let stored fields depend on non-stored ones via a plain
   `@api.depends` entry.
 - **`target="new"` is what makes an action a popup.** Forget it and the wizard's
-  action dict still works, technically, but navigates the user away from the order
+  action dict still works, technically, but it navigates the user away from the order
   instead of floating a small form over it.
 - **Removing a stage from `statusbar_visible` doesn't hide records already in it.**
-  The widget always renders the field's actual current value; the attribute only
-  controls which *other* stages appear as clickable stepping stones. It stops new
+  The widget always renders the field's actual current value. The attribute only
+  controls which *other* stages appear as clickable stepping stones: it stops new
   jumps, it doesn't hide history.
 
 ## Quick check

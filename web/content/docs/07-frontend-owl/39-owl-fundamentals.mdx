@@ -10,31 +10,36 @@ your addon into the browser. · **Time:** ~2 h · **Checkpoint:** `code/checkpoi
 ## Why this matters
 
 Everything you have built so far runs on the server. Views are XML the server sends,
-reports are HTML the server renders, controllers are Python the server executes. But
-the thing your users actually stare at all day, the Odoo web client, is a JavaScript
-application, and when a ticket says "this list needs a button that does X without
+reports are HTML the server renders, controllers are Python the server executes.
+
+But the thing your users stare at all day, the Odoo web client, is a JavaScript
+application. When a ticket says "this list needs a button that does X without
 reloading", no amount of Python will get you there.
 
 Odoo's frontend framework is **OWL** (the Odoo Web Library), and it is small on
-purpose: components, a reactive state object, a handful of lifecycle hooks, and QWeb
-templates written in XML rather than JSX. If you have used React or Vue, you will
-recognise the shape immediately; if you have not, there is genuinely less to learn
-here than in either.
+purpose. Four pieces: components, a reactive state object (change it and the screen
+redraws itself), a handful of lifecycle hooks (functions OWL calls at fixed moments,
+such as "just before this first appears"), and QWeb templates written in XML.
+
+If you have used React or Vue you will recognise the shape at once, and the templates
+are XML rather than JSX. If you have not, there is genuinely less to learn here than
+in either.
 
 The part that surprises people is not OWL itself. It is the delivery: writing a
 perfect component does nothing at all until it is listed in an **assets bundle**, and
 the failure mode when you get that wrong is silence, not an error. So this chapter
 spends as much time on the manifest as on the JavaScript.
 
-Here is the picture to carry in, because it is the one part you cannot guess from
-anything you have done so far. **The browser has never heard of your addons folder.** It
-cannot ask for `librefleet/static/src/workshop_clock/workshop_clock.js`, because it has
-no idea that path exists. All it can do is ask the server for a handful of big, pre-packed
-boxes, by name. Your manifest's `"assets"` key is the packing list: it says which of your
-files go into which box. Leave a file off the list and the box still ships, perfectly
-formed, with your code not in it. Nothing errors, because nobody asked for a file they
-never knew existed. That is why the failure mode is silence, and why "my JavaScript is not
-loading" is a manifest question before it is ever a JavaScript question.
+Here is the picture to carry in. **The browser has never heard of your addons folder.**
+It cannot ask for `librefleet/static/src/workshop_clock/workshop_clock.js`, because it
+has no idea that path exists. All it can do is ask the server for a few big, pre-packed
+boxes, by name.
+
+Your manifest's `"assets"` key is the packing list: which of your files go into which
+box. Leave a file off and the box still ships, perfectly formed, without your code in
+it. Nothing errors, because nobody asked for a file they never knew existed. That is why
+"my JavaScript is not loading" is a manifest question before it is ever a JavaScript
+question.
 
 ## Concepts
 
@@ -58,20 +63,21 @@ Three things carry the weight:
 - **`static template`** names a QWeb template by string. It is *not* a file path, and
   nothing checks it at build time. The template must be registered under exactly that
   name, or the component throws at render time.
-- **`static props = {}`** declares this component takes no props. OWL validates props
-  in dev mode, and an empty declaration is how you say "none on purpose" rather than
-  "I forgot".
+- **`static props = {}`** declares this component takes no props (the values a parent
+  hands down into a component). OWL validates props in dev mode, and an empty
+  declaration is how you say "none on purpose" rather than "I forgot".
 - **`setup()`** replaces the constructor. It runs once per component instance and is
   the only place hooks may be called.
 
 ### `useState` is the whole reactivity story
 
 `useState(obj)` returns a Proxy around `obj`. A **Proxy** is a plain JavaScript object
-that wraps another object and gets told about every read and every write passing through
-it, which is the whole trick: there is no magic here, just a middleman that notices. So
-reading a key inside a template subscribes that render to the key; assigning to the key
-marks the component dirty and schedules a re-render. That is the entire mechanism, and it
-explains the single most common beginner bug in OWL:
+that wraps another one and gets told about every read and every write passing through
+it. No magic, just a middleman that notices.
+
+That is the whole trick. Reading a key inside a template subscribes that render to the
+key. Assigning to the key marks the component dirty and schedules a re-render. It also
+explains the most common beginner bug in OWL:
 
 ```js
 this.count = 0;              // a plain property, invisible to rendering
@@ -112,9 +118,7 @@ on disk has nothing to do with whether it gets into one. The manifest decides:
 ```
 
 `"assets"` is a **top-level manifest key, a sibling of `"data"`**, never a member of
-it. Files listed there are concatenated into a named bundle, minified, and served as
-one big file. The bundle name decides *where* the code loads, so the three you will meet
-first are worth keeping straight:
+it. The bundle name decides *where* the code loads, so keep these three straight:
 
 | Bundle | What it is |
 |---|---|
@@ -122,11 +126,10 @@ first are worth keeping straight:
 | `web.assets_frontend` | the public website's box, chapter 37's portal pages |
 | `web.assets_web` | the box the browser actually downloads |
 
-That third row is the wrinkle worth knowing before you go looking for your bundle in
-devtools: you declare into `web.assets_backend`, but the file the browser actually
-downloads is `web.assets_web`, because `web.assets_web` is defined in core as
-`('include', 'web.assets_backend')` plus a couple of entry points. It is three lines in
-`web/__manifest__.py` and worth reading once so the nesting stops being abstract:
+That third row is the wrinkle to know before you go hunting in devtools. You declare
+into `web.assets_backend`, but the file the browser downloads is `web.assets_web`. Core
+defines it as `('include', 'web.assets_backend')` plus a couple of entry points. Three
+lines in `web/__manifest__.py`, worth reading once so the nesting stops being abstract:
 
 ```python
 'web.assets_web': [
@@ -136,8 +139,8 @@ downloads is `web.assets_web`, because `web.assets_web` is defined in core as
 ],
 ```
 
-A box packed inside a bigger box, in other words, which is why searching devtools for the
-name you wrote in your own manifest comes up empty.
+A box packed inside a bigger box. That is why searching devtools for the name you wrote
+in your own manifest comes up empty.
 
 <Callout type="info" title="Official docs">
   [JavaScript reference (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/javascript_reference.html)
@@ -303,13 +306,12 @@ INFO tutorial odoo.registry: Registry loaded in 2.405s
 ```
 
 Notice what the log does **not** say: nothing about assets at all. A missing or
-misplaced `"assets"` key produces exactly this same clean output, which is why the
-next step matters.
+misplaced `"assets"` key produces this same clean output, which is why the next step
+matters.
 
-This is the box model paying out. Packing a file into a box is not an event the server
-has any reason to announce, and a box with your file missing is not a broken box, it is
-just a box. Every other mistake you have made since chapter 8 was reported in this
-terminal. This class of mistake never will be.
+The box model, paying out. Packing a file into a box is not an event the server
+announces, and a box missing your file is not a broken box, just a box. Every other
+mistake since chapter 8 was reported in this terminal. This one never will be.
 </Step>
 
 <Step>
@@ -366,18 +368,16 @@ OwlError: Missing template: "librefleet.WorkshopClock" (for component "WorkshopC
     at new ComponentNode (.../web.assets_web.min.js:851:133)
 ```
 
-Read that first line twice, because it looks like a mistake and is not. It names
-`WorkshopClock`, spelled correctly, which is not what you typed. That is because the error
-reports what the component **asked for**, not what it found: your component still requests
-the template by its correct name, and the thing that no longer exists under that name is
-the template itself. Errors of this shape always name the thing that is missing, never the
-typo that made it missing, which is why grepping your own code for the string in the error
-message finds it immediately.
+Read that first line twice. It names `WorkshopClock`, spelled correctly, which is not
+what you typed. The error reports what the component **asked for**, not what it found:
+your component still requests the correct name, and nothing exists under that name any
+more. Errors of this shape name the missing thing, never the typo that made it missing,
+so grepping your own code for the string in the error finds it immediately.
 
-This is also the chapter's real lesson about where frontend errors live. Every failure you
-have debugged since chapter 8 announced itself in the terminal; this one only exists in
-the browser. **The console is now part of your debugging loop.** Put the `t-name` back
-before moving on.
+This is also the chapter's real lesson about where frontend errors live. Every failure
+since chapter 8 announced itself in the terminal; this one only exists in the browser.
+**The console is now part of your debugging loop.** Put the `t-name` back before moving
+on.
 </Step>
 
 </Steps>

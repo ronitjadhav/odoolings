@@ -10,39 +10,38 @@ computed field, wizard guard and idempotent cron from earlier chapters, run them
 
 ## Why this matters
 
-Every chapter since chapter 8 has ended in the same place: `python3 odoolings.py
-check chNN`, green, move on. That has been genuinely verifying your work, but it
-verifies *your running instance*, by hand, once. It says nothing about whether
-chapter 14's overlap constraint still holds after someone refactors
-`_check_no_overlap` next month, and it cannot run in a CI pipeline that spins up a
-brand new database for every pull request. That is what this chapter's tests are
-for: the same behaviors, proven automatically, on any database, forever, not just on
-yours today.
+Every chapter since chapter 8 has ended in the same place: `python3 odoolings.py check
+chNN`, green, move on. That genuinely verifies your work, but it verifies *your running
+instance*, by hand, once.
 
-One thing will look wrong before it looks obvious, so take it head on. If you have
-tested code anywhere else, you expect a test runner: point a command at some files, it
-runs them, it prints dots. **Odoo has no such command.** There is no `odoo test`. What
-you do instead is install or upgrade the module and *ask the install to run the tests on
-its way past*, which is why every command in this chapter looks like a deployment with
+It says nothing about whether chapter 14's overlap constraint still holds after someone
+refactors `_check_no_overlap` next month. And it cannot run in a CI pipeline that spins
+up a brand new database for every pull request. That is what this chapter's tests are
+for: the same behaviours, proven automatically, on any database, forever.
+
+One thing looks wrong before it looks obvious, so take it head on. If you have tested
+code anywhere else, you expect a test runner: point a command at some files, it runs
+them, it prints dots. **Odoo has no such command.** There is no `odoo test`.
+
+Instead you install or upgrade the module and *ask the install to run the tests on its
+way past*. That is why every command in this chapter looks like a deployment with
 `--test-tags` bolted on.
 
 That seems heavyweight until you notice what a test here actually needs. Almost
 everything worth testing in Odoo is the ORM: a constraint, a computed field, a record
 rule, an `onchange`. None of that is importable Python you can exercise on its own,
-because none of it exists until a database has the tables and a module has been loaded
-into it. So the database is not test scaffolding, it is the thing under test. Odoo builds
-one, installs into it, and runs your assertions inside it.
+because none of it exists until a database has the tables and the module is loaded into
+it. The database is not test scaffolding, it is the thing under test.
 
-The good news is the sandbox that makes it safe: every test runs in a transaction that is
-thrown away afterwards, so you can create whatever you like and leave no trace. Think of
-each test as a rehearsal on a stage that is reset before the next one walks on.
+The sandbox is what makes this safe. Every test runs in a transaction that is thrown away
+afterwards, so you can create whatever you like and leave no trace. Think of each test as
+a rehearsal on a stage that gets reset before the next one walks on.
 
-This is also where the tutorial's own house rule (chapter 4: readers get
-`--without-demo`, no demo data ships to production installs) stops being background
-noise and becomes a trap you can walk straight into. A test that reaches for a demo
-record works perfectly on your machine, where you happened to install with demo
-data on, and fails on the first real CI run that does not. This chapter makes you
-watch that failure happen before showing you how to avoid it.
+This is also where the tutorial's own house rule (chapter 4: readers get `--without-demo`,
+no demo data ships to production installs) turns into a trap you can walk straight into.
+A test reaching for a demo record works perfectly on your machine, where you happened to
+install with demo data on, and fails on the first real CI run that does not. This chapter
+makes you watch that failure happen before showing you how to avoid it.
 
 ## Concepts
 
@@ -50,11 +49,12 @@ watch that failure happen before showing you how to avoid it.
 
 The rehearsal-on-a-reset-stage idea, now with the real name on it.
 
-`odoo.tests.TransactionCase` wraps every test method in a database transaction that
-gets rolled back when the method ends. Nothing you create in a test method
-persists, which is what makes tests safe to run against a real database and fast to
-run in bulk: no cleanup code, no risk of one test's leftover data breaking the next
-one.
+`odoo.tests.TransactionCase` is the base class your test classes inherit from. It wraps
+every test method in a database transaction that gets rolled back when the method ends.
+Nothing you create in a test persists.
+
+That is what makes tests safe to run against a real database, and fast to run in bulk: no
+cleanup code, and no risk of one test's leftover data breaking the next.
 
 ```python
 from odoo.tests import TransactionCase, tagged
@@ -66,39 +66,45 @@ class TestServiceOrder(TransactionCase):
         self.assertEqual(order.margin, 42.0)
 ```
 
-`@tagged` is what makes a test class findable by the test runner and controls when
-it runs. `at_install` (the default) runs right after this module installs, before
-any *other* module that might later depend on it. `post_install` runs after
-everything in the current batch has finished loading, the more realistic moment for
-a test that reads company settings or cross-module data. `@tagged("post_install",
-"-at_install")` is the standard combination for a test that needs the database in a
-finished state, the `-` removes the default tag rather than adding a second one.
+`@tagged` makes a test class findable by the test runner and controls *when* it runs:
+
+- **`at_install`** (the default) runs right after this module installs, before any
+  *other* module that might later depend on it.
+- **`post_install`** runs after everything in the current batch has finished loading. That
+  is the more realistic moment for a test reading company settings or cross-module data.
+
+`@tagged("post_install", "-at_install")` is the standard combination for a test needing
+the database in a finished state. The `-` removes the default tag rather than adding a
+second one.
 
 ### `--test-tags`: choosing which tests actually run
 
-Odoo's own test suite, every core and OCA module combined, is enormous. Running all
-of it on every `-u librefleet` would make iteration unbearable, so `--test-tags`
-filters by a compact spec:
+Odoo's own test suite, every core and OCA module combined, is enormous. Running all of it
+on every `-u librefleet` would make iteration unbearable. `--test-tags` is the flag that
+filters which tests run, using a compact spec:
 
 ```
 [-][tag][/module][:class][.method]
 ```
 
-`/librefleet` runs everything tagged in this module. `/librefleet:TestServiceOrder`
-narrows to one class, `.test_no_overlapping_bookings` narrows to one method. A
-leading `-` excludes instead of includes. This chapter's Hands-on uses all three
-forms for real, against the actual test output, not a description of what they
-would do.
+Read it as a funnel, widest first:
+
+- `/librefleet` runs everything tagged in this module.
+- `/librefleet:TestServiceOrder` narrows to one class.
+- `.test_no_overlapping_bookings` narrows to one method.
+- A leading `-` excludes instead of includes.
+
+This chapter's Hands-on uses all three forms for real, against actual test output.
 
 ### HttpCase: the same idea, over a real HTTP connection
 
-`HttpCase` (itself a `TransactionCase` subclass) starts an actual HTTP client
-against the server under test, so `self.url_open(path)` genuinely round-trips
-through your `@http.route` decorators, chapter 37's routing and auth logic
-included, not a mocked call. It is the non-browser half of Odoo's test tooling; the
-browser-driven half, **tours**, script real clicks through real JavaScript and are
-what chapter 39's OWL work will use, briefly surveyed in Further reading rather than
-built here.
+`HttpCase` (itself a `TransactionCase` subclass) starts an actual HTTP client against the
+server under test. So `self.url_open(path)` genuinely round-trips through your
+`@http.route` decorators, chapter 37's routing and auth logic included. Not a mocked call.
+
+That is the non-browser half of Odoo's test tooling. The browser-driven half, **tours**,
+scripts real clicks through real JavaScript and is what chapter 39's OWL work will use.
+Further reading surveys them; this chapter does not build one.
 
 <Callout type="info" title="Official docs">
   [Testing Odoo (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/testing.html):
@@ -208,11 +214,12 @@ fires: the `with` block is expected to raise, and the test fails if it does not.
             wizard.action_confirm()
 ```
 
-The first version of this test used `self.part` (standard_cost 10.0) at a low
-price, expecting a loss. It passed the `assertLess` check by accident, barely, and a
-slightly different fixture would have flipped it silent-green for the wrong reason:
-the flat labor fee (100.0) covers a small parts loss easily. The
-`self.assertLess(order.margin, 0, ...)` line above is not decoration, it is what
+The first version of this test used `self.part` (standard_cost 10.0) at a low price,
+expecting a loss. It passed the `assertLess` check by accident, barely. A slightly
+different fixture would have flipped it silent-green for the wrong reason, because the
+flat labor fee (100.0) covers a small parts loss easily.
+
+The `self.assertLess(order.margin, 0, ...)` line above is not decoration. It is what
 would have caught that: a fixture that fails to set up the scenario it claims to
 test should fail loudly, not pass by luck.
 </Step>
@@ -264,10 +271,12 @@ Test files never go in the manifest's `data` list, only Python files that get
 imported. Bump the version, then run the whole module's tests on a scratch
 database, `--without-demo` on purpose.
 
-Read the command that follows carefully, because it is the intro's point made real:
-there is no test subcommand anywhere in it. It installs `librefleet` (`-i`) into a
-brand new database (`-d test_ch38`) and `--test-tags` is the flag that says "and while
-you are in there, run these". The tests are a passenger on an install:
+Read the command that follows carefully. It is the intro's point made real: there is no
+test subcommand anywhere in it.
+
+It installs `librefleet` (`-i`) into a brand new database (`-d test_ch38`), and
+`--test-tags` says "while you are in there, run these". The tests are a passenger on an
+install:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_ch38 --without-demo=True \
@@ -310,11 +319,12 @@ ValueError: External ID not found in the system: librefleet.vehicle_demo_ag_12_3
 0 failed, 1 error(s) of 1 tests when loading database 'test_ch38'
 ```
 
-An `error`, not a `failure`, Odoo's test runner's way of distinguishing "the
-assertion was wrong" from "the test could not even run". This tutorial's own
-convention (chapter 4, `--without-demo` by default) is exactly the production
-convention: a real CI pipeline testing a module meant to ship should never assume
-demo data exists. Delete this test, the fixture-building version from the earlier
+An `error`, not a `failure`. That is the test runner distinguishing "the assertion was
+wrong" from "the test could not even run".
+
+This tutorial's convention (chapter 4, `--without-demo` by default) is exactly the
+production convention: a real CI pipeline testing a module meant to ship should never
+assume demo data exists. Delete this test, the fixture-building version from the earlier
 steps is the fix, not a patch on top of it.
 </Step>
 

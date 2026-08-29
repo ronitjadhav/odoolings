@@ -10,11 +10,13 @@ those two techniques are not interchangeable. · **Time:** ~2 h ·
 
 ## Why this matters
 
-Chapter 39's systray component was additive: nothing in Odoo had to change for it to
+Chapter 39's systray component was additive. Nothing in Odoo had to change for it to
 appear, because the systray is a registry and adding to a registry is what registries
-are for. Real tickets are rarely that polite. "Make the margin red when we're losing
-money" means changing how an existing field renders. "Warn me before I save this"
-means changing what an existing controller does.
+are for.
+
+Real tickets are rarely that polite. "Make the margin red when we're losing money"
+means changing how an existing field renders. "Warn me before I save this" means
+changing what an existing controller does.
 
 Odoo gives you two tools for that, and choosing between them is the actual skill this
 chapter teaches. **Registries** are the front door: Odoo publishes a named slot, you
@@ -22,15 +24,17 @@ add an entry, and nothing else in the system is affected. **Patching** is the fi
 escape: you reach into a core class and rewrite its methods in place, for every user of
 that class, everywhere. Both are legitimate. Only one of them is safe by default.
 
-It is worth saying out loud why the fire escape looks tempting, because "prefer the
-registry" otherwise sounds like arbitrary caution. Patching is the tool that can change
-*anything*, while a registry only lets you do what Odoo thought to publish a slot for, so
-restricting yourself to the front door can feel like working with one hand tied. The real
-difference is not power, it is who is on the hook for keeping your code working. **A
-registry entry is a promise Odoo made to you:** it published that slot and it will keep
-calling whatever sits in it. **A patch is a bet you made on Odoo:** that this method will
-still exist next version, still be called at the same moment, and still mean what it means
-today. Nobody promised you any of that. An upgrade keeps promises; it does not keep bets.
+The fire escape looks tempting, and pretending otherwise makes "prefer the registry"
+sound like arbitrary caution. Patching can change *anything*. A registry only lets you
+do what Odoo published a slot for, so the front door can feel like working with one hand
+tied.
+
+The real difference is not power. It is who is on the hook for keeping your code
+working. **A registry entry is a promise Odoo made to you:** it published that slot and
+it will keep calling whatever sits in it. **A patch is a bet you made on Odoo:** that
+this method still exists next version, still runs at the same moment, and still means
+what it means today. Nobody promised you that. An upgrade keeps promises; it does not
+keep bets.
 
 ## Concepts
 
@@ -38,7 +42,8 @@ today. Nobody promised you any of that. An upgrade keeps promises; it does not k
 
 The `widget="..."` attribute you have been writing since chapter 11 (`many2many_tags`,
 `statusbar`, `badge`, `daterange`) is a registry lookup. Each name maps to a
-**descriptor object**, and the descriptor points at an OWL component:
+**descriptor object**, a plain object describing the widget, and the descriptor points
+at an OWL component:
 
 ```js
 export const marginField = {
@@ -50,8 +55,8 @@ export const marginField = {
 registry.category("fields").add("librefleet_margin", marginField);
 ```
 
-The component itself receives a fixed set of props from the view engine, declared by
-spreading `standardFieldProps`:
+The component itself receives a fixed set of props (the values handed down into it) from
+the view engine, declared by spreading `standardFieldProps`:
 
 ```js
 static props = { ...standardFieldProps };
@@ -85,10 +90,10 @@ patch(FormController.prototype, {
 });
 ```
 
-Two mechanics worth naming. `super` works inside a patch even though this is a plain
-object literal, because `patch` stores the original method on a skeleton object and
-wires the prototype chain so `super` resolves to whatever was there before, including
-another module's patch. That is what makes patches stack rather than clobber.
+Two mechanics worth naming. First, `super` works inside a patch even though this is a
+plain object literal. `patch` stores the original method on a skeleton object and wires
+the prototype chain, so `super` resolves to whatever was there before, including another
+module's patch. That is what makes patches stack rather than clobber.
 
 And the part that bites: **a patch is global and unconditional.** There is no way to
 register a patch "only for this model" or "only in my app". The code above runs on
@@ -295,15 +300,15 @@ Patching `setup` to add a service is the standard way to give a patched class
 something it did not have. `useService` is a hook, so it has to run inside `setup`,
 which is exactly where the patched version puts it.
 
-Upgrade, then create a service order that loses money (a part whose `standard_cost`
-exceeds what you charge for it), edit any field, and save. A warning toast appears at
-the top right reading "Negative margin: This order is being saved at a loss of
--401.00", and the save still goes through.
+Upgrade. Create a service order that loses money (a part whose `standard_cost` exceeds
+what you charge for it), edit any field, and save. A warning toast appears top right
+reading "Negative margin: This order is being saved at a loss of -401.00", and the save
+still goes through.
 
 That last detail is the design decision worth arguing about, so the code says why in a
-comment: this hook *can* block the save by returning `false`, and it deliberately does
-not. A rule enforced only in the browser is not enforced. Chapter 20's wizard, running
-on the server, is what actually stops a losing order being completed; this patch is a
+comment. This hook *can* block the save by returning `false`, and deliberately does not.
+A rule enforced only in the browser is not enforced. Chapter 20's wizard runs on the
+server and is what actually stops a losing order being completed. This patch is a
 convenience for the person clicking, not a control.
 </Step>
 
@@ -325,13 +330,12 @@ screen that has nothing to do with LibreFleet. Then put the guard back. The less
 not "this particular patch was dangerous", it is that **the blast radius of a patch is
 the whole client and nothing warns you**.
 
-Which is the bet from the start of this chapter, called in. Nothing here is wrong today:
-the guard is back, the coercion happened to be harmless, the tests pass. What you have no
-way to check is whether `onWillSaveRecord` still exists under that name in the next
-version, still runs at the same moment, and still means what you assumed. The widget you
-built in the first two steps carries none of that risk, because Odoo published the slot it
-sits in. That asymmetry, not the syntax, is why one of these is the default and the other
-is the fallback.
+That is the bet from the start of this chapter, called in. Nothing here is wrong today:
+the guard is back, the coercion was harmless, the tests pass. What you cannot check is
+whether `onWillSaveRecord` still exists under that name next version, still runs at the
+same moment, and still means what you assumed. The widget from the first two steps
+carries none of that risk, because Odoo published the slot it sits in. That asymmetry,
+not the syntax, is why one is the default and the other the fallback.
 </Step>
 
 </Steps>

@@ -9,12 +9,13 @@ none, this chapter's work happens on GitHub, not in LibreFleet.
 
 ## Why this matters
 
-Chapter 43 taught you to find and judge OCA modules. Chapter 44 taught you to bring
-your own module up to that standard. This chapter closes the loop: sending a fix
-back. "Keep a good submitted/reviewed ratio" is genuinely how integrator developers
-are expected to work, not a slogan, and the mechanics here (fork, branch off the
-right thing, PR shape, CI gate) are the same whether you're fixing a typo today or
-landing a real feature on a client-funded contribution next year.
+Chapter 43 taught you to find and judge OCA modules. Chapter 44 brought your own module
+up to that standard. This chapter closes the loop: sending a fix back.
+
+"Keep a good submitted/reviewed ratio" is genuinely how integrator developers are expected
+to work, not a slogan. The mechanics here (fork, branch off the right thing, PR shape, CI
+gate) are the same whether you're fixing a typo today or landing a client-funded feature
+next year.
 
 Read that list of mechanics again and the honest objection appears on its own: a signed
 legal document, a fork, two remotes, a rebase, a linter, several reviewers and a bot
@@ -34,13 +35,17 @@ once the machinery is boring.
 
 ### The CLA, signed once, and it isn't a bot click
 
-Unlike a lot of open source projects, OCA's CLA isn't a "comment to sign" GitHub
-bot. It's a real document: download the Individual CLA (or an Entity CLA if your
-employer signs on behalf of its developers, which does not replace each individual
-signing their own ICLA too), sign it, and email the scan or digitally-signed file
-to `cla@odoo-community.org`, including your GitHub username. You can technically
-open a PR before signing, but review won't proceed until you have, so sign it
-before you need it.
+A **CLA** is a Contributor License Agreement: the paperwork confirming the project may
+legally redistribute the code you contribute. Unlike a lot of open source projects, OCA's
+isn't a "comment to sign" GitHub bot. It's a real document.
+
+Download the Individual CLA, sign it, and email the scan or digitally-signed file to
+`cla@odoo-community.org` with your GitHub username included. An Entity CLA exists for an
+employer signing on behalf of its developers, and it does not replace each individual
+signing their own ICLA too.
+
+You can technically open a PR before signing, but review won't proceed until you have, so
+sign it before you need it.
 
 ### Fork mechanics, in full
 
@@ -89,36 +94,44 @@ $ git pull --rebase upstream 19.0
 
 ### PR shape: title, single commit, the right base
 
-The title carries the version, same tag convention chapter 7 taught for commits:
-`[19.0][FIX] fleet: fix a typo in the module description`. One commit per PR
-(squash locally first if you made several), targeting the version branch you
-branched from, **never `master`**, chapter 7's rule again, now with real
+The title carries the version, the same tag convention chapter 7 taught for commits:
+`[19.0][FIX] fleet: fix a typo in the module description`.
+
+One commit per PR (squash locally first if you made several), targeting the version branch
+you branched from, **never `master`**. That is chapter 7's rule again, now with real
 consequences: a PR against `master` gets closed with "wrong branch."
 
 ### The CI gate is what you already ran
 
-Every OCA PR runs pre-commit, the module's test suite, and **Codecov** (a third-party
-service that measures which lines your tests actually executed and flags a PR that
-drops coverage, so "I added a method" without "I added a test for it" shows up as a
-number, not just a hunch), plus spins up a **Runboat** instance (chapter 2) so a
-reviewer can click through your change live without installing anything. None of this
-should surprise you: `pre-commit run --all-files`, chapter 44's whole hands-on, is
-exactly what the CI step runs. Green locally means green in CI, that's the point of
-running it locally at all.
+Every OCA PR runs four things:
+
+- **pre-commit**, chapter 44's whole hands-on.
+- **The module's own test suite.**
+- **Codecov**, a third-party service that measures which lines your tests actually
+  executed and flags a PR that drops coverage. "I added a method" without "I added a test
+  for it" shows up as a number, not a hunch.
+- **A Runboat instance** (chapter 2), so a reviewer can click through your change live
+  without installing anything.
+
+None of this should surprise you. `pre-commit run --all-files` is exactly what the CI step
+runs, so green locally means green in CI. That is the whole point of running it locally.
 
 ### Review etiquette, and the actual merge bar
 
-OCA's own guidelines are specific about how review should feel, not just what it
-checks: thank the contributor first, be cordial, explain *why* something needs to
-change rather than just flagging that it does, and reviewers tag whether they
-reviewed the code, tested it functionally, or both. A PR generally needs multiple
-approving reviews (the community's documented bar tightens the longer a PR sits
-without them), and at least one has to come from a PSC member or core maintainer.
-Once that bar is met, a PSC member merges it with a bot command, `/ocabot merge`,
-which rebases, optionally bumps the module's version, and updates the changelog for
-you. Two more commands you'll see in the wild: `/ocabot rebase` (rebases your PR for
-you when it's gone stale) and `/ocabot migration` (links a migration PR to the
-repo's tracking issue).
+OCA's own guidelines are specific about how review should *feel*, not just what it checks.
+Thank the contributor first, be cordial, and explain *why* something needs to change
+rather than just flagging that it does. Reviewers also tag whether they reviewed the code,
+tested it functionally, or both.
+
+A PR generally needs multiple approving reviews, and at least one has to come from a
+member of the PSC (Project Steering Committee, the small group of maintainers who own a
+repo) or a core maintainer. The community's documented bar tightens the longer a PR sits
+without them.
+
+Once that bar is met, a PSC member merges with a bot command, `/ocabot merge`, which
+rebases, optionally bumps the module's version, and updates the changelog for you. Two
+more you'll see in the wild: `/ocabot rebase` (rebases a stale PR for you) and
+`/ocabot migration` (links a migration PR to the repo's tracking issue).
 
 ## Hands-on
 
