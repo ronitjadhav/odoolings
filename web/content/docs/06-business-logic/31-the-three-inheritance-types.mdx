@@ -202,18 +202,112 @@ access_librefleet_loaner_user,librefleet.loaner user,model_librefleet_loaner,gro
 access_librefleet_loaner_manager,librefleet.loaner manager,model_librefleet_loaner,group_librefleet_manager,1,1,1,1
 ```
 
-Then a simple list/form view plus a menu item for loaners, in a new
-`views/loaner_views.xml`, and **register both new files**, which means two different
-places and forgetting either one bites:
+Loaners also need somewhere to be looked at. Create
+`addons/librefleet/views/loaner_views.xml` with a list view, a form view and the action
+that opens them:
 
-- `loaner.py` goes in `models/__init__.py` (last, for the reason step 3 is about to make
-  painfully clear).
-- `views/loaner_views.xml` goes in the manifest's `data` list, above
-  `views/librefleet_menus.xml`. Miss this and the menu item you just wrote points at an
-  action that was never loaded, so the upgrade dies with
-  `External ID not found in the system: librefleet.action_librefleet_loaner`.
+```xml title="addons/librefleet/views/loaner_views.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
 
-Bump the version to `19.0.1.16.0` while you are in the manifest.
+    <record id="view_librefleet_loaner_list" model="ir.ui.view">
+        <field name="name">librefleet.loaner.list</field>
+        <field name="model">librefleet.loaner</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="model_name"/>
+                <field name="daily_rate"/>
+                <field name="available"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_librefleet_loaner_form" model="ir.ui.view">
+        <field name="name">librefleet.loaner.form</field>
+        <field name="model">librefleet.loaner</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Vehicle">
+                            <!-- these three live on librefleet.vehicle and are
+                                 reachable here only because of _inherits -->
+                            <field name="license_plate"/>
+                            <field name="model_name"/>
+                            <field name="year"/>
+                        </group>
+                        <group string="Loan terms">
+                            <field name="daily_rate"/>
+                            <field name="available"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_librefleet_loaner" model="ir.actions.act_window">
+        <field name="name">Loaner Cars</field>
+        <field name="res_model">librefleet.loaner</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>
+```
+
+The commented lines in the form are the whole point of this chapter, sitting in plain
+sight: `license_plate`, `model_name` and `year` are not fields of `librefleet.loaner`. They
+belong to `librefleet.vehicle`. You can put them straight on a loaner's form anyway, with
+no prefix and no related field, purely because `_inherits` makes the loaner read through to
+its vehicle. Delete the `_inherits` line and this view stops loading.
+
+The **menu item goes in the existing `views/librefleet_menus.xml`**, not in the file you
+just wrote, next to the vehicle and service-order entries:
+
+```xml title="addons/librefleet/views/librefleet_menus.xml"
+    <menuitem id="menu_librefleet_loaners"
+              name="Loaner Cars"
+              parent="menu_librefleet_fleet"
+              action="action_librefleet_loaner"
+              sequence="30"/>
+```
+
+Now **register both new files**, which means two different places, and forgetting either
+one bites.
+
+First, `models/__init__.py`. Add `loaner` **last**, and leave the comment in: it is the
+reason step 3 exists.
+
+```python title="addons/librefleet/models/__init__.py"
+from . import part
+from . import service_order
+from . import service_type
+from . import vehicle
+
+# loaner.py extends librefleet.vehicle and prototypes librefleet.part, so both
+# must already be registered: within a module, import order matters.
+from . import loaner
+```
+
+Second, the manifest's `data` list. `views/loaner_views.xml` goes **above**
+`views/librefleet_menus.xml`, because the menu item you just wrote points at an action
+that must already exist by the time the menus file loads:
+
+```python title="addons/librefleet/__manifest__.py"
+    "version": "19.0.1.16.0",
+    ...
+    "data": [
+        ...
+        "views/part_views.xml",
+        "views/loaner_views.xml",
+        "views/librefleet_menus.xml",
+```
+
+Get that order wrong and the upgrade dies with
+`External ID not found in the system: librefleet.action_librefleet_loaner`.
+
+Bump the version to `19.0.1.16.0` while you are in the manifest, as shown above.
 
 </Step>
 
