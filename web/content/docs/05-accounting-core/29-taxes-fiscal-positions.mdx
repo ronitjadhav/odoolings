@@ -22,15 +22,14 @@ one has a different field behind it:
   the total
 - the tax was not swapped for a foreign customer, so an export was charged domestic tax
 
-None of those are exotic. All four are things you can cause with one wrong click, and all
-four are invisible on the invoice PDF. This chapter is about being able to look at an
-`account.tax` record and say what the journal entry will contain before you press
-**Confirm**.
+None of those are exotic. Each is one wrong click away, and all four are invisible on the
+invoice PDF. By the end of this chapter you will be able to look at an `account.tax` record
+and say what the journal entry (the accounting record Odoo writes when you confirm) will
+contain before you press **Confirm**.
 
-Here is the thing to unlearn first, because it is the reason this chapter feels harder than
-it is. You have typed "15%" into forms your whole working life and it has always meant one
-thing: multiply by 0.15. In Odoo the 15 is one field among several, and it is almost never
-the field that is broken.
+One thing to unlearn first. You have typed "15%" into forms your whole working life, and it
+has always meant one thing: multiply by 0.15. In Odoo the 15 is one field among several,
+and it is almost never the broken one.
 
 So picture a tax not as a number but as a small machine with five dials:
 
@@ -57,11 +56,12 @@ you learn to stop blaming them.
 
 ### A tax is a rate plus a routing table
 
-Separate the two halves before the field names arrive, because they do genuinely different
-jobs. **The rate decides how big the slice is. The routing table decides how many plates it
-lands on, and which ones.** Most systems only have the first half, which is exactly why the
-second one catches people: you set 15% and assume the money has one destination, because
-everywhere else you have ever met a tax, it did.
+Separate the two halves before the field names arrive. **The rate decides how big the slice
+is. The routing table decides how many plates it lands on, and which ones.**
+
+Most systems only have the first half. That is why the second one catches people: you set
+15% and assume the money has one destination, because everywhere else you have met a tax,
+it did.
 
 The rate is the easy half. `account.tax` holds `amount` (15.0), `amount_type`
 (`percent`, `fixed`, `division`, or `group`) and `type_tax_use` (`sale`, `purchase` or
@@ -99,12 +99,13 @@ distribution line.
     R2 --> L2["City Tax Received<br/>credit 12.00"]`}
 />
 
-Odoo checks some of this for you, in an `@api.constrains` on `account.tax`: each table
-needs exactly one base line, the two tables must have the same number of lines with the
-same percentages in the same order, and the positive **of tax** factors must total 100%
-(negative ones, if present, must total -100%). The tax form will refuse to save
-otherwise. Write straight onto the child model from a script and you skip all of that,
-which is the subject of this chapter's break-it lab.
+Odoo checks some of this for you, in an `@api.constrains` on `account.tax`. Each table
+needs exactly one base line. The two tables must have the same number of lines, with the
+same percentages, in the same order. And the positive **of tax** factors must total 100%
+(negative ones, if present, must total -100%).
+
+The tax form refuses to save otherwise. Write straight onto the child model from a script
+and you skip all of it, which is what this chapter's break-it lab does.
 
 ### Included or excluded, and where that decision now lives
 
@@ -137,10 +138,10 @@ price_include = (override == 'tax_included'
                  or (company_price_include == 'tax_included' and not override))
 ```
 
-The company-wide setting has a catch that matters the moment you touch a live database:
-**it locks once any journal entry exists.** The interface marks it read-only, which is
-the correct call (flipping it would silently reinterpret every price in the system) and
-which means that on any database with history, the per-tax override is your only way in.
+The company-wide setting has a catch that matters on any live database: **it locks once
+any journal entry exists.** The interface marks it read-only, and that is the right call,
+since flipping it would silently reinterpret every price in the system. The practical
+consequence: on a database with history, the per-tax override is your only way in.
 
 ### Tax groups group, and nothing else
 
@@ -162,10 +163,11 @@ keep the translation: **a fiscal position is a swap list.** It says "when this c
 involved, use this tax instead of that one, and this account instead of that one." That is
 all it is. A recipe note reading "for this guest, oil instead of butter" does the same job.
 
-Two useful things follow from it being a swap list rather than a rule. It never invents a
-tax out of nothing, it only ever substitutes one that already exists, so every tax on an
-export invoice is a tax somebody configured. And something has to decide which swap list
-applies to which customer, which is the resolution order a few paragraphs down.
+Two useful things follow from it being a swap list rather than a rule.
+
+- **It never invents a tax.** It only substitutes one that already exists, so every tax on
+  an export invoice is a tax somebody configured.
+- **Something has to pick the list.** That is the resolution order, a few paragraphs down.
 
 If you have worked with fiscal positions before, the model changed under you. Through
 Odoo 18 a fiscal position owned a one2many of `account.fiscal.position.tax` rows, each a
@@ -228,11 +230,13 @@ only question is whether they round once per line or once for the whole tax:
 | **Round per Line**: 1.515 → 1.52, three times | 4.56 | 34.86 |
 | **Round per Tax**: 30.30 × 15% = 4.545, once | 4.55 | 34.85 |
 
-One cent, and neither answer is wrong. They serve different masters: rounding per line
-keeps the line totals adding up to the document total, which is what you want when prices
-are tax-included and a customer can check your arithmetic on the shelf label. Rounding
-per tax keeps the tax exactly proportional to the base, which is what a tax authority
-wants.
+One cent, and neither answer is wrong. They serve different masters.
+
+- **Round per Line** keeps the line totals adding up to the document total. That is what
+  you want when prices are tax-included and a customer can check your arithmetic against
+  the shelf label.
+- **Round per Tax** keeps the tax exactly proportional to the base. That is what a tax
+  authority wants.
 
 <Term k="tax rounding (`tax_calculation_rounding_method`)">`res.company.tax_calculation_rounding_method`</Term> holds it, and two details about that field
 catch people out. Its stored values are `round_per_line` and `round_globally`, but the
@@ -251,13 +255,15 @@ was `round_per_line`.
 
 ## Hands-on
 
-Continuing in the `functional` database. Everything in the configuration menus below
-lives under **Invoicing** in Community, the app called Accounting being the Enterprise
-one, and the **Taxes** and **Fiscal Positions** entries are both ungated, so they are
-where you expect. **Chart of Accounts** is the exception, hidden behind the group chapter
-27 ran into, so this chapter opens it by URL for the same reason. First you build five
-different tax scenarios and run them through real documents (steps 1 to 6); then you read
-what each one actually posted (steps 7 onward), one dial at a time.
+Continuing in the `functional` database.
+
+Every configuration menu below lives under **Invoicing**. (In Community that is the app's
+name; the one called Accounting is Enterprise.) **Taxes** and **Fiscal Positions** are both
+ungated, so they are where you expect. **Chart of Accounts** is the exception, hidden behind
+the group chapter 27 ran into.
+
+The shape of what follows: steps 1 to 6 build five tax scenarios and run them through real
+documents. Steps 7 onward read what each one actually posted, one dial at a time.
 
 Take a snapshot first, and take another one before each step that creates a document, so
 the diffs stay readable:
@@ -272,19 +278,24 @@ snapshot: 19 models, 1019 records (database 'functional')
 <Step>
 ### Build a tax that splits across two accounts
 
-The first dial to turn is the routing table, because it is the one with no equivalent
-anywhere else. You are going to build a single 15% tax whose money lands on two different
-accounts, 60% on one and 40% on the other, which is how a real state-plus-city sales tax
-is modelled.
+Start with the routing table, the dial with no equivalent anywhere else. You will build one
+15% tax whose money lands on two different accounts, 60% on one and 40% on the other. That
+is how a real state-plus-city sales tax is modelled.
 
-First an account for the second half to land in. **Invoicing → Configuration → Chart of
-Accounts** (under the *Accounting* heading in that dropdown) now works as a menu click,
-not just a URL: it only appears because chapter 27 granted your user the **Show
-Accounting Features - Readonly** group. Without that group the menu item does not render
-at all, which is why chapter 27 reached it by URL instead:
-`http://localhost:8069/odoo/action-account.action_account_form`. Either path lands on the
-same list. Press **New**: code `251100`, Account Name `City Tax Received`, Type
-**Current Liabilities**.
+First you need an account for the second half to land in. Go to **Invoicing →
+Configuration → Chart of Accounts** (the list of every account the company can file money
+into), under the *Accounting* heading in that dropdown.
+
+That menu click works now, where chapter 27 had to use a URL. It only appears because
+chapter 27 granted your user the **Show Accounting Features - Readonly** group; without it
+the item does not render at all. The URL still works if you prefer it:
+`http://localhost:8069/odoo/action-account.action_account_form`.
+
+Press **New** and fill in:
+
+- **Code**: `251100`
+- **Account Name**: `City Tax Received`
+- **Type**: **Current Liabilities** (money you owe and expect to pay out within the year)
 
 Now the tax, and this menu is a normal one: **Invoicing → Configuration → Taxes → New**
 (under the *Accounting* heading in that dropdown):
@@ -427,12 +438,13 @@ Read the third line. **The tax posted to Product Sales.** Not to a tax account: 
 into revenue, 28.04 of it, on a posted invoice that balances perfectly and looks
 completely normal.
 
-Nothing was misconfigured on purpose. A brand new tax's distribution lines have no
-account, and Odoo's fallback for a tax line with no account is the account the base line
-used. So the tax quietly becomes revenue, the receivable is still right, the customer
-still owes 215.00, and the only symptom is that revenue is overstated by exactly the tax
-you owe onward. This is a large fraction of the "why is the P&L wrong" tickets in the
-world, and it is one empty cell.
+Nothing was misconfigured on purpose. A brand new tax's distribution lines have no account,
+and Odoo's fallback for a tax line with no account is the account the base line used.
+
+So the tax quietly becomes revenue. The receivable is still right, the customer still owes
+215.00, and the only symptom is that revenue is overstated by exactly the tax you owe
+onward. That is a large share of the "why is the P&L wrong" tickets in the world (the
+profit and loss report, which sums revenue against expenses), and it is one empty cell.
 
 The base lines are worth a second look too: `115.00` typed produced `100.00` of revenue,
 and `100.00` typed produced `86.96`. Tax-included prices are the only case where two
@@ -511,11 +523,12 @@ sale.order.line     +6
       new   Brake Pad Set (Front)    product_uom_qty=1.0  price_unit=10.1
 ```
 
-Six identical lines, and the totals one cent apart. The only difference is
-which setting was active at the moment the totals were computed. Which brings up the
-thing to remember about this: `amount_tax` is a **stored** compute. Putting the setting
-back does not retro-fix S00029, and it never will. Rounding changes apply to arithmetic
-that has not happened yet.
+Six identical lines, and the totals one cent apart. The only difference is which setting
+was active when the totals were computed.
+
+Remember this part: `amount_tax` is a **stored** compute. Putting the setting back does
+not retro-fix S00029, and it never will. Rounding changes apply only to arithmetic that
+has not happened yet.
 
 </Step>
 

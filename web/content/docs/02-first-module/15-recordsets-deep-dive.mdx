@@ -9,26 +9,28 @@ exactly what `env`, context and `sudo()` do, and move LibreFleet's sequence draw
 
 ## Why this matters
 
-Every chapter since 9 has quietly used recordsets: computes loop over `self`,
-constraints call `search_count`, the shell sessions call `search` and `create`. This
-chapter stops using them by imitation and takes them apart. It's the highest-leverage
-hour in Part 2: once recordsets click, you can read any Odoo code (core, OCA, your
-colleagues') and the framework stops feeling magic. It's also where you learn the two
-tools that separate maintenance work from incidents: `with_user` to test as somebody
-else, and `sudo` used deliberately instead of sprinkled until the error goes away.
+Every chapter since 9 has quietly used recordsets: computes loop over `self`, constraints
+call `search_count`, the shell sessions call `search` and `create`. This chapter stops
+using them by imitation and takes them apart.
 
-Before any of it, one wrong idea to put down, because almost everybody arrives holding it
-and it is the source of the errors in this chapter. **A recordset looks like a list of
-records, and it is not one.** It iterates like a list, slices like a list and has a
-length like a list, so the intuition survives for a surprisingly long time before it
-fails.
+It is the highest-leverage hour in Part 2. Once recordsets click, you can read any Odoo
+code (core, OCA, your colleagues') and the framework stops feeling magic. It is also where
+you learn the two tools that separate maintenance work from incidents: `with_user` to test
+as somebody else, and `sudo` used deliberately instead of sprinkled until the error goes
+away.
+
+First, one wrong idea to put down, because almost everybody arrives holding it and it
+causes most of the errors in this chapter. **A recordset looks like a list of records, and
+it is not one.** It iterates like a list, slices like a list and has a length like a list,
+so the intuition survives a surprisingly long time before it fails.
 
 What it actually is: **one object pretending to be many.** A model name, a tuple of ids,
-and a cache, all in a single object. The consequence to hold on to is that when you loop
-over a recordset of ten orders, you do not get ten order objects. You get the same kind
-of object ten times, each holding one id. That is why `for line in self` is the shape of
-every compute you have written since chapter 13, and it is why the rule in the next
-section exists at all rather than being an arbitrary restriction.
+and a cache, all in a single object.
+
+The consequence: loop over a recordset of ten orders and you do not get ten order objects.
+You get the same kind of object ten times, each holding one id. That is why `for line in
+self` is the shape of every compute you have written since chapter 13, and why the rule in
+the next section exists at all rather than being an arbitrary restriction.
 
 Everything below runs in `odoo shell` against your `tutorial` database. Open it and
 type along; the outputs shown are real:
@@ -54,9 +56,9 @@ records, one, or many, and *every* ORM surface hands you one:
 - Reading a many2one gives a recordset of 0 or 1 records; one2many and many2many give
   recordsets of any size.
 
-Under the hood a recordset is just three things: an environment (`env`), a model name,
-and a tuple of record ids. That's why they're cheap to create, slice and combine; no
-data is loaded until you actually read a field.
+Under the hood a recordset is three things: an environment (`env`), a model name, and a
+tuple of record ids. That is why they are cheap to create, slice and combine: no data is
+loaded until you actually read a field.
 
 ### Singleton vs multi: the one rule that bites
 
@@ -72,10 +74,11 @@ librefleet.service.order(2, 1)
 ValueError: Expected singleton: librefleet.service.order(2, 1)
 ```
 
-That `Expected singleton` error is the most common traceback new Odoo developers
-produce. The fixes are always one of: loop (`for order in orders:`), aggregate
-(`orders.mapped("stage")`), or narrow down (`orders[0]`). Relational fields are the
-exception, multi-record access just unions the targets:
+That `Expected singleton` error is the most common traceback new Odoo developers produce.
+The fix is always one of three: loop (`for order in orders:`), aggregate
+(`orders.mapped("stage")`), or narrow down (`orders[0]`).
+
+Relational fields are the exception. Multi-record access just unions the targets:
 
 ```console
 >>> orders.mapped("stage")
@@ -84,9 +87,9 @@ exception, multi-record access just unions the targets:
 librefleet.vehicle(2, 1)
 ```
 
-In your own methods, when the logic only makes sense for one record, say so up front
-with `self.ensure_one()`: it raises that same error early, with your method's name in
-the traceback instead of some confusing line further down.
+In your own methods, when the logic only makes sense for one record, say so up front with
+`self.ensure_one()`. It raises that same error early, with your method's name in the
+traceback instead of some confusing line further down.
 
 ### The environment: who, where, with what settings
 
@@ -110,12 +113,12 @@ empty recordset, and `env.ref("module.xml_id")` to fetch the record behind an XM
 
 Notice who you are in the shell: `__system__`, uid 1, the **<Term k="superuser">superuser</Term>**. The shell
 skips authentication entirely, and uid 1 bypasses access rights and record rules.
-Convenient for admin work, and exactly why "it worked in the shell" proves nothing
-about what a real user can do. You'll fix that with `with_user` below.
+Convenient for admin work, and exactly why "it worked in the shell" proves nothing about
+what a real user can do. You will fix that with `with_user` below.
 
-The **<Term k="context">context</Term>** is a read-only dict of settings that travels with every call:
-language, timezone, and flags that change ORM behavior. You never mutate it; you
-derive a new recordset carrying a modified copy:
+The **<Term k="context">context</Term>** is a read-only dict of settings that travels with every call: language,
+timezone, and flags that change ORM behavior. You never mutate it. Instead you derive a
+new recordset carrying a modified copy:
 
 ```python
 records.with_context(active_test=False)   # new recordset, extended context
@@ -144,19 +147,22 @@ day one:
     RAM --> R2["fine on a page of records,<br/>wasteful on a whole table"]`}
 />
 
-**`search`** sends a domain to Postgres: only matching rows come back, indexes get
-used, and it scales to millions of records. **`filtered`** runs a Python function over
-records you already have: perfect for narrowing a small in-memory set without another
-round-trip, wasteful (or fatal) as a substitute for a proper domain on a big table.
+**`search`** sends a domain to Postgres. Only matching rows come back, indexes get used,
+and it scales to millions of records.
+
+**`filtered`** runs a Python function over records you already have. Perfect for narrowing
+a small in-memory set without another round-trip, wasteful (or fatal) as a substitute for
+a proper domain on a big table.
 The rule of thumb: filter in SQL when you *fetch*, filter in Python when you already
 *hold*.
 
 ### Domains, properly
 
 A domain is a list of `(field, operator, value)` triples. Conditions are **ANDed by
-default**; prefix operators combine them differently: `"|"` (OR), `"&"` (explicit
-AND), `"!"` (NOT), each consuming the next two (or one, for `!`) terms. The operators
-you'll actually use:
+default**. Prefix operators combine them differently: `"|"` (OR), `"&"` (explicit AND),
+`"!"` (NOT), each consuming the next two terms (or one, for `!`).
+
+The operators you will actually use:
 
 | Operator | Meaning |
 |---|---|
@@ -167,19 +173,19 @@ you'll actually use:
 | `child_of` / `parent_of` | hierarchy walks (categories, companies) |
 | dotted paths | `("vehicle_id.owner_id.name", "ilike", "garage")` follows relations |
 
-You've been writing domains since chapter 12; the part people miss is the prefix
-notation. `["|", A, B]` is "A or B"; `["|", A, "&", B, C]` is "A or (B and C)". When a
-domain grows past two branches, format it vertically and comment it, future-you will
-be grateful.
+You have been writing domains since chapter 12. The part people miss is the prefix
+notation: `["|", A, B]` is "A or B", and `["|", A, "&", B, C]` is "A or (B and C)".
+
+When a domain grows past two branches, format it vertically and comment it. Future-you
+will be grateful.
 
 ### Writing: create, write, unlink, archive
 
 Four verbs change data, and each has a batch-shaped best practice:
 
 - **`create(vals_list)`** takes a *list of dicts* and returns a recordset of the new
-  records. One call creating fifty records is dramatically cheaper than fifty calls;
-  that's also why overridable `create` methods take `vals_list` (you'll write one
-  today).
+  records. One call creating fifty records is dramatically cheaper than fifty calls, which
+  is also why overridable `create` methods take `vals_list`. You will write one today.
 - **`write(vals)`** on a recordset applies the same values to every record in it, in
   one operation. `record.field = value` is sugar for a one-field write.
 - **`unlink()`** deletes every record in the set. Gone means gone (subject to
@@ -192,17 +198,22 @@ Four verbs change data, and each has a batch-shaped best practice:
 ### sudo and with_user: power tools, sharp edges
 
 `with_user(user)` re-runs everything as that user: their groups, their access rights,
-their record rules. It's how you *test* security without logging out and back in, and
-how cron jobs act on behalf of specific users.
+their record rules. It is how you *test* security without logging out and back in, and how
+cron jobs act on behalf of specific users.
 
-`sudo()` flips the superuser bit (`env.su`) on a derived recordset: access rights and
+`sudo()` flips the superuser bit (`env.su`) on a derived recordset. Access rights and
 record rules stop applying, while `env.user` stays whoever it was. Legitimate uses are
-narrow and real: a controller that must read config the visitor can't, a cron touching
-records nobody owns. The dangers are just as real: sudo silently succeeds where a
-permission error *should* have stopped you, it spreads (records fetched through a
-sudo'd recordset are sudo'd too), and it turns a reader's "why can this user do that?"
-into archaeology. House rule you'll see at every serious integrator: sudo the
-*smallest possible operation*, never the whole method, and leave a comment saying why.
+narrow and real: a controller that must read config the visitor cannot, a cron touching
+records nobody owns.
+
+The dangers are just as real:
+
+- sudo silently succeeds where a permission error *should* have stopped you
+- it spreads, because records fetched through a sudo'd recordset are sudo'd too
+- it turns a reader's "why can this user do that?" into archaeology
+
+House rule you will see at every serious integrator: sudo the *smallest possible
+operation*, never the whole method, and leave a comment saying why.
 
 ## Hands-on
 
@@ -224,9 +235,10 @@ librefleet.service.order(2, 1)
 [2, 1]
 ```
 
-Empty recordset, then a two-record one. The ids come back as `(2, 1)` because chapter
-12 gave the model `_order = "scheduled_start desc, id desc"` and order 2 is scheduled
-later. Recordsets behave like sequences:
+Empty recordset, then a two-record one. The ids come back as `(2, 1)` because chapter 12
+gave the model `_order = "scheduled_start desc, id desc"`, and order 2 is scheduled later.
+
+Recordsets behave like sequences:
 
 ```console
 >>> len(orders)
@@ -251,8 +263,8 @@ librefleet.vehicle(2,)
 True
 ```
 
-`browse` deserves one experiment: it doesn't check the database, it just wraps ids.
-Browse something that doesn't exist and nothing complains until you look:
+`browse` deserves one experiment. It does not check the database, it just wraps ids.
+Browse something that does not exist and nothing complains until you look:
 
 ```console
 >>> ghost = Vehicle.browse(999)
@@ -262,9 +274,9 @@ librefleet.vehicle(999,)
 librefleet.vehicle()
 ```
 
-`exists()` is the guard: it returns the subset of records that are really in the
-database. Any code that receives ids from outside (a controller, an import, a cron
-argument) should pass them through `exists()` before trusting them.
+`exists()` is the guard. It returns the subset of records that are really in the database.
+Any code receiving ids from outside (a controller, an import, a cron argument) should pass
+them through `exists()` before trusting them.
 </Step>
 
 <Step>
@@ -279,9 +291,9 @@ ValueError: Expected singleton: librefleet.service.order(2, 1)
 librefleet.vehicle(2, 1)
 ```
 
-Scalar field on two records: refused. `mapped` collects the values; relational access
-unions the targets. You'll hit this error for real within a week of writing Odoo code;
-now you'll recognize it in one second.
+Scalar field on two records: refused. `mapped` collects the values, and relational access
+unions the targets. You will hit this error for real within a week of writing Odoo code,
+and now you will recognize it in one second.
 </Step>
 
 <Step>
@@ -325,16 +337,21 @@ The in-memory quartet, on the orders you already hold:
 {'BE 30 447': ['SO/2026/0002'], 'ZH 468 202': ['SO/2026/0001']}
 ```
 
-`mapped` takes a dotted path and follows relations (deduplicating recordset results on
-the way). `filtered` takes a function (or a field name: `orders.filtered("notes")`
-keeps records where the field is truthy). `sorted` takes a field name or a key
-function. `grouped` buckets a recordset into a dict in one pass: each key is a value of
-the field you grouped on, and each value is a recordset of the records sharing it.
-Group on a many2one and the keys are whole *vehicle records*, which is why the
-comprehension above can write `k.license_plate` for the key and `v.mapped("reference")`
-for the group. All four operate on what's already in memory; none of them touches
-Postgres. Notice `margin` computing on
-demand inside `filtered`: chapter 13's non-stored computes work transparently here.
+Each of the four does one job:
+
+- **`mapped`** takes a dotted path and follows relations, deduplicating recordset results
+  on the way.
+- **`filtered`** takes a function, or a field name: `orders.filtered("notes")` keeps
+  records where the field is truthy.
+- **`sorted`** takes a field name or a key function.
+- **`grouped`** buckets a recordset into a dict in one pass. Each key is a value of the
+  field you grouped on, each value a recordset of the records sharing it. Group on a
+  many2one and the keys are whole *vehicle records*, which is why the comprehension above
+  writes `k.license_plate` for the key and `v.mapped("reference")` for the group.
+
+All four operate on what is already in memory; none touches Postgres. Notice `margin`
+computing on demand inside `filtered`: chapter 13's non-stored computes work transparently
+here.
 </Step>
 
 <Step>
@@ -357,10 +374,11 @@ True
 ```
 
 Two things worth noticing. `create` took a list and returned a recordset of all three.
-And the new ids jumped to 16–18 even though you only ever saw two vehicles: every
-failed create from chapter 14's constraint experiments consumed a primary-key id.
-Postgres id sequences leak on rollback exactly like `ir.sequence` does; gaps in ids
-are as normal as gaps in order references.
+
+And the new ids jumped to 16–18 even though you only ever saw two vehicles, because every
+failed create from chapter 14's constraint experiments consumed a primary-key id. Postgres
+id sequences leak on rollback exactly like `ir.sequence` does, so gaps in ids are as normal
+as gaps in order references.
 </Step>
 
 <Step>
@@ -381,12 +399,13 @@ True
 >>> env.cr.commit()
 ```
 
-The plain search shows only SHELL-001: archived records are invisible to every default
-search, which is precisely their point (chapter 9's Gotcha, now demonstrated).
-`active_test=False` in the context reveals SHELL-002. SHELL-003 is nowhere: unlink is
-permanent. The `commit()` matters, as always in the shell, and this exact state
-(SHELL-001 active with its note, SHELL-002 archived, SHELL-003 gone) is what
-`odoolings` will verify.
+The plain search shows only SHELL-001, because archived records are invisible to every
+default search. That is precisely their point, and it is chapter 9's Gotcha now
+demonstrated. `active_test=False` in the context reveals SHELL-002. SHELL-003 is nowhere:
+unlink is permanent.
+
+The `commit()` matters, as always in the shell. This exact state (SHELL-001 active with
+its note, SHELL-002 archived, SHELL-003 gone) is what `odoolings` will verify.
 </Step>
 
 <Step>
@@ -403,10 +422,12 @@ to. The shell's superuser never feels that rule; `with_user` does:
 ['SO/2026/0002', 'SO/2026/0001']
 ```
 
-Both orders! Look back at the rule in `security/librefleet_security.xml`: it sets
-`perm_read` to `False`, so it filters writes but not reads. Tina can see the whole
-board and edit only her own work, a deliberate design. Now break it: write to the
-order she's assigned to (order 1, from chapter 12), then to the other one:
+Both orders. Look back at the rule in `security/librefleet_security.xml`: it sets
+`perm_read` to `False`, so it filters writes but not reads. Tina sees the whole board and
+edits only her own work, which is deliberate.
+
+Now break it. Write to the order she is assigned to (order 1, from chapter 12), then to
+the other one:
 
 ```console
 >>> as_tina.search([("reference", "=", "SO/2026/0001")]).write({"notes": "brake pads ordered"})
@@ -431,10 +452,12 @@ True
 ```
 
 Same user (`env.user` is still tina), superuser bit on, rule gone, write accepted, no
-warning anywhere. In a real module this line would be a security bug: any code path
-tina can trigger now edits orders she was explicitly fenced off from. Roll it back and
-remember the house rule: sudo the smallest operation, comment why, and never use it to
-make an AccessError "go away" without understanding what the error protected.
+warning anywhere. In a real module this line would be a security bug: any code path tina
+can trigger now edits orders she was explicitly fenced off from.
+
+Roll it back and remember the house rule. Sudo the smallest operation, comment why, and
+never use it to make an AccessError "go away" without understanding what the error
+protected.
 </Step>
 
 <Step>
@@ -467,23 +490,28 @@ edits in `models/service_order.py`:
         return super().create(vals_list)
 ```
 
-That `create` method is your first **override**, so slow down on it. Every model
-already inherits a `create` from Odoo's base `Model` class; writing a method with the
-same name in your own class means yours is the one that runs, which is what gives you
-a chance to edit `vals_list` before anything is stored. `super()` is plain Python for
-"the version I just replaced", so `super().create(vals_list)` hands the now-numbered
-values to Odoo's real create, which does the standard work (defaults, constraints from
-chapter 14, computes from 13) and returns the new recordset. Leave that line out and
-no record is ever written.
+That `create` method is your first **override**, so slow down on it.
 
-The rest reads with this chapter's eyes. `@api.model_create_multi` declares the
-batch-friendly signature: `vals_list` is a *list* of dicts, exactly what you passed in
-step 5, and the loop stamps a number on each entry that doesn't already have one. The
-decorator also keeps single-record callers working: hand `create()` one plain dict and
-it wraps that dict in a one-item list before your method sees it, so your loop is
-always safe. The `vals.get(...) == "New"` guard leaves imported or copied values alone
-if a caller supplied a real reference, and it is why the field keeps `default="New"`:
-a form sends that literal along on save, and the guard reads it as "no number yet".
+Every model already inherits a `create` from Odoo's base `Model` class. Writing a method
+with the same name in your own class means yours runs instead, which is what gives you a
+chance to edit `vals_list` before anything is stored.
+
+`super()` is plain Python for "the version I just replaced". So `super().create(vals_list)`
+hands the now-numbered values to Odoo's real create, which does the standard work
+(defaults, constraints from chapter 14, computes from 13) and returns the new recordset.
+Leave that line out and no record is ever written.
+
+The rest reads with this chapter's eyes:
+
+- **`@api.model_create_multi`** declares the batch-friendly signature. `vals_list` is a
+  *list* of dicts, exactly what you passed in step 5, and the loop stamps a number on each
+  entry that does not already have one. The decorator also keeps single-record callers
+  working: hand `create()` one plain dict and it wraps that dict in a one-item list before
+  your method sees it, so your loop is always safe.
+- **The `vals.get(...) == "New"` guard** leaves imported or copied values alone if a caller
+  supplied a real reference. It is also why the field keeps `default="New"`: a form sends
+  that literal along on save, and the guard reads it as "no number yet".
+
 Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
 
 ```console
@@ -518,26 +546,26 @@ exactly what opening "New" now costs:
 >>> env.cr.rollback()
 ```
 
-Opening a form burns nothing (`'New'`, no number drawn), while a real save, even a
-batch of two in one call, numbers each order. Your counter will be sitting well ahead of
-your order count, and by an amount nobody can predict for you: chapter 14's constraint
-experiments spent several, `odoolings` spends one per run that creates an order, and so
-does every attempt you retried. If you are curious, read the counter directly, the way
-chapter 14 did:
+Opening a form burns nothing (`'New'`, no number drawn), while a real save numbers each
+order, even a batch of two in one call.
+
+Your counter will sit well ahead of your order count, by an amount nobody can predict for
+you. Chapter 14's constraint experiments spent several, `odoolings` spends one per run
+that creates an order, and so does every attempt you retried. If you are curious, read the
+counter directly, the way chapter 14 did:
 
 ```console
 >>> seq = env["ir.sequence"].search([("code", "=", "librefleet.service.order")])
 >>> seq.number_next_actual
 ```
 
-Expect a number with no tidy relationship to how many orders exist. Gaps, as
-established, are the
-sequence working correctly.
+Expect a number with no tidy relationship to how many orders exist. Gaps, as established,
+are the sequence working correctly.
 
-One nuance so you're never surprised: the rollback above still cost numbers, because a
+One nuance so you are never surprised: the rollback above still cost numbers, because a
 number drawn inside `create` is as non-transactional as anywhere else. What the override
-fixes is forms and abandoned drafts (no draw before save), not rollbacks after a
-successful save.
+fixes is forms and abandoned drafts, where no number is drawn before save. It does not fix
+rollbacks after a successful save.
 </Step>
 
 </Steps>

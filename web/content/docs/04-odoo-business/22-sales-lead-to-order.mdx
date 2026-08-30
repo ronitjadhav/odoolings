@@ -24,9 +24,11 @@ you were told and becomes a pattern you watched core use on itself.
 
 ### The pipeline is one model with a flag
 
-CRM looks like two things, <Term k="lead / opportunity">leads and opportunities</Term>, and it is one. `crm.lead` has a
-`type` field with exactly two values, `lead` and `opportunity`, and "converting" a lead
-flips that field on the record you already had. No copy, no second table, no new id.
+CRM looks like two things, <Term k="lead / opportunity">leads and opportunities</Term>, and it is one. A **lead** is an
+unqualified sniff of interest; an **opportunity** is one you have decided is worth
+chasing. `crm.lead` has a `type` field with exactly two values, `lead` and
+`opportunity`, and "converting" a lead just flips that field on the record you already
+had. No copy, no second table, no new id.
 
 This should feel familiar. Chapter 21 showed `res.partner` doing the same trick with
 `customer_rank` and `supplier_rank`: what looks like a type in the interface is a field
@@ -79,8 +81,9 @@ different speeds.
 
 ### The invoice policy lives on the product, not the order
 
-This one causes real confusion, so it is worth stating flatly. Whether a confirmed order
-can be invoiced immediately is decided by **each product's** <Term k="invoice policy (`invoice_policy`)">`invoice_policy`</Term>:
+This one causes real confusion, so here it is flatly. Whether a confirmed order can be
+invoiced immediately is decided by **each product's** <Term k="invoice policy (`invoice_policy`)">`invoice_policy`</Term>, the rule saying
+what you are allowed to bill for:
 
 | `invoice_policy` | Meaning |
 |---|---|
@@ -93,12 +96,13 @@ database can behave differently, as you are about to see.
 
 ### What Confirm actually runs
 
-The **Confirm** button in the form view is wired to a method called `action_confirm`,
-and that method does the visible work itself: it refuses to run unless the order is
-still `draft` or `sent`, then writes `state` to `sale` and stamps `date_order` with the
-current time. Only after that does it call a second method, `_action_confirm`. So the
-status change you see does not come from the method below; keep the two names apart, as
-the difference is the whole point of this section.
+The **Confirm** button is wired to a method called `action_confirm`, and that method does
+the visible work itself. It refuses to run unless the order is still `draft` or `sent`,
+then writes `state` to `sale` and stamps `date_order` with the current time. Only then
+does it call a second method, `_action_confirm`.
+
+So the status change you see does *not* come from the method below. Keep the two names
+apart: that difference is the whole point of this section.
 
 The leading underscore is Odoo's convention for "internal": a method meant to be called
 from other Python code, not wired to a button or reachable over RPC. In the `sale`
@@ -117,15 +121,17 @@ docstring tells you so. Ignore its `not yet 'done'` aside: that is core's own le
 from the Odoo 18 state machine described above, never cleaned up after `done` was
 removed. Comments rot, field definitions do not.
 
-*Override* is the word for what happens next, and it is worth spelling out now. Another
-module declares a class for the same model and defines a method with the same name; from
-then on, that module's version is the one that runs when anything calls
-`_action_confirm`. Inside it, `super()` runs whichever version was there before, exactly
-as it did in chapter 15 when you overrode `create` on your own model. That is what lets
-several modules extend the same method and stack, each doing its bit, instead of the
-last one loaded wiping out the rest. Every module that needs confirmation to produce
-another document works this way. In a stock-aware database, `sale_stock` is the one that
-creates your delivery, in two lines:
+*Override* is the word for what happens next, so here is what it means. Another module
+declares a class for the same model and defines a method with the same name. From then
+on, that module's version is the one that runs when anything calls `_action_confirm`.
+
+Inside it, `super()` runs whichever version was there before, exactly as it did in
+chapter 15 when you overrode `create` on your own model. That is what lets several
+modules extend the same method and **stack**, each doing its bit, instead of the last one
+loaded wiping out the rest.
+
+Every module that needs confirmation to produce another document works this way. In a
+stock-aware database, `sale_stock` is the one that creates your delivery, in two lines:
 
 ```python
 def _action_confirm(self):
@@ -135,13 +141,17 @@ def _action_confirm(self):
 
 Two lines, and the first one carries the whole mechanism behind "confirming a sale
 creates a delivery order". `_action_launch_stock_rule` is a method `sale_stock` adds to
-`sale.order.line` (it does not exist in `sale` at all), and its own docstring says what
-it is for: it launches *procurement* for each line, which is Odoo's phrase for "somebody
-needs this quantity, go and satisfy it". What that produces depends on the rules
-attached to the product, and the docstring names the three possibilities: `_run_pull`
-(take it out of the warehouse, so a delivery order), `_run_buy` (order it from a vendor,
-so a purchase order) or `_run_manufacture` (build it, so a manufacturing order). Chapter
-25 follows that machinery properly.
+`sale.order.line`; it does not exist in `sale` at all.
+
+Its own docstring says what it does: it launches **procurement** for each line, Odoo's
+word for "somebody needs this quantity, go and satisfy it". What that produces depends on
+the rules attached to the product, and the docstring names the three possibilities:
+
+- `_run_pull`: take it out of the warehouse, so a delivery order
+- `_run_buy`: order it from a vendor, so a purchase order
+- `_run_manufacture`: build it, so a manufacturing order
+
+Chapter 25 follows that machinery properly.
 
 The second line calls `super()`, handing control back to the `_action_confirm` that was
 there before `sale_stock` loaded, so every other module that overrode the same method
@@ -213,10 +223,10 @@ In **Sales → Orders → Quotations → New**:
 <Step>
 ### Confirm it
 
-Movement 2 reads this order twice, once on each side of the button, so take both
-readings before you click anything. A `diff` always compares against your most recent
-snapshot, which fixes the order: first read what the lead and the quotation did, then
-reset the baseline so the next `diff` shows the confirmation on its own.
+Movement 2 reads this order twice, once on each side of the button, so take both readings
+before you click anything. A `diff` always compares against your most recent snapshot,
+which fixes the order. First read what the lead and the quotation did, then reset the
+baseline so the next `diff` shows the confirmation on its own.
 
 - Run `python3 odoolings.py diff --db functional`. That is the output step 5 walks
   through, so leave it on screen.
@@ -274,11 +284,13 @@ stock.picking       +1
 One button, four consequences: the order advanced, it became invoiceable, a delivery
 order appeared, and a stock move appeared inside it.
 
-Pin down those two model names now, because every inventory chapter leans on them. A
-`stock.picking` is one transfer document, the thing a warehouse worker would print and
-walk around with: `WH/OUT/00044` is its reference, and `picking_type_id` says what kind
-of transfer it is (here `Delivery Orders`, so goods heading out of the warehouse). A
-`stock.move` is one product line inside that transfer, in this case four Brake Pad Sets.
+Pin down those two model names now, because every inventory chapter leans on them:
+
+- A <Term k="picking (`stock.picking`)">`stock.picking`</Term> is one transfer document, the thing a warehouse worker would print
+  and walk around with. `WH/OUT/00044` is its reference, and `picking_type_id` says what
+  kind of transfer it is (here `Delivery Orders`, so goods heading out).
+- A `stock.move` is one product line inside that transfer, here four Brake Pad Sets.
+
 One picking, one or more moves. That is the **Delivery** smart button you saw on the
 order, seen from the database side. Chapter 25 takes both apart properly.
 
@@ -320,9 +332,9 @@ confirmation. Modules like these, whose whole job is to join two apps together, 
 called **bridge modules**, and their names usually say which two: `sale_stock` bridges
 Sales and Inventory, `sale_purchase` bridges Sales and Purchase.
 
-A file on disk is not the same as a module being installed, though, and only installed
-modules contribute code. That grep searched the whole addons directory, so ask the
-database which of the seven you actually have:
+A file on disk is not the same as an installed module, and only installed modules
+contribute code. That grep searched the whole addons directory, so ask the database which
+of the seven you actually have:
 
 ```console
 $ docker compose exec db psql -U odoo -d functional -t -c \
@@ -337,8 +349,8 @@ Purchase, so the bridges let themselves in. `repair` is not installed, which is 
 order grew a delivery and no repair order.
 
 If your list has a fourth name, `delivery`, you have already run the website chapter:
-`website_sale` depends on it. Despite the name it is about shipping methods and carrier
-charges, not about the delivery order you just made.
+`website_sale` depends on it. Despite the name it covers shipping methods and carrier
+charges, not the delivery order you just made.
 
 Read the one that did it:
 
@@ -394,9 +406,8 @@ Same product type, opposite billing behaviour. Now look at your order line:
 ```
 
 Nothing has shipped, and it is already fully invoiceable, because this product bills on
-ordered quantities. Had you quoted the Office Chair instead, `qty_to_invoice` would be
-`0.0` and trying to invoice would refuse with a message telling you to deliver first.
-Chapter 28 does the invoicing properly.
+ordered quantities. Quote the Office Chair instead and `qty_to_invoice` would be `0.0`,
+with invoicing refused until you deliver. Chapter 28 does the invoicing properly.
 </Step>
 
 </Steps>

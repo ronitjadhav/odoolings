@@ -13,15 +13,18 @@ partner network, a nonprofit with hundreds of community repositories, and severa
 generations of documentation. Knowing the map saves you hours weekly. And if you work
 at an integrator, the OCA part isn't optional culture, it's your daily toolbox.
 
-That last claim is the one to argue with, because everywhere else in software
-"community modules" means hobby code you avoid in production, and a sentence telling
-you a volunteer nonprofit is your professional toolbox sounds like advocacy. So be
-concrete about the difference: the OCA is closer to a standards body than to a plugin
-bazaar. Its repositories have steering committees, mandatory peer review, enforced
-linting and CI on every pull request, and a branch per Odoo version that somebody has
-to deliberately migrate code into. Odoo's ecosystem does *also* have a bazaar, the Apps
-store further down this page, and the two are nothing alike. Keeping them apart in your
-head is most of what this chapter is for.
+Argue with that last claim, because everywhere else in software "community modules"
+means hobby code you avoid in production. Being told a volunteer nonprofit is your
+professional toolbox sounds like advocacy.
+
+So here is the concrete difference: **the OCA is closer to a standards body than to a
+plugin bazaar.** Its repositories have steering committees, mandatory peer review,
+enforced linting and CI (automated checks that run on every proposed change), and a
+branch per Odoo version that somebody has to deliberately migrate code into.
+
+Odoo's ecosystem does *also* have a bazaar: the Apps store, further down this page. The
+two are nothing alike, and keeping them apart in your head is most of what this chapter
+is for.
 
 ## Concepts
 
@@ -88,11 +91,12 @@ Chapter 43 on is entirely about working the OCA way.
 ### How code flows: an OCA repo up close
 
 OCA repositories mirror Odoo's branch-per-version model. A repo like
-`OCA/server-tools` has branches `16.0`, `17.0`, `18.0`, `19.0`: one line of
-development per Odoo version, and modules get **migrated** branch to branch by
-volunteers. Pull requests target a version branch (never a `master`), must pass CI and
-pre-commit linting, get reviewed by peers, and are test-driveable on **Runboat**,
-which spins up a throwaway live instance per PR.
+`OCA/server-tools` has branches `16.0`, `17.0`, `18.0`, `19.0`: one line of development
+per Odoo version. Modules get **migrated** branch to branch by volunteers.
+
+Every pull request targets a version branch, never a `master`. It must pass CI and
+pre-commit linting (automated style and quality checks), gets reviewed by peers, and is
+test-driveable on **Runboat**, which spins up a throwaway live instance per PR.
 
 <Mermaid
   label="One OCA repo holds several version branches, each its own line of development; a PR targets one branch and gets its own Runboat instance"
@@ -121,8 +125,8 @@ Notice what does **not** flow between branches: a fix on `19.0` does not automat
 reach `16.0`. Migration is a deliberate, separate act, which is exactly why chapter 47
 gives it a whole chapter rather than a paragraph.
 
-You don't need to memorize this yet; you'll live it starting at chapter 43. For now, just recognize
-the shape.
+You don't need to memorize this yet. You'll live it from chapter 43 on. For now, just
+recognize the shape.
 
 ## Hands-on
 

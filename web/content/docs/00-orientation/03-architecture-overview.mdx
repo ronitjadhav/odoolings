@@ -10,10 +10,11 @@ database and back. · **Time:** ~1.5 h · **Checkpoint:** none, Part 0 has no co
 
 You'll hit plenty of confusing moments for the rest of this tutorial: "where does this
 view come from?", "why did my change not appear?", "what runs on the server vs in the
-browser?" Every one of them resolves instantly if your mental model of the
-architecture is right. Fifteen minutes
-here saves hours later. Nothing in this chapter needs memorizing; it needs *believing*,
-and the rest of the tutorial keeps confirming it.
+browser?" Every one of them resolves instantly if your mental model of the architecture
+is right, so fifteen minutes here saves hours later.
+
+Nothing in this chapter needs memorizing. It needs *believing*, and the rest of the
+tutorial keeps confirming it.
 
 ## Concepts
 
@@ -39,24 +40,29 @@ and the rest of the tutorial keeps confirming it.
   **<Term k="OWL">OWL</Term>** (Odoo Web Library), Odoo's own component framework. It's conceptually
   similar to React but its own thing. It renders list views, forms, kanbans and so on
   from *descriptions* it receives from the server.
-- **Logic.** A Python server. Business objects are Python classes; the **<Term k="ORM">ORM</Term>** maps
-  them to PostgreSQL tables and mediates every read and write. "Mediates" is the word
-  doing the work there: access rights, computed fields and business rules all live on
-  that path, which is why the ORM is not a convenience layer you could reasonably skip
-  by writing SQL yourself. Skip it and you do not just lose some syntax sugar, you
-  silently lose the security checks with it. Alongside the RPC
-  endpoints the web client uses, **controllers** serve classic HTTP routes (the
-  website, the customer portal, PDF downloads).
+- **Logic.** A Python server. Business objects are Python classes, and the
+  **<Term k="ORM">ORM</Term>** (Object-Relational Mapper, the layer that turns those classes into
+  database rows) maps them to PostgreSQL tables and mediates every read and write.
+
+  "Mediates" is the load-bearing word. Access rights, computed fields and business rules
+  all live on that path. So the ORM is not a convenience layer you could reasonably skip
+  by writing SQL yourself: skip it and you don't just lose syntax sugar, you silently
+  lose the security checks with it.
+
+  Alongside the RPC endpoints the web client uses, **controllers** serve classic HTTP
+  routes (the website, the customer portal, PDF downloads).
 - **Data.** PostgreSQL, and only PostgreSQL. Odoo leans on it hard (constraints,
   sequences, savepoints), which is why chapter 9 has you inspecting what the ORM
   creates with `psql`.
 
 ### Everything is a module
 
-An Odoo server on its own does almost nothing. All functionality, including the core
-`base` module that defines users, menus and models like `res.partner`, arrives as
-**modules**: directories containing a manifest, Python code, XML data, and static
-assets. The server discovers them via the **addons path**, and a database records which
+An Odoo server on its own does almost nothing. All functionality arrives as **modules**:
+directories containing a manifest (a small file describing the module), Python code, XML
+data, and static assets. Even the core `base` module, which defines users, menus and
+models like `res.partner`, is one of them.
+
+The server finds modules via the **addons path**, and each database records which
 modules are *installed in it*.
 
 Two consequences worth internalizing now:
@@ -77,18 +83,20 @@ A form view, a list view, a menu item, an action: each is a *record in the datab
 install time. The web client asks the server "give me the form view for `res.partner`",
 receives an XML description, and renders it.
 
-It is worth saying why that takes so long to absorb, because the reason is not
-stupidity. In every other web framework you have used, a template *is* a file: you edit
-the file, refresh the page, and see the change. That habit is so deep it does not feel
-like an assumption. Odoo breaks it, and the way you find out is the second question in
-this chapter's opening list, "why did my change not appear?"
+That takes a long time to absorb, and the reason is not stupidity. In every other web
+framework you have used, a template *is* a file: edit the file, refresh the page, see the
+change. That habit runs so deep it doesn't feel like an assumption. Odoo breaks it, and
+you find out via the second question in this chapter's opening list: "why did my change
+not appear?"
 
 So here is the picture to hold. **Your XML file is not the view. It is a delivery note
 for the view.** The view itself lives in the database, and it got there because someone
-handed the note over at install time. Edit the note sitting on your desk and the
-warehouse does not change; the file and the database have simply drifted apart. Handing
-the note over again is a deliberate act, the module *upgrade* of chapter 8, and that is
-the whole reason the upgrade step exists at all rather than being pointless ceremony.
+handed the note over at install time.
+
+Edit the note on your desk and the warehouse does not change. The file and the database
+have simply drifted apart. Handing the note over again is a deliberate act, the module
+*upgrade* of chapter 8, which is why that step exists at all rather than being pointless
+ceremony.
 
 That's why customizing Odoo rarely means forking anything. You ship a module whose XML
 *adds records* (a new view, a menu) or *inherits existing ones* with targeted edits.

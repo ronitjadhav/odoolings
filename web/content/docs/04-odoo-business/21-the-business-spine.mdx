@@ -14,17 +14,19 @@ For thirteen chapters you have been building LibreFleet as an island. Your
 compute their own totals, and nothing you wrote touches a single core app. That was the
 right way to learn the ORM: no core surface area in the way.
 
-Now the bill arrives. Odoo already ships all of it, and better than your version does.
-Part 6 is going to ask you to "extend the Sales flow" and to bridge `librefleet.part` to
-`product.product`, and neither instruction means anything until you know what the Sales
-flow is and what a product actually is in this system.
+Now the bill arrives. Odoo ships all of it already, and better than your version does.
+Part 6 will ask you to "extend the Sales flow" and to bridge `librefleet.part` to
+`product.product`. Neither instruction means anything until you know what the Sales flow
+is and what a product actually is here.
 
 So this part changes the exercise. Instead of writing code, you run a business in the
-interface and then read what it did to the database. That second half is the part no
+interface and then read what it did to the database. That second half is what no
 functional training does, and it is the only reason a developer should care about the
-first half. By the end of Part 5 you will have watched a quotation become an order, a
-delivery, an invoice, a payment and a pair of balanced journal lines, and you will have
-seen every table it touched on the way.
+first half.
+
+By the end of Part 5 you will have watched a **quotation** (a priced offer, sent before
+the customer commits) become an order, a delivery, an invoice, a payment and a pair of
+balanced journal lines. You will have seen every table it touched on the way.
 
 Three models sit under all of it. Get these right and the next nine chapters are mostly
 consequences.
@@ -37,12 +39,11 @@ Everything in Parts 4 and 5 happens in a **separate database with demo data**. T
 reasons, all practical:
 
 - Functional exploration is miserable without demo data. You want a chart of accounts,
-  products, customers and a few historic orders to look at, not an empty shell.
-- Installing Sales, Purchase, Inventory and Accounting into your `tutorial` database
-  would change every checkpoint diff from here on, and Part 6 still needs that database
-  clean.
+  products, customers and a few historic orders, not an empty shell.
+- Installing Sales, Purchase, Inventory and Accounting into `tutorial` would change every
+  checkpoint diff from here on, and Part 6 still needs that database clean.
 - Odoo 19 installs **without** demo data unless you ask, and that flag only works on a
-  fresh database. Chapter 34 explains exactly why an upgrade cannot add it later.
+  fresh database. Chapter 34 explains why an upgrade cannot add it later.
 
 `odoolings` already takes `--db`, so nothing new is needed to check your work here.
 
@@ -64,7 +65,7 @@ rather than inventing an owner model. You were already using the spine.
 
 ### One product, two models: `product.template` and `product.product`
 
-This one confuses every new Odoo developer, and it is worth slowing down for.
+This one confuses every new Odoo developer, so slow down here.
 
 - <Term k="product template / product variant">`product.template`</Term> is the product as a human talks about it: "Brake Pad Set".
 - `product.product` is the specific thing you can put in a box: "Brake Pad Set
@@ -99,15 +100,16 @@ a `product.template` you can sell directly, which is why so much core code takes
 
 The field split follows the same logic. `name` is stored on the template, and
 `product.product.name` is a *related* field reading `product_tmpl_id.name`, which you
-can confirm yourself in the Hands-on. So renaming a template renames every variant,
-because there was only ever one name.
+confirm yourself in the Hands-on. So renaming a template renames every variant, because
+there was only ever one name.
 
 Which raises the obvious question: if a variant's `name` is just "Brake Pad Set", where
-does the "(Front)" come from? From a second field, `display_name`. Core computes it as the
-variant's `name` followed by its attribute values in brackets, and that is the string
-lists, many2one dropdowns and the diff output further down all show you. Hold on to the
-pair: `name` is the one every variant shares, `display_name` is the one that tells them
-apart.
+does the "(Front)" come from? From a second field, `display_name`. Core computes it as
+the variant's `name` followed by its attribute values in brackets. That is the string
+you see in lists, in many2one dropdowns, and in the diff output further down.
+
+Hold on to the pair: `name` is what every variant shares, `display_name` is what tells
+them apart.
 
 ### Product types changed in Odoo 19
 
@@ -126,10 +128,12 @@ sandwich, pick a drink") at one prorated price. LibreFleet never needs one; it e
 here only so you recognise the word when you see it.
 
 There is **no `product` type any more**. The old "storable product" idea is now a
-separate boolean, <Term k='is_storable ("Track Inventory")'>`is_storable`</Term>, labelled **Track Inventory**, and it is contributed by
-the Inventory app rather than by `product`. So "is this a physical thing" and "do we
-count it in stock" became two independent questions, which is the better model: a
-consumable you buy and immediately expense is Goods without inventory tracking.
+separate boolean, <Term k='is_storable ("Track Inventory")'>`is_storable`</Term>, labelled **Track Inventory**, contributed by the
+Inventory app rather than by `product`.
+
+So "is this a physical thing" and "do we count it in stock" became two independent
+questions. That is the better model: a consumable you buy and immediately expense is
+Goods without inventory tracking.
 
 <Callout type="info" title="On Odoo 18 this differs">
   Odoo 18 and earlier used `type = 'product'` to mean "storable", alongside `consu` and
@@ -170,22 +174,26 @@ Odoo. Two ways:
   **Activate the developer mode**, or just append `?debug=1` to the URL). A 🐞 menu then
   appears in the top bar; open it on any screen and it names the model behind the current
   view and lets you inspect its fields.
-- **In the shell**, which is the one you can automate: `env["ir.model"]` is an ordinary
+- **In the shell**, which is the one you can automate. `env["ir.model"]` is an ordinary
   model whose records are all the other models, so you can search it like anything else.
-  For one model's fields there are two handles worth knowing. `fields_get()` returns a
-  dictionary keyed by field name, each value describing that field (its type, its label,
-  whether it is required), which is the shape an RPC client gets back. `_fields` is the
-  same information in Python form: a dict of field name to the `fields.Char` /
-  `fields.Float` / ... object the model class declared, so `_fields["name"].store` reads
-  an attribute straight off the field's *definition* rather than off any record. The
-  Hands-on uses `_fields`, and `odoolings` reads the same metadata through the
+
+  For one model's fields there are two handles worth knowing:
+
+  - `fields_get()` returns a dictionary keyed by field name, each value describing that
+    field (type, label, whether it is required). This is the shape an RPC client gets
+    back.
+  - `_fields` is the same information in Python form: a dict of field name to the
+    `fields.Char` / `fields.Float` / ... object the model class declared. So
+    `_fields["name"].store` reads an attribute straight off the field's *definition*
+    rather than off any record.
+
+  The Hands-on uses `_fields`, and `odoolings` reads the same metadata through the
   `ir.model.fields` model.
 
 ## Hands-on
 
-This chapter's Hands-on has two movements, and every chapter in Parts 4 and 5 follows
-the same shape. First you **run the flow** like a user. Then you **read what it did**,
-which is where the learning is.
+Every chapter in Parts 4 and 5 has the same two movements. First you **run the flow**
+like a user. Then you **read what it did**, which is where the learning is.
 
 <Steps>
 
@@ -201,12 +209,13 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
 INFO functional odoo.modules.loading: Modules loaded.
 ```
 
-Those five technical names are the apps you will be clicking through for the next ten
-chapters: `sale_management` is Sales, `purchase` is Purchase, `stock` is Inventory, `mrp`
-is Manufacturing, `crm` is CRM. `-i` installs them, `--with-demo` asks for the demo
-records, and `--stop-after-init` makes this a one-shot install rather than a server you
-then have to stop. Six modules end up installed rather than five, because `account`
-(Invoicing) arrives as a dependency of Sales:
+Those five technical names are the apps you will click through for the next ten chapters:
+`sale_management` is Sales, `purchase` is Purchase, `stock` is Inventory, `mrp` is
+Manufacturing, `crm` is CRM.
+
+`-i` installs them, `--with-demo` asks for the demo records, and `--stop-after-init`
+makes this a one-shot install rather than a server you then have to stop. Six modules end
+up installed rather than five, because `account` (Invoicing) is a dependency of Sales:
 
 ```console
 $ docker compose exec db psql -U odoo -d functional -t -c \
@@ -220,15 +229,18 @@ Restart the web server so it picks up the new database:
 $ docker compose restart odoo
 ```
 
-Now open [http://localhost:8069](http://localhost:8069). Your browser is still holding the
-logged-in session from the last twenty chapters, and that session, not the URL, decides
-which database you land in, so this drops you straight back into `tutorial`'s backend.
-Log out first (your avatar, top right → **Log out**): that lands you on a login form still
-showing `tutorial`, with a **Select** button next to the Database field. Click it, and you
-get the picker, every database this Odoo instance knows about; choose `functional`. This
-one was created from the command line rather than from the database manager, so it carries
-core's default credentials, login `admin` and password `admin`. Your `tutorial` database is
-untouched, and stays that way for the whole of Parts 4 and 5.
+Now open [http://localhost:8069](http://localhost:8069). Your browser still holds the
+logged-in session from the last twenty chapters, and **the session, not the URL, decides
+which database you land in**. So this drops you straight back into `tutorial`'s backend.
+
+Log out first (your avatar, top right → **Log out**). That lands you on a login form
+still showing `tutorial`, with a **Select** button next to the Database field. Click it
+to get the picker listing every database this Odoo instance knows about, and choose
+`functional`.
+
+This database was created from the command line rather than from the database manager,
+so it carries core's default credentials: login `admin`, password `admin`. Your
+`tutorial` database is untouched, and stays that way for the whole of Parts 4 and 5.
 
 </Step>
 
@@ -237,11 +249,15 @@ untouched, and stays that way for the whole of Parts 4 and 5.
 
 This is the tool that makes the second movement possible. It records the current state of
 the models these two parts care about into a `.odoolings-snapshot.json` file in the
-directory you run it from, so you can ask what changed afterwards. Two things to know
-before you rely on it: `diff` only ever reads that file, it never rewrites it, so every
-diff you run is measured from the last `snapshot` you took rather than from the previous
-diff. And both commands need the same working directory, or `diff` will not find the
-file. Whenever you want a clean baseline, take another snapshot first.
+directory you run it from, so you can ask what changed afterwards.
+
+Two things to know before you rely on it:
+
+- `diff` only ever **reads** that file, never rewrites it. So every diff is measured from
+  the last `snapshot` you took, not from the previous diff.
+- Both commands need the same working directory, or `diff` will not find the file.
+
+Whenever you want a clean baseline, take another snapshot first.
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -290,10 +306,10 @@ attribute values became products. This is what people mean when they say Odoo "g
 variants", and now you have watched it happen instead of reading about it.
 
 The two price fields are not a typo either. `list_price` is the template's own Sales
-Price, the 79.00 you typed. `lst_price` is the variant's version of it: the template's
-price plus whatever extra that variant's attribute values add on top. You gave Front and
-Rear no extra, so both read 79.0, and they would part company the moment you priced one
-of them up.
+Price, the 79.00 you typed. `lst_price` is the variant's version: the template's price
+plus whatever extra that variant's attribute values add on top. You gave Front and Rear
+no extra, so both read 79.0. They would part company the moment you priced one of them
+up.
 
 </Step>
 

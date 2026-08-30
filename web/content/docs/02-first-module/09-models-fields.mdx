@@ -10,25 +10,27 @@ the ORM creates in Postgres. · **Time:** ~2 h · **Checkpoint:** `code/checkpoi
 
 Everything in Odoo is a record of some model. Partners, invoices, menu items, even
 the Apps list you queried in chapter 8 (`ir.module.module`): all models. Until now
-you've only consumed models other people wrote. Today you write one, and more
-importantly, you learn the contract behind it: a Python class goes in, a PostgreSQL
-table comes out, and the mapping between them is completely predictable. Once you can
-read a model definition and picture the table (and vice versa), a large part of the
-framework stops being magic. The psql habit you build here is also how you'll debug
-real client databases for the rest of your career.
+you've only consumed models other people wrote.
+
+Today you write one. More importantly, you learn the contract behind it: a Python
+class goes in, a PostgreSQL table comes out, and the mapping is completely
+predictable. Once you can read a model definition and picture the table, and the other
+way round, a large part of the framework stops being magic. The psql habit you build
+here is also how you'll debug real client databases for the rest of your career.
 
 If you have used Django, Rails, Laravel or SQLAlchemy, one question is already nagging
 at you: **where is the migration?** In those frameworks a model change is only half the
 job, and you write, review and commit a second file describing the schema change. Odoo
 has no such file. **The class is the schema.** You add a field to the Python, you run
-`-u`, and the upgrade issues the DDL needed to make the table match what the class now
-declares. There is nothing to generate and nothing to check in.
+`-u`, and the upgrade issues the DDL (the SQL that changes table structure, as opposed
+to the SQL that changes rows) needed to make the table match what the class declares.
+There is nothing to generate and nothing to check in.
 
-That is a genuinely smaller mental model than you are used to, so the useful instinct to
-build is the reverse one: since nothing records your intent except the class itself,
-reading a class and picturing its table is the skill, and it is exactly what this chapter
-drills. (Restructuring *existing data*, as opposed to adding a column, is a real problem
-and it does get its own tooling; that is chapter 47.)
+That is a smaller mental model than you are used to, so build the reverse instinct.
+Nothing records your intent except the class itself, so reading a class and picturing
+its table is the skill. That is exactly what this chapter drills. (Restructuring
+*existing data*, as opposed to adding a column, is a real problem and does get its own
+tooling; that is chapter 47.)
 
 ## Concepts
 
@@ -64,11 +66,13 @@ class Vehicle(models.Model):
   becomes a column (with one interesting exception you'll meet in the exercises).
 
 How the class becomes a table: every time a server process starts, it imports the
-Python of all installed modules and registers each `models.Model` subclass in the
-**<Term k="registry">registry</Term>** under its `_name`. But the *schema* work (CREATE TABLE, ADD COLUMN) only
-happens when a module is installed or upgraded. That's the deeper reason behind the
-chapter 6 rule of thumb: a pure Python change needs a restart, but anything touching
-fields needs `-u` so the DDL runs.
+Python of all installed modules. Each `models.Model` subclass gets registered in the
+**<Term k="registry">registry</Term>** under its `_name`.
+
+But the *schema* work (CREATE TABLE, ADD COLUMN) only happens when a module is
+installed or upgraded. That's the deeper reason behind the chapter 6 rule of thumb: a
+pure Python change needs a restart, but anything touching fields needs `-u` so the DDL
+runs.
 
 <Mermaid
   label="Every server start imports vehicle.py and registers the class in the registry, but only an install or upgrade runs the CREATE TABLE and ADD COLUMN that build the Postgres table"
@@ -122,12 +126,13 @@ options, tab titles). It's computed on the fly from the field named by
 
 ### `active` is a reserved name
 
-`active` is not automatic (you declare it yourself), but the name carries behavior:
-when a record has `active = False` it is **<Term k="archiving">archived</Term>**, and `search()` pretends it
-doesn't exist unless you explicitly ask for archived records. That's how Odoo does
-"soft delete" everywhere: old products, ex-employees, sold vehicles. Almost every
-model you'll ever write wants this field, and `default=True` on it is essential
-(otherwise every new record is born invisible).
+`active` is not automatic, you declare it yourself, but the name carries behavior.
+When a record has `active = False` it is **<Term k="archiving">archived</Term>**, and `search()` pretends it
+doesn't exist unless you explicitly ask for archived records.
+
+That's how Odoo does "soft delete" everywhere: old products, ex-employees, sold
+vehicles. Almost every model you write wants this field, and `default=True` on it is
+essential, or every new record is born invisible.
 
 <Callout type="info" title="In the field">
   Integrators reach for archiving, not deletion. Records accumulate references
@@ -267,8 +272,8 @@ Before you go anywhere, keep the vehicle:
 ```
 
 Chapter 6 warned about this and it is not a drill: the shell never commits by itself, and
-it rolls back on exit. Skip that line, quit as the next step asks, and your first vehicle
-is silently gone, along with every output in the rest of this chapter that expects it.
+it rolls back on exit. Skip that line and quit as the next step asks, and your first
+vehicle is silently gone. So is every output in the rest of this chapter that expects it.
 </Step>
 
 <Step>
@@ -289,9 +294,10 @@ Quit the shell (`Ctrl-D`), upgrade, and start a fresh shell:
 
 Wait: why did the *old* shell show the stale behavior? Because `_rec_name` lives in
 the registry, which each process builds at startup. Strictly, this pure-Python change
-only needed a new process, not `-u`. But "edit, upgrade, retest" is the reflex worth
-building: the moment your edit touches a field, skipping `-u` leaves Python knowing
-about a column Postgres doesn't have.
+only needed a new process, not `-u`.
+
+But "edit, upgrade, retest" is the reflex worth building. The moment your edit touches
+a field, skipping `-u` leaves Python knowing about a column Postgres doesn't have.
 
 Create a second vehicle and, remembering chapter 6's lesson, commit before leaving:
 

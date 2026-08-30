@@ -89,7 +89,8 @@ thing:
 
 On Windows you are already in one of those, because chapter 5 has you running commands
 from WSL2 or Git Bash rather than PowerShell. Both are `bash`, so use the first row.
-PowerShell is a different story: `Set-Alias` there cannot carry arguments, so an `oc`
+
+PowerShell is a different story. `Set-Alias` there cannot carry arguments, so an `oc`
 that includes `-c /etc/odoo/odoo.conf` has to be written as a function instead. That is a
 detour the tutorial does not need you to take.
 
@@ -110,11 +111,12 @@ them, so check `help alias` there rather than copying the bash form.)
 
 <Callout type="info" title="You can skip all of this">
   Aliases are a convenience for *your* terminal, nothing more. **This tutorial always
-  spells out the full command**, in every chapter from here to the end, so nothing later
-  depends on you having set these up. Use them, use the long form, or set up your own
-  names entirely: every command in the book stays copy-paste safe either way. The one
-  thing worth taking from this section is the reason there are two of them, because that
-  `-c` placement rule bites whether or not you alias anything.
+  spells out the full command**, in every chapter to the end, so nothing later depends on
+  you setting these up. Use them, use the long form, or invent your own names: every
+  command in the book stays copy-paste safe either way.
+
+  The one thing worth taking from this section is *why there are two of them*. That `-c`
+  placement rule bites whether or not you alias anything.
 </Callout>
 
 Run `docker compose exec odoo odoo help` once to see everything (`scaffold`,
@@ -137,10 +139,12 @@ chapter 8 on, mostly in module install/upgrade runs:
 | `--dev=all` | developer features, see below |
 | `--test-enable`, `--test-tags` | run tests, the subject of chapter 38 |
 
-The pair to burn in now: **`-i` installs, `-u` upgrades.** Python code changes are
-picked up by a restart (or auto-reload), but XML and data files live *in the database*
-(chapter 3), and only an upgrade reloads them. "I changed the view and nothing
-happened" is the most common beginner complaint, and `-u` is almost always the answer.
+The pair to burn in now: **`-i` installs, `-u` upgrades.**
+
+Python code changes are picked up by a restart (or auto-reload). But XML and data files
+live *in the database* (chapter 3), and only an upgrade reloads them. "I changed the view
+and nothing happened" is the most common beginner complaint, and `-u` is almost always
+the answer.
 
 ### What `--dev=all` gives you
 
@@ -190,11 +194,12 @@ it can feel faster in general, but that has nothing to do with picking up your f
 changes.)
 
 The third row is the one that bites, because it looks like the second. Dev mode makes
-view edits feel instant, which quietly teaches you that XML is live, and then a data
-file changes and the lesson turns out to have been wrong. When something you edited is
-not showing up and you cannot immediately say which row you are in, run the upgrade:
-being in the first row and upgrading anyway costs you a few seconds, while being in the
-third row and not upgrading costs you the afternoon.
+view edits feel instant, which quietly teaches you that XML is live. Then a data file
+changes and the lesson turns out to have been wrong.
+
+So when something you edited is not showing up and you cannot immediately say which row
+you are in, just run the upgrade. Being in the first row and upgrading anyway costs a few
+seconds. Being in the third row and not upgrading costs you the afternoon.
 
 ### Reading the log
 
@@ -207,9 +212,12 @@ this environment:
 
 Left to right: timestamp, process id, **level**, **database name** (`?` when no
 database is bound yet, `None` for calls like `xmlrpc/2/common` that authenticate before
-picking one), **logger name**, message. The bracketed `[09/Aug/2026 12:43:29]` inside
-the message is werkzeug's own request timestamp, not Odoo's; it duplicates the leading
-one and you can ignore it. Habits that pay off:
+picking one), **logger name**, message.
+
+The bracketed `[09/Aug/2026 12:43:29]` inside the message is werkzeug's own request
+timestamp, not Odoo's. It duplicates the leading one, so ignore it.
+
+Habits that pay off:
 
 - Follow it live while you click around: `docker compose logs -f odoo`.
 - Python tracebacks read **bottom-up**: the last line is the actual error, the lines
@@ -269,10 +277,11 @@ statements, because you decide what to look at *after* you have stopped.
 <Callout type="warn" title="pdb needs a terminal, and one flag takes it away">
   pdb reads its commands from standard input, so it only works where you have a real
   terminal. `docker compose exec` allocates one **by default**, which is why the shell
-  commands in this book drop you into a working prompt with no extra flags. The flag that
-  breaks it is `-T` (`--no-tty`), which this book uses when *piping* a script in. Add
-  `-T` and pdb has nothing to read from: it gives up immediately with `bdb.BdbQuit` and
-  takes your script down with it.
+  commands in this book drop you into a working prompt with no extra flags.
+
+  The flag that breaks it is `-T` (`--no-tty`), which this book uses when *piping* a
+  script in. Add `-T` and pdb has nothing to read from: it gives up immediately with
+  `bdb.BdbQuit` and takes your script down with it.
 
   The same reasoning explains why you cannot put `breakpoint()` in a model method and
   catch it from a browser click. The server process inside the container has no terminal

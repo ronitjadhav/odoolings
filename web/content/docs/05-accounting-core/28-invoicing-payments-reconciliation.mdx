@@ -13,20 +13,24 @@ This is the chapter that closes the loop. Chapter 22 left you with a confirmed o
 `invoice_status = 'to invoice'`; chapter 27 taught you that an invoice is a journal entry.
 Now you connect them and follow the money out the other side.
 
-The developer payoff is a specific correction. Everyone reads `payment_state == 'paid'`
-and assumes that is where the truth lives. It is not: `payment_state` is *computed*, and
-what it summarises is **reconciliation**, the act of matching a debit against a credit
-until nothing is left over. Code that writes or trusts `payment_state` without
-understanding reconciliation is the source of a whole genre of bug where the books look
-right and are not.
+The developer payoff is one specific correction. Everyone reads `payment_state == 'paid'`
+and assumes that is where the truth lives. It is not.
 
-The objection to that is the right one, so let us say it out loud: surely "paid" is just a
-status? You pay an invoice, somebody marks it paid, done. That is how nearly every other
-system you have used works, and it is not how this one works. **In Odoo nobody ever marks
-an invoice paid.** Paid is a conclusion Odoo reaches by adding up which amounts have been
-matched against which, and if those matches cover the total then the invoice is paid by
-definition. The indirection is the whole point: a status somebody sets can disagree with
-the money, and a status derived from the money cannot.
+`payment_state` is *computed*. What it summarises is **reconciliation**: the act of
+matching a debit against a credit until nothing is left over. Code that writes or trusts
+`payment_state` without understanding reconciliation produces a whole genre of bug where
+the books look right and are not.
+
+There is a fair objection here, so say it out loud: surely "paid" is just a status? You pay
+an invoice, somebody marks it paid, done. That is how nearly every other system you have
+used works. It is not how this one works.
+
+**In Odoo nobody ever marks an invoice paid.** Paid is a conclusion Odoo reaches by adding
+up which amounts have been matched against which. If those matches cover the total, the
+invoice is paid by definition.
+
+That indirection is the whole point: a status somebody sets can disagree with the money, and
+a status derived from the money cannot.
 
 ## Concepts
 

@@ -8,20 +8,16 @@ decision later makes sense. · **Time:** ~1 h · **Checkpoint:** none, Part 0 ha
 
 ## Why this matters
 
-You're about to spend weeks learning a framework. Before touching code, you need to
-know what the thing actually *is*, because Odoo's architecture only makes sense once
-you understand its business model: one company selling a suite of business apps that
-thousands of other companies customize for their clients. Nearly every design choice
-you'll meet later (modules, inheritance everywhere, views stored as data) exists to
-make that customization industry possible.
+You're about to spend weeks learning a framework. Odoo's architecture only makes sense
+once you know its business model: one company sells a suite of business apps, and
+thousands of other companies customize those apps for their clients.
 
-That sentence is easy to nod at and move past, so here is the sharp version. Almost
-every architectural decision in Odoo is an answer to one question: **how do you let a
+Almost every architectural decision in Odoo answers one question: **how do you let a
 stranger change how this works, without them editing your code?** Modules, inheritance
-everywhere, views stored as data instead of written as files: those are not three
-separate design choices, they are three answers to that same question. Carry it with
-you and the rest of this book stops reading like a list of features and starts reading
-like one idea applied over and over.
+everywhere, views stored as data instead of written as files: not three separate design
+choices, three answers to the same question. Carry that with you and the rest of this
+book stops reading like a list of features and starts reading like one idea applied
+over and over.
 
 ## Concepts
 
@@ -72,16 +68,20 @@ PostgreSQL database. Two things make it different from classical ERPs:
 1. **It's modular to the bone.** Every app is a *module*, and so is every
    customization. Installing "Sales" and installing a 200-line extension you wrote
    yourself use exactly the same mechanism.
-2. **The framework is a product too.** You get a full web framework (ORM, views,
-   reports, access control, web client) that you'll use to build things that look and
+2. **The framework is a product too.** You get an <Term k="ORM">ORM</Term> (the layer that
+   lets you read and write database rows as ordinary Python objects), views, reports,
+   access control and a web client. You'll use all of it to build things that look and
    feel native. That framework is what this tutorial teaches.
 
 ### Apps vs modules
 
 There is no technical difference. An **app** is just a module with
-`'application': True` in its manifest, which makes it show up on the Apps home screen
-with an icon. Modules that extend other modules (most of what you'll write) don't set
-that flag. When Odoo people say *<Term k="addon">addon</Term>*, they also mean module. You'll see
+`'application': True` in its <Term k="manifest">manifest</Term>, the small file that
+describes a module to Odoo. That one flag makes it show up on the Apps home screen with
+an icon. Modules that extend other modules, which is most of what you'll write, don't
+set it.
+
+When Odoo people say *<Term k="addon">addon</Term>*, they also mean module. You'll see
 `--addons-path` as the flag that tells the server where to find them (the
 <Term k="addons path">addons path</Term>).
 

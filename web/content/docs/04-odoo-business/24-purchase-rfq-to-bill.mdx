@@ -9,9 +9,11 @@ two directions at once. · **Time:** ~2 h ·
 
 ## Why this matters
 
-Purchase is the mirror of Sales, and learning it costs you much less than the first one
-did, because the shapes repeat: a draft document, a confirmation that spawns a transfer, a
+Purchase is the mirror of Sales, and it costs much less to learn than the first one did,
+because the shapes repeat: a draft document, a confirmation that spawns a transfer, a
 bill, a state machine. If you understood chapter 22 you already understand most of this.
+(**Procure-to-pay** is just the trade name for that whole run, from asking a supplier for
+a price to paying their bill.)
 
 What is genuinely new is the <Term k="three-way match">**three-way match**</Term>, the discipline of tracking what you
 ordered, what actually arrived, and what you were billed as three separate numbers.
@@ -82,15 +84,16 @@ identically. A `stock.move` has a source location and a destination, so receivin
 does not create them out of nothing. It moves them **from the Vendors location into your
 warehouse**, leaving a negative quantity behind.
 
-Two words to have ready before you meet them in the data. Odoo stores what is on hand as
-`stock.quant` rows, each one recording how much of a product sits in one location, and
-"quant" is just the name of that row. And Vendors is not a shelf: it is a virtual location
-standing for the outside world on the supplier's side, which is why it is perfectly happy
-to hold a negative quantity.
+Two words to have ready before you meet them in the data:
 
-That sounds like bookkeeping pedantry until you see it in the data, which you are about to.
-It is also why Odoo can tell you what you bought from whom without a separate purchase
-history: the negative quants *are* the history.
+- A **quant** (`stock.quant`) is one row recording how much of a product sits in one
+  location. "Quant" is just the name of that row.
+- **Vendors** is not a shelf. It is a virtual location standing for the outside world on
+  the supplier's side, which is why it is perfectly happy to hold a negative quantity.
+
+That sounds like bookkeeping pedantry until you see it in the data, which you are about
+to. It is also why Odoo can tell you what you bought from whom without a separate
+purchase history: the negative quants *are* the history.
 
 ### The vendor bill is the invoice, mirrored
 
@@ -99,12 +102,16 @@ accounting document. A field on it, `move_type`, says which kind you are looking
 `out_invoice` is a customer invoice, `in_invoice` is a vendor bill.
 
 Chapters 27 and 28 teach the accounting itself, so for now just take the shape. Every
-accounting entry is written as lines that balance, one side called **debit** and the other
-**credit**. A customer invoice records what the customer owes you (a debit on Account
-Receivable) against the sale (a credit on an income account). A vendor bill is that
-mirrored: a debit on an **expense** account for the cost, and a credit on **Account
-Payable** for what you now owe the supplier. Bills are also numbered out of a different
-book of entries (a **journal**), which is why they read `BILL/...` rather than `INV/...`.
+accounting entry is written as lines that balance, one side called **debit** and the
+other **credit**.
+
+A customer invoice records what the customer owes you (a debit on Account Receivable)
+against the sale (a credit on an income account). A vendor bill mirrors that: a debit on
+an **expense** account for the cost, and a credit on **Account Payable** for what you now
+owe the supplier.
+
+Bills are also numbered out of a different book of entries (a **journal**), which is why
+they read `BILL/...` rather than `INV/...`.
 
 ## Hands-on
 
@@ -218,7 +225,7 @@ stock.picking       +1
 
 Compare that with chapter 22's confirmation, which produced `WH/OUT` and a Delivery Order.
 Same mechanism, opposite direction: `purchase_stock` overrides confirmation the way
-`sale_stock` does, and each bridge module contributes the transfer its own direction needs.
+`sale_stock` does, each bridge module contributing the transfer its own direction needs.
 
 </Step>
 
@@ -255,11 +262,11 @@ Nothing was created; ten brake pads moved across a boundary, and Odoo recorded b
 exactly as an accounting entry records a debit and a credit.
 
 **`WH/OUT/00044` changed state, and you did not touch it.** That is the *customer delivery
-from chapter 22*, which had been sitting at `confirmed` because there was no stock to
-reserve. Your receipt gave it stock, so it advanced to `assigned`, meaning reserved and
-ready to pick. Nobody ran anything: it is a consequence of inventory being a shared pool
-rather than a per-order ledger. This is the moment Parts 4 and 5 stop being a tour of
-separate apps.
+from chapter 22*, stuck at `confirmed` because there was no stock to reserve. Your receipt
+gave it stock, so it advanced to `assigned`: reserved and ready to pick.
+
+Nobody ran anything. It follows from inventory being a shared pool rather than a per-order
+ledger, and it is the moment Parts 4 and 5 stop being a tour of separate apps.
 
 **And `invoice_status` moved to `to invoice`.** Receiving is what makes the order billable,
 which mirrors chapter 22's delivered-versus-ordered invoicing policy from the buying side.
@@ -297,9 +304,9 @@ comes from the Purchases journal, not the Sales one.
 <Step>
 ### The match, closed
 
-If the shell from step 5 is still open, quit it with `Ctrl-D` and start a new one first. An
-Odoo shell holds a single database transaction open, so it keeps returning the values from
-when it first read, and none of the browser work you have done since would show up:
+If the shell from step 5 is still open, quit it with `Ctrl-D` and start a new one first.
+An Odoo shell holds one database transaction open, so it keeps returning the values it
+first read, and none of your browser work since would show up:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http

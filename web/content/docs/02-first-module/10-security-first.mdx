@@ -11,20 +11,22 @@ model refused every caller without them. · **Time:** ~2 h · **Checkpoint:** `c
 Chapter 9 left a WARNING in the upgrade log and a model only the superuser could
 touch. That wasn't an oversight to rush past: it's the framework teaching you its
 posture. In Odoo, nobody can do anything with a model until a rule says they can,
-and "nobody" includes the admin account. Most tutorials bolt security on at the end;
-integrators learn it first, because on a real project the question is never "can we
-show this data" but "to exactly whom". Getting groups right early also means every
-later chapter (views, wizards, reports) is built and tested against realistic
-permissions instead of superuser fantasy.
+and "nobody" includes the admin account.
 
-If a chapter about permissions this early feels like paperwork standing between you and
-the interesting part, that is worth answering head on rather than asking you to take it
-on trust. **Security in Odoo is not a lock you add to finished work. It is the thing that
-makes the work visible at all.** Right now `librefleet.vehicle` exists, has columns, and
-holds the records you created in chapter 9, and yet no ordinary user can so much as read
-it. Not your colleague, not a technician, not even the admin account. Chapter 11 is going
-to put LibreFleet on screen with menus and views, and without what you write today those
-menus would open onto an error message.
+Most tutorials bolt security on at the end. Integrators learn it first, because on a
+real project the question is never "can we show this data" but "to exactly whom".
+Getting groups right early also means every later chapter, views and wizards and
+reports, is built and tested against realistic permissions rather than superuser
+fantasy.
+
+A chapter about permissions this early can feel like paperwork standing between you and
+the interesting part. So here is the answer up front. **Security in Odoo is not a lock
+you add to finished work. It is the thing that makes the work visible at all.**
+
+Right now `librefleet.vehicle` exists, has columns, and holds the records you created in
+chapter 9. Yet no ordinary user can so much as read it: not your colleague, not a
+technician, not even the admin account. Chapter 11 puts LibreFleet on screen with menus
+and views, and without what you write today those menus would open onto an error message.
 
 So this chapter is not a detour before the features. It is the step that lets the next
 chapter's features exist. Two files do it: one names the **teams**, the other hands out
@@ -35,7 +37,8 @@ their **badges**.
 ### Deny by default
 
 An Odoo model ships with zero permissions. Until an access rule grants a group the
-right to read it, a regular user calling it over RPC gets a real `AccessError`:
+right to read it, a regular user calling it over RPC (remote procedure call, how the
+web client asks the server to do anything) gets a real `AccessError`:
 
 ```text
 AccessError: You are not allowed to access 'Workshop Vehicle' (librefleet.vehicle) records.
@@ -104,9 +107,11 @@ properties matter more than the syntax:
 Chapter 9's shell worked without any ACL because `odoo shell` runs as the
 **<Term k="superuser">superuser</Term>** (`__system__`, uid 1), which skips permission checks entirely. The
 `admin` account is *not* that: it's an ordinary user born into the administration
-groups, and your new model's ACLs don't mention those. That's why this chapter's
-XML explicitly adds admin to Workshop / Manager, and why the honest way to test
-security is <Term k="with_user()">`with_user()`</Term>: it re-runs your code as a real user, checks included.
+groups, and your new model's ACLs don't mention those.
+
+That is why this chapter's XML explicitly adds admin to Workshop / Manager. It is also
+why the honest way to test security is <Term k="with_user()">`with_user()`</Term>, which re-runs your code as a
+real user, checks included.
 
 ## Hands-on
 

@@ -24,21 +24,25 @@ had a single entry posted to it.
 
 None of that is a bug. It is three separate mechanisms doing exactly what they were
 configured to do, and a developer who cannot tell them apart cannot answer the question
-this chapter exists for: **why is the P&L wrong?** That ticket is nearly always one of
-these three, and they have different fixes.
+this chapter exists for: **why is the P&L wrong?** (The profit and loss report, which sums
+revenue against expenses.) That ticket is nearly always one of these three, and they have
+different fixes.
 
 Before any of it makes sense, though, one idea has to land, and it is not really an
 accounting idea. **Stock on a shelf is not stuff. It is money you have already spent and
 not yet earned back.** You paid a supplier for those brake pads, and until you sell them
 that money is simply parked in a different shape: boxes instead of cash.
 
-That is what makes the rest of the chapter reasonable rather than arbitrary. The part that
-looks absurd at first is that *moving a box* can write a journal entry, because nobody
-bought or sold anything at the moment you validate a picking. It writes one because the
-money changed shape. Goods going out to a customer turn parked money into an expense you
-can set against the sale. Goods arriving from a vendor turn cash into parked money. And
-carrying a box from one of your own shelves to another changes nothing whatsoever, which is
-exactly why Odoo values those moves at zero.
+That is what makes the rest of the chapter reasonable rather than arbitrary.
+
+The part that looks absurd at first is that *moving a box* can write a journal entry.
+Nobody bought or sold anything at the moment you validate a picking. It writes one because
+the money changed shape:
+
+- **Goods out to a customer** turn parked money into an expense you can set against the sale.
+- **Goods in from a vendor** turn cash into parked money.
+- **A box moved between your own shelves** changes nothing whatsoever, which is exactly why
+  Odoo values those moves at zero.
 
 This is also where Part 4 and Part 5 finally join. The delivery you are about to validate
 has been sitting in your database since chapter 22.

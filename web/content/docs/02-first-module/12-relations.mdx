@@ -11,12 +11,16 @@ relation types, and enforce who may touch which order. · **Time:** ~3 h ·
 
 A fleet of unconnected vehicles is a spreadsheet. The moment a vehicle knows its
 owner, an order knows its vehicle, and a technician knows their orders, you have a
-business application. Relations are where the ORM earns its keep, and they're also
-where new Odoo developers make their most expensive mistakes (wrong `ondelete`,
-inverted one2many, record rules that lock out the boss). This chapter builds
-LibreFleet's centerpiece, the **service order**, wires all three relation types
-around it, and pays the debt from chapter 10: the record rule that limits
-technicians to their own work.
+business application.
+
+Relations are where the ORM (the layer that maps your Python classes onto database
+tables) earns its keep. They are also where new Odoo developers make their most
+expensive mistakes: wrong `ondelete`, inverted one2many, record rules that lock out
+the boss.
+
+This chapter builds LibreFleet's centerpiece, the **service order**, wires all three
+relation types around it, and pays the debt from chapter 10: the record rule that
+limits technicians to their own work.
 
 ## Concepts
 
@@ -35,8 +39,8 @@ technicians to their own work.
   many orders, orders can need two mechanics. In Postgres this becomes a separate
   *relation table* of id pairs that Odoo names and manages for you.
 
-Those three bullets contain the whole story, but it is easier to hold as a grid. The
-column that matters most is the middle one, because it is the one readers guess wrong:
+Those three bullets are the whole story, but a grid is easier to hold. The middle
+column matters most, because it is the one readers guess wrong:
 
 | | What Postgres gets | Where the data actually lives | What you must declare |
 |---|---|---|---|
@@ -44,12 +48,14 @@ column that matters most is the middle one, because it is the one readers guess 
 | `One2many` | **nothing at all** | on the other table's `Many2one` | the comodel *and* the inverse field |
 | `Many2many` | a separate relation table of id pairs | in that relation table | the comodel |
 
-Read the `One2many` row again, because it explains something that otherwise feels like a
-contradiction later in this chapter. A one2many has no column, no storage, nothing of its
-own. Yet you can assign to it, and this chapter will have you do exactly that with command
-lists. Both facts are true: **writing to a one2many is really writing the many2one on the
-records at the other end.** The field is a question ("which orders point at me?"), and
-answering it differently means changing what points at you.
+Read the `One2many` row again. It explains something that otherwise feels like a
+contradiction later in this chapter.
+
+A one2many has no column, no storage, nothing of its own. Yet you can assign to it, and
+this chapter will have you do exactly that. Both facts are true: **writing to a one2many
+is really writing the many2one on the records at the other end.** The field is a question
+("which orders point at me?"), and answering it differently means changing what points at
+you.
 
 <Mermaid
   label="An owner has many vehicles, a vehicle has many service orders, each order has a service type, many order lines and many technicians, each line has one part"
@@ -64,8 +70,9 @@ answering it differently means changing what points at you.
 
 ### `ondelete`: decide now what deletion means
 
-Every Many2one carries an <Term k="ondelete">`ondelete`</Term> policy, and the default (`set null`) is a
-decision too. LibreFleet uses all three settings deliberately:
+Every Many2one carries an <Term k="ondelete">`ondelete`</Term> policy: what should happen to this record when
+the record it points at is deleted. The default (`set null`) is a decision too.
+LibreFleet uses all three settings deliberately:
 
 | Field | Policy | Because |
 | --- | --- | --- |
@@ -78,27 +85,35 @@ SQL. You'll read them straight out of `\d` in the hands-on.
 
 ### Record rules: the per-record layer, at last
 
-Chapter 10 promised it: ACLs answer "may technicians write orders at all" (yes),
-<Term k="record rule">record rules</Term> answer "*which* orders". An `ir.rule` attaches a domain to a model for
-some groups; the ORM silently appends it to every read, write, create or unlink the
-rule is flagged for (`perm_read`, `perm_write`...).
+Chapter 10 promised it. ACLs (the model-wide access lists from that chapter) answer
+"may technicians write orders at all" (yes). <Term k="record rule">Record rules</Term> answer "*which* orders".
+
+An `ir.rule` attaches a domain to a model for some groups. The ORM silently appends
+that domain to every read, write, create or unlink the rule is flagged for
+(`perm_read`, `perm_write`...).
 
 One behavior surprises everyone once, so learn it on purpose: **rules from all your
-groups combine with OR, and having *any* rule on a model means users without a
-matching rule get nothing.** Workshop managers are also Workshop users (chapter
-10's `implied_ids`), so a technicians-only rule catches managers too, unless the
-manager group gets its own rule saying "everything" (`[(1, '=', 1)]`). The
-hands-on walks you into that trap with your own admin account, then out of it.
+groups combine with OR, and once any rule exists on a model, a user with no matching
+rule gets nothing.** Workshop managers are also Workshop users (chapter 10's
+`implied_ids`), so a technicians-only rule catches managers too. The fix is giving the
+manager group its own rule saying "everything" (`[(1, '=', 1)]`). The hands-on walks you
+into that trap with your own admin account, then out of it.
 
 ### x2many values: the command list
 
 You'll meet writes like `technician_ids: [(4, tina.id)]` in this chapter's shell
-work (you already saw one in chapter 10's group XML). Relational fields are written
-with a small <Term k="command list (x2many commands)">command language</Term>: `(4, id)` links an existing record, `(0, 0, {vals})`
-creates one attached to the parent, `(6, 0, [ids])` replaces the whole set,
-`(3, id)`/`(2, id)` unlink or delete one. Since Odoo 15 you can also write them
-readably as `Command.link(id)`, `Command.create(vals)` and so on; the tuple form is
-what you'll encounter in twenty years of existing code, so learn to read both.
+work (you already saw one in chapter 10's group XML). One2many and many2many fields
+are written with a small <Term k="command list (x2many commands)">command language</Term>, a list of tuples where the first number
+says what to do:
+
+- `(4, id)` links an existing record
+- `(0, 0, {vals})` creates one attached to the parent
+- `(6, 0, [ids])` replaces the whole set
+- `(3, id)` / `(2, id)` unlink or delete one
+
+Since Odoo 15 you can also write them readably as `Command.link(id)`,
+`Command.create(vals)` and so on. The tuple form is what you'll meet in twenty years
+of existing code, so learn to read both.
 
 ## Hands-on
 
@@ -150,12 +165,15 @@ class ServiceOrderLine(models.Model):
     price_unit = fields.Float(string="Unit Price")
 ```
 
-New pieces beyond the relations themselves: **`Selection`** stores one key from a
-closed list (the string next to each key is the label users see); the order's
-lifecycle lives here until chapter 17 turns it into a statusbar. `index=True` on
-the heavily-searched Many2ones adds a real database index. `_rec_name =
-"vehicle_id"` borrows the vehicle's display name until chapter 14 gives orders a
-proper reference. And until chapter 13 computes them, prices sit as plain floats.
+Four new pieces beyond the relations themselves:
+
+- **`Selection`** stores one key from a closed list, and the string next to each key
+  is the label users see. The order's lifecycle lives here until chapter 17 turns it
+  into a statusbar.
+- **`index=True`** on the heavily-searched Many2ones adds a real database index.
+- **`_rec_name = "vehicle_id"`** borrows the vehicle's display name until chapter 14
+  gives orders a proper reference.
+- **Prices** sit as plain floats until chapter 13 computes them.
 
 </Step>
 
@@ -180,13 +198,15 @@ class Part(models.Model):
     list_price = fields.Float(help="What the customer pays for it.")
 ```
 
-Deliberately *not* Odoo's `product` module: bridging LibreFleet to real products
-is chapter 32's whole point, and a catalog this small doesn't earn that
-complexity yet. `standard_cost` and `list_price` are plain floats today; chapter
-13 computes the order's real margin from the gap between them, and defaults a
-line's price from `list_price` the moment you pick a part. Import both new
-files in `models/__init__.py` (alphabetical, so `part`, `service_order`,
-`service_type`, `vehicle`).
+Deliberately *not* Odoo's `product` module. Bridging LibreFleet to real products is
+chapter 32's whole point, and a catalog this small doesn't earn that complexity yet.
+
+`standard_cost` and `list_price` are plain floats today. Chapter 13 computes the
+order's real margin from the gap between them, and defaults a line's price from
+`list_price` the moment you pick a part.
+
+Import both new files in `models/__init__.py`, alphabetically: `part`,
+`service_order`, `service_type`, `vehicle`.
 
 </Step>
 
@@ -200,9 +220,9 @@ Two lines in `vehicle.py`, right after `license_plate`:
     service_order_ids = fields.One2many("librefleet.service.order", "vehicle_id")
 ```
 
-`res.partner` is core Odoo's universal person/company model; linking to it instead
+`res.partner` is core Odoo's universal person/company model. Linking to it instead
 of inventing a customer model is the single most integrator-brained decision in
-this chapter. Every module that touches partners (mail, invoicing, portal) now
+this chapter: every module that touches partners (mail, invoicing, portal) now
 composes with yours for free.
 
 Three new Python files this chapter, and every model from chapter 8 on is now wired
@@ -252,8 +272,8 @@ access_librefleet_part_user,librefleet.part user,model_librefleet_part,group_lib
 access_librefleet_part_manager,librefleet.part manager,model_librefleet_part,group_librefleet_manager,1,1,1,1
 ```
 
-Read the booleans as chapter 10 taught you (read, write, create, unlink), and
-notice what's *deliberately* granted to the plain user group:
+Read the booleans as chapter 10 taught you: read, write, create, unlink. Notice what
+is *deliberately* granted to the plain user group:
 
 - **`part`** is read-only (1,0,0,0): technicians consult the catalog but don't
   edit it.
@@ -271,12 +291,12 @@ notice what's *deliberately* granted to the plain user group:
 ### The record rule, and the trap
 
 Append the technician rule to `security/librefleet_security.xml`, inside a
-`<data noupdate="1">` block (rules are policy, not code; `noupdate` keeps a later
-upgrade from overwriting what a client tuned in production; chapter 34 returns to
-this). Quick reminder before the code, since it looks a lot like step 4's ACLs
-but is not the same layer: Concepts already drew the line, the ACL you just wrote
-answers "can technicians touch orders *at all*" (yes); this record is the next,
-separate layer, answering "*which* orders":
+`<data noupdate="1">` block. Rules are policy, not code, and `noupdate` keeps a later
+upgrade from overwriting what a client tuned in production. Chapter 34 returns to this.
+
+One reminder before the code, because this looks a lot like step 4's ACLs and is not the
+same layer. The ACL you just wrote answers "can technicians touch orders *at all*" (yes).
+This record is the next, separate layer, answering "*which* orders":
 
 ```xml
     <data noupdate="1">
@@ -304,21 +324,22 @@ Field by field:
 | `domain_force` | the actual filter, see below |
 | `perm_read`/`perm_write`/`perm_create`/`perm_unlink` | which of the four operations this rule restricts; a `False` here means that operation isn't gated by this rule at all, not "deny" |
 
-`domain_force` is the one field here written as plain text instead of
-`eval="..."`, and that is deliberate: a domain needs to see `user`, whoever is
-actually logged in at the moment of the check, so it cannot be resolved once
-when the XML loads the way `ref()` is. It gets evaluated fresh on every single
-access check instead. Chapter 15 covers domains properly, but you need just
-enough now to read this one: a **domain** is a list of `(field, operator,
-value)` conditions, and `[('technician_ids', 'in', user.ids)]` reads as "keep
-this record only if the logged-in user's id shows up somewhere in its
-`technician_ids`". `.ids` (plural), not `.id`: `in` compares against a list, and
-`technician_ids` is a many2many, so a list is exactly what belongs on both
-sides.
+`domain_force` is the one field written as plain text instead of `eval="..."`, and that
+is deliberate. A domain needs to see `user`, whoever is logged in at the moment of the
+check, so it cannot be resolved once when the XML loads the way `ref()` is. It gets
+evaluated fresh on every access check instead.
 
-Put together: `perm_read=False` means reading stays unrestricted (technicians
-see the whole planning, they just can't touch foreign orders), while the other
-three `True` means this domain genuinely gates writing, creating and deleting.
+Chapter 15 covers domains properly. You need just enough now to read this one: a
+**domain** is a list of `(field, operator, value)` conditions. So
+`[('technician_ids', 'in', user.ids)]` reads as "keep this record only if the logged-in
+user's id shows up somewhere in its `technician_ids`".
+
+Note `.ids` (plural), not `.id`. `in` compares against a list, and `technician_ids` is a
+many2many, so a list belongs on both sides.
+
+Put together: `perm_read=False` means reading stays unrestricted, so technicians see the
+whole planning and just can't touch foreign orders. The other three set to `True` mean
+this domain genuinely gates writing, creating and deleting.
 
 Upgrade, then open the shell:
 
@@ -339,16 +360,14 @@ INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 261 queri
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
 
-Both are the two commands chapter 6 introduced (`-u` upgrades, `shell` opens this
-interactive session); the query count is only ever approximate, don't worry if yours
-differs a little.
+Both are commands chapter 6 introduced: `-u` upgrades, `shell` opens the interactive
+session. The query count is only ever approximate, so don't worry if yours differs.
 
-Everything from here through the trap below happens in this one session,
-paste each piece one after another, in order, without exiting: later pieces
-use variables (`zh`, `tina`, `oil_filter`...) that earlier ones create. Four
-small pieces rather than one wall of code (the same script, all in one
-place, lives in `code/checkpoints/ch12/seed_ch12.py` if you'd rather paste
-it whole).
+Everything from here through the trap below happens in **one** shell session. Paste each
+piece in order without exiting, because later pieces use variables (`zh`, `tina`,
+`oil_filter`...) that earlier ones create. It is split into four small pieces rather than
+one wall of code; the same script lives whole in `code/checkpoints/ch12/seed_ch12.py` if
+you would rather paste it in one go.
 
 First, two partners to own your two vehicles:
 
@@ -361,10 +380,10 @@ be = env["librefleet.vehicle"].search([("license_plate", "=", "BE 30 447")])
 zh.owner_id, be.owner_id = anna, beat
 ```
 
-`create()` on a list of dicts returns a recordset in the same order, which is
-why unpacking straight into `anna, beat` works. Writing `zh.owner_id = anna` is
-just a plain field assignment, nothing relation-specific, because you already
-hold the record.
+`create()` on a list of dicts returns a recordset (Odoo's container for records, covered
+properly in chapter 15) in the same order, which is why unpacking straight into
+`anna, beat` works. Writing `zh.owner_id = anna` is a plain field assignment, nothing
+relation-specific, because you already hold the record.
 
 Next, three parts for the catalog you modeled two steps ago:
 
@@ -408,9 +427,8 @@ o2 = env["librefleet.service.order"].create({
 env.cr.commit()
 ```
 
-The one difference that matters: `o1` gets a technician (tina), `o2` gets
-none at all, which is exactly what makes `o2` the order to test the trap
-against next.
+One difference matters: `o1` gets a technician (tina), `o2` gets none at all. That is
+what makes `o2` the order to test the trap against.
 
 Now walk into the trap. As **admin**, try to confirm the order tina is
 *not* on:
@@ -426,18 +444,16 @@ If you really, really need access, perhaps you can win over your friendly
 administrator with a batch of freshly baked cookies.
 ```
 
-The boss is locked out of the workshop. Why: admin is a Workshop Manager, Manager
-implies User, so the technician rule applies to admin, and admin is in
-`technician_ids` of nothing. This is the most common record-rule bug in the wild,
-and now you've caused it yourself.
+The boss is locked out of the workshop. Admin is a Workshop Manager, Manager implies
+User, so the technician rule applies to admin, and admin is in `technician_ids` of
+nothing. This is the most common record-rule bug in the wild, and now you have caused it
+yourself.
 
-Prefer to see the same trap in the browser instead of the shell? Log in as
-admin at [localhost:8069](http://localhost:8069), open the brake inspection
-order (`o2`, the one without tina), and try to change its stage: the same
-`AccessError`, shown as an in-app error dialog instead of a shell traceback.
-`with_user()` is only how you *simulate* being someone else from the shell;
-logging in as admin for real hits the identical rule the identical way, no
-simulation needed.
+Want to see it in the browser instead? Log in as admin at
+[localhost:8069](http://localhost:8069), open the brake inspection order (`o2`, the one
+without tina), and try to change its stage. Same `AccessError`, shown as an in-app dialog
+instead of a shell traceback. `with_user()` only *simulates* being someone else from the
+shell; logging in as admin for real hits the identical rule the identical way.
 
 The fix is the standard pattern, a second rule that gives managers everything:
 
@@ -450,11 +466,13 @@ The fix is the standard pattern, a second rule that gives managers everything:
         </record>
 ```
 
-`[(1, '=', 1)]` is not testing a real field, `1` is not a column on service
-orders; it is the standard idiom for "always true", comparing a literal to
-itself so every record passes. Upgrade, retest: admin writes any order (rules
-OR together, and this domain matches everything), while tina still bounces off
-foreign orders. The server log narrates every denial:
+`[(1, '=', 1)]` is not testing a real field: `1` is not a column on service orders. It is
+the standard idiom for "always true", comparing a literal to itself so every record
+passes.
+
+Upgrade and retest. Admin now writes any order, because rules OR together and this domain
+matches everything, while tina still bounces off foreign orders. The server log narrates
+every denial:
 
 ```text
 INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for operation: write on record ids: [2], uid: 2, model: librefleet.service.order
@@ -465,12 +483,12 @@ INFO tutorial odoo.addons.base.models.ir_rule: Access Denied by record rules for
 <Step>
 ### Views and menus for the new models
 
-Nothing conceptually new here, chapter 11 already walked the menu→action→view chain in
-full, but "nothing new" is not a reason to skip it. `views/service_order_views.xml`,
-list and form:
+Nothing conceptually new here: chapter 11 already walked the menu→action→view chain in
+full. But "nothing new" is not a reason to skip it.
 
-This is a brand-new file, so it needs the same `<?xml?>` declaration and `<odoo>`
-wrapper every file in this module opens with, not just the `<record>`s themselves:
+First `views/service_order_views.xml`, list and form. This is a brand-new file, so it
+needs the same `<?xml?>` declaration and `<odoo>` wrapper every file in this module opens
+with, not just the `<record>`s themselves:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -539,16 +557,18 @@ wrapper every file in this module opens with, not just the `<record>`s themselve
 </odoo>
 ```
 
-Two `<group>`s side by side ("What and for whom" / "When") is the same two-column
-layout chapter 11's vehicle form used; "Parts used" and "Notes" each get a full-width
-group of their own below. `nolabel="1"` drops a field's own label when the group's
-`string=` already says what it holds. The action's `help` is what a reader sees on an
-empty list, not decoration: `o_view_nocontent_smiling_face` is Odoo's own empty-state
-illustration class, applied by name rather than built from scratch.
+Two `<group>`s side by side ("What and for whom" / "When") is the same two-column layout
+chapter 11's vehicle form used. "Parts used" and "Notes" each get a full-width group of
+their own below.
 
-`views/part_views.xml` is shorter, and reuses a pattern chapter 11 already covered for
-service types: an editable list standing in for a form entirely. Another brand-new
-file, so the same wrapper again:
+`nolabel="1"` drops a field's own label when the group's `string=` already says what it
+holds. The action's `help` is what a reader sees on an empty list, not decoration:
+`o_view_nocontent_smiling_face` is Odoo's own empty-state illustration class, applied by
+name rather than built from scratch.
+
+`views/part_views.xml` is shorter, reusing a pattern chapter 11 already covered for
+service types: an editable list standing in for a form entirely. Another brand-new file,
+so the same wrapper again:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -595,18 +615,20 @@ Service Orders, Configuration → Parts.
           sequence="20"/>
 ```
 
-Two details in the form above deserve extra attention: `technician_ids` carries
-`widget="many2many_tags"`, and `line_ids` nests a `<list>` inside it.
+Two details in the form above deserve attention:
 
-`widget=` picks a different renderer for the same data (tags beat a full table for
-a handful of technicians; chapter 17 tours the widget zoo). And nesting a `<list>`
-inside a one2many field gives you the inline lines editor every Odoo order screen
-uses; rows you add there are `(0, 0, {...})` commands under the hood. Also add
-`owner_id` to the vehicle list and form from chapter 11.
+- **`technician_ids` carries `widget="many2many_tags"`.** A `widget=` picks a different
+  renderer for the same data, and tags beat a full table for a handful of technicians.
+  Chapter 17 tours the widget zoo.
+- **`line_ids` nests a `<list>` inside it.** That gives you the inline lines editor every
+  Odoo order screen uses, and rows you add there are `(0, 0, {...})` commands under the
+  hood.
+
+Also add `owner_id` to the vehicle list and form from chapter 11.
 
 Both new view files need registering in `__manifest__.py`'s `data` list, above
-`views/librefleet_menus.xml`, the same file-ordering rule you already know from every
-earlier chapter: a menu can only point at an action that loaded before it did.
+`views/librefleet_menus.xml`. Same file-ordering rule as every earlier chapter: a menu
+can only point at an action that loaded before it did.
 
 ```python title="addons/librefleet/__manifest__.py"
     "data": [
@@ -620,13 +642,14 @@ earlier chapter: a menu can only point at an action that loaded before it did.
     ],
 ```
 
-Miss this and the upgrade won't even complain about the views, it'll die on the
-menu items instead: `External ID not found in the system: librefleet.action_librefleet_service_order`,
-since a `<menuitem>`'s `action=` resolves against records already in the database, and
-these two never got loaded to become one. Bump the version to `19.0.1.4.0` while
-you're in the manifest, then upgrade (no restart needed, chapter 10's
-registry-signaling finding again), and click through: Fleet → Service Orders, open
-the oil change, add a line, pick technicians by name.
+Miss this and the upgrade won't complain about the views. It dies on the menu items
+instead: `External ID not found in the system: librefleet.action_librefleet_service_order`.
+A `<menuitem>`'s `action=` resolves against records already in the database, and these two
+never got loaded to become one.
+
+Bump the version to `19.0.1.4.0` while you are in the manifest, then upgrade (no restart
+needed, chapter 10's registry-signaling finding again). Click through: Fleet → Service
+Orders, open the oil change, add a line, pick technicians by name.
 
 ![The oil change service order: Technicians tag widget showing Tina Technician, a Parts Used inline editable list with oil filter and engine oil lines, scheduling fields on the right](/screens/ch12-service-order-form.jpg)
 
@@ -667,17 +690,17 @@ ForeignKeyViolation: update or delete on table "librefleet_vehicle" violates for
 <BreakIt />
 ### Break-it lab: the inverse that isn't
 
-One2many's inverse name is a string, and strings can lie. In `line_ids`, change
+A One2many's inverse name is a string, and strings can lie. In `line_ids`, change
 `"order_id"` to `"service_order_id"` and upgrade:
 
 ```text
 ValueError: 'service_order_id' declared in 'librefleet.service.order.line_ids' does not exist on 'librefleet.service.order.line'.
 ```
 
-This one fails at registry setup, before any XML loads, so the message is short and
-surgical: the One2many names its comodel and the exact field it expected to find
-there. When you meet it in real life it's usually a rename that only got done on
-one side. Restore `"order_id"`, upgrade, breathe.
+This fails at registry setup, before any XML loads, so the message is short and surgical:
+the One2many names its comodel and the exact field it expected to find there. In real
+life this is usually a rename that only got done on one side. Restore `"order_id"`,
+upgrade, breathe.
 </Step>
 
 </Steps>

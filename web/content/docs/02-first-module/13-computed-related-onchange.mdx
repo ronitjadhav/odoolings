@@ -16,14 +16,12 @@ and your app feels alive; do it badly and you ship the worst class of bug there 
 numbers that are *silently wrong*. This chapter builds all three derivation tools
 into LibreFleet and then breaks one on purpose so you recognize the failure forever.
 
-Here is the thing that makes this chapter harder than it should be, and it is worth
-saying before the code arrives. **All three tools look identical from the outside.**
-Computed, related and onchange each put a value into a field that the user never typed,
-so on screen they are indistinguishable, and a reader reasonably wonders why Odoo needs
-three of them at all.
+One thing makes this chapter harder than it should be: **all three tools look identical
+from the outside.** Computed, related and onchange each put a value into a field the user
+never typed. On screen you cannot tell them apart, so it is fair to wonder why Odoo needs
+three.
 
-The question that separates them is not what they do, it is **who owns the value once
-it is there**:
+What separates them is not what they do. It is **who owns the value once it is there**:
 
 - A **computed** field is owned by the framework, forever. It recalculates whenever its
   inputs change, and you cannot type over it.
@@ -37,8 +35,8 @@ chapter's final experiment is able to sidestep one.
 
 ## Concepts
 
-Keep this table in view while you read the three sections below. It is the same three
-tools, lined up on the questions that actually decide which one a ticket needs:
+Keep this table in view while you read. It lines the three tools up on the questions that
+actually decide which one a ticket needs:
 
 | | Computed | Related | Onchange |
 |---|---|---|---|
@@ -64,12 +62,15 @@ def _compute_subtotal(self):
         line.subtotal = line.qty * line.price_unit
 ```
 
-Two contracts to respect. The compute method receives a <Term k="recordset">recordset</Term> and must
-assign a value to *every* record in it, hence the loop. And `depends` is not
-documentation: it is the trigger wiring. When `qty` changes, the ORM marks
-`subtotal` stale and recomputes it at the right moment, cascading into anything
-that depends on `subtotal` in turn. Dotted paths (`line_ids.subtotal`) let a parent
-watch its children.
+Two contracts to respect:
+
+- **Assign every record.** The method receives a <Term k="recordset">recordset</Term> (a
+  collection of records, sometimes just one), and must set the value on *all* of them.
+  That is what the loop is for.
+- **`depends` is wiring, not documentation.** When `qty` changes, the ORM marks
+  `subtotal` stale and recomputes it at the right moment, cascading into anything that
+  depends on `subtotal` in turn. Dotted paths (`line_ids.subtotal`) let a parent watch
+  its children.
 
 ### Store or don't store
 
@@ -88,20 +89,22 @@ presence and absence of columns in psql.
 ### Related fields: a path, not a formula
 
 A <Term k="related field">related field</Term>, `customer_id = fields.Many2one(related="vehicle_id.owner_id", store=True)`, is a
-computed field the framework writes for you: follow the path, mirror the value. The
-blueprint stores this one, which buys a real column that search, group-by and the
-future portal can use, and the dependency system still updates it when the owner
-changes. That's worth staring at: change the *partner on the vehicle*, and every
-stored copy on every order fixes itself.
+computed field the framework writes for you: follow the path, mirror the value.
+
+The blueprint stores this one. That buys a real column for search, group-by and the future
+portal, and the dependency system still updates it when the owner changes. Worth staring
+at: change the *partner on the vehicle*, and every stored copy on every order fixes itself.
 
 ### Onchange: a UI suggestion, nothing more
 
 An <Term k="onchange">`@api.onchange("part_id")`</Term> runs **in the form view only**, while the user edits,
 on a draft record that isn't saved yet. It's perfect for prefilling: pick a part,
 get its list price as the suggested `price_unit`, still editable for a discount.
-Its sharp edge: code paths (shell, RPC, imports, other modules) never trigger it.
-An onchange is UX sugar, not a business rule; anything that must *always* hold
-belongs in computes, defaults or constraints (chapter 14).
+
+Its sharp edge: code paths never trigger it. That means the shell, imports, other
+modules, and RPC (a program calling Odoo over the network instead of a person clicking).
+An onchange is UX sugar, not a business rule. Anything that must *always* hold belongs
+in computes, defaults or constraints (chapter 14).
 
 <Callout type="info" title="In the field">
   Modern Odoo code increasingly replaces onchange with "computed editable" fields
@@ -187,10 +190,11 @@ On the order model:
             order.margin = order.parts_total + order.labor_total - parts_cost
 ```
 
-One method may fill several fields (they recompute together anyway). Read the
-`depends` list like an audit: subtotals, quantities, part costs, the fee. Miss one
-and the totals lie *sometimes*, which is worse than always. In the form, a "Money"
-group shows the three:
+One method may fill several fields, since they recompute together anyway. Read the
+`depends` list like an audit: subtotals, quantities, part costs, the fee. Miss one and the
+totals lie *sometimes*, which is worse than always.
+
+In the form, a "Money" group shows the three:
 
 ```xml
 <group string="Money">
@@ -200,9 +204,9 @@ group shows the three:
 </group>
 ```
 
-`groups=` on a single `<field>` is the same view-level trim chapter 11's menu items
-used, just aimed at one field instead of a whole menu: technicians see Parts Total and
-Labor Total, but Margin, the workshop's actual cut, only renders for managers.
+`groups=` on a single `<field>` is the same view-level trim chapter 11's menu items used,
+aimed at one field instead of a whole menu. Technicians see Parts Total and Labor Total;
+Margin, the workshop's actual cut, only renders for managers.
 </Step>
 
 <Step>
@@ -252,8 +256,9 @@ Do not skip that line. Chapter 16 builds an extension view whose xpath searches 
 for `service_count`, and a locator that matches nothing is a hard error: the upgrade
 aborts with `Element '<xpath expr="//field[@name='service_count']">' cannot be located in
 parent view`, and every record in that file fails to load, not just the one patch.
+
 Chapter 17 then *moves* this field into a smart button on purpose, which is how it teaches
-that anchoring an xpath on a field someone can move is fragile. Both of those need the
+that anchoring an xpath on a field someone can move is fragile. Both chapters need the
 plain field here first.
 
 (Chapter 17 is where this stops being a bare integer and becomes the stat button every
@@ -282,14 +287,16 @@ INFO tutorial odoo.models: Prepare computation of librefleet.service.order.line.
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 279 queries (+279 other)
 ```
 
-That one line is the whole backfill, and only one line, not six, is exactly the point:
-`subtotal` is the only field of the bunch declared `store=True`, so it is the only one
-with a real column that existing rows need a value written into. `parts_total`,
-`labor_total` and `margin` have no `store=True` at all, they are computed fresh on every
-read, so there is nothing to backfill, no column, no log line, just live arithmetic.
-`customer_id` is `store=True` too, but as a `related` field its column gets its initial
-value copied in directly rather than through this same compute-and-log path, so it
-updates correctly without a matching line of its own.
+That one line is the whole backfill, and one line rather than six is exactly the point:
+
+- **`subtotal`** is the only field declared `store=True`, so it is the only one with a
+  real column that existing rows need a value written into.
+- **`parts_total`, `labor_total` and `margin`** have no `store=True`. They are computed
+  fresh on every read, so there is nothing to backfill: no column, no log line, just live
+  arithmetic.
+- **`customer_id`** is `store=True` too, but as a `related` field its column gets its
+  initial value copied in directly rather than through this compute-and-log path. It
+  updates correctly without a log line of its own.
 </Step>
 
 <Step>
@@ -307,8 +314,8 @@ Now the same physics from the shell. Open one:
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
 
-Everything from here through the break-it lab at the end of this chapter happens in
-this one session, paste each piece one after another, in order, without exiting.
+Everything from here through the break-it lab happens in **one** shell session. Paste each
+piece in order, without exiting.
 
 ```console
 >>> o1 = env["librefleet.service.order"].browse(1)
@@ -347,9 +354,9 @@ Still in the shell, create a line the way an import or another module would:
 0.0
 ```
 
-Part chosen, price zero: the onchange never ran, because nobody was typing in a
-form. This is not a bug, it's the definition, and it's why business rules don't
-live in onchange. Roll back to discard the broken line.
+Part chosen, price zero. The onchange never ran, because nobody was typing in a form.
+This is not a bug, it is the definition, and it is why business rules do not live in
+onchange. Roll back to discard the broken line.
 </Step>
 
 <Step>
@@ -377,11 +384,12 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select qty, price_unit, su
    3 |       24.5 |     24.5
 ```
 
-Now restore the decorator and upgrade, and note something important: **the stale
-value stays stale** until a dependency actually changes (read it back: still 24.5).
-Fixing the code doesn't fix the data; touching `qty` again does. On a production
-database that's a targeted recompute script, not a shrug. Set `qty` back to 1 and
-commit, which both heals and restores the checkpoint state.
+Now restore the decorator and upgrade. Note something important: **the stale value stays
+stale** until a dependency actually changes. Read it back and it is still 24.5.
+
+Fixing the code does not fix the data; touching `qty` again does. On a production database
+that means a targeted recompute script, not a shrug. Set `qty` back to 1 and commit, which
+both heals the row and restores the checkpoint state.
 </Step>
 
 </Steps>

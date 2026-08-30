@@ -10,12 +10,13 @@ and form views. · **Time:** ~2.5 h · **Checkpoint:** `code/checkpoints/ch11`
 
 Three chapters in, LibreFleet still has no user interface: you've been living in
 psql and the shell. Today the app appears in the Apps menu with its icon, opens a
-vehicle list, and lets a manager configure service types in two clicks. The
-machinery behind that (menus pointing at actions pointing at views describing
-models) is the everyday medium of integration work; on a real project you will
-write ten times more view XML than Python. And because every piece of it is just
-records in `ir.*` models, everything you learned about data files, XML ids and load
-order carries straight over.
+vehicle list, and lets a manager configure service types in two clicks.
+
+The machinery behind that is menus pointing at actions pointing at views describing
+models. It is the everyday medium of integration work: on a real project you will
+write ten times more view XML than Python. And every piece of it is just records in
+`ir.*` models, so everything you learned about data files, XML ids and load order
+carries straight over.
 
 ## Concepts
 
@@ -41,8 +42,8 @@ When a user clicks "Vehicles", four layers cooperate:
   uses it to know which fields to fetch.
 
 Four layers to put a list of vehicles on screen is a fair thing to raise an eyebrow at.
-Most frameworks would have you point a route at a template and be done. So it is worth
-knowing what the indirection buys, because it is not ceremony:
+Most frameworks would have you point a route at a template and be done. Here is what
+the indirection buys, because it is not ceremony:
 
 - One model, **many actions**. "All Vehicles" and "Vehicles Due for Service" are two
   actions with different domains over the same model and the same views.
@@ -52,11 +53,13 @@ knowing what the indirection buys, because it is not ceremony:
   what that action renders.
 
 All three are regular records loaded from your data files. Chapter 8's slogan ("the
-UI is data") stops being abstract today, and it has a consequence worth flagging now
-even though you will not use it until Part 6: because each layer is a record rather than
-code, **somebody else's module can replace any one layer without editing your files.**
-That is what makes "never modify core, always extend" possible at all, and the seams
-you are building today are exactly where that happens.
+UI is data") stops being abstract today.
+
+That has one consequence worth flagging now, even though you will not use it until
+Part 6. Because each layer is a record rather than code, **somebody else's module can
+replace any one layer without editing your files.** That is what makes "never modify
+core, always extend" possible at all, and the seams you build today are exactly where
+it happens.
 
 ### List and form, the two views you cannot skip
 
@@ -102,9 +105,11 @@ main menu. Two attributes do the everyday work:
 
 Views need a model, and vehicles are getting crowded, so this chapter adds the
 blueprint's smallest one: `librefleet.service.type`, the workshop's price list
-("Oil change, 89 CHF, one hour"). Three scalar fields, no relations, perfect first
-customer for an **<Term k="editable list">editable list</Term>**: `<list editable="bottom">` lets users add and
-edit rows inline, no form round-trip, exactly right for quick config tables.
+("Oil change, 89 CHF, one hour").
+
+Three scalar fields, no relations. That makes it the perfect first customer for an
+**<Term k="editable list">editable list</Term>**. `<list editable="bottom">` lets users add and edit rows inline,
+with no form round-trip, exactly right for quick config tables.
 
 ## Hands-on
 
