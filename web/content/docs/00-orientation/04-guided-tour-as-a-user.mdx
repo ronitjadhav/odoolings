@@ -14,15 +14,19 @@ and once you've clicked through them, the framework's vocabulary stops being abs
 Developers who skip this stage write modules that fight the platform; developers who
 know the product write modules that feel native.
 
-An hour of clicking can feel like the wrong job for a developer, so it is worth being
-concrete about what skipping it costs. You are about to spend Part 2 building things
-called customers, orders and stages. Odoo already has all three, with opinions about
-how they behave. Build yours without ever having seen Odoo's, and you will invent
-versions that are subtly different for no reason, which is fine right up to Part 4,
-where the tutorial starts asking you to connect your module to the real apps. At that
-point every small difference you invented becomes translation work you gave yourself.
-The hour is not product training. It is you learning the conventions you are about to
-be measured against.
+An hour of clicking can feel like the wrong job for a developer, so here is what
+skipping it costs.
+
+You are about to spend Part 2 building things called customers, orders and stages. Odoo
+already has all three, with opinions about how they behave. Build yours without ever
+having seen Odoo's and you'll invent versions that are subtly different for no reason.
+
+That's fine right up to Part 4, where the tutorial starts asking you to connect your
+module to the real apps. At that point every small difference you invented becomes
+translation work you gave yourself.
+
+The hour is not product training. It is you learning the conventions you are about to be
+measured against.
 
 ## Hands-on
 
@@ -79,12 +83,14 @@ Fill the form like this:
   purpose for a local dev box. Odoo notices, and nudges you to do better by generating a
   random replacement and pre-filling the field with it.
 
-  Here is the catch. The field does not check what you type against the old password:
-  whatever you submit **becomes** the master password for the rest of this container's
+  Here is the catch. The field does not check what you type against the old password.
+  Whatever you submit **becomes** the master password for the rest of this container's
   life. Accept the suggestion without reading it, and yours is now a random string you
-  never wrote down. Nothing is broken forever, since restarting the container reloads
-  `admin_passwd` from the file and resets it, but until then you are stuck the moment you
-  actually need it, say to drop a database.
+  never wrote down.
+
+  Nothing breaks forever: restarting the container reloads `admin_passwd` from the file
+  and resets it. But until then you are stuck the moment you actually need it, say to
+  drop a database.
 
   Typing `admin` yourself keeps it exactly what it already was. Nothing to write down.
 </Callout>
@@ -145,11 +151,12 @@ No checklist pressure. The goal is exposure, not mastery:
 
 <Callout type="info" title="The chatter moves, it does not disappear">
   Whether the chatter sits beside the form or below it depends on one thing only: your
-  browser window's width. Odoo switches at **1400px**: wide enough (most desktops,
-  screen maximized) and it takes the right-hand side, like the screenshot above;
-  narrower (a laptop with the sidebar open, a window that is not maximized) and the
-  exact same panel, same buttons, same thread, moves below the form instead. If yours
-  looks different from the screenshot, this is why, not a sign anything is wrong.
+  browser window's width. Odoo switches at **1400px**.
+
+  Wide enough (most desktops, screen maximized) and it takes the right-hand side, like
+  the screenshot above. Narrower (a laptop with the sidebar open, a window that is not
+  maximized) and the exact same panel, same buttons, same thread, moves below the form
+  instead. If yours looks different from the screenshot, that is why.
 </Callout>
 </Step>
 

@@ -26,14 +26,21 @@ Start from the baseline, because it is easy to forget it exists. In a fresh data
 the Sales app installed there are **no pricelists at all**, and a line's `price_unit` is
 simply the product's own sales price.
 
-Pricelists sit behind a feature flag, and in Odoo a feature flag is just a group: this one
-is `product.group_product_pricelist`. Ticking **Pricelists** in the Sales settings adds
-your user to that group, and three separate things follow from that single membership. A
-**Pricelists** menu appears under Sales → Products, because the menu item is restricted to
-that group. A **Pricelist** field appears on the quotation form, for the same reason. And
-the save handler runs a bit of core code that creates a Default pricelist per company, so
-that the new field has something to point at. None of it exists until you tick the box,
-which is why a database can look like it has "no pricelist feature" at all.
+A <Term k="pricelist (`product.pricelist`)">pricelist</Term> is a named set of rules for charging some customers a different price. It
+sits behind a feature flag, and in Odoo a feature flag is just a group: this one is
+`product.group_product_pricelist`.
+
+Ticking **Pricelists** in the Sales settings adds your user to that group, and three
+things follow from that single membership:
+
+- A **Pricelists** menu appears under Sales → Products, because the menu item is
+  restricted to that group.
+- A **Pricelist** field appears on the quotation form, for the same reason.
+- The save handler runs core code that creates a Default pricelist per company, so the
+  new field has something to point at.
+
+None of it exists until you tick the box, which is why a database can look like it has
+"no pricelist feature" at all.
 
 Worth knowing before you debug anything: if `pricelist_id` on the order is empty, no
 pricelist rule can possibly be responsible for the price.
@@ -63,10 +70,12 @@ seasonal pricing are expressed without code.
 ### Three different things all called "the discount"
 
 Here is the part that makes tickets hard. All three of these change what a customer pays,
-and they leave different traces. One field name to have straight before you read the
-table: `lst_price` is a variant's own Sales Price, the figure you see on the product form.
-It is the template's `list_price` plus whatever price extra that variant's attributes add,
-and it is where a line's price starts from when nothing else interferes.
+and they leave different traces.
+
+One field name to have straight before the table: `lst_price` is a variant's own Sales
+Price, the figure you see on the product form. It is the template's `list_price` plus
+whatever price extra that variant's attributes add. That is where a line's price starts
+when nothing else interferes.
 
 | Mechanism | What it touches | How you spot it |
 |---|---|---|
@@ -74,17 +83,18 @@ and it is where a line's price starts from when nothing else interferes.
 | **Discount field** | `discount` percent on the line | `price_unit` still equals the product price, `discount` is non-zero |
 | **Promotion / reward** | adds a **new line** with a negative `price_unit` | an extra line you did not add, priced below zero |
 
-The middle one comes with a catch worth knowing before you go hunting for it. The
-`discount` column is behind its own setting, **Grant discounts on sales order lines**, in
-the same Sales → Pricing block you are about to visit, and it is switched off here. The
-field still exists on `sale.order.line` either way: only the view hides it. That is why
-step 7 can read `discount` from the shell even though no such column appears on your
-quotation.
+The middle one has a catch worth knowing before you go hunting for it. The `discount`
+column is behind its own setting, **Grant discounts on sales order lines**, in the same
+Sales → Pricing block you are about to visit, and it is switched off here. The field
+still exists on `sale.order.line` either way: only the view hides it. That is why step 7
+can read `discount` from the shell even though no such column appears on your quotation.
 
-The third one surprises people. A claimed <Term k="reward (loyalty)">reward</Term> does not edit your product line and does
-not touch the discount field. It appends its own line, and the order total falls because
-that line is negative. So "the 10% is missing from the line" and "the 10% is a separate
-line" can both be accurate descriptions of different mechanisms.
+The third one surprises people. A claimed <Term k="reward (loyalty)">reward</Term> (the discount or free item a
+promotion grants) does not edit your product line and does not touch the discount field.
+It appends its own line, and the order total falls because that line is negative.
+
+So "the 10% is missing from the line" and "the 10% is a separate line" can both be
+accurate descriptions of different mechanisms.
 
 <Mermaid
   label="Three ways a line's price stops being the product's price: a pricelist rule rewrites price_unit, the discount field applies to the line, and a reward appends a separate negative line"
@@ -150,10 +160,9 @@ That is the "no mechanism fired" state, and it is what you compare against.
 
 Now go back to the shell you left open in step 1, and do **not** just re-run the count: it
 will still report the old number. A shell session holds one long-running database
-transaction, and Postgres fixed that transaction's view of the data at your very first
-query, before the browser saved anything. Anything committed by another process since then
-is invisible to it. End the transaction so the next query gets a fresh view of the
-database, then look again:
+transaction, and Postgres fixed that transaction's view of the data at your first query,
+before the browser saved anything. Anything committed since then is invisible to it. End
+the transaction to get a fresh view, then look again:
 
 ```python
 >>> env.cr.rollback()
@@ -165,35 +174,39 @@ Three, not one: this demo database has three companies, and switching the featur
 core code that creates a Default pricelist for each of them.
 
 That `env.cr.rollback()` is the same one you have used since chapter 14 to undo an
-experiment. It also throws away the ORM's in-memory cache, which is exactly what you want
-here. Expect to need it every time you change something in the browser and then read it
-back from a shell that was already open.
+experiment. It also throws away the ORM's in-memory cache, which is what you want here.
+Expect to need it every time you change something in the browser and then read it back
+from a shell that was already open.
 
-Hold on to the three, because it changes how you read the rest of the chapter. The
-shell does not apply the company filter the interface does: it runs as the superuser,
-which skips record rules entirely, so a bare `search([])` here returns all three
-companies' pricelists while the same list in the browser shows you only the active
-company's. Whenever you go looking for "the" pricelist from a script, say which company
-you mean. That is what step 6 is doing with `("company_id", "=", env.company.id)`, and
-chapter 27 comes back to the problem properly.
+Hold on to the three, because it changes how you read the rest of the chapter. The shell
+does not apply the company filter the interface does. It runs as the superuser, skipping
+record rules entirely, so a bare `search([])` returns all three companies' pricelists
+while the same list in the browser shows only the active company's.
+
+So whenever you go looking for "the" pricelist from a script, say which company you mean.
+That is what step 6 does with `("company_id", "=", env.company.id)`, and chapter 27 comes
+back to the problem properly.
 
 </Step>
 
 <Step>
 ### Add two rules that compete
 
-Ticking the setting also added a menu: **Sales → Products → Pricelists**. Open it, and
-you will see exactly one row, the Default pricelist for your own company. That is the
-multi-company visibility rule from the last step again, now in the browser instead of the
-shell: all three Default pricelists exist (the 3 you just counted), one per company, but
-the list view only shows the one tied to your active company, the one named in the top
-bar. Open it.
+Ticking the setting also added a menu: **Sales → Products → Pricelists**. Open it and you
+will see exactly one row, the Default pricelist for your own company.
 
-On its **Sales Prices** tab, click **Add a line**. The dialog that opens never asks you
-for `applied_on`, which catches people out: that field is hidden, and Odoo works it out
-from *which* product fields you fill in. Leave them empty and you get `3_global`. Name a
-product and you get `1_product`. Name a product and one of its variants and you get
-`0_product_variant`.
+That is the multi-company visibility rule from the last step again, now in the browser
+instead of the shell. All three Default pricelists exist (the 3 you just counted), one
+per company, but the list view only shows the one tied to your active company, named in
+the top bar. Open it.
+
+On its **Sales Prices** tab, click **Add a line**. The dialog never asks you for
+`applied_on`, which catches people out: that field is hidden, and Odoo works it out from
+*which* product fields you fill in.
+
+- Leave them empty and you get `3_global`.
+- Name a product and you get `1_product`.
+- Name a product and one of its variants and you get `0_product_variant`.
 
 So the first rule, the global one:
 

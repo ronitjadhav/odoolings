@@ -15,24 +15,29 @@ accounts. Manufacturing is where something is **transformed**, raw components be
 finished product, and the temptation is to think that needs a different mental model.
 It does not. It needs a third location.
 
-By the end of this chapter you will have manufactured actual `Brake Pad Set` units, the
-same product you have sold and bought throughout this part, from components you stocked
-yourself, and you will have watched the arithmetic tie back to the recipe exactly.
+By the end of this chapter you will have manufactured actual `Brake Pad Set` units from
+components you stocked yourself. That is the same product you have sold and bought
+throughout this part, and you will watch the arithmetic tie back to the recipe exactly.
 
 ## Concepts
 
 ### A bill of materials is a recipe with an optional routing
 
-<Term k="bill of materials (`mrp.bom`)">`mrp.bom`</Term> says what a product is made of: a `product_tmpl_id` (or a specific variant), a
-`product_qty` the recipe yields, and `bom_line_ids`, the components and their quantities.
+A **bill of materials** (BoM) is a recipe: what a product is made of, and in what
+quantities. <Term k="bill of materials (`mrp.bom`)">`mrp.bom`</Term> stores a `product_tmpl_id` (or a specific variant), a `product_qty`
+the recipe yields, and `bom_line_ids`, the components and their quantities.
+
 Its `type` is usually `normal` (build it), occasionally `phantom` (a kit: the components
 appear directly on whatever order references it, with no separate manufacturing step at
 all).
 
-A BoM can also list `operation_ids`, work to be done against a `mrp.workcenter`
-(Assembly, Drill, Paint, whatever your shop has) with a cycle time. Operations are
-**optional**. Plenty of real BoMs, including several in this demo database, have zero:
-sometimes a recipe is just "these parts, combined", with no routing worth tracking.
+A BoM can also list `operation_ids`: work to be done at a **work center**
+(`mrp.workcenter`), which is a station on your shop floor such as Assembly, Drill or
+Paint, each with a cycle time.
+
+Operations are **optional**. Plenty of real BoMs, including several in this demo
+database, have zero. Sometimes a recipe is just "these parts, combined", with no routing
+worth tracking.
 
 ### The manufacturing order's lifecycle
 
@@ -63,9 +68,9 @@ chapter's recipe does not need them.
 
 ### Manufacturing is two more stock moves, through a third location
 
-Confirming a manufacturing order creates raw material moves, one per component, from
-Stock into a virtual <Term k="Production (location)">**Production**</Term> location, and a finished-good move from Production
-back into Stock. Marking the order done is what actually executes them.
+Confirming a manufacturing order creates two kinds of move: one raw material move per
+component, from Stock into a virtual <Term k="Production (location)">**Production**</Term> location, and one finished-good move
+from Production back into Stock. Marking the order done is what actually executes them.
 
 <Mermaid
   label="Manufacturing as two more stock moves: components leave Stock for the virtual Production location, and the finished good leaves Production back into Stock"
@@ -76,10 +81,12 @@ back into Stock. Marking the order done is what actually executes them.
 
 Look at that shape again. It is chapter 24's Vendors-to-Stock move and chapter 27's
 debit-and-credit, a third time. Components leave Stock and arrive, negative, at
-Production; the finished good leaves Production, negative, and arrives, positive, at
-Stock. Nothing is created from nothing, not even in a factory: quantity always has a
-source and a destination, and Production is simply the location where the transformation
-is recorded.
+Production. The finished good leaves Production, negative, and arrives, positive, at
+Stock.
+
+Nothing is created from nothing, not even in a factory. Quantity always has a source and
+a destination, and Production is simply the location where the transformation is
+recorded.
 
 ## Hands-on
 
@@ -92,22 +99,20 @@ second reads what running it actually did.
 <Step>
 ### Stock two components
 
-A recipe needs ingredients, so build the two components before anything else. Both are
-ordinary stocked goods, nothing exotic about either.
+A recipe needs ingredients, so build the two components first. Both are ordinary stocked
+goods.
 
 Go to **Inventory → Products → Products → New**, and fill in exactly these fields:
 
 - **Product Name**: `Friction Material`
-- **Product Type**: leave it at **Goods**, the default. Chapter 21's rule is the one that
-  matters here: there is no `storable` type any more, and the next field only exists while
-  the type is Goods.
-- **Track Inventory**: tick it. This is `is_storable`, the checkbox the Inventory app
-  contributes right under the product type, and it is what gives the product stock at all.
-  Leave it unticked and the product will never appear on the count sheet below, which is
-  the most likely way to get stuck on this step.
+- **Product Type**: leave it at **Goods**, the default. Chapter 21's rule applies: there
+  is no `storable` type any more, and the next field only exists while the type is Goods.
+- **Track Inventory**: tick it. This is `is_storable`, contributed by the Inventory app,
+  and it is what gives the product stock at all. Leave it unticked and the product never
+  appears on the count sheet below, which is the likeliest way to get stuck here.
 - **Cost**: `8.00`, on the **General Information** tab.
-- **Sales Price**: leave it alone. These are components you never sell to anyone, which is
-  why the diff below still shows the default `list_price=1.0`.
+- **Sales Price**: leave it alone. These are components you never sell, which is why the
+  diff below still shows the default `list_price=1.0`.
 
 Save it, then do the whole thing again for `Backing Plate`, identical except **Cost** is
 `5.00`.
@@ -116,10 +121,9 @@ Both products now exist with nothing on hand, so give yourself 20 of each with a
 count: **Inventory → Operations → Physical Inventory**, which sits under the *Adjustments*
 heading of that menu.
 
-What opens is a live list of the quants that already exist, which means your two new
-products are **not on it yet**: a product with no stock anywhere has no quant to list, so
-there is nothing for Odoo to show you. Click **New** and the list grows an editable row at
-the bottom. Fill in three fields:
+What opens is a live list of the quants that already exist, so your two new products are
+**not on it yet**: a product with no stock anywhere has no quant to list. Click **New**
+and the list grows an editable row at the bottom. Fill in three fields:
 
 - **Location**: `WH/Stock`
 - **Product**: `Friction Material`
@@ -130,10 +134,10 @@ Click **New** again and repeat for `Backing Plate`, same location, same 20.
 
 Now post the count. Each row grows its own **Apply** button (the little save icon at the
 end of the row) as soon as it has a Counted value, so clicking that on both rows applies
-them one at a time. The header's **Apply All** does the whole sheet in one go instead,
-after asking you for an Inventory Reason. Despite the thirty-odd demo rows sitting around
-yours, Apply All is safe: it only posts rows where somebody actually entered a Counted
-value, so the untouched furniture is left exactly as it was.
+them one at a time. The header's **Apply All** does the whole sheet at once instead,
+after asking for an Inventory Reason. Despite the thirty-odd demo rows around yours,
+Apply All is safe: it only posts rows where somebody entered a Counted value, leaving the
+untouched furniture exactly as it was.
 
 ![The Physical Inventory count screen, listing every stocked product with its On Hand, Counted and Difference columns; Backing Plate, Brake Pad Set (Front) and Friction Material appear among the rows](/screens/ch26-physical-inventory-count.jpg)
 
@@ -232,10 +236,10 @@ stock.quant          +3
 ![Manufacturing order WH/MO/00007, statusbar at Done, quantity 4.00 / 4.00, Components tab showing Friction Material 2.00 consumed and Backing Plate 4.00 consumed](/screens/ch26-manufacturing-order-done.jpg)
 
 Read the Production quants as one small ledger. Friction Material and Backing Plate
-arrive there positive (that is where the components went), and Brake Pad Set arrives
-there **negative** (that is where the finished good came from). Meanwhile Stock lost 2
-Friction, lost 4 Backing Plate, and gained 4 Brake Pad Set. Every number ties exactly to
-the recipe: 0.5 and 1.0 per unit, times 4 produced.
+arrive there positive (where the components went), and Brake Pad Set arrives **negative**
+(where the finished good came from). Meanwhile Stock lost 2 Friction, lost 4 Backing
+Plate, and gained 4 Brake Pad Set. Every number ties to the recipe: 0.5 and 1.0 per unit,
+times 4 produced.
 
 ```python
 >>> friction = env["product.product"].search([("name", "=", "Friction Material")])

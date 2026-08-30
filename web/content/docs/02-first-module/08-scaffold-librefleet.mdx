@@ -9,19 +9,21 @@ install/upgrade cycle. · **Time:** ~1.5 h · **Checkpoint:** `code/checkpoints/
 ## Why this matters
 
 Part 2 starts here, and so does the capstone: **LibreFleet**, a vehicle-workshop and
-service-booking app you'll grow for the rest of the tutorial. Today it does exactly
-nothing, and that's the point. A module with no models, no views and no logic isolates
-the machinery every later chapter relies on: what makes a directory a module, what a
-manifest declares, and what actually happens when you install or upgrade. Get this
-cycle into your fingers now; from chapter 9 you'll run it dozens of times a day
-without thinking.
+service-booking app you'll grow for the rest of the tutorial.
+
+Today it does exactly nothing, and that's the point. A module with no models, no views
+and no logic isolates the machinery every later chapter relies on: what makes a
+directory a module, what a manifest declares, and what happens when you install or
+upgrade. Get this cycle into your fingers now. From chapter 9 you'll run it dozens of
+times a day without thinking.
 
 ## Concepts
 
 ### Two files make a module
 
 Chapter 3 told you everything is a module. Concretely, a module is a directory on the
-addons path containing:
+**addons path** (the list of folders Odoo scans for modules, set in `odoo.conf`)
+containing:
 
 - `__init__.py`: makes it a Python package (empty today, imports models from ch9 on).
 - `__manifest__.py`: a single Python dict describing the module. Its presence is what
@@ -66,11 +68,13 @@ Here is LibreFleet's first manifest, in `addons/librefleet/__manifest__.py`:
 
 ### Why "librefleet" and not "fleet"
 
-Odoo core already ships a module called `fleet` (vehicle management). If our
-directory were named `fleet`, the addons path would decide which one wins, and
-confusion follows. Technical names live in one global namespace, so real projects
-prefix them (`c2c_...`, client trigrams, or a product name like ours). Check for
-collisions before naming anything.
+Odoo core already ships a module called `fleet` (vehicle management). Name our
+directory `fleet` too and the addons path decides which one wins, which is a bad way
+to find out.
+
+Technical names live in one global namespace, so real projects prefix them (`c2c_...`,
+client trigrams, or a product name like ours). Check for collisions before naming
+anything.
 
 ### What "install" actually does
 
@@ -93,7 +97,7 @@ chapter 3's "the UI is data"). Installing then:
     ST -. "odoo -u librefleet redoes 2 and 3" .-> P`}
 />
 
-Upgrading (`-u`) redoes steps 2–3 for a module that's already installed: that's how
+Upgrading (`-u`) redoes steps 2–3 for a module that's already installed. That's how
 changed XML gets back into the database (the chapter 6 rule). The `state` field walks
 a small lifecycle (`uninstalled`, `to install`, `installed`, `to upgrade`...) that
 you can watch from psql.
@@ -133,16 +137,16 @@ $ cat > addons/librefleet/__manifest__.py << 'EOF'
 EOF
 ```
 
-That `__manifest__.py` is the same dict walked through line by line in the Concepts
-section above; the heredoc just saves you retyping it. **This file is the one that
-matters most**: without it, `/mnt/extra-addons` doesn't even count as a valid addons
-directory to Odoo (there's no subdirectory it recognizes as a module), and the
-install two steps from now will fail with `invalid module names, ignored: librefleet`
+That `__manifest__.py` is the same dict the Concepts section walked through; the
+heredoc just saves you retyping it.
+
+**This file matters most.** Without it, `/mnt/extra-addons` doesn't even count as a
+valid addons directory, because no subdirectory inside it looks like a module. The
+install two steps from now then fails with `invalid module names, ignored: librefleet`
 and no obvious reason why. If you hit that error, `ls addons/librefleet` first.
 
-For the app icon, drop any 140×140 PNG at `static/description/icon.png`; the
-checkpoint you fetch in Verify below ships one you can borrow if you don't feel
-artistic today.
+For the app icon, drop any 140×140 PNG at `static/description/icon.png`. The
+checkpoint you fetch in Verify below ships one you can borrow.
 
 That's the whole module, three files:
 
@@ -171,12 +175,14 @@ INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.01s, 9 queries
 INFO tutorial odoo.modules.loading: Modules loaded.
 ```
 
-Read that middle line with respect: your module, nine queries, done in a blink. Don't
-read anything into the position (2nd of 15 here): the loader orders modules by the
-dependency graph it resolved, not by "whatever you just asked to install goes last,"
-so your own run may well show a different number in a different spot. Now find it in
-the UI: Apps, filter to *Services* (or search "LibreFleet"), and there's your tile with
-its icon, already installed.
+Read that middle line with respect: your module, nine queries, done in a blink.
+
+Don't read anything into the position (2nd of 15 here). The loader orders modules by
+the dependency graph it resolved, not by "whatever you just asked to install goes
+last", so your own run may show a different number in a different spot.
+
+Now find it in the UI: Apps, filter to *Services* (or search "LibreFleet"). There's
+your tile with its icon, already installed.
 
 <Callout type="warn" title="Installing from the UI instead?">
   Two extra steps bite everyone once. The running web server only scans the addons
@@ -228,11 +234,12 @@ syntax error:
 ERROR tutorial odoo.modules.loading: Some modules have inconsistent states, some dependencies may be missing: ['librefleet']
 ```
 
-Decode it: the manifest failed to parse, so as far as the loader is concerned the
-module *doesn't exist*, and a database that says "librefleet is installed" now
-disagrees with an addons path that has never heard of it. "Inconsistent state" and
-"missing dependency" errors are very often just this: a manifest that stopped
-parsing. Restore the brace, upgrade, confirm calm returns.
+Decode it. The manifest failed to parse, so as far as the loader is concerned the
+module *doesn't exist*. A database that says "librefleet is installed" now disagrees
+with an addons path that has never heard of it.
+
+"Inconsistent state" and "missing dependency" errors are very often just this: a
+manifest that stopped parsing. Restore the brace, upgrade, confirm calm returns.
 </Step>
 
 </Steps>
@@ -262,9 +269,9 @@ $ diff -r addons/librefleet .checkpoints/ch08/librefleet
 ```
 
 That's the pattern for the whole tutorial: swap `ch08` for whichever chapter you want.
-The download is about 300 KB and always current, so there is nothing to keep in sync and
-nothing to remember to pull. Chapter 7's `.gitignore` already keeps `.checkpoints/` out
-of your commits, since it isn't your code.
+The download is about 300 KB and always current, so there's nothing to keep in sync.
+Chapter 7's `.gitignore` already keeps `.checkpoints/` out of your commits, since it
+isn't your code.
 
 For chapter 8, exactly two differences are expected: the checkpoint's manifest carries a
 couple of comment lines this chapter never asked you to type, and it ships the `icon.png`
@@ -287,8 +294,8 @@ you were told to supply yourself. Anything else is worth reading.
   (developer mode). The CLI never needs this; the UI always does, for *new* modules.
 - **Uninstall is not "undo".** Uninstalling drops the module's data and models from
   the database (its `ir_module_module` row remains, state `uninstalled`). What it
-  deletes can surprise you; on real databases, treat uninstall as a destructive
-  operation and test it on a `db duplicate` first.
+  deletes can surprise you. On real databases, treat uninstall as destructive and
+  test it on a `db duplicate` first.
 - **The manifest is Python but should stay a literal.** Odoo evaluates it as a plain
   dict; resist imports or computation in there. Linters (chapter 43 on) will insist too.
 

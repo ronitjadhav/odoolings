@@ -40,18 +40,25 @@ If you only keep one, keep the third.
 Every transaction is recorded at least twice: once as a <Term k="debit / credit">**debit**</Term>, once as a **credit**,
 and the two totals must be equal. That is the whole rule.
 
-What debits and credits *mean* depends on the account, and the mnemonic that actually
-survives contact with software is positional rather than moral:
+What debits and credits *mean* depends on the account. Forget any sense of good and bad;
+the rule is purely positional:
 
 - A **debit** increases an asset or an expense, and decreases a liability, equity or
   income.
 - A **credit** does the reverse.
 
+Those five words are the whole vocabulary, so here they are in plain terms: an **asset** is
+something you own, a **liability** is something you owe, an **expense** is money spent, and
+**income** is money earned. (**Equity** is what would be left for the owners after paying
+every liability, and it barely appears in this chapter.)
+
 So buying a 250.00 tool cabinet with money from the bank is a debit of 250.00 to an
 equipment account (an expense went up) and a credit of 250.00 to the bank account (an
-asset went down). Nothing was created or destroyed; value moved, and the entry records
-both ends. This is the same shape as chapter 25's stock moves, where goods always come
-*from* one location and go *to* another. Accounting does it with money.
+asset went down).
+
+Nothing was created or destroyed. Value moved, and the entry records both ends. It is the
+same shape as chapter 25's stock moves, where goods always come *from* one location and go
+*to* another. Accounting does it with money.
 
 Odoo does not treat balance as a convention you should respect. It **refuses to post an
 unbalanced entry**, which you will see for yourself.
@@ -157,11 +164,13 @@ accepting edits. `res.company` carries five of them, confirmed live:
   tax closing entry is posted, which is the software saying "this period has been declared,
   stop editing it". This chapter does not exercise it.
 
-Four of those five are "soft" locks, and softness here has a precise meaning: an
-`account.lock_exception` record can grant one user a temporary, logged override past any
-of them, fiscal year included. So a determined accountant with the right rights can always
-get back in. "Four" is not a judgement call, incidentally: core keeps the list in a
-constant called `SOFT_LOCK_DATE_FIELDS`, and those four are exactly its contents.
+Four of those five are "soft" locks. Softness has a precise meaning here: an
+`account.lock_exception` record can grant one user a temporary, logged override past any of
+them, fiscal year included. So a determined accountant with the right rights can always get
+back in.
+
+"Four" is not a judgement call, incidentally. Core keeps the list in a constant called
+`SOFT_LOCK_DATE_FIELDS`, and those four are exactly its contents.
 
 `hard_lock_date` is the exception, and what makes it **the strictest of the five**
 (verified against `res.company`'s own field definitions in core) is not what it blocks but

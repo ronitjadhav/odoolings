@@ -46,11 +46,12 @@ $ ls st-16 | wc -l
 ```
 
 Same repository: 73 modules on the mature 16.0 branch, 34 on the young 19.0 branch.
-(A handful of those entries are `README.md`, `setup`, and similar non-module files on
-both branches, so treat these counts as roughly how many, not exact. Either way, the
-gap is the point.) The difference is the migration queue: modules nobody has needed,
-or volunteered, on 19 yet. When a client project needs one of the missing ones, an
-integrator developer does the `[MIG]`, and that developer will regularly be you.
+(A few of those entries are `README.md`, `setup` and similar non-module files on both
+branches, so read the counts as roughly-how-many. The gap is the point either way.)
+
+That gap is the migration queue: modules nobody has needed, or volunteered for, on 19
+yet. When a client project needs one of them, an integrator developer does the `[MIG]`.
+That developer will regularly be you.
 
 ### How commit messages look
 
@@ -108,10 +109,12 @@ projects <Term k="pinning">pin</Term>, using one of three mechanisms:
 
 <Callout type="info" title="In the field">
   [git-aggregator](https://github.com/acsone/git-aggregator) is widespread among OCA
-  contributors and integrators (including Camptocamp): one YAML file describes every
-  external repo, the commit to pin, and even pending PRs to merge into your build,
-  which is how you ship a fix the day you write it instead of after the OCA review
-  cycle. Ask your team which mechanism your projects use; the concept transfers.
+  contributors and integrators (including Camptocamp). One YAML file describes every
+  external repo, the commit to pin, and even pending PRs to merge into your build.
+
+  That last part is how you ship a fix the day you write it, instead of waiting out the
+  OCA review cycle. Ask your team which mechanism your projects use; the concept
+  transfers.
 </Callout>
 
 Whatever the tool, the invariant is the same: **a production build is reproducible

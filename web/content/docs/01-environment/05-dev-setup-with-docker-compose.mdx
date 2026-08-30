@@ -20,21 +20,30 @@ the Odoo image and *your* addons mounted into it. What changes in production is
 scale and secrets, not shape.
 
 If you already have Python and PostgreSQL on this machine, a reasonable objection is
-forming right now: why the detour, when you could install Odoo directly and skip
-learning a second tool? The honest answer is not that installing Odoo once is hard,
-because it is not. It is that you will not be running *one* Odoo. Chapter 1's release
-rhythm means three majors are supported at any moment, and a client on 18 does not care
-that your laptop is set up for 19. Installed system-wide, each version fights the last
-one over the machine's Python packages and database cluster. In containers, a second
-version costs you one more directory and nothing else. You are not learning Docker
-here as a prerequisite for Odoo; you are buying the ability to have several Odoos.
+forming: why the detour, when you could install Odoo directly and skip learning a second
+tool?
+
+The honest answer is not that installing Odoo once is hard. It isn't. It's that you will
+not be running *one* Odoo. Chapter 1's release rhythm means three majors are supported at
+any moment, and a client on 18 does not care that your laptop is set up for 19.
+
+Installed system-wide, each version fights the last one over the machine's Python
+packages and database cluster. In containers, a second version costs you one more
+directory and nothing else.
+
+You are not learning Docker here as a prerequisite for Odoo. You are buying the ability
+to have several Odoos.
 
 ## Concepts
 
 ### Two containers, one file
 
 Everything lives in one `docker-compose.yml`, which you'll put in your own workspace in
-the hands-on below ([source](https://github.com/ronitjadhav/odoolings-starter/blob/main/docker-compose.yml)):
+the hands-on below ([source](https://github.com/ronitjadhav/odoolings-starter/blob/main/docker-compose.yml)).
+
+Three Docker words appear throughout, so here they are once: an **image** is a packaged,
+read-only template (`odoo:19`), a **container** is one running copy of an image, and a
+**volume** is a storage area that outlives the container using it.
 
 ```yaml
 services:
@@ -199,12 +208,14 @@ You now own five files: the two you just read line by line, an empty `addons/`, 
 </Callout>
 
 <Callout type="warn" title="On Windows, work inside WSL2 or Git Bash">
-  Setting up needs no shell at all now, but the rest of the tutorial does: `touch`,
+  Setting up needs no shell at all now, but the rest of the tutorial does. `touch`,
   `mkdir -p`, pipes into `tar` and `&&` chains all appear regularly, and none behave the
   same in PowerShell (its pipes carry objects rather than raw bytes, which quietly
-  corrupts binary streams). Docker Desktop on Windows is fine; run the *commands* from a
-  WSL2 shell or Git Bash, and keep the repository on the Linux side of WSL, where file
-  permissions and bind-mount performance both behave.
+  corrupts binary streams).
+
+  Docker Desktop on Windows is fine. Run the *commands* from a WSL2 shell or Git Bash,
+  and keep the repository on the Linux side of WSL, where file permissions and bind-mount
+  performance both behave.
 </Callout>
 
 <Callout type="info" title="Why addons/ is not empty-empty">
@@ -302,8 +313,10 @@ minimal court. From chapter 9 on, `psql` is how we check what the ORM is really 
 
 Time to meet `odoolings`, the checker you'll run at the end of every hands-on from now
 on. It's a single file that needs nothing but Python 3, no pip install, so drop it next
-to your compose file. It is deliberately not in the starter: it grows a new set of checks
-with every chapter, so you always want the current one. (No shell handy? It is just
+to your compose file.
+
+It is deliberately not in the starter, because it grows a new set of checks with every
+chapter and you always want the current one. (No shell handy? It is just
 [a file on GitHub](https://github.com/ronitjadhav/odoolings/blob/main/code/odoolings.py),
 so the download button works too.)
 
@@ -320,10 +333,11 @@ ch05 complete! On to the next chapter 🔧
 All three green means your workbench is exactly what the rest of the tutorial assumes.
 If something is red, the hint under it tells you where to look.
 
-`odoolings.py` grows a new set of checks with every chapter that ships, so if
-`check chNN` ever reports an unknown chapter, re-run that `curl` to pick up the latest
-version. It talks to your running Odoo over XML-RPC and never reads your files, which
-is why it does not care where it sits or where your code lives.
+If `check chNN` ever reports an unknown chapter, re-run that `curl` to pick up the
+latest version.
+
+The checker talks to your running Odoo over XML-RPC and never reads your files. That is
+why it does not care where it sits or where your code lives.
 
 ## Gotchas
 
@@ -339,10 +353,11 @@ is why it does not care where it sits or where your code lives.
 - **Linux file permissions, and a `root`-owned `addons/`.** Bind-mount a directory that
   doesn't exist yet and Docker creates it for you as `root`, at which point chapter 8's
   `mkdir addons/librefleet` dies with `Permission denied`. The starter's `addons/.gitkeep`
-  is there to make that impossible, so you will only meet this on a compose file of your
-  own. When you do, `sudo chown -R $USER addons` fixes it once and for good. Separately,
-  the container runs as its own `odoo` user, so if module files you create show up
-  unreadable inside the container, keeping `addons/` world-readable is enough for dev.
+  makes that impossible, so you will only meet it on a compose file of your own. When you
+  do, `sudo chown -R $USER addons` fixes it for good.
+
+  Separately: the container runs as its own `odoo` user. If module files you create show
+  up unreadable inside the container, keeping `addons/` world-readable is enough for dev.
 - **`docker-compose` vs `docker compose`.** The hyphenated v1 binary is dead. If your
   system only has `docker-compose`, your Docker is old. Update it rather than
   fight it.
