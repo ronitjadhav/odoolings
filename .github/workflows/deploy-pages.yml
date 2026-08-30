@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The starter repo readers instantiate carries copies of our compose file and
       # server config. This repo is the source of truth (see CLAUDE.md); if they drift,
       # chapters quote output that no longer matches what readers actually run.
