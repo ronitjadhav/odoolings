@@ -1114,6 +1114,86 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-08-30 — the plain-language pass, finished across all 50 chapters
+
+A second full sweep, distinct from the comprehension-first pass below and layered on top
+of it. Reader's words: make it **"better and easy and quick and very easy to understand
+for a noob"**. Parts 3 and 6-9 first (PR #155), then Parts 0, 1, 2, 4 and 5 (PR #156).
+
+**The tension, and the rule that resolves it.** "Easy" usually means more words; "quick"
+means fewer. They fight. The resolution, and the instruction worth reusing verbatim, is
+**tighten, do not inflate**: cut waffle, split any sentence over roughly 30 words,
+front-load the point, break paragraphs over about six lines, and only *add* words where a
+beginner would genuinely be lost. Default to cutting.
+
+**The five moves**, in the order they proved valuable:
+
+1. Split long sentences. Highest-value edit by a distance.
+2. Cut throat-clearing openers ("It is worth noting that", "What is interesting here is
+   that", "That sentence is easy to agree with and surprisingly hard to believe").
+3. Front-load the point. ch16 spent three sentences recapping chapter 3 before reaching
+   its own claim.
+4. Break dense prose into bullets where it is genuinely a list.
+5. **Gloss jargon at first use *in that chapter*, even when another chapter defines it.**
+   A reader may land mid-book, and the project's own rule is that chapters stand alone.
+
+**Glossing was the highest-value work, not the tightening**, and the gaps it found were
+real. The worst: **ch27 used asset, liability, expense, income and equity as the
+load-bearing vocabulary of double-entry with no definition anywhere**, in a part aimed at
+developers who may have no accounting background at all. Others: `ORM` glossary-linked but
+never spelled out at its first real use in the book (ch03); **QWeb** unglossed while
+sitting in ch36's own title; **CLA** in ch45's title, description *and* a section heading,
+expanded nowhere; **procure-to-pay** in ch24's Goal line, defined nowhere; **SPA** used
+bare 85 lines before its own definition; `sudo()` unexplained while load-bearing for
+ch37's central security argument. Roughly 40 glosses in total. Existing `<Term>` keys were
+reused rather than duplicated.
+
+**Word counts, honestly.** Parts 3 and 6-9 came down about 650 words. Parts 0-2 and 4-5
+came out roughly flat (-38, -30, -3, +25, +44). That is expected rather than a miss: those
+chapters were already leaner, and the best edits there converted run-on paragraphs into
+bulleted lists, which costs a few words while cutting reading time. Scannability was judged
+worth about 0.3% growth. **Do not chase a downward word count as the metric**; it is a
+proxy, and forcing it would mean deleting content.
+
+**Four real defects surfaced as a side effect**, each verified from both sides before
+touching:
+
+- ch46 credited the classic extension pattern to **chapter 22** (Sales). It is chapter 31,
+  and ch22's own quiz rationale already said so.
+- ch46 twice credited the `OCA/fleet` case study to chapter 44. "Many small modules"
+  appears in ch43 and nowhere in ch44, and ch43 explicitly calls it "the case study".
+- ch42 step 1 carried a garbled instruction, "Confirm the address chapter's own account
+  already has on file".
+- ch18's Group-By section used "group" for two unrelated things in the same passage.
+
+**Claims deliberately left alone and reported, not guessed at:** ch43's "Beta is
+`development_status`'s default when absent" (verified `development_status` does not exist
+in Odoo core at all, so it is purely an OCA convention whose default cannot be confirmed
+from source); ch34's "146 terms" beside a `wc -l` of 869 (different things, both recorded
+output); ch42's "bootstrap" in the POS description.
+
+**Process notes worth keeping.**
+
+- **Verify centrally, not per agent.** Every batch self-reported clean; the central check
+  is what actually earns trust. The check that matters: code-fence content byte-identical
+  to HEAD, unchanged `<Step>` counts, `## Quick check` to EOF byte-identical, and every
+  `step N` reference set identical **after normalising whitespace**, because reflowing a
+  paragraph rewraps its lines and a naive grep gives false positives.
+- **"No change needed" is a valid answer** and must be offered explicitly, or agents pad.
+  ch01 and ch50 both correctly came back needing nothing.
+- **Sonnet is the right model for this work.** The first batch died on an Opus spend limit;
+  the relaunch on Sonnet produced equivalent quality. This is constrained prose editing
+  against a fixed checklist, not open-ended reasoning.
+- **Interrupted work is worth keeping if it verifies clean.** Four chapters had partial
+  edits when the first batch was killed. They passed the structural check and built green,
+  so the relaunch was told to continue from them rather than revert.
+- One deviation from brief, noted rather than hidden: the Part 3 pass also normalised a few
+  British spellings to American. Not asked for. The repo is genuinely mixed (behaviour in
+  13 files, behavior in 9), so it neither fixes nor worsens anything, and it was left
+  rather than spending effort reverting six cosmetic words.
+
+Verified with `npm run test:ci` (green) on each part.
+
 ### 2026-08-25 — the comprehension-first pass, finished across all 50 chapters
 
 Started as one reader-reported confusion in ch27 and ended as a sweep of the whole book:
