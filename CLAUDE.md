@@ -20,9 +20,13 @@ Rules that matter when working here:
 
 1. **Chapter work never touches the starter.** One PR in this repo per chapter, as always.
 2. **`code/docker-compose.yml` and `code/odoo.conf` are the source of truth.** The starter
-   holds copies. `.github/workflows/deploy.yml` fails the build if they drift, so if you
-   change either file you MUST mirror it to the starter in the same session, then re-run
-   the workflow. Do not "fix" the drift check by relaxing it.
+   holds copies. `.github/workflows/deploy-pages.yml` fails the build if they drift, so if
+   you change either file you MUST mirror it to the starter in the same session, then
+   re-run the workflow. Do not "fix" the drift check by relaxing it.
+   **This is also why Dependabot does not watch the `docker` ecosystem**: an automated
+   `odoo:19` or `postgres:16` bump would break CI on its own PR (the starter would still
+   hold the old tag) and would bypass rule 3. `.github/dependabot.yml` says so at length;
+   do not add a `docker` entry to it.
 3. **The starter's default branch must match D1's baseline Odoo version** (19.0 today).
    When the baseline bumps, branch the old version in the starter first (branch-per-version,
    exactly what ch7 teaches), then move its `main`.

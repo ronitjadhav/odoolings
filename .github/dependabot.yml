@@ -1,0 +1,91 @@
+version: 2
+
+# Two ecosystems are watched, and one is deliberately NOT. See the note at the
+# bottom before adding a third.
+
+updates:
+  # ---------------------------------------------------------------------------
+  # The site's own dependencies.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+    groups:
+      # Routine minor and patch bumps arrive as one PR a week rather than
+      # nineteen. `npm run test:ci` is the gate: it runs the progress and quiz
+      # tests, builds (which validates every MDX file), then test:export.
+      routine:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Majors of these are never routine, so let them come as their own PRs
+      # rather than inside the grouped one. Next 16 in particular: web/AGENTS.md
+      # warns that this version's APIs and file structure differ from what most
+      # tooling expects, and the site is a static export with a custom domain,
+      # so a major bump needs a real read of the migration notes plus a manual
+      # check that out/ still contains CNAME and the OG images.
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: fumadocs-core
+        update-types: ["version-update:semver-major"]
+      - dependency-name: fumadocs-ui
+        update-types: ["version-update:semver-major"]
+      - dependency-name: fumadocs-mdx
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tailwindcss
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------------
+  # The deploy workflow's actions (checkout, setup-node, upload-pages-artifact,
+  # deploy-pages). These go stale quietly and only bite when a runner image
+  # changes underneath them, which is exactly the failure a bot should catch.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
+
+# -----------------------------------------------------------------------------
+# Deliberately NOT watched: the `docker` ecosystem in code/.
+#
+# code/docker-compose.yml pins postgres:16 and odoo:19, and both of those are
+# curriculum decisions rather than dependencies:
+#
+#   1. deploy-pages.yml fails the build if code/docker-compose.yml differs from
+#      the copy in the odoolings-starter repo. A bot bumping the image here
+#      would break CI on its own PR, because the starter would still hold the
+#      old tag.
+#
+#   2. CLAUDE.md requires the starter's default branch to match the baseline
+#      Odoo version, and requires branching the old version in the starter
+#      BEFORE moving it. Chapter 7 teaches that branch-per-version workflow, so
+#      a silent bump would also contradict what the tutorial says to do.
+#
+#   3. Every chapter's recorded shell output, screenshots and odoolings.py
+#      checks are written against Odoo 19. Bumping the image invalidates them,
+#      which is a re-verification project, not a merge.
+#
+# Bumping the baseline is a real milestone: branch the starter, mirror the
+# compose file, re-run the odoolings checks against all three databases, and
+# log it in the plan's section 10. Do not automate it.
+# -----------------------------------------------------------------------------
