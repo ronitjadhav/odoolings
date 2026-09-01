@@ -44,6 +44,32 @@ That mapping is the point. You are not reading unfamiliar code. You are reading 
 people's answers to problems you have already solved once yourself, which is the fastest
 way to learn a codebase's conventions.
 
+### One real module from each, so the names stop being abstract
+
+A repository name tells you nothing until you have opened something inside it. One
+module from each of the seven, all live on `19.0`, each picked because it solves a
+problem this tutorial already put in front of you:
+
+| Repository | Open this one first | What it does | Why it will make sense to you |
+|---|---|---|---|
+| sale-workflow | `sale_fixed_discount` | applies fixed *amount* discounts on sales orders, not just percentages | chapter 23 showed you three separate mechanisms that can change a price. This is a fourth, and it is a good example of how OCA fills a gap rather than replacing core |
+| purchase-workflow | `purchase_request` | an internal request step *before* anyone raises an RFQ | chapter 24 started at the RFQ. Real purchasing usually starts earlier, with somebody asking for something |
+| crm | `crm_lead_code` | gives every lead a proper sequence number | chapter 14 built `ir.sequence` into LibreFleet. This is that exact pattern applied to core's `crm.lead` |
+| product-attribute | `product_secondary_unit` | a second unit of measure per product | chapter 21's UoM tree, extended for the "we buy in boxes, we stock in litres" problem |
+| product-variant | `product_variant_default_code` | generates each variant's internal reference automatically | chapter 21's `product.template` versus `product.product` split, on the variant side |
+| web | `web_responsive` | the community's responsive rework of the whole backend UI | Part 7 patched a corner of the web client. This patches the shell around it, and is one of the most installed OCA modules anywhere |
+| server-tools | `auditlog` | records who changed which field, and when | chapter 33's `mail.thread` tracking, generalised to any model without touching it |
+
+Two things worth noticing before you open any of them.
+
+**Their dependencies are small.** `crm_lead_code` depends on `crm` alone,
+`product_secondary_unit` on `product` alone, `auditlog` on `base` alone. That is not an
+accident, it is the "many small modules" convention chapter 43 met: depend on the least
+you can, so the module composes and migrates easily.
+
+**Their version strings are already `19.0.x.y.z`.** Every module listed here has been
+ported. The interesting question is what has *not* been, and that is the next section.
+
 ### A repository is a stack of versions, not one product
 
 Here is the structural fact that catches everyone, and it is worth getting straight
@@ -105,7 +131,30 @@ year, and every module has to be carried forward by hand, by a volunteer, one at
 time. The gap is simply the work that has not been done *yet*.
 
 Which makes it the contribution queue. It is well defined, it is public, and unlike
-"find a bug to fix", it comes with a list. Chapter 49 is where you take an item off it.
+"find a bug to fix", it comes with a list.
+
+The list is literal. Every one of the seven keeps an open issue titled "Migration to
+version 19.0", holding a checkbox per module:
+
+| Repository | Its 19.0 migration issue |
+|---|---|
+| sale-workflow | [#3914](https://github.com/OCA/sale-workflow/issues/3914) |
+| purchase-workflow | [#2833](https://github.com/OCA/purchase-workflow/issues/2833) |
+| crm | [#681](https://github.com/OCA/crm/issues/681) |
+| product-attribute | [#2075](https://github.com/OCA/product-attribute/issues/2075) |
+| product-variant | [#421](https://github.com/OCA/product-variant/issues/421) |
+| web | [#3295](https://github.com/OCA/web/issues/3295) |
+| server-tools | [#3400](https://github.com/OCA/server-tools/issues/3400) |
+
+Reading one takes ten seconds once you know the three states a line can be in:
+
+- `- [ ] module_name` with no name after it: **nobody has claimed this.** Yours if you
+  want it.
+- `- [ ] module_name - By @someone - #1234`: claimed, work in progress. Leave it alone,
+  or offer to review their PR.
+- `- [x] module_name - By @someone - #1234`: done and merged.
+
+Chapter 49 is where you take an unclaimed line off one of these lists.
 
 <Callout type="info" title="In the field">
   This is also a planning fact, not only a contribution one. If a client is moving to
@@ -202,7 +251,34 @@ Then the same for `18.0` by changing the `ref`. You are looking for two numbers 
 differ, with `18.0` the larger of the two.
 
 The `select(.name|startswith(".")|not)` part matters: it drops `.github` and friends, so
-you count modules rather than directories.
+you count modules rather than directories. The `select(.name!="setup")` drops the
+packaging folder, for the reason Concepts gave.
+
+Now do all seven at once, and build the table from the Concepts section yourself rather
+than trusting it:
+
+```console
+$ for r in sale-workflow purchase-workflow crm product-attribute \
+           product-variant web server-tools; do
+    a=$(gh api "repos/OCA/$r/contents?ref=19.0" \
+        --jq '[.[]|select(.type=="dir")|select(.name|startswith(".")|not)
+              |select(.name!="setup")]|length')
+    b=$(gh api "repos/OCA/$r/contents?ref=18.0" \
+        --jq '[.[]|select(.type=="dir")|select(.name|startswith(".")|not)
+              |select(.name!="setup")]|length')
+    printf "%-20s 19.0=%-4s 18.0=%-4s pending=%s\n" "$r" "$a" "$b" "$((b-a))"
+  done
+```
+
+Fourteen API calls, one per repository per branch, and about ten seconds. The
+`pending` column is the one to look at: it is that repository's share of the
+contribution queue.
+
+Expect the same shape this chapter reported, though every number will have moved.
+`sale-workflow` and `product-attribute` carry the largest backlogs, `product-variant`
+the smallest by a wide margin. If you want a first migration that is small enough to
+finish in an evening, the repository with the shortest `pending` list is not a bad place
+to start looking.
 </Step>
 
 <Step>
