@@ -12,7 +12,7 @@
     # than let every reader of the manifest wonder whether it was forgotten.
     "development_status": "Beta",
     "application": True,
-    "depends": ["base", "product", "base_automation", "web", "portal"],
+    "depends": ["base", "product", "mail", "base_automation", "web", "portal"],
     "data": [
         "security/librefleet_security.xml",
         "security/ir.model.access.csv",

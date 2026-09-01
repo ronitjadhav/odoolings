@@ -9,7 +9,7 @@
     "website": "https://odoolings.ronit.io/",
     "license": "AGPL-3",
     "application": True,
-    "depends": ["base", "product", "base_automation"],
+    "depends": ["base", "product", "mail", "base_automation"],
     "data": [
         "security/librefleet_security.xml",
         "security/ir.model.access.csv",
