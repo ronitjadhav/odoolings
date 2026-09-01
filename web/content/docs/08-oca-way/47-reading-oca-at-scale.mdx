@@ -70,6 +70,38 @@ you can, so the module composes and migrates easily.
 **Their version strings are already `19.0.x.y.z`.** Every module listed here has been
 ported. The interesting question is what has *not* been, and that is the next section.
 
+### The seven are not the same kind of code
+
+Here is something that decides whether you can contribute to a repository at all, and it
+is invisible from the README. Count the file types on each `19.0` branch:
+
+| Repository | `.py` | `.xml` | `.js` | files under `static/src` |
+|---|---|---|---|---|
+| sale-workflow | 668 | 213 | 6 | 9 |
+| purchase-workflow | 332 | 105 | 2 | 1 |
+| crm | 137 | 51 | 0 | 0 |
+| product-attribute | 242 | 69 | 3 | 4 |
+| product-variant | 56 | 17 | 0 | 0 |
+| **web** | 152 | 59 | **78** | **151** |
+| server-tools | 275 | 61 | 1 | 1 |
+
+Six of the seven are server-side Python with some XML. `crm` and `product-variant`
+contain no JavaScript at all. Contributing to any of those six draws on Part 2 and Part 6:
+models, fields, inheritance, views.
+
+**OCA/web is a different job.** Seventy-eight JavaScript files and a hundred and fifty-one
+under `static/src`, more than ten times any of the others. It is a frontend repository,
+and a fix there usually means reading OWL components, patches and asset bundles. That is
+Part 7's material, not Part 2's.
+
+None of this makes `web` harder, and plenty of people work in both. The point is to know
+which kind of code you are about to volunteer for, before you claim a module and discover
+it three hours in.
+
+The same reasoning scales down to a single module. `product_secondary_unit` is pure server
+code; `web_responsive` is almost entirely templates and JavaScript. Reading the file list
+before you read the code tells you which of your own skills the work will actually use.
+
 ### A repository is a stack of versions, not one product
 
 Here is the structural fact that catches everyone, and it is worth getting straight
@@ -326,6 +358,33 @@ one.
 </Step>
 
 <Step>
+### Work out what kind of code each repository holds
+
+Before claiming work anywhere, find out which language it is in. One call per repository
+gets the whole file list, so you can count extensions without cloning:
+
+```console
+$ sha=$(gh api "repos/OCA/web/git/refs/heads/19.0" --jq '.object.sha')
+$ gh api "repos/OCA/web/git/trees/$sha?recursive=1" \
+    --jq '[.tree[]|select(.type=="blob")|.path] as $p
+          | "py=\([$p[]|select(endswith(".py"))]|length)  js=\([$p[]|select(endswith(".js"))]|length)"'
+```
+
+```text
+py=152  js=78
+```
+
+Two calls: one to turn the branch name into a commit id, one to fetch that commit's
+entire file tree. Now run the same pair against `OCA/crm` and compare.
+
+`crm` returns `js=0`. Not "a few", none at all. Do it for the rest of the seven and the
+Concepts table rebuilds itself, with `web` standing out by a factor of ten.
+
+This is a two-minute check that tells you whether a repository wants Python skills or
+JavaScript skills. Run it before you volunteer, not after.
+</Step>
+
+<Step>
 ### Read a manifest without cloning anything
 
 You can read any single file straight out of a branch:
@@ -410,7 +469,7 @@ questions using only the commands above:
 4. Does that module depend on anything that is not in the same repository?
 
 If question 4 stops you, that is the chapter working. Re-read the dependency section and
-run the `grep -x` check from step 5 against the repository you chose.
+run the `grep -x` check from step 6 against the repository you chose.
 
 ## Gotchas
 
