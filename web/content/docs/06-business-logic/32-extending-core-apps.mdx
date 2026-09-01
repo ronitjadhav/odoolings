@@ -150,8 +150,8 @@ class ResPartner(models.Model):
         }
 ```
 
-Register it in `addons/librefleet/models/__init__.py`. **Append** these two lines, keeping
-everything already there; the whole file should end up looking like this:
+Register it in `addons/librefleet/models/__init__.py`. **Append one line**, keeping
+everything already there; the whole file should now look like this:
 
 ```python title="addons/librefleet/models/__init__.py"
 from . import part
@@ -166,16 +166,18 @@ from . import loaner
 # ch32: extensions of CORE models. These resolve against the registry built from
 # our manifest's depends, not against this package, so their position here is
 # free. Grouped last only to keep "ours" and "theirs" visually separate.
-from . import product_template
 from . import res_partner
 ```
 
-Unlike ch31's `loaner.py`, position genuinely does not matter for these two: they resolve
-against models that were already in the registry before your module started loading,
-because they come from your dependencies. They are grouped last only to keep "ours" and
-"theirs" visually apart.
+Only import a file once it exists. A second core extension, `product_template.py`, joins
+this group in step 3, and you add its import line there, when the file is actually on
+disk. Import it now and the next upgrade dies with `ModuleNotFoundError` before Odoo gets
+anywhere near the interesting part.
 
-`product_template.py` does not exist yet, so do not upgrade until step 3 creates it.
+Unlike ch31's `loaner.py`, position genuinely does not matter for these core extensions:
+they resolve against models that were already in the registry before your module started
+loading, because they come from your dependencies. They are grouped last only to keep
+"ours" and "theirs" visually apart.
 
 </Step>
 
@@ -246,6 +248,17 @@ class ProductTemplate(models.Model):
     librefleet_is_part = fields.Boolean(
         string="Workshop Part",
         help="Tick to offer this product as a spare part on service orders.")
+```
+
+Now the file exists, so register it. Add the second line to that same core-extensions
+group in `addons/librefleet/models/__init__.py`:
+
+```python title="addons/librefleet/models/__init__.py"
+# ch32: extensions of CORE models. These resolve against the registry built from
+# our manifest's depends, not against this package, so their position here is
+# free. Grouped last only to keep "ours" and "theirs" visually separate.
+from . import product_template
+from . import res_partner
 ```
 
 Leave `depends` as `["base"]` for the moment and upgrade:
