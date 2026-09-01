@@ -1,0 +1,432 @@
+---
+title: "47. Reading OCA at Scale"
+description: Seven real repositories, thousands of modules, and the habits that turn "have a look at these" into something you can actually act on.
+---
+
+**Goal:** navigate a real OCA repository the way a working integrator does, and find the
+one number that tells you where you could contribute. · **Time:** ~2 h ·
+**Checkpoint:** none, this chapter reads other people's code
+
+## Why this matters
+
+Sooner or later a lead sends you a list of repository links and says "have a look at
+these". It is a genuinely useful instruction and a completely useless one, because
+nobody tells you what *looking* means.
+
+Chapter 43 taught you to find one module and judge it. That skill does not scale. A
+single OCA repository can hold a hundred and seventy modules across half a dozen
+branches, and reading it module by module would take a week you do not have.
+
+This chapter is about the other skill: standing in front of a large repository you did
+not write and getting your bearings in ten minutes. By the end you will be able to say
+what a repo covers, whether it covers *your* Odoo version, and where the unfinished work
+is. That last one matters more than it sounds, and it is what chapter 49 acts on.
+
+## Concepts
+
+### The seven repositories, and why these seven
+
+The OCA (the Odoo Community Association, the nonprofit whose volunteers maintain
+thousands of free modules) runs hundreds of repositories. These seven come up first on
+almost every Odoo project, and each one lands on ground you have already covered:
+
+| Repository | What it covers | Where you met this |
+|---|---|---|
+| [OCA/sale-workflow](https://github.com/OCA/sale-workflow) | Odoo Sales, Workflow and Organization | chapter 22's quotation to order flow |
+| [OCA/purchase-workflow](https://github.com/OCA/purchase-workflow) | Odoo Purchases, Workflow and Organization | chapter 24's RFQ to vendor bill |
+| [OCA/crm](https://github.com/OCA/crm) | Odoo CRM, Mail & Newsletter advanced features | chapter 22's lead pipeline |
+| [OCA/product-attribute](https://github.com/OCA/product-attribute) | Odoo Product Attribute | chapter 21's product models |
+| [OCA/product-variant](https://github.com/OCA/product-variant) | variants on top of those products | chapter 21 again, the variant half |
+| [OCA/web](https://github.com/OCA/web) | Odoo web client UI related addons | Part 7's OWL work |
+| [OCA/server-tools](https://github.com/OCA/server-tools) | Tools for Odoo Administrators to improve some technical features on Odoo | chapter 50's performance work |
+
+That mapping is the point. You are not reading unfamiliar code. You are reading other
+people's answers to problems you have already solved once yourself, which is the fastest
+way to learn a codebase's conventions.
+
+### A repository is a stack of versions, not one product
+
+Here is the structural fact that catches everyone, and it is worth getting straight
+before you open anything.
+
+An OCA repository has **one branch per Odoo version**, named for it: `19.0`, `18.0`,
+`17.0`, `16.0`, and older. There is no `main` or `master` doing the real work. Each
+version branch is a complete, independent copy of the repository.
+
+Inside a branch, every module is one directory at the repository root. No `src/`, no
+nesting. The module list *is* the top-level directory list.
+
+<Mermaid
+  label="An OCA repository holds one branch per Odoo version, and each branch carries its own independent set of module directories"
+  chart={`flowchart TD
+    R["OCA/crm<br/>(one repository)"]
+    R --> B19["branch 19.0"]
+    R --> B18["branch 18.0"]
+    R --> B17["branch 17.0"]
+    B19 --> M19["crm_industry/<br/>crm_lead_code/<br/>...17 modules"]
+    B18 --> M18["crm_industry/<br/>crm_lead_code/<br/>crm_won_reason/<br/>...31 modules"]`}
+/>
+
+So **the same repository on two branches is effectively two different products.** A
+module that exists on `18.0` may simply not exist on `19.0` yet. When somebody says "OCA
+has a module for that", the honest follow-up question is always "on which version?"
+
+### The gap, and why it is the most useful number in the repo
+
+Count the modules on both branches and you get something more interesting than a
+count. Here are the seven, as they stood when this chapter was written:
+
+| Repository | Modules on 19.0 | Modules on 18.0 |
+|---|---|---|
+| OCA/sale-workflow | 88 | 173 |
+| OCA/purchase-workflow | 41 | 106 |
+| OCA/crm | 17 | 31 |
+| OCA/product-attribute | 35 | 103 |
+| OCA/product-variant | 6 | 11 |
+| OCA/web | 32 | 64 |
+| OCA/server-tools | 28 | 56 |
+| **Total** | **247** | **544** |
+
+Counted in September 2026, and **your numbers will be higher**: these branches gain
+modules every week, which is the entire point of the section below. Re-run the count
+yourself with the command in the Hands-on rather than trusting this table.
+
+One trap in counting them, and it is the reason the numbers above are not simply "how
+many folders are in the repo". Every OCA repo carries a top-level `setup/` directory
+holding Python packaging stubs, one per module, plus a `_metapackage`. It looks exactly
+like a module folder in a listing and it is not one. Exclude it, or every repo reads one
+module larger than it is.
+
+Read that bottom row twice. Across these seven repositories, roughly **three hundred
+modules exist on 18.0 and have not been ported to 19.0**.
+
+The instinct is to read that as decay. It is not. Odoo ships a new major version every
+year, and every module has to be carried forward by hand, by a volunteer, one at a
+time. The gap is simply the work that has not been done *yet*.
+
+Which makes it the contribution queue. It is well defined, it is public, and unlike
+"find a bug to fix", it comes with a list. Chapter 49 is where you take an item off it.
+
+<Callout type="info" title="In the field">
+  This is also a planning fact, not only a contribution one. If a client is moving to
+  Odoo 19 and their current install leans on six OCA modules, the first question is not
+  "will they still work". It is "do they exist on 19.0 at all". Checking that early has
+  saved more projects than any amount of clever code, and it is a ten minute job with
+  the commands in this chapter's Hands-on.
+</Callout>
+
+### Reading a module you did not write, in the right order
+
+When you do open a module, resist starting with the Python. Read it in this order
+instead, because each step tells you whether the next one is worth your time:
+
+1. **`__manifest__.py` first.** It is the smallest file and the highest value. It tells
+   you the version, what the module depends on, who wrote it, and its licence.
+2. **`readme/` fragments next.** Chapter 43 covered these: the real README source lives
+   in small files like `readme/DESCRIPTION.md` and `readme/CONTRIBUTORS.md`, and the
+   `README.rst` at the module root is generated from them. `DESCRIPTION.md` is the
+   author explaining the module's purpose in their own words.
+3. **Then the models**, and only for the part you actually care about.
+
+Most modules you look at, you will stop after step one. That is the skill.
+
+Here is a real manifest, from `crm_industry` on OCA/crm's `19.0` branch:
+
+```python
+{
+    "name": "CRM Industry",
+    "summary": "Link leads/opportunities to industries",
+    "version": "19.0.1.0.0",
+    "category": "Customer Relationship Management",
+    "website": "https://github.com/OCA/crm",
+    "author": "Tecnativa, Odoo Community Association (OCA)",
+    "license": "AGPL-3",
+    "installable": True,
+    "depends": ["crm", "partner_industry_secondary"],
+    "data": ["views/crm_lead_view.xml"],
+}
+```
+
+Four things to read off it, none of which need the source:
+
+- **`"version": "19.0.1.0.0"`.** The version string starts with the Odoo version it
+  targets. Chapter 8 set up that scheme for LibreFleet, and OCA uses the same one. A
+  manifest is self-describing about which Odoo it belongs to.
+- **`"author"`.** A company name plus "Odoo Community Association (OCA)". Chapter 43
+  flagged this pattern: real integrators, credited by name, under a shared umbrella.
+- **No `development_status` key.** Chapter 43 again: that is the silent Beta default,
+  not a warning sign.
+- **`"depends": ["crm", "partner_industry_secondary"]`.** This is the interesting one.
+
+### Dependencies do not respect repository boundaries
+
+`crm_industry` lives in OCA/crm. It depends on `partner_industry_secondary`, which does
+**not** live in OCA/crm. That module belongs to a different repository entirely,
+OCA/partner-contact.
+
+Nothing in OCA/crm tells you this. There is no manifest of manifests, and none of the
+seven repositories in this chapter ships a dependency-listing file at the repository
+root. You find out the same way everyone else does: you read the `depends` list, you
+fail to find one of the names in the directory listing beside you, and you go looking.
+
+<Callout type="warn" title="Gotcha">
+  This is why "just install the OCA module" is rarely one step. A single module can pull
+  in dependencies from two or three other repositories, each of which needs to be on your
+  addons path, and each of which needs a `19.0` branch of its own. Check the whole
+  dependency chain before promising anyone a timeline.
+</Callout>
+
+## Hands-on
+
+Everything below runs against the real repositories over the network. Nothing here
+touches your `tutorial` database or LibreFleet, so there is nothing to break.
+
+Two of the commands use `gh`, the GitHub command line tool, because it reads a
+repository without downloading it. If you do not have it, the same information is on the
+GitHub website; the point is the question you are asking, not the tool.
+
+<Steps>
+
+<Step>
+### Count what is actually there
+
+Start with OCA/crm, the smallest of the seven, so the output stays readable.
+
+```console
+$ gh api "repos/OCA/crm/contents?ref=19.0" \
+    --jq '[.[] | select(.type=="dir") | select(.name|startswith(".")|not)
+           | select(.name!="setup")] | length'
+```
+
+Then the same for `18.0` by changing the `ref`. You are looking for two numbers that
+differ, with `18.0` the larger of the two.
+
+The `select(.name|startswith(".")|not)` part matters: it drops `.github` and friends, so
+you count modules rather than directories.
+</Step>
+
+<Step>
+### List the version branches
+
+Confirm the branch-per-version structure rather than taking it on trust:
+
+```console
+$ gh api "repos/OCA/crm/branches?per_page=100" \
+    --jq '[.[].name | select(test("^[0-9]+\\.0$"))] | sort_by(tonumber) | reverse | join(" ")'
+```
+
+Expect a descending run of Odoo versions, `19.0` first. Notice what is *not* in the
+list: no `main`, no `master`.
+</Step>
+
+<Step>
+### Find the modules waiting to be ported
+
+This is the chapter's payoff. Save both branch listings, then compare them:
+
+```console
+$ for b in 19.0 18.0; do
+    gh api "repos/OCA/crm/contents?ref=$b" \
+      --jq '.[]|select(.type=="dir")|select(.name|startswith(".")|not)
+            |select(.name!="setup")|.name' \
+      | sort > /tmp/crm-$b.txt
+  done
+$ comm -13 /tmp/crm-19.0.txt /tmp/crm-18.0.txt
+```
+
+`comm -13` prints lines that are only in the second file: modules that exist on `18.0`
+and do not exist on `19.0` yet. Every name it prints is a module somebody could port.
+
+Now run the comparison the other way:
+
+```console
+$ comm -23 /tmp/crm-19.0.txt /tmp/crm-18.0.txt
+```
+
+This prints modules on `19.0` that are absent from `18.0`. Expect a short list, and do
+not skip it: it proves the newer branch is not simply a subset of the older one. Some
+modules are written directly for the current version and never existed on the previous
+one.
+</Step>
+
+<Step>
+### Read a manifest without cloning anything
+
+You can read any single file straight out of a branch:
+
+```console
+$ gh api "repos/OCA/crm/contents/crm_industry/__manifest__.py?ref=19.0" \
+    --jq '.content' | base64 -d
+```
+
+Read it in the order from Concepts: version string, author, `development_status` (or its
+absence), then `depends`.
+
+Then look at what the author wrote about it:
+
+```console
+$ gh api "repos/OCA/crm/contents/crm_industry/readme?ref=19.0" --jq '.[].name'
+```
+
+You are looking for the fragment filenames, `DESCRIPTION.md` among them. Fetch that one
+the same way you fetched the manifest.
+</Step>
+
+<Step>
+### Follow a dependency out of the repository
+
+`crm_industry` depends on `partner_industry_secondary`. Check whether it is a neighbour:
+
+```console
+$ grep -x "partner_industry_secondary" /tmp/crm-19.0.txt
+```
+
+`grep -x` matches whole lines only. It finds nothing, and its silence is the answer: the
+dependency is not in this repository. Confirm where it does live:
+
+```console
+$ gh api "repos/OCA/partner-contact/contents/partner_industry_secondary?ref=19.0" \
+    --jq 'length'
+```
+
+A number means the directory exists there. You have just traced a dependency across a
+repository boundary, which is the single most common surprise when installing OCA
+modules for the first time.
+</Step>
+
+<Step>
+### Clone one properly and move between versions
+
+Reading over the API is fine for reconnaissance. For anything real you want the
+repository on disk, and you want it shallow, because full OCA history is large:
+
+```console
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/crm.git
+$ cd crm
+$ ls -d */ | head
+```
+
+You cloned a single branch. To look at another version you need to fetch it explicitly:
+
+```console
+$ git fetch --depth 1 origin 18.0:18.0
+$ git switch 18.0
+$ ls -d */ | wc -l
+```
+
+Switch back to `19.0` and count again. The two numbers should match what you got over
+the API in the first step, which is the proof that a branch really is a whole separate
+copy of the repository.
+</Step>
+
+</Steps>
+
+## Verify
+
+There is no odoolings check for a reading chapter, so verify it against the repository
+itself. Pick any one of the seven you have not touched yet, and answer these four
+questions using only the commands above:
+
+1. How many modules does it carry on `19.0`, and how many on `18.0`?
+2. Name three modules on `18.0` that have not reached `19.0`.
+3. Pick any module on `19.0` and state its version string, its author, and its
+   dependencies, without opening a single `.py` file other than the manifest.
+4. Does that module depend on anything that is not in the same repository?
+
+If question 4 stops you, that is the chapter working. Re-read the dependency section and
+run the `grep -x` check from step 5 against the repository you chose.
+
+## Gotchas
+
+- **"OCA has a module for that" is an incomplete sentence.** It is only true for a
+  specific version branch. Always finish it with "on 19.0" or "on 18.0", and check before
+  you promise anything.
+- **The newer branch is not a subset of the older one.** It is tempting to assume `19.0`
+  is `18.0` minus the unported modules. Step 3's second comparison shows otherwise: some
+  modules are born on the current version and never existed before it.
+- **A module's `depends` can point outside its own repository**, and nothing in the repo
+  will warn you. The dependency chain is yours to trace, and it can cross two or three
+  repositories before it bottoms out.
+- **Star counts measure attention, not fitness for your project.** The most starred
+  repository of these seven is not the one you will need most often. Judge a module the
+  way chapter 43 taught, on maturity and activity, not on the repository it happens to
+  live in.
+- **A shallow clone of one branch cannot see the others.** `git switch 18.0` fails after
+  `--depth 1 -b 19.0` until you fetch that branch explicitly. This is a feature, not a
+  problem: it keeps the clone small.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: "A colleague says OCA/sale-workflow has a module that solves your problem. What is the first thing to check?",
+      options: [
+        "how many stars the repository has, since that indicates how well maintained the module will be",
+        "whether that module exists on the 19.0 branch, not just somewhere in the repository",
+        "whether the module's author is a company rather than an individual contributor",
+      ],
+      answer: 1,
+      why: "Each version branch is an independent copy of the repository. Roughly three hundred modules across these seven repos exist on 18.0 and have not reached 19.0, so existing somewhere and existing for your version are different claims.",
+    },
+    {
+      q: "OCA/crm shows 17 modules on 19.0 and 31 on 18.0. What does the difference represent?",
+      options: [
+        "modules that were tried on 19.0, failed their tests, and were removed from the branch",
+        "work that has not been done yet, which is exactly where a new contributor can help",
+        "modules deliberately retired because Odoo 19 absorbed their functionality into core",
+      ],
+      answer: 1,
+      why: "Every module is carried to a new version by hand, by a volunteer. The gap is the unfinished portion of that work, published as a queue anyone can join. Some modules genuinely are retired, but that is the exception, not what a raw count difference means.",
+    },
+    {
+      q: "A manifest on OCA/crm lists depends as [\"crm\", \"partner_industry_secondary\"], and the second name is not a directory in that repository. What has gone wrong?",
+      options: [
+        "nothing, the dependency lives in a different OCA repository and you have to go find it",
+        "the manifest is stale and refers to a module that was deleted during a past migration",
+        "the module is unusable on this branch until its maintainer moves the dependency across",
+      ],
+      answer: 0,
+      why: "Dependencies are declared by module name and ignore repository boundaries entirely. partner_industry_secondary belongs to OCA/partner-contact. Tracing that chain is normal work, and it is why installing one OCA module often means adding several repositories to your addons path.",
+    },
+    {
+      q: "Reading an unfamiliar OCA module, which file gives you the most information per second spent?",
+      options: [
+        "the models directory, because the field definitions show exactly what the module stores",
+        "__manifest__.py, because version, dependencies, author and licence are all in one short file",
+        "README.rst at the module root, since it is the documentation GitHub renders by default",
+      ],
+      answer: 1,
+      why: "The manifest is the smallest file and answers the questions that decide whether to keep reading. Most modules you inspect, you stop there. README.rst is useful but generated, and the models are where you go last, only for the part you care about.",
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Run the module count on all seven repositories and rebuild the table from the
+   Concepts section yourself. The totals will have moved since this chapter was
+   written; note by how much, and in which direction.
+2. ⭐⭐ Pick the repository closest to your day job and list every module on `18.0` that
+   has not reached `19.0`. For three of them, read the `18.0` manifest and rank them by
+   how hard you think a port would be. Write one sentence per module explaining the
+   ranking. You are practising the judgement chapter 49 needs.
+3. ⭐⭐ Take any module on a `19.0` branch and trace its full dependency tree until every
+   name resolves either to Odoo core or to a specific OCA repository. Note how many
+   distinct repositories you had to visit.
+4. ⭐⭐⭐ Break-it lab: shallow clone one repository at `19.0`, then try `git switch 18.0`
+   before fetching it. Read the error properly rather than working around it. Then work
+   out, and write down, why a shallow single branch clone is the right default for
+   reading OCA repositories even though it makes this particular thing harder.
+
+## Further reading
+
+- <Icon name="store" /> [OCA module catalog](https://apps.odoo-community.org/modules):
+  searches every repository and branch at once, which is the fastest way to answer
+  "which repo owns this module".
+- <Icon name="source" /> [github.com/OCA](https://github.com/OCA): the full list of
+  repositories, far beyond the seven here.
+- <Icon name="tool" /> [GitHub CLI manual](https://cli.github.com/manual/gh_api): the
+  `gh api` command used throughout this chapter, including the `--jq` filtering.
+- <Icon name="docs" /> [Odoo module manifests (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html):
+  every key you will meet reading OCA manifests.

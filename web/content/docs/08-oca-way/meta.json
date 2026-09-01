@@ -4,6 +4,8 @@
     "43-oca-safari",
     "44-oca-tooling-on-your-own-module",
     "45-contributing-to-oca",
-    "46-refactor-into-an-oca-quality-module"
+    "46-refactor-into-an-oca-quality-module",
+    "47-reading-oca-at-scale",
+    "48-reading-real-pull-requests"
   ]
 }

@@ -1,5 +1,5 @@
 ---
-title: "47. Migrations"
+title: "49. Migrations"
 description: Why every October forces this, migrating a real OCA module 18 to 19, and the OCA's own process for tracking who's doing it.
 ---
 
@@ -56,6 +56,56 @@ open.
 This is exactly what chapter 45's contribution mechanics point at. Find an unclaimed line,
 comment to claim it, then fork, branch and PR exactly as chapter 45 walked through, this
 time with `[MIG]` as the tag.
+
+### You do not copy the module across. You replay its history
+
+Here is the step nobody guesses, and getting it wrong is the most common reason a first
+migration PR gets sent back.
+
+The obvious move is to copy the module folder from the 18.0 branch, paste it onto 19.0,
+and commit. Do not. OCA wants the module to arrive on the new branch **with every commit
+that ever touched it**, so that `git log` and `git blame` still work and the original
+authors keep their credit. A paste throws all of that away and shows up as one anonymous
+commit from you.
+
+The tool for this is `git format-patch` piped into `git am`. In plain terms: `format-patch`
+turns a range of commits into a stream of patch files, and `am` ("apply mailbox") replays
+that stream onto whatever branch you are on. Restricting both to one folder means you move
+that module's history and nothing else. Straight from
+[OCA's migration guide](https://github.com/OCA/maintainer-tools/wiki/Migration-to-version-19.0):
+
+```console
+$ git clone https://github.com/OCA/$repo -b 19.0
+$ cd $repo
+$ git checkout -b 19.0-mig-$module origin/19.0
+$ git format-patch --keep-subject --stdout origin/19.0..origin/18.0 -- $module | git am -3 --keep
+```
+
+`--keep-subject` and `--keep` stop git from prefixing every replayed subject line with
+`[PATCH]`, and `-3` lets it use a three-way merge when a patch does not apply cleanly. If
+it still stops on whitespace, add `--ignore-whitespace` to the `git am`.
+
+Run against a real unmigrated module, that command replays the whole chain. This is
+`product_variant_name`, which exists on `OCA/product-variant`'s 18.0 branch and not yet on
+19.0:
+
+```console
+$ git rev-list --count origin/19.0..HEAD
+11
+$ git log --format='  %s' origin/19.0..HEAD | tail -3
+  [IMP] product_variant_name: pre-commit auto fixes
+  [MIG] product_variant_name: Migration to 18.0
+  [ADD] product_variant_name
+```
+
+Eleven commits, ending at the original `[ADD]`. You have not written a line yet. Everything
+after this point is one new commit on top, and that is the commit that does the actual
+porting work.
+
+This also explains something that looks wrong the first time you see a migration PR on
+GitHub: it reports hundreds of additions and **zero deletions**. Nothing is being deleted
+because on the 19.0 branch this module never existed. Chapter 48 takes that apart on a real
+merged PR.
 
 <MigrationChecklist
   items={[

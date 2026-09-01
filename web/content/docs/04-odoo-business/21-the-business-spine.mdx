@@ -139,7 +139,7 @@ Goods without inventory tracking.
   Odoo 18 and earlier used `type = 'product'` to mean "storable", alongside `consu` and
   `service`, with no `is_storable` field and no `combo`. Any tutorial, forum answer or
   module written against 18 or older that branches on `type == 'product'` needs
-  rewriting for 19. This is exactly the kind of change chapter 47's migration work is
+  rewriting for 19. This is exactly the kind of change chapter 49's migration work is
   made of.
 </Callout>
 
@@ -488,7 +488,7 @@ Note the `--db functional` on every check in Parts 4 and 5. Run these against yo
         'The module refuses to install, because the type field rejects the unknown value',
       ],
       answer: 1,
-      why: 'Odoo 19 offers exactly consu (Goods), service and combo. Nothing raises: the field simply never holds "product", so the branch is dead code and stock is never reserved. Storable moved to the separate is_storable boolean, contributed by the Inventory app. Silent behaviour changes like this one are the substance of chapter 47 migration work.',
+      why: 'Odoo 19 offers exactly consu (Goods), service and combo. Nothing raises: the field simply never holds "product", so the branch is dead code and stock is never reserved. Storable moved to the separate is_storable boolean, contributed by the Inventory app. Silent behaviour changes like this one are the substance of chapter 49 migration work.',
     },
     {
       q: 'Why does renaming a product template rename every one of its variants?',
