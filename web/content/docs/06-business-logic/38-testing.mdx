@@ -118,6 +118,13 @@ Further reading surveys them; this chapter does not build one.
 <Step>
 ### Fixtures that build their own world
 
+Odoo finds tests by looking for a `tests/` package inside the module, so the folder
+name is not a convention you can vary:
+
+```console
+$ mkdir -p addons/librefleet/tests
+```
+
 ```python title="addons/librefleet/tests/test_service_order.py"
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Datetime

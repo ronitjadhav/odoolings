@@ -123,6 +123,12 @@ list's Action menu, `binding_model_id`, but with `binding_type = "report"` inste
 <Step>
 ### Write the report action and the wrapper template
 
+Report definitions live in a `report/` folder, one the module does not have yet:
+
+```console
+$ mkdir -p addons/librefleet/report
+```
+
 ```xml title="addons/librefleet/report/service_order_report.xml"
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>

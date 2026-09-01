@@ -124,8 +124,13 @@ on purpose, that benefits from a confirmation step and maybe some extra input fi
 <Step>
 ### Write the wizard model
 
-A new top-level `wizards/` directory, alongside `models/`. Create
-`wizards/__init__.py`:
+A new top-level `wizards/` directory, alongside `models/`:
+
+```console
+$ mkdir -p addons/librefleet/wizards
+```
+
+Create `wizards/__init__.py`:
 
 ```python
 from . import service_order_approve

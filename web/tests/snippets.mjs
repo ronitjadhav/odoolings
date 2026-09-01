@@ -12,6 +12,10 @@
 // 3. A field defined with a trailing comma, which makes it a one-element tuple
 //    rather than a Field. Odoo builds models from class attributes that are
 //    Field instances, skips anything else without comment, and reports success.
+// 4. The first file written into a subdirectory the module does not have yet,
+//    with no `mkdir` anywhere before it. A reader in an editor never notices; one
+//    working from the shell gets `no such file or directory` and no way to know
+//    the chapter, not their typing, was at fault.
 //
 // Fragments (an insertion into a file whose wrapper is shown elsewhere in the
 // same chapter) are legitimate and are listed in FRAGMENT_ALLOWLIST below. Add
@@ -35,6 +39,7 @@ const docs = files.map((f) => ({ file: f, text: readFileSync(f, 'utf8') }));
 // `${chapter basename}::${snippet path}` for snippets that are deliberately partial.
 const FRAGMENT_ALLOWLIST = new Set([
   '31-the-three-inheritance-types.mdx::views/librefleet_menus.xml',
+  '34-data-files.mdx::data/service_type_master.xml',
   '35-cron-server-automated-actions.mdx::data/maintenance_reminder_cron.xml',
   '36-qweb-pdf-reports.mdx::report/service_order_report.xml',
   '37-controllers-portal.mdx::security/librefleet_security.xml',
@@ -108,7 +113,45 @@ for (const { file, text } of docs) {
   }
 }
 
+// 4. First write into a directory no earlier chapter has created.
+const CHAPTER_NUM = (p) => Number((p.split('/').pop().match(/^(\d+)/) || [0, 1e9])[1]);
+const ordered = [...docs].sort((a, b) => CHAPTER_NUM(a.file) - CHAPTER_NUM(b.file));
+const madeDirs = new Set(['.']);
+const unmadeDirs = [];
+for (const { file, text } of ordered) {
+  // Every mkdir in this chapter counts, wherever it sits relative to the write.
+  for (const m of text.matchAll(/mkdir[^\n]*?addons\/librefleet\/(\S+)/g)) {
+    // `mkdir -p a/{b,c}` is one command making several directories.
+    const raw = m[1].replace(/[`'"]/g, '');
+    const brace = raw.match(/^(.*?)\{(.+)\}$/);
+    const paths = brace ? brace[2].split(',').map((s) => brace[1] + s) : [raw];
+    for (const p of paths) {
+      const parts = p.split('/');
+      for (let i = 1; i <= parts.length; i++) madeDirs.add(parts.slice(0, i).join('/'));
+    }
+  }
+  // Files named by a title= attribute or by prose immediately introducing them.
+  const written = [
+    ...text.matchAll(/title="addons\/librefleet\/([^"]+)"/g),
+    ...text.matchAll(/`(?:addons\/librefleet\/)?((?:models|views|data|demo|report|security|controllers|wizards|tests|i18n|static)\/[^`]+\.\w+)`/g),
+  ];
+  for (const m of written) {
+    const dir = m[1].split('/').slice(0, -1).join('/');
+    if (!dir || madeDirs.has(dir)) continue;
+    madeDirs.add(dir);
+    unmadeDirs.push({ file, dir });
+  }
+}
+
 let failed = false;
+
+if (unmadeDirs.length) {
+  failed = true;
+  console.error(`\n${unmadeDirs.length} director(ies) written into before anything creates them:\n`);
+  for (const b of unmadeDirs) console.error(`  ${b.file}  first writes ${b.dir}/ with no mkdir`);
+  console.error('\n  Add a `$ mkdir -p addons/librefleet/<dir>` console block before the');
+  console.error('  first file, the way chapters 9 and 39 do.');
+}
 
 if (bareRoots.length) {
   failed = true;
@@ -134,5 +177,6 @@ if (tupleFields.length) {
 
 if (failed) process.exit(1);
 console.log(
-  `snippets: ${created.size} data files all registered, every XML file snippet has a root, no tuple fields.`,
+  `snippets: ${created.size} data files all registered, every XML file snippet has a root, ` +
+    `no tuple fields, every directory created before first use.`,
 );
