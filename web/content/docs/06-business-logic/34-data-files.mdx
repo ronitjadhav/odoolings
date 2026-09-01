@@ -522,7 +522,11 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
 ### Make a field translatable, and watch its column change type
 
 Service type names are shown to users, so a workshop with French staff wants them
-translated. That is one keyword in `models/service_type.py`:
+translated. That is one keyword on a field you already have.
+
+Open `addons/librefleet/models/service_type.py` and find the `name` field, which currently
+reads `name = fields.Char(required=True)`. Add `translate=True` to it. Do not add a second
+field, and change nothing else in the file:
 
 ```python title="addons/librefleet/models/service_type.py"
     name = fields.Char(required=True, translate=True)
@@ -607,14 +611,20 @@ untouched, which is why this chapter's own checks did not change. Only raw SQL h
 ### Mark your code strings for translation
 
 `translate=True` covers data. Literals in your Python are the other half, and they need
-wrapping in `_()`. The wizard from chapter 20 has two user-facing messages, so open
-`wizards/service_order_approve.py` and wrap both:
+wrapping in `_()`. The wizard from chapter 20 has two user-facing messages. Open
+`addons/librefleet/wizards/service_order_approve.py`, which needs two edits.
+
+First the import at the top of the file. It currently reads `from odoo import fields,
+models`, so add `_` to it:
 
 ```python title="addons/librefleet/wizards/service_order_approve.py"
 from odoo import _, fields, models
 ```
 
-```python
+Then the two `raise UserError(...)` calls, both inside `action_confirm`. Wrap each
+message in `_()`, leaving the surrounding `if` statements exactly as they are:
+
+```python title="addons/librefleet/wizards/service_order_approve.py"
         if order.stage != "in_progress":
             raise UserError(
                 _("Only an order that is in progress can be marked done."))
@@ -680,7 +690,21 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from res_count
 ### Export what you just marked
 
 Now export your own module's terms as a template. The `.pot` is the untranslated master
-list a translator works from:
+list a translator works from.
+
+First make the directory it goes in. Your module has no `i18n/` folder yet, and the
+command below writes into it with a shell redirect, which will not create a missing
+directory for you:
+
+```console
+$ mkdir -p addons/librefleet/i18n
+```
+
+Skip that and the export fails with `no such file or directory`, pointing at the path
+rather than at the real problem. `i18n` is the conventional name and Odoo looks for
+translation files there by default, so it is not a name you get to choose.
+
+Now export:
 
 ```console
 $ docker compose exec -T odoo odoo i18n export -c /etc/odoo/odoo.conf -d tutorial librefleet -l pot -o - > addons/librefleet/i18n/librefleet.pot
