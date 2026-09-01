@@ -191,6 +191,12 @@ been counting your experiments, not ours.
 <Step>
 ### Write the component
 
+The dashboard is one feature, so one folder holds its JS, XML and SCSS:
+
+```console
+$ mkdir -p addons/librefleet/static/src/dashboard
+```
+
 ```js title="addons/librefleet/static/src/dashboard/dashboard.js"
 import { Component, onWillStart, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";

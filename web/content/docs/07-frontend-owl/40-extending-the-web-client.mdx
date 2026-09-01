@@ -143,6 +143,12 @@ matters more than anything else in this chapter.
 <Step>
 ### Write the widget component
 
+One folder per feature, the layout chapter 39 introduced:
+
+```console
+$ mkdir -p addons/librefleet/static/src/margin_field
+```
+
 ```js title="addons/librefleet/static/src/margin_field/margin_field.js"
 import { Component } from "@odoo/owl";
 import { _t } from "@web/core/l10n/translation";
@@ -261,6 +267,12 @@ up-arrow; an order underwater shows bold red with a down-arrow:
 
 <Step>
 ### Patch the form controller
+
+A second feature, so a second folder:
+
+```console
+$ mkdir -p addons/librefleet/static/src/form_controller
+```
 
 ```js title="addons/librefleet/static/src/form_controller/service_order_save_warning.js"
 import { _t } from "@web/core/l10n/translation";

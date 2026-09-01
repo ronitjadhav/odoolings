@@ -2,7 +2,8 @@
 <odoo>
     <!-- Demo data: illustrative, not required. The "demo" manifest key makes
          Odoo load this with noupdate=1 automatically, the same protection
-         data/service_type_master.xml asks for explicitly, see chapter 14. -->
+         data/service_type_master.xml asks for explicitly, asked for
+         explicitly earlier in this chapter. -->
     <record id="service_order_demo_ag_12_345" model="librefleet.service.order">
         <field name="vehicle_id" ref="vehicle_demo_ag_12_345"/>
         <field name="service_type_id" ref="service_type_tire_rotation"/>

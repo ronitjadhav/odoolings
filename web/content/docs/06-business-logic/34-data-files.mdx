@@ -270,7 +270,7 @@ Create `data/service_type_master.xml`:
 
 Register it in the manifest, after the existing data files and before the views:
 
-```python
+```python title="addons/librefleet/__manifest__.py"
     "data": [
         "security/librefleet_security.xml",
         "security/ir.model.access.csv",
@@ -311,7 +311,7 @@ Shipped, alongside your three hand-clicked ones from chapter 11, untouched.
 First, try to "fix" the price and see nothing happen. Edit the record you just
 wrote, bumping the fee, and add a second record in the same block:
 
-```xml
+```xml title="addons/librefleet/data/service_type_master.xml"
         <record id="service_type_tire_rotation" model="librefleet.service.type">
             <field name="name">Tire Rotation</field>
             <field name="flat_fee">75.0</field>
@@ -355,7 +355,7 @@ That is "who wins" settled by experiment, with both answers in a single upgrade:
 Now put the price back to 59 in the XML. It changes nothing in Postgres either way, but a
 chapter's source should not lie about what is in your database:
 
-```xml
+```xml title="addons/librefleet/data/service_type_master.xml"
             <field name="flat_fee">59.0</field>
 ```
 
@@ -388,7 +388,8 @@ Rotation master data from step 1:
 <odoo>
     <!-- Demo data: illustrative, not required. The "demo" manifest key makes
          Odoo load this with noupdate=1 automatically, the same protection
-         data/service_type_master.xml asks for explicitly, see chapter 34. -->
+         data/service_type_master.xml asks for explicitly, asked for
+         explicitly earlier in this chapter. -->
     <record id="service_order_demo_ag_12_345" model="librefleet.service.order">
         <field name="vehicle_id" ref="vehicle_demo_ag_12_345"/>
         <field name="service_type_id" ref="service_type_tire_rotation"/>
@@ -401,7 +402,7 @@ Rotation master data from step 1:
 Register all three under a new manifest key, in dependency order (the vehicle
 needs the partner to exist first, the order needs the vehicle):
 
-```python
+```python title="addons/librefleet/__manifest__.py"
     "demo": [
         "data/res.partner-demo.csv",
         "data/librefleet.vehicle-demo.csv",
