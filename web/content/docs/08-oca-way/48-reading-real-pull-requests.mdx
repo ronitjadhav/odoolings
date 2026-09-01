@@ -65,10 +65,30 @@ case study:
 | Tag | What it marks |
 |---|---|
 | `[ADD]` | a brand new module |
+| `[FIX]` | a bug fix in an existing module |
 | `[IMP]` | an improvement to something that already works |
 | `[MIG]` | a migration to a new Odoo version |
 | `[UPD]` | a mechanical update, typically regenerated files |
 | `[BOT]` | a commit made by OCA's automation, not by a person |
+
+The vocabulary is the same everywhere, which is what makes it worth learning once. One
+real merged PR from each of chapter 47's seven repositories, all targeting `19.0`:
+
+| Repository | A merged 19.0 PR | Tag |
+|---|---|---|
+| sale-workflow | [#4541](https://github.com/OCA/sale-workflow/pull/4541) `portal_sale_confirm_require_login: Migration to version 19.0` | `[MIG]` |
+| purchase-workflow | [#3158](https://github.com/OCA/purchase-workflow/pull/3158) `purchase_order_line_menu: add analytic_distribution on line` | `[IMP]` |
+| crm | [#762](https://github.com/OCA/crm/pull/762) `crm_claim: Make claim description field full width` | `[FIX]` |
+| product-attribute | [#2387](https://github.com/OCA/product-attribute/pull/2387) `Update copier to 1.44` | `[UPD]` |
+| product-variant | [#464](https://github.com/OCA/product-variant/pull/464) `product_variant_configurator: Create product with sudo` | `[FIX]` |
+| web | [#3645](https://github.com/OCA/web/pull/3645) `web_widget_one2many_tree_line_duplicate: keep relational values on the clone` | `[FIX]` |
+| server-tools | [#3716](https://github.com/OCA/server-tools/pull/3716) `upgrade_analysis: update documentation link` | `[FIX]` |
+
+Four different tags across seven repositories, and every title still reads
+`[version][TAG] module: what changed`. That last row is worth a second look: a merged PR
+that only updates a documentation link. **Merged OCA work is not all heroic.** A
+surprising share of it is small, and small is exactly what a first contribution should
+be.
 
 ### The number that fools everyone
 
@@ -201,6 +221,29 @@ kind of change, and the module, on every line.
 
 Notice the source branch names too. Most read `19.0-mig-<module>`. That naming is not a
 coincidence, and chapter 49 is where you find out why.
+
+Now widen it to all seven of chapter 47's repositories, and count rather than read:
+
+```console
+$ for r in sale-workflow purchase-workflow crm product-attribute \
+           product-variant web server-tools; do
+    n=$(gh api "search/issues?q=repo:OCA/$r+is:pr+is:merged+base:19.0" \
+        --jq '.total_count')
+    printf "%-20s %s merged into 19.0\n" "$r" "$n"
+  done
+```
+
+Add them up. When this chapter was written the seven had taken **325 merged pull
+requests into their `19.0` branches**, and chapter 47 counted 247 modules living on
+those branches. More merged PRs than modules, because porting a module is rarely the end
+of it: fixes and improvements keep landing afterwards.
+
+That is the healthiest signal in this chapter. These are not archived repositories with
+a version branch nobody touches. They are busy, and busy repositories merge
+contributions from people who were strangers a month earlier.
+
+Swap `is:merged` for `is:open` on any of them to see what is in flight right now. Those
+are the PRs you could review, which is the subject of this chapter's third exercise.
 </Step>
 
 <Step>
