@@ -169,31 +169,71 @@ transaction yourself, so you have to ask for it.
 <Steps>
 
 <Step>
+### Declare mail as a dependency
+
+Do this first, before touching any Python, because it is the step that makes the rest
+legal.
+
+`mail.thread` is defined in Odoo's `mail` module. Chapter 32's first obligation was that
+**your module may only extend models from modules it declares in `depends`**, so `mail`
+has to be in yours. Open `addons/librefleet/__manifest__.py` and add it:
+
+```python title="addons/librefleet/__manifest__.py"
+    "depends": ["base", "product", "mail"],
+```
+
+You may be wondering why this is needed when the chapter works without it, and the answer
+is the interesting part. `mail` is already installed on your database: `product` depends on
+`["base", "mail", "uom"]`, which is why chapter 32's upgrade log showed `product` dragging
+`uom` and `mail` in behind it. So the code below would run either way, today.
+
+Relying on that is a bug waiting for someone else's refactor. You would be depending on
+`mail` through a module that never promised to provide it. If `product` ever drops `mail`,
+your module breaks for a reason that has nothing to do with your code, and the error will
+point somewhere else entirely. Declare what you use.
+
+</Step>
+
+<Step>
 ### Inherit the mixins
 
-In `models/service_order.py`:
+Now the model. In `addons/librefleet/models/service_order.py`, add one line to the class
+header, the `_inherit` line. Leave `_name`, `_description`, `_rec_name` and `_order`
+exactly as they are, and leave every field below untouched:
 
 ```python title="addons/librefleet/models/service_order.py"
 class ServiceOrder(models.Model):
     _name = "librefleet.service.order"
-    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _inherit = ["mail.thread", "mail.activity.mixin"]      # <- the new line
     _description = "Service Order"
     _rec_name = "reference"
     _order = "scheduled_start desc, id desc"
 ```
+
+Keeping `_name` alongside `_inherit` is what makes this classic extension rather than
+prototype inheritance: the model is still `librefleet.service.order`, now with two mixins
+folded into it. Chapter 31's table is the reference if that distinction has gone fuzzy.
 
 </Step>
 
 <Step>
 ### Track the two fields worth an audit trail
 
-```python
+These are **edits to fields you already have**, not new ones. Both live in the same file
+you just changed, a few lines below the class header. Find each one and add
+`tracking=True` to it.
+
+`customer_id` currently ends after `string="Customer"`:
+
+```python title="addons/librefleet/models/service_order.py"
     customer_id = fields.Many2one(
         related="vehicle_id.owner_id", store=True, string="Customer",
         tracking=True)
 ```
 
-```python
+`stage` currently ends after `required=True`:
+
+```python title="addons/librefleet/models/service_order.py"
     stage = fields.Selection(
         [
             ("draft", "Draft"),
@@ -205,18 +245,38 @@ class ServiceOrder(models.Model):
         default="draft", required=True, tracking=True)
 ```
 
+Two fields, one keyword each. Everything else in the file stays as it was.
+
 </Step>
 
 <Step>
 ### Add the chatter to the form
 
-In `views/service_order_views.xml`, right after the sheet closes:
+Inheriting the mixins creates the fields, and nothing appears on screen until the form
+asks for them. That is one tag.
+
+Open `addons/librefleet/views/service_order_views.xml` and find the service order's
+`<form>`. It currently ends like this, with `</sheet>` immediately followed by `</form>`:
+
+```xml
+                </sheet>
+            </form>
+```
+
+Put `<chatter/>` **between** them: after the sheet closes, still inside the form.
 
 ```xml
                 </sheet>
                 <chatter/>
             </form>
 ```
+
+Placement matters, and getting it wrong is the usual first mistake. Inside `<sheet>` the
+panel renders in the middle of your fields; outside `<form>` it is not part of the view at
+all. Every core Odoo form puts it exactly here, as the last child of `<form>`.
+
+That single tag renders all three pieces from the Concepts table: the message thread, the
+follower list and the activity scheduler.
 
 Bump the manifest to `19.0.1.18.0` and upgrade:
 
@@ -228,8 +288,14 @@ INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.29s, 522 queri
 INFO tutorial odoo.modules.loading: 30 modules loaded in 0.57s, 522 queries (+522 extra)
 ```
 
-No new module got pulled in this time, unlike chapter 32's `product`: `mail` was already
-installed, a side effect of `product` depending on it.
+No new module got pulled in this time, unlike chapter 32's `product`. That is expected:
+`mail` was already on the database, dragged in by `product`, so naming it in `depends`
+changed what your module *promises* rather than what gets installed.
+
+That is worth sitting with for a second, because it is why the mistake is so easy to make.
+Declaring a dependency you were already getting by accident produces **no visible
+difference at all**: same log, same modules, same behaviour. The payoff is entirely in the
+future, on the day somebody changes `product`.
 
 </Step>
 
