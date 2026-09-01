@@ -1,0 +1,453 @@
+---
+title: "48. Reading Real Pull Requests"
+description: Dissect a merged OCA pull request end to end, and learn to read the one number on every migration PR that fools newcomers.
+---
+
+**Goal:** read a merged OCA pull request the way a maintainer does, and never again
+misread a migration PR's diff stats. · **Time:** ~1.5 h · **Checkpoint:** none, this
+chapter reads other people's code
+
+## Why this matters
+
+A merged pull request is the best teaching material in open source, and almost nobody
+reads one on purpose.
+
+Think about what a merged PR actually contains. The real diff, written by someone solving
+a real problem. The review conversation, where a maintainer says out loud what they
+objected to and why. The commands that got it merged. Documentation tells you what the
+rules are; a merged PR shows you the rules being applied to code, by people, under
+disagreement.
+
+Chapter 45 taught you to open a pull request. This chapter teaches you to read other
+people's, which is a different and more useful skill. You will open a handful of PRs in
+your career. You can read a thousand.
+
+There is one specific thing worth the price of the chapter on its own. Every migration
+PR in the OCA displays a diff summary that means something other than what it looks
+like. Read it wrong and you will think a two-line change is a two-thousand-line rewrite.
+By the end of this chapter you will read it correctly in about four seconds.
+
+## Concepts
+
+### Read a PR in three passes, in this order
+
+Opening a PR and scrolling from the top is the slow way. Read it in three passes
+instead, stopping as soon as you have what you came for.
+
+1. **The title.** It usually tells you everything you need to triage the PR without
+   opening it.
+2. **The files changed.** What actually moved, and how much.
+3. **The conversation.** Who objected, to what, and how it got resolved.
+
+Most of the time you stop after pass 1 or 2. Pass 3 is where the expensive knowledge is,
+so spend it deliberately rather than on every PR you scroll past.
+
+### The title carries three facts before you click
+
+OCA titles follow a shape, and once you can decode it you can triage a list of two
+hundred PRs by eye:
+
+```text
+[19.0][MIG] portal_sale_order_search: Migration to 19.0
+```
+
+- `[19.0]` is the **target version branch**. OCA keeps one long-lived branch per Odoo
+  version, so a PR always aims at a specific one. Chapter 45 made this a rule: never
+  target `master`.
+- `[MIG]` is the **kind of change**, from the same tag vocabulary chapter 7 taught for
+  commit messages. `[MIG]` means a migration, moving a module from one Odoo version to
+  the next.
+- `portal_sale_order_search` is the **module**. One module per PR is the norm.
+
+You will meet the other tags constantly. These are the ones visible in this chapter's
+case study:
+
+| Tag | What it marks |
+|---|---|
+| `[ADD]` | a brand new module |
+| `[IMP]` | an improvement to something that already works |
+| `[MIG]` | a migration to a new Odoo version |
+| `[UPD]` | a mechanical update, typically regenerated files |
+| `[BOT]` | a commit made by OCA's automation, not by a person |
+
+### The number that fools everyone
+
+Here is the case study, and the reason this chapter exists. Pull request 4276 on
+`OCA/sale-workflow` was merged on 28 August 2026. GitHub summarises it like this:
+
+```text
+763 additions, 0 deletions, 13 files changed, 8 commits
+```
+
+Read that as "somebody wrote 763 new lines" and you have misread it completely.
+
+**Seven of those eight commits are not new work.** They are the module's existing
+history, replayed onto the 19.0 branch. Only the last commit is the contribution.
+
+The reason is that OCA migrations preserve history rather than copying files. On the
+18.0 branch this module already exists, with years of commits behind it. On the 19.0
+branch the folder does not exist at all. So the migration replays every one of those old
+commits onto 19.0, then adds one new commit on top that does the actual porting work.
+
+That also explains the **0 deletions**. Nothing was removed because on this branch there
+was nothing there yet. Every line is an addition by definition, including lines written
+in 2025 by somebody else.
+
+<Mermaid
+  label="A migration pull request replays the module's existing commits from the 18.0 branch onto the 19.0 branch, where the module folder does not exist yet, then adds one new porting commit on top"
+  chart={`flowchart LR
+    subgraph old["18.0 branch (module exists)"]
+      h["7 commits of history<br/>ADD, IMP, MIG to 18.0,<br/>UPD, BOT, 2 translations"]
+    end
+    subgraph new["19.0 branch (folder absent)"]
+      r["the same 7 commits,<br/>replayed"] --> n["1 new commit<br/>MIG to 19.0"]
+    end
+    h -."replayed onto".-> r
+    n -."reads as 763 additions,<br/>0 deletions".-> s["the PR summary"]`}
+/>
+
+The practical rule: **on a migration PR, judge the last commit, not the diff summary.**
+The summary is describing a transplant, not a rewrite.
+
+The mechanics that produce this are chapter 49's subject. Here you only need to read the
+result.
+
+### Two of the changed files are generated
+
+Look at what that final commit actually touched. Five files:
+
+| File | Change | What it is |
+|---|---|---|
+| `__manifest__.py` | +1 / -1 | the version bump |
+| `controllers/main.py` | +8 / -9 | the real porting work |
+| `readme/CONTRIBUTORS.md` | +2 / -0 | the contributor adding themselves |
+| `README.rst` | +9 / -5 | **generated** |
+| `static/description/index.html` | +7 / -3 | **generated** |
+
+Chapter 44 built the readme fragments. `README.rst` and
+`static/description/index.html` are produced from those fragments by OCA's tooling, so
+you never hand-edit them. They show up in the diff because the tool regenerated them,
+not because anyone typed in them.
+
+This matters when you are reviewing. Two of five changed files carry no decisions at
+all, which means the review is really about one file: `controllers/main.py`, eight lines
+added and nine removed.
+
+### `ocabot`, and who actually merges
+
+Chapter 45 introduced `ocabot`, the OCA's merge bot. Reading real PRs is where you see
+it working.
+
+In this one, the contributor asked two people to review. A maintainer then left two
+comments, each a command to the bot:
+
+```text
+/ocabot migration portal_sale_order_search
+/ocabot merge nobump
+```
+
+The first links the PR to the repository's migration tracking issue, so the module gets
+ticked off the list. The second merges it.
+
+`nobump` means "do not increase the module's version number as part of this merge". For
+a migration that is the correct choice: the version already changed to `19.0.1.0.0` in
+the manifest as part of the port, so bumping again would be wrong.
+
+<Callout type="info" title="In the field">
+  You will not run these commands. `/ocabot merge` only works for maintainers, and the
+  bot ignores it from anyone else. Knowing the vocabulary still pays off, because when
+  you see `/ocabot merge nobump` on your own PR you know it has been accepted and the
+  bot is now doing the work.
+</Callout>
+
+After the command, OCA's bot posts twice: once to say it is merging, and once to confirm
+the merge with the resulting commit hash. That second message is how you find the commit
+your work ended up as.
+
+### Why the `gh` CLI beats the browser here
+
+You can do all of this in a browser. You will not do it a hundred times in a browser.
+
+The GitHub CLI, `gh`, is the tool chapter 45 already used to fork a repo and open a PR.
+The same tool reads PRs, and because the output is text you can filter it, count it, and
+grep it. That is the difference between looking at one PR and studying a pattern across
+fifty.
+
+## Hands-on
+
+Everything below reads public data. You are not changing anything, so run it against the
+real repository.
+
+<Callout type="warn" title="Gotcha">
+  `gh` needs to be authenticated even to read public repositories at any volume, because
+  unauthenticated API requests are rate-limited hard. If a command fails with a rate
+  limit message, run `gh auth status` and log in.
+</Callout>
+
+<Steps>
+
+<Step>
+### Triage a list without opening anything
+
+Start with the list view, which is pass 1 across many PRs at once:
+
+```console
+$ gh pr list --repo OCA/sale-workflow --base 19.0 --state merged --limit 5
+```
+
+Every row gives you the PR number, the title, the source branch, the state and the merge
+date. Read the titles only, and notice how much you can tell: the target version, the
+kind of change, and the module, on every line.
+
+Notice the source branch names too. Most read `19.0-mig-<module>`. That naming is not a
+coincidence, and chapter 49 is where you find out why.
+</Step>
+
+<Step>
+### Open the case study, summary first
+
+```console
+$ gh pr view 4276 --repo OCA/sale-workflow --json title,state,additions,deletions,changedFiles
+```
+
+You get one line of JSON. It reports the title, `MERGED`, 763 additions, 0 deletions and
+13 files changed.
+
+Sit with those numbers for a moment before reading on, and predict what you expect to
+find. The point of the next step is that your prediction is probably wrong.
+</Step>
+
+<Step>
+### Count the commits, and find the one that matters
+
+```console
+$ gh pr view 4276 --repo OCA/sale-workflow --json commits --jq '.commits[].messageHeadline'
+```
+
+Eight lines come back, in order:
+
+```text
+[ADD] portal_sale_order_search: Add new module
+[IMP] portal_sale_order_search: pre-commit auto fixes
+[MIG] portal_sale_order_search: Migration to version 18.0
+[UPD] Update portal_sale_order_search.pot
+[BOT] post-merge updates
+Added translation using Weblate (Italian)
+Translated using Weblate (Italian)
+[MIG] portal_sale_order_search: Migration to 19.0
+```
+
+Read the third line. This PR contains the module's migration to version **18.0**, which
+obviously did not happen in this PR. That is the replayed history, and it is the
+clearest possible proof that the diff summary is not describing new work.
+
+The last line is the contribution. Everything else is provenance.
+</Step>
+
+<Step>
+### Read only the commit that is new
+
+Ask for the files in the final commit rather than the files in the PR:
+
+```console
+$ gh api repos/OCA/sale-workflow/pulls/4276/commits --jq '.[-1].sha' | while read s; do
+    gh api repos/OCA/sale-workflow/commits/$s --jq '.files[] | "\(.additions)\t\(.deletions)\t\(.filename)"'
+  done
+```
+
+`.[-1]` takes the last commit in the list. Five files come back, and they are the five
+from the Concepts table: the manifest, the controller, the contributors fragment, and
+the two generated files.
+
+Thirteen files changed in the PR, five in the commit that matters, and only one of those
+five contains a decision.
+</Step>
+
+<Step>
+### Read the actual porting work
+
+One file is the whole review:
+
+```console
+$ gh api repos/OCA/sale-workflow/pulls/4276/commits --jq '.[-1].sha' | while read s; do
+    gh api repos/OCA/sale-workflow/commits/$s --jq '.files[] | select(.filename|endswith("main.py")) | .patch'
+  done
+```
+
+Two Odoo 19 API changes account for nearly all of it.
+
+The first is the translation function. Odoo 19 exposes it on the environment, so the
+module-level import is gone:
+
+```python
+-from odoo import _
++from odoo.fields import Domain
+ from odoo.http import request
+-from odoo.osv import expression
+```
+
+```python
+-            "all": {"label": _("All"), "input": "all"},
++            "all": {"label": request.env._("All"), "input": "all"},
+```
+
+The second is domain combination. `odoo.osv.expression` is replaced by a `Domain` class
+in `odoo.fields`:
+
+```python
+-            search_domain = expression.OR(
++            search_domain = Domain.OR(
+```
+
+```python
+-            domain = expression.AND([domain, search_domain])
++            domain = Domain.AND([domain, search_domain])
+```
+
+Eight lines added, nine removed, and both changes are mechanical once you know the rule.
+That is what most migration work looks like.
+</Step>
+
+<Step>
+### Read the conversation
+
+```console
+$ gh pr view 4276 --repo OCA/sale-workflow --json comments --jq '.comments[] | "\(.author.login): \(.body)"'
+```
+
+Five comments, and the shape of an OCA merge in miniature:
+
+- the contributor asking two named people for review
+- a maintainer running `/ocabot migration portal_sale_order_search`
+- the same maintainer running `/ocabot merge nobump`
+- the bot saying it is proceeding to merge
+- the bot confirming the merge and naming the commit it produced
+
+Notice what is absent. No arguing, no long design debate. On a clean migration the
+conversation is mostly bot commands, which is itself worth knowing: it tells you the
+review happened by reading, not by discussing.
+</Step>
+
+</Steps>
+
+## Verify
+
+There is no odoolings check here, because nothing in your own module changed. The proof
+is that you can answer questions about a PR you did not write.
+
+Run this and read the third line of output:
+
+```console
+$ gh pr view 4276 --repo OCA/sale-workflow --json commits --jq '.commits[].messageHeadline'
+```
+
+You have understood the chapter if you can say, without re-reading it, why a pull request
+targeting Odoo 19 contains a commit whose message says "Migration to version 18.0", and
+why that same PR reports zero deletions.
+
+Then confirm you can find the real work on any migration PR, not just this one:
+
+```console
+$ gh pr list --repo OCA/web --base 19.0 --state merged --limit 5
+```
+
+Pick any row, and using the technique from the Hands-on, list the files in its **final**
+commit. If that list is small (a manifest, a file or two of real code, a contributors
+fragment, and the generated pair) you are reading migration PRs correctly.
+
+## Gotchas
+
+- **The diff summary on a migration PR describes a transplant, not a rewrite.** Hundreds
+  of additions and zero deletions is the normal shape, and it says nothing about how much
+  work the contributor did. Judge the final commit.
+- **`README.rst` and `static/description/index.html` are generated.** Seeing them in a
+  diff is expected. Seeing a PR that edits them *without* touching `readme/` is a red
+  flag, because it means somebody hand-edited a generated file and the next tooling run
+  will silently undo it.
+- **A commit in the PR is not necessarily work in the PR.** Replayed history carries the
+  original author and date, so a commit headline can predate the pull request by years.
+  Check the last commit before you attribute anything to the contributor.
+- **`/ocabot` commands only work for maintainers.** Typing one on your own PR does
+  nothing, and the bot will not tell you why. Chapter 45's rule stands: you get the PR
+  into a mergeable state, someone else merges it.
+- **Unauthenticated `gh` runs out of API budget fast.** Reading a handful of PRs is fine;
+  studying fifty is not, until you have run `gh auth login`.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A migration PR reports 763 additions and 0 deletions. What is the most likely explanation?',
+      options: [
+        'Most of it is the module\'s existing history, replayed onto a branch where the folder does not exist yet',
+        'The contributor wrote 763 lines of genuinely new code, so this needs a much more careful review than a small PR would',
+        'GitHub cannot compute deletions when the base branch has no matching file, so it reports zero as a placeholder value',
+      ],
+      answer: 0,
+      why: 'OCA migrations preserve history instead of copying files, so the old commits are replayed onto the new version branch. Nothing is deleted because the module folder was not there to begin with. The additions count includes lines other people wrote years earlier.',
+    },
+    {
+      q: 'On the case-study PR, the final commit changes README.rst and static/description/index.html. What should a reviewer conclude?',
+      options: [
+        'Both are generated from the readme fragments, so there is nothing to review in them',
+        'The contributor documented the change by hand, which OCA requires before any migration pull request can be approved and merged',
+        'Those files were regenerated by mistake and should be reverted before the pull request is allowed to merge',
+      ],
+      answer: 0,
+      why: 'Chapter 44 built the readme fragments that these two files are generated from. They appear in the diff because tooling rewrote them. The decisions live in readme/ and in the code, never in the generated pair.',
+    },
+    {
+      q: 'A pull request targeting the 19.0 branch contains a commit titled "[MIG] module: Migration to version 18.0". Is something wrong?',
+      options: [
+        'No, that is replayed history from the older branch',
+        'Yes, the contributor targeted the wrong branch and the pull request should be closed and reopened against 18.0 instead',
+        'Yes, two separate migrations have been mixed into a single pull request and they need to be split apart',
+      ],
+      answer: 0,
+      why: 'The migration replays every existing commit for that module onto the new branch, so the 18.0 migration commit comes along for the ride. Only the last commit is work done in this PR.',
+    },
+    {
+      q: 'You see /ocabot merge nobump on a pull request. What does nobump mean here?',
+      options: [
+        'Do not increase the module version, because the migration already set it',
+        'Do not rebase the pull request onto the target branch before merging it, because the history has already been replayed',
+        'Do not notify the reviewers again, since they have already approved the change and a second ping would be noise',
+      ],
+      answer: 0,
+      why: 'A migration already sets the manifest version to 19.0.1.0.0 as part of the port. Letting the bot bump it again would push the version past where the migration deliberately put it.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Using `gh pr list`, pull the ten most recently merged PRs on `OCA/web`'s 19.0
+   branch. Group them by tag (`[MIG]`, `[FIX]`, `[IMP]` and whatever else appears) and
+   count each. Which kind of change dominates, and what does that tell you about where
+   that repository currently is in the version cycle?
+2. ⭐⭐ Find a merged PR in any of the seven repositories whose final commit touches
+   **more** than the five files in this chapter's case study. Work out what the extra
+   files are, and decide which of them a reviewer would actually need to read. Chapter
+   44's list of what pre-commit generates is the tool for this.
+3. ⭐⭐ Find a merged migration PR whose conversation is *not* just bot commands: one
+   where a reviewer asked for a change and the contributor pushed a fix. Read the whole
+   exchange and write down, in one sentence, what the reviewer was protecting.
+4. ⭐⭐⭐ Take the two API changes from this chapter's case study (`_` moving to
+   `request.env._`, and `expression` becoming `Domain`) and search a repository you have
+   not read yet for code still using the old form on its 19.0 branch. Confirm against
+   the running container whether the old form still works, then decide whether what you
+   found is a bug, a deprecation waiting to bite, or fine as it is. Chapter 49 turns this
+   kind of find into a contribution.
+
+## Further reading
+
+- <Icon name="source" /> [oca-github-bot](https://github.com/OCA/oca-github-bot): every
+  `/ocabot` command with its options, including what `nobump` does at merge time.
+- <Icon name="tool" /> [GitHub CLI manual: `gh pr`](https://cli.github.com/manual/gh_pr):
+  the full flag list for `list`, `view` and `diff`, including the `--json` fields used
+  in this chapter.
+- <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
+  the review expectations that the conversations you just read are following.
+- <Icon name="docs" /> [Odoo 19 developer documentation](https://www.odoo.com/documentation/19.0/developer.html):
+  the reference for checking whether an API a PR touches actually changed in 19.

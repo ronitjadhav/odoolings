@@ -571,18 +571,27 @@ matrix; get the author's sign-off before writing Part 2.)
     living inside this repo.
 46. Refactor a LibreFleet feature into a standalone OCA-quality module —
     the capstone-of-the-capstone.
+47. Reading OCA at scale (added 2026-09, see §10): the seven repos an integrator
+    actually meets (sale-workflow, purchase-workflow, crm, product-attribute,
+    product-variant, web, server-tools), repo anatomy, branch-per-version, and the
+    ~300-module gap between the 19.0 and 18.0 branches that is the contribution queue.
+48. Reading real pull requests (added 2026-09): a merged PR as the best teaching
+    material in open source. Case study OCA/sale-workflow#4276, the commit-tag
+    vocabulary, why a migration PR shows 0 deletions, generated files you must never
+    hand-edit, and the ocabot merge flow. Feeds straight into ch49's migration work.
 
-**Part 9 — Integrator craft** (was Part 7, ch 37-40; +10 by D13)
-47. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
+**Part 9 — Integrator craft** (was Part 7, ch 37-40; +10 by D13; +2 by the 2026-09
+Part 8 insertion, which moved 47-50 to 49-52)
+49. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
     views, API changes — the deprecation list from the D1 revision is the exercise
     material), OCA migration process & preserving git history, OpenUpgrade
     for database migrations, Enterprise upgrade service (concept level).
-48. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
+50. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
     indexes, `prefetch`, profiling; when to drop to SQL (and the rules for doing so).
-49. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
+51. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
     backups, staging/prod flows, odoo.sh vs Docker platforms; multi-company and
     localization awareness.
-50. Career map: reading core source effectively, Odoo certification, OCA Days /
+52. Career map: reading core source effectively, Odoo certification, OCA Days /
     Odoo Experience, keeping up with version releases; what changes in Odoo 19/20
     and how to re-learn efficiently each October.
 
@@ -1113,6 +1122,74 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 ---
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
+
+### 2026-09-01 — Part 8 gains an advanced OCA track (ch47, ch48), Part 9 shifts to 49-52
+
+Reader's manager handed them seven OCA repos and said "have a look", without saying what
+to look for. That gap is the chapter. Added two chapters to Part 8 and moved Part 9 down
+by two.
+
+**Why two chapters, not the three originally planned.** The first plan had a third
+chapter, "Migrate a Module to 19.0". Checking the existing ch47 (Migrations, now ch49)
+before shipping showed it already teaches the tracking issue, claiming a module, the
+`[MIG]` tag, installing against the new version and running the module's own tests. A
+third chapter would have duplicated it. The agent writing it was stopped mid-run and the
+plan cut to two. **Read the neighbouring chapter before commissioning a new one**; this
+was caught late and should have been caught first.
+
+What the existing migrations chapter genuinely lacked, and now has, is the mechanism its
+own §5.3 line already promised: **"preserving git history"**. It described the checklist
+but told the reader to "branch off the new version branch", which is the ordinary PR flow.
+A reader following that would copy files across, lose the module's history, and produce a
+PR unlike any real OCA migration. The `git format-patch --keep-subject --stdout
+origin/19.0..origin/18.0 -- $module | git am -3 --keep` sequence is now taught in full,
+with what each flag does and why the result shows zero deletions.
+
+**Executed, not quoted.** That command was run for real against `OCA/product-variant`,
+migrating `product_variant_name` (genuinely unported) from 18.0: 11 commits replayed,
+history intact, ending at the original `[ADD]`. The transcript in the chapter is that
+run. This independently reproduced the shape of the case-study PR before either was
+written up.
+
+**New chapters:**
+
+- **ch47 Reading OCA at Scale.** The seven repos mapped onto what the reader already
+  built, branch-per-version, reading a module in the order manifest → readme → models,
+  and the number that matters: 247 modules on 19.0 against 544 on 18.0 across the seven,
+  so roughly 300 unported. Framed as the contribution queue rather than decay.
+- **ch48 Reading Real Pull Requests.** Case study `OCA/sale-workflow#4276`, built around
+  the thing that misleads everyone: 763 additions and 0 deletions across 8 commits, of
+  which only the last is new work. Plus the commit-tag vocabulary, the generated files
+  (`README.rst`, `static/description/index.html`) that must never be hand-edited, and
+  the ocabot merge flow.
+
+**Numbering.** ch50 is the book's explicit send-off ("the tutorial stops handing you the
+next chapter"), so nothing can be appended after it and a renumber was unavoidable. Part
+9's four chapters moved 47-50 to 49-52. `TOTAL_CHAPTERS` in `web/lib/shared.ts` went 50 to
+52, and the roadmap, appendix and career-map counts followed.
+
+**Three things the renumber broke that only some gates catch**, worth knowing before the
+next one:
+
+1. `tests/cross-refs.mjs` (written after D13) confirmed all 791 prose references resolve.
+   It is the reason this renumber was safe to attempt at all.
+2. **It cannot catch stale frontmatter titles.** After the file moves, `49-migrations.mdx`
+   still read `title: "47. Migrations"`. The test validates that a referenced number
+   exists, not that a file's title matches its name, and the title is what readers see.
+   All four Part 9 titles were corrected by hand.
+3. **`tests/export-preview.test.mjs` hard-coded `50-career-map` in a sitemap assertion**
+   and failed, which is exactly the CI-only break D13 hit. Now matches
+   `\d+-career-map`, so the number floats.
+
+**One error of my own, found by re-counting rather than by review.** The first module
+counts were each one too high: OCA repos carry a top-level `setup/` directory of Python
+packaging stubs that looks like a module folder and is not one. The table, the Mermaid
+diagram, a quiz question and both `gh api` commands in ch47's Hands-on were corrected to
+exclude it, and the trap is now taught explicitly, since any reader counting folders will
+hit it. Corrected totals are 247 and 544, so the "roughly three hundred" headline stands.
+
+Verified with `npm run test:ci` (green): 183 pages, 791 chapter references over 52
+chapters, zero em dashes in every touched file.
 
 ### 2026-08-30 — the plain-language pass, finished across all 50 chapters
 

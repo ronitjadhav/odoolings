@@ -107,7 +107,10 @@ try {
   const sitemap = await fetch(`${origin}/sitemap.xml`);
   assert.equal(sitemap.status, 200, '/sitemap.xml should resolve from the domain root');
   const sitemapBody = await sitemap.text();
-  assert.match(sitemapBody, /\/docs\/09-integrator-craft\/50-career-map\/<\/loc>/);
+  // The last chapter, whatever it is numbered today. Hard-coding the number here is
+  // what made the D13 renumber fail in CI rather than locally, so match the slug and
+  // let the number float.
+  assert.match(sitemapBody, /\/docs\/09-integrator-craft\/\d+-career-map\/<\/loc>/);
   if (stubRoute) {
     assert.doesNotMatch(sitemapBody, new RegExp(stubRoute.replace(/\/$/, '')));
   }

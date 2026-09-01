@@ -477,7 +477,7 @@ vehicles thanks to the `invisible` expression.
   `product.product`, upgrade, move it to `product.template`, upgrade again, and
   `information_schema.columns` still lists the orphan on `product_product`. Nothing breaks,
   but old projects accumulate dead columns, which is why `ALTER TABLE ... DROP COLUMN` shows
-  up in real migration scripts (chapter 47).
+  up in real migration scripts (chapter 49).
 - **A missing `depends` is a hard failure, not a warning.** The registry error stops the whole
   database from loading, including the modules that were fine. Read the model name in the
   message to tell an import-order bug from a manifest bug.
