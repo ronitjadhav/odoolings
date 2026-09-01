@@ -283,32 +283,45 @@ name on the label.
 Create `data/mail_template.xml`:
 
 ```xml title="addons/librefleet/data/mail_template.xml"
-<record id="mail_template_service_done" model="mail.template">
-    <field name="name">Service Order: ready for collection</field>
-    <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
-    <field name="subject">Your vehicle is ready ({{ object.reference }})</field>
-    <field name="email_from">{{ user.email_formatted }}</field>
-    <field name="partner_to">{{ object.customer_id.id }}</field>
-    <field name="body_html" type="html">
-        <div>
-            <p>Hello <t t-out="object.customer_id.name or ''">Customer</t>,</p>
-            <p>
-                The work on <t t-out="object.vehicle_id.license_plate or ''">plate</t>
-                is finished and the vehicle is ready for collection.
-            </p>
-        </div>
-    </field>
-</record>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate="1": a template is master data a manager is expected to edit in
+         the UI, so an upgrade must not overwrite their wording. -->
+    <data noupdate="1">
+
+        <record id="mail_template_service_done" model="mail.template">
+            <field name="name">Service Order: ready for collection</field>
+            <field name="model_id" ref="librefleet.model_librefleet_service_order"/>
+            <field name="subject">Your vehicle is ready ({{ object.reference }})</field>
+            <field name="email_from">{{ user.email_formatted }}</field>
+            <field name="partner_to">{{ object.customer_id.id }}</field>
+            <field name="body_html" type="html">
+                <div>
+                    <p>Hello <t t-out="object.customer_id.name or ''">Customer</t>,</p>
+                    <p>
+                        The work on <t t-out="object.vehicle_id.license_plate or ''">plate</t>
+                        is finished and the vehicle is ready for collection.
+                    </p>
+                </div>
+            </field>
+        </record>
+
+    </data>
+</odoo>
 ```
 
 `{{ }}` is [QWeb inline expressions](https://www.odoo.com/documentation/19.0/developer/reference/backend/mixins.html#reference-mixins-mail-chatter):
 `object` is always the record the template renders against, so `{{ object.reference }}`
 in the subject and `{{ object.customer_id.id }}` in `partner_to` mean this one template
 produces a different subject and a different recipient for every single order, with no
-Python at all. Wrap the file in `<data noupdate="1">`, the same tag ch14 used for the
-sequence: a template is master data a manager is expected to edit in the UI, and an
-upgrade must never overwrite their wording. Register it in the manifest, above the view
-files:
+Python at all.
+
+Note the `<data noupdate="1">` around the record, the same tag ch14 used for the sequence.
+A template is master data a manager is expected to edit in the UI, so an upgrade must
+never overwrite their wording. Leave it off and every upgrade silently reverts their
+edits.
+
+Now register it in the manifest, above the view files:
 
 ```python
 "data": [

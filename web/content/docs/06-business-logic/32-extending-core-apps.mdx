@@ -204,26 +204,46 @@ where v.model='res.partner' and v.type='form' order by v.priority;"
 The first one, lowest priority, is the main form. Now `addons/librefleet/views/res_partner_views.xml`:
 
 ```xml title="addons/librefleet/views/res_partner_views.xml"
-<record id="view_partner_form_librefleet" model="ir.ui.view">
-    <field name="name">res.partner.form.librefleet</field>
-    <field name="model">res.partner</field>
-    <field name="inherit_id" ref="base.view_partner_form"/>
-    <field name="arch" type="xml">
-        <div name="button_box" position="inside">
-            <button class="oe_stat_button" type="object"
-                    name="action_librefleet_vehicles" icon="fa-car"
-                    invisible="librefleet_vehicle_count == 0">
-                <field name="librefleet_vehicle_count" widget="statinfo"
-                       string="Vehicles"/>
-            </button>
-        </div>
-    </field>
-</record>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_partner_form_librefleet" model="ir.ui.view">
+        <field name="name">res.partner.form.librefleet</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button class="oe_stat_button" type="object"
+                        name="action_librefleet_vehicles" icon="fa-car"
+                        invisible="librefleet_vehicle_count == 0">
+                    <field name="librefleet_vehicle_count" widget="statinfo"
+                           string="Vehicles"/>
+                </button>
+            </div>
+        </field>
+    </record>
+
+</odoo>
 ```
 
 Core ships `<div class="oe_button_box" name="button_box"/>` empty, so `position="inside"` is
-the right choice: there is no sibling node to anchor `before` or `after` against. Add the file
-to `data` in your manifest, above the menus.
+the right choice: there is no sibling node to anchor `before` or `after` against.
+
+Now register the file, which is a separate step from creating it and the one people forget.
+Add it to `data` in the manifest, above the menus, because the menu file is loaded last:
+
+```python title="addons/librefleet/__manifest__.py"
+    "data": [
+        ...
+        "views/loaner_views.xml",
+        "views/res_partner_views.xml",
+        "views/librefleet_menus.xml",
+    ],
+```
+
+Miss this line and nothing announces it. The XML file simply never loads, so the smart
+button never appears, and the module upgrades perfectly while doing nothing. A view that
+does not show up is far more often an unregistered file than a broken `xpath`.
 
 Upgrade, then open any partner who owns a vehicle. The smart button is there, on a form you
 never touched, counting a field your module added:
@@ -502,6 +522,18 @@ vehicles thanks to the `invisible` expression.
   points at their code rather than yours.
 - **An un-prefixed field on a core model is a collision waiting to happen.** It may work for
   a year, until the client installs the OCA module that had the same idea.
+- **A stray comma after a field definition deletes the field, silently.** Type
+  `librefleet_is_part = fields.Boolean(...),` with a trailing comma and Python builds a
+  one-element *tuple* containing the field, not the field. Odoo builds its model from class
+  attributes that are `Field` instances, a tuple is not one, so it is skipped as an ordinary
+  attribute. No error, no warning, no column, and the upgrade reports success. The symptom is
+  a field that "did not save": it is missing from `ir.model.fields`, and
+  `SELECT * FROM product_template LIMIT 0` has no such column. Worth knowing because it looks
+  identical to a caching problem and you can lose an hour to it.
+- **A file you create is not a file Odoo loads.** XML has to be listed in the manifest's
+  `data`, Python has to be imported in an `__init__.py`. Both failures are quiet: the upgrade
+  succeeds and your work is simply absent. When something you wrote has no effect at all,
+  check that it is registered before you debug the code inside it.
 
 ## Quick check
 

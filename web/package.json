@@ -7,14 +7,15 @@
     "build": "next build",
     "dev": "next dev",
     "start": "node scripts/serve-export.mjs",
-    "test": "npm run test:progress && npm run test:quiz && npm run test:icons && npm run test:crossrefs",
+    "test": "npm run test:progress && npm run test:quiz && npm run test:icons && npm run test:crossrefs && npm run test:snippets",
     "test:export": "node tests/export-preview.test.mjs",
     "test:progress": "node tests/run-progress.mjs",
     "test:quiz": "node tests/quiz-balance.mjs",
     "test:icons": "node tests/icon-names.mjs",
     "test:crossrefs": "node tests/cross-refs.mjs",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-    "test:ci": "npm run test && npm run build && npm run test:export"
+    "test:ci": "npm run test && npm run build && npm run test:export",
+    "test:snippets": "node tests/snippets.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
