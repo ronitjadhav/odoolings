@@ -1123,6 +1123,60 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-09-02 — chapters 34-42 audited mechanically; the missing-`mkdir` class closed book-wide
+
+Reader asked whether 34-42 were simple enough and told every step. These chapters had
+already had the comprehension-first pass (2026-08-25) and the plain-language pass
+(2026-08-30), so a third prose rewrite was the wrong instrument. **Instead, hunted for
+the specific defect classes this reader keeps finding by working through the book**, the
+ch32 and ch33 findings being the model: a chapter that upgrades cleanly while the work is
+simply absent, so there is no error to search for.
+
+**Found a fourth class, and it was everywhere.** The chapter writes its first file into a
+subdirectory the module does not have, with no `mkdir` anywhere before it. Ten chapters
+did this (ch10 `security/`, ch11 `views/`, ch14 `data/`, ch20 `wizards/`, ch36 `report/`,
+ch37 `controllers/`, ch38 `tests/`, ch40 twice, ch41 `static/src/dashboard/`). Chapters 9
+and 39 already did it right, which is exactly what made the rest look deliberate. A
+reader in an editor never notices; one working from the shell gets `no such file or
+directory` and no way to tell the chapter, not their typing, was at fault.
+
+Now `tests/snippets.mjs` check 4, which walks chapters in order, tracks every directory a
+`mkdir` creates (brace expansion included) and fails on a first write into a directory
+nothing has created. **Verified by deleting ch36's `mkdir` and watching it fail**, the
+same discipline as the other three checks.
+
+**Also fixed, all the same shape:**
+
+- ch37's portal templates were shown with a bare `<template>` root and no `<?xml?>`/
+  `<odoo>` wrapper anywhere in the chapter. Copying them gave a file Odoo cannot load,
+  the identical ch32 bug. Now a complete file, byte-identical to the checkpoint.
+- ch34 had two manifest snippets and two data-file edits with no `title=`, so nothing
+  said which file they belonged to. Titling them made check 1 fire on the two edits,
+  correctly: they are fragments, and are now allowlisted.
+- Three explanations lived only in the checkpoints, where no reader sees them: ch35's
+  `on_create_or_write` trigger, ch37's `portal_client_category_enable` flag, ch39's
+  `text-bg-warning` badge (a primary badge is invisible on Odoo's purple navbar).
+- ch37 told the reader to "upgrade" twice and never showed the command, the only chapter
+  in the book that did.
+
+**Measured prose rather than eyeballing it.** Counting prose words against code lines per
+hands-on step put only two of 22 below the bar: ch36's 54-line QWeb template (17 words of
+lead-in) and ch37's ACL step (zero). Both now explain themselves. The other 20 open with
+code and unpack it immediately after, which reads fine and was left alone. **The
+temptation was to add lead-ins to all 22 for symmetry; that would have been padding, and
+padding is what made these chapters feel long in the first place.**
+
+**Audited and already correct**, worth recording so it is not re-audited: every
+dependency addition is taught (ch35 `base_automation`, ch36 `web`, ch37 `portal`); every
+file in checkpoints 34-41 is named by its chapter; every manifest version matches its
+checkpoint and increases monotonically.
+
+One wrong cross-reference fell out: ch34's demo-data comment cited chapter 14 in the
+checkpoint and chapter 34 in the chapter, for a file written earlier in chapter 34 itself.
+Both now say so. `cross-refs.mjs` cannot see references inside code fences.
+
+PRs #172 and #173.
+
 ### 2026-09-01 — Part 8 gains an advanced OCA track (ch47, ch48), Part 9 shifts to 49-52
 
 Reader's manager handed them seven OCA repos and said "have a look", without saying what
