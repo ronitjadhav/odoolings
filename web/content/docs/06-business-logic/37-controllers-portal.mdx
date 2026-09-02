@@ -251,6 +251,13 @@ Register both files in the manifest, bump the version, and upgrade:
 ```
 
 ```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+The controller code itself needs no upgrade: `dev_mode = all` in `odoo.conf` reloads
+Python on save. It is the XML and CSV that only reach the database through `-u`.
+
+```console
 $ curl http://localhost:8069/librefleet/services
 <!DOCTYPE html><title>404 Not Found</title>...
 No database is selected and the requested URL was not found in the server-wide controllers.
@@ -301,6 +308,10 @@ just rendered:
 Upgrade, then check the field directly:
 
 ```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+```console
 >>> env["librefleet.service.order"].search([], limit=1).access_url
 '/my/service-orders/1'
 ```
@@ -309,10 +320,17 @@ Upgrade, then check the field directly:
 <Step>
 ### ACL and record rule for the portal group
 
+Two files, one per layer. First the ACL, appended to the CSV you already have. The
+four trailing digits are `read,write,create,unlink`, so `1,0,0,0` is read-only: a
+customer may look at their service history and can change nothing in it.
+
 ```text title="addons/librefleet/security/ir.model.access.csv"
 access_librefleet_service_order_portal,librefleet.service.order portal,model_librefleet_service_order,base.group_portal,1,0,0,0
 access_librefleet_service_order_line_portal,librefleet.service.order.line portal,model_librefleet_service_order_line,base.group_portal,1,0,0,0
 ```
+
+Then the rules, added inside the `<data>` block of the security file chapter 10
+started, alongside the technician and manager rules already there:
 
 ```xml title="addons/librefleet/security/librefleet_security.xml"
         <!-- ch37: the portal ACL above grants read on the model, this rule is
