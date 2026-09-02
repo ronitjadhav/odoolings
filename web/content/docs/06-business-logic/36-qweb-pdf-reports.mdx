@@ -177,6 +177,21 @@ an accident of "web happens to already be there."
 <Step>
 ### Write the document template
 
+This is the page itself, and it is the longest snippet in the chapter, so read it for
+its four moving parts rather than line by line:
+
+- `t-call="web.external_layout"` wraps your content in the company header and footer,
+  so you never draw a letterhead yourself.
+- `o` is the record being printed. The report action set that name, and the wrapper
+  template's `t-foreach` hands you one `o` per record.
+- `t-field` prints a field the way Odoo formats it: a date in the user's format, a
+  monetary value with its currency. `t-options` tunes that formatting, which is how
+  the customer block renders as a postal address instead of a bare name.
+- `t-foreach` over `o.line_ids` is what turns the parts of a service order into table
+  rows.
+
+Everything else is Bootstrap 5 classes, the same ones the web client uses.
+
 ```xml title="addons/librefleet/report/service_order_report.xml"
         <template id="report_service_order_document">
             <t t-call="web.external_layout">
