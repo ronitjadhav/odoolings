@@ -16,12 +16,17 @@
 //    with no `mkdir` anywhere before it. A reader in an editor never notices; one
 //    working from the shell gets `no such file or directory` and no way to know
 //    the chapter, not their typing, was at fault.
+// 5. A manifest "depends" list that no longer matches the chapter's own
+//    checkpoint. ch33 gained "mail" long after ch35-ch37 and ch46 had quoted the
+//    list without it, so pasting any of those four dropped a dependency the
+//    module needs, and the module stops loading with an error about a model it
+//    never mentions.
 //
 // Fragments (an insertion into a file whose wrapper is shown elsewhere in the
 // same chapter) are legitimate and are listed in FRAGMENT_ALLOWLIST below. Add
 // to it only when the surrounding prose makes clear the reader is editing an
 // existing file, never to silence a real finding.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = 'content/docs';
@@ -143,6 +148,22 @@ for (const { file, text } of ordered) {
   }
 }
 
+// 5. The last "depends" list a chapter shows must match its own checkpoint.
+// Earlier ones in the same chapter are the before state, deliberately.
+const staleDepends = [];
+const DEPENDS = /"depends":\s*\[[^\]]*\]/g;
+const squash = (s) => s.replace(/\s+/g, '');
+for (const { file, text } of docs) {
+  const n = (file.split('/').pop().match(/^(\d+)/) || [])[1];
+  const manifest = n && `../code/checkpoints/ch${n}/librefleet/__manifest__.py`;
+  if (!manifest || !existsSync(manifest)) continue;
+  const shown = [...text.matchAll(DEPENDS)].map((m) => m[0]);
+  const want = (readFileSync(manifest, 'utf8').match(DEPENDS) || [])[0];
+  if (!shown.length || !want) continue;
+  const last = shown[shown.length - 1];
+  if (squash(last) !== squash(want)) staleDepends.push({ file, last, want });
+}
+
 let failed = false;
 
 if (unmadeDirs.length) {
@@ -175,8 +196,19 @@ if (tupleFields.length) {
   for (const b of tupleFields) console.error(`  ${b.file}:${b.line}  ${b.text}`);
 }
 
+if (staleDepends.length) {
+  failed = true;
+  console.error(`\n${staleDepends.length} manifest "depends" list(s) out of step with the checkpoint:\n`);
+  for (const b of staleDepends) {
+    console.error(`  ${b.file}\n    chapter:    ${squash(b.last)}\n    checkpoint: ${squash(b.want)}`);
+  }
+  console.error('\n  The checkpoint is the executed artifact, so it wins. Fix the chapter,');
+  console.error('  and check whether neighbouring chapters quote the same stale list.');
+}
+
 if (failed) process.exit(1);
 console.log(
   `snippets: ${created.size} data files all registered, every XML file snippet has a root, ` +
-    `no tuple fields, every directory created before first use.`,
+    `no tuple fields, every directory created before first use, every depends list matches ` +
+    `its checkpoint.`,
 );

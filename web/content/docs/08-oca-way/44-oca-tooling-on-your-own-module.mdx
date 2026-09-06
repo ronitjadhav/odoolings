@@ -228,8 +228,9 @@ $ pip install pre-commit
 $ pre-commit run --all-files
 ```
 
-The first run against LibreFleet's actual code (no config tuning applied yet) turned
-up real findings, condensed here to the interesting parts:
+Here is what that run produced against LibreFleet's actual code, before `.ruff.toml`
+carried the `per-file-ignores` line you pasted a moment ago. Condensed to the
+interesting parts:
 
 ```text
 F401 `.vehicle` imported but unused; consider removing, adding to `__all__`, or using a redundant alias
@@ -257,8 +258,11 @@ exactly the registration pattern chapter 9 taught: importing a module by name to
 never to use the name.
 
 Ruff can't tell that apart from a genuinely unused import without help, which is what
-`.ruff.toml`'s `per-file-ignores` for `__init__.py` is for. Add it and the 15 errors
-disappear. `ruff-format`'s 12 reformatted files are just whitespace and quote-style
+`.ruff.toml`'s `per-file-ignores` for `__init__.py` is for. Your own run is already
+clean of those fifteen, because that line went into the config in step 1. Take the
+line out and run again if you want to watch them come back.
+
+`ruff-format`'s 12 reformatted files are just whitespace and quote-style
 normalization: harmless, and worth committing as-is.
 </Step>
 
@@ -318,10 +322,16 @@ In `__manifest__.py`, add the field and bump the version:
 "development_status": "Beta",
 ```
 
-Then write the three fragments under `addons/librefleet/readme/`:
+The module has never had a `readme/` directory, so create it before writing into it:
 
-```markdown
-# DESCRIPTION.md
+```console
+$ mkdir -p addons/librefleet/readme
+```
+
+Then write the three fragments. Each file holds its own text and nothing else, no
+heading line: the generator supplies the section headings itself.
+
+```markdown title="addons/librefleet/readme/DESCRIPTION.md"
 LibreFleet manages a vehicle workshop's day to day: customers and their vehicles,
 service orders that move through a kanban of stages, parts consumption and margin
 tracking per order, technician assignment, and a small OWL dashboard summarizing
@@ -330,15 +340,16 @@ jobs per technician.
 Booking conflicts are enforced at the model level: two service orders cannot claim
 the same vehicle over an overlapping window. Orders with a negative margin require
 manager approval through a wizard before they can be confirmed.
+
+Customers can follow their vehicle's service history from the portal, and get a
+QWeb-generated PDF report once a job completes.
 ```
 
-```markdown
-# CONTRIBUTORS.md
+```markdown title="addons/librefleet/readme/CONTRIBUTORS.md"
 - Odoolings readers <https://odoolings.ronit.io/>
 ```
 
-```markdown
-# ROADMAP.md
+```markdown title="addons/librefleet/readme/ROADMAP.md"
 - Multi-company support for workshops running more than one location.
 - A recurring-maintenance plan per vehicle, instead of the current one-off reminder.
 ```

@@ -199,9 +199,10 @@ Everything below reads public data. You are not changing anything, so run it aga
 real repository.
 
 <Callout type="warn" title="Gotcha">
-  `gh` needs to be authenticated even to read public repositories at any volume, because
-  unauthenticated API requests are rate-limited hard. If a command fails with a rate
-  limit message, run `gh auth status` and log in.
+  `gh` needs to be authenticated even to read a public repository. It does not fall back
+  to anonymous access; without a token it stops with "To get started with GitHub CLI,
+  please run: gh auth login". That is chapter 45's one-time sign-in, and `gh auth status`
+  tells you whether you already did it.
 </Callout>
 
 <Steps>
@@ -317,10 +318,8 @@ $ gh api repos/OCA/sale-workflow/pulls/4276/commits --jq '.[-1].sha' | while rea
   done
 ```
 
-Two Odoo 19 API changes account for nearly all of it.
-
-The first is the translation function. Odoo 19 exposes it on the environment, so the
-module-level import is gone:
+Two Odoo 19 API changes account for nearly all of it, and the import block at the top of
+the file carries both:
 
 ```python
 -from odoo import _
@@ -328,6 +327,9 @@ module-level import is gone:
  from odoo.http import request
 -from odoo.osv import expression
 ```
+
+The first is the translation function. Odoo 19 exposes it on the environment, so the
+module-level `_` import goes and every call site moves with it:
 
 ```python
 -            "all": {"label": _("All"), "input": "all"},
@@ -413,8 +415,9 @@ fragment, and the generated pair) you are reading migration PRs correctly.
 - **`/ocabot` commands only work for maintainers.** Typing one on your own PR does
   nothing, and the bot will not tell you why. Chapter 45's rule stands: you get the PR
   into a mergeable state, someone else merges it.
-- **Unauthenticated `gh` runs out of API budget fast.** Reading a handful of PRs is fine;
-  studying fifty is not, until you have run `gh auth login`.
+- **Unauthenticated `gh` reads nothing at all**, not even one public PR. It refuses
+  rather than degrading to anonymous access, and says so. One `gh auth login` covers
+  every command in this chapter.
 
 ## Quick check
 

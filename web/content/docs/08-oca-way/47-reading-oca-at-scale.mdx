@@ -262,9 +262,12 @@ fail to find one of the names in the directory listing beside you, and you go lo
 Everything below runs against the real repositories over the network. Nothing here
 touches your `tutorial` database or LibreFleet, so there is nothing to break.
 
-Two of the commands use `gh`, the GitHub command line tool, because it reads a
-repository without downloading it. If you do not have it, the same information is on the
-GitHub website; the point is the question you are asking, not the tool.
+Every step but the last uses `gh`, the GitHub command line tool, because it reads a
+repository without downloading it. It has to be signed in before it will run at all:
+`gh api` does not fall back to anonymous access on a public repository, it refuses and
+tells you to run chapter 45's one-time `gh auth login`. If you would rather not install
+it, the same information is on the GitHub website; the point is the question you are
+asking, not the tool.
 
 <Steps>
 

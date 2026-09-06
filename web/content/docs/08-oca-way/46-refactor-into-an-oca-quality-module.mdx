@@ -227,10 +227,11 @@ as in the Concepts section above (both files reference `librefleet.vehicle` and
 <Step>
 ### Trim librefleet's own manifest
 
-Remove the two data entries, and `base_automation` from `depends`:
+Remove the two data entries, and `base_automation` from `depends`. Everything else in
+both lists stays exactly as it was, `mail` included:
 
 ```python
-"depends": ["base", "product", "web", "portal"],
+"depends": ["base", "product", "mail", "web", "portal"],
 "data": [
     "security/librefleet_security.xml",
     "security/ir.model.access.csv",
@@ -242,7 +243,11 @@ Remove the two data entries, and `base_automation` from `depends`:
 ],
 ```
 
-Bump the version: real code changed.
+Bump the version too, real code changed:
+
+```python title="addons/librefleet/__manifest__.py"
+    "version": "19.0.1.29.0",     # was: 19.0.1.28.0
+```
 </Step>
 
 <Step>
@@ -296,10 +301,25 @@ DELETE FROM ir_model_data WHERE module = 'librefleet' AND name IN (
 COMMIT;
 ```
 
-Read the four ids off the same `ir_model_data` query from the Concepts section
-before running this. One-time surgery, not something you automate for a tutorial
-of this size, real teams reach for exactly this on a live database when a
-migration script would be overkill.
+Get the four ids from the Concepts query with one more column, `res_id`, which is
+where `ir_model_data` keeps each record's id in its own table:
+
+```console
+$ docker compose exec db psql -U odoo -d tutorial -c "select name, model, res_id from ir_model_data where name in ('cron_send_maintenance_reminders','action_send_maintenance_reminders','automation_clear_maintenance_reminder','action_clear_maintenance_reminder');"
+                 name                  |       model       | res_id
+---------------------------------------+-------------------+--------
+ action_send_maintenance_reminders     | ir.actions.server |    213
+ cron_send_maintenance_reminders       | ir.cron           |     17
+ automation_clear_maintenance_reminder | base.automation   |      2
+ action_clear_maintenance_reminder     | ir.actions.server |    214
+(4 rows)
+```
+
+Your four numbers will differ from these, they depend on install order.
+
+One-time surgery, not something you automate for a tutorial of this size, real
+teams reach for exactly this on a live database when a migration script would be
+overkill.
 </Step>
 
 <Step>
@@ -317,6 +337,39 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from base_
 ```
 
 One automation, not two. The feature moved, it didn't duplicate.
+</Step>
+
+<Step>
+### Write the new module's readme fragments
+
+Chapter 44's gotcha applies to every module, this one included: `oca-gen-addon-readme`
+does nothing at all when `readme/` is empty, silently. The scaffold step made the
+directory; fill it before running the hook.
+
+```markdown title="addons/librefleet_maintenance_reminder/readme/DESCRIPTION.md"
+Schedules a "Schedule maintenance" activity on any LibreFleet vehicle that hasn't
+had a completed service order in the last 180 days, checked daily by a scheduled
+action and runnable on demand from the Vehicles list.
+
+The reminder clears itself automatically the moment a service order on that
+vehicle reaches the Done stage, and running the check twice never creates a
+second reminder for the same vehicle.
+
+This module extends `librefleet.vehicle`; it has no models or views of its own.
+```
+
+```markdown title="addons/librefleet_maintenance_reminder/readme/CONTRIBUTORS.md"
+- Odoolings readers <https://odoolings.ronit.io/>
+```
+
+```markdown title="addons/librefleet_maintenance_reminder/readme/ROADMAP.md"
+- A configurable interval instead of the hardcoded 180-day window.
+- A mileage-based trigger alongside the current time-based one.
+```
+
+While you are here, drop a 140×140 PNG at
+`addons/librefleet_maintenance_reminder/static/description/icon.png`, same as
+chapter 8 asked for LibreFleet itself. The checkpoint ships one you can borrow.
 </Step>
 
 <Step>

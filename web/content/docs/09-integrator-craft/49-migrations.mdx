@@ -15,9 +15,10 @@ without quite arriving. A new Odoo major ships every year, each OCA repo grows a
 version branch for it, and every module on the old branch has to get ported by someone,
 eventually.
 
-Chapter 7 measured this for real on `OCA/server-tools`: 73 modules on the mature `16.0`
-branch, 34 on the young `19.0` one. That gap is not neglect, it's the queue. And "that
-developer will regularly be you" wasn't a throwaway line.
+Chapter 7 measured that gap for the first time on `OCA/server-tools`, and chapter 47
+counted it precisely across seven repositories: 28 modules on that repo's `19.0` branch
+against 56 on `18.0`. The gap is not neglect, it's the queue. And "that developer will
+regularly be you" wasn't a throwaway line.
 
 One thing to settle first, because the word itself is the problem. **"Migration" is one
 word for two unrelated jobs**, and a conversation where two people mean different ones
@@ -50,8 +51,10 @@ Every OCA repo keeps one open issue per target version, a literal checklist: eve
 module on the old branch, one checkbox each, filled in with the contributor's name
 and PR link the moment someone claims it. Real, live, right now:
 [`OCA/server-tools` "Migration to version 19.0"](https://github.com/OCA/server-tools/issues/3400)
-lists `auditlog` done, `base_exception` done, `attachment_unindex_content` still
-open.
+stood at 24 modules ticked and 19 still open when this chapter was last checked, in
+September 2026: `auditlog` and `base_exception` among the done, `base_fontawesome` and
+`jsonifier` among the untouched. Those proportions move every week, which is exactly why
+the list exists instead of a claim about it.
 
 This is exactly what chapter 45's contribution mechanics point at. Find an unclaimed line,
 comment to claim it, then fork, branch and PR exactly as chapter 45 walked through, this
@@ -112,6 +115,7 @@ merged PR.
     { id: "unclaimed", label: "Confirm the module isn't already claimed on the repo's migration tracking issue" },
     { id: "claim", label: "Comment on the tracking issue to claim it" },
     { id: "branch", label: "Fork, fetch upstream, branch off the new version branch (chapter 45)" },
+    { id: "replay", label: "Replay the module's history onto that branch with format-patch piped into git am, never a copy-paste" },
     { id: "bump", label: "Bump the manifest version prefix to the new major" },
     { id: "install", label: "Install against the new version and read what breaks" },
     { id: "fix", label: "Fix flagged deprecations (see the list below), one at a time" },
@@ -157,14 +161,14 @@ what building LibreFleet on Odoo 19 hit for real, chapter by chapter:
 | `_sql_constraints` tuple list | `models.Constraint` pseudo-field | chapter 14 |
 | `read_group()` | `_read_group()` / `formatted_read_group()` | baseline research |
 | `name_get()` | `display_name` | baseline research |
-| server-side QWeb `t-esc` | `t-out` | chapter 39 |
+| server-side QWeb `t-esc` | `t-out` | baseline research |
 | `odoo.osv` | (retired) | baseline research |
 | `--without-demo=all` | a plain boolean | chapter 4 |
 | controller `type="json"` | `type="jsonrpc"` | chapter 37 |
 
 <Callout type="warn" title="Gotcha">
   `t-esc` is **not** deprecated in OWL's client-side templates, only in server-side
-  QWeb (chapter 39's own finding: core ships 126 files still using OWL `t-esc`).
+  QWeb. Odoo's own core still ships 126 files using OWL `t-esc`, which is not a backlog.
   Migrating a module's Python-rendered reports needs `t-out`; migrating its OWL
   components does not, by itself, need the same swap.
 </Callout>
@@ -200,8 +204,11 @@ same as chapter 45's advice for a first contribution.
 <Step>
 ### Try the naive install first
 
-Copy the module into your workspace's `addons/` unmodified, manifest version and
-all, and try installing it against your Odoo 19 environment:
+This part is a local experiment, not the pull request, so copying is fine here: drop
+the module's folder from the `18.0` branch into your own workspace's `addons/`,
+unmodified, manifest version and all, and try installing it against your Odoo 19
+environment. The branch you will actually push gets built differently, in the replay
+step further down.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
@@ -240,6 +247,30 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u <module_na
 An install that succeeds but a test suite that fails is real signal: the module
 loaded, but something it does at runtime hits a removed API the loader itself never
 exercises.
+</Step>
+
+<Step>
+### Replay the history onto the version branch
+
+Everything so far happened in your own workspace, where a copied folder costs nothing.
+The branch you push is the other case: the module has to arrive on `19.0` carrying every
+commit that ever touched it. Run the Concepts section's sequence for real, against the
+repository itself rather than your workspace:
+
+```console
+$ git clone https://github.com/OCA/$repo -b 19.0
+$ cd $repo
+$ git checkout -b 19.0-mig-$module origin/19.0
+$ git format-patch --keep-subject --stdout origin/19.0..origin/18.0 -- $module | git am -3 --keep
+$ git rev-list --count origin/19.0..HEAD
+```
+
+That last line counts what landed: one commit for every commit that ever touched the
+module on `18.0`, ending at its original `[ADD]`, exactly as the Concepts section
+measured on `product_variant_name`. Then redo, as a single new commit on top, the
+version bump and whatever fixes
+you worked out locally in the three steps above. That commit is your contribution;
+everything under it is other people's, with their names still on it.
 </Step>
 
 <Step>
