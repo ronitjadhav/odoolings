@@ -207,8 +207,8 @@ same as chapter 45's advice for a first contribution.
 This part is a local experiment, not the pull request, so copying is fine here: drop
 the module's folder from the `18.0` branch into your own workspace's `addons/`,
 unmodified, manifest version and all, and try installing it against your Odoo 19
-environment. The branch you will actually push gets built differently, in the last
-step below.
+environment. The branch you will actually push gets built differently, in the replay
+step further down.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
