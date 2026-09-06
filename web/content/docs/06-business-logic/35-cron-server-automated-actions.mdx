@@ -130,7 +130,7 @@ Automated Actions live in their own module. Add it to `librefleet`'s dependencie
 ```python title="addons/librefleet/__manifest__.py"
 "version": "19.0.1.21.0",
     ...
-    "depends": ["base", "product", "base_automation"],
+    "depends": ["base", "product", "mail", "base_automation"],
 ```
 
 Installing it pulls in `digest`, `resource` and `sms`, which are `base_automation`'s own

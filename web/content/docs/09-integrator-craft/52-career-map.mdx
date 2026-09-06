@@ -24,10 +24,11 @@ how.
 Every technique here is one this tutorial already used on you, named explicitly
 now so you reach for it on purpose:
 
-- **Measure, don't guess.** Chapter 7 counted 73 modules on `OCA/server-tools`'s
-  `16.0` branch against 34 on `19.0`, real numbers from a real `git clone`, not an
-  estimate. Chapters 18 and 19 did the same for a core view attribute, "141 hits
-  vs 0" settled an argument a doc excerpt couldn't have.
+- **Measure, don't guess.** Chapter 7 counted `OCA/server-tools`'s branches with a
+  real `git clone` rather than estimating, and chapter 47 turned the same instinct
+  into a precise count across seven repositories. Chapters 18 and 19 did it for a
+  core view attribute, where "141 hits vs 0" settled an argument a doc excerpt
+  couldn't have.
 - **Read the manifest and README before the code.** Chapter 43's habit: maturity,
   dependencies, and what a module claims to do, before you're deep in
   implementation detail that may not even matter to your question.
@@ -97,7 +98,7 @@ to yourself:
     { id: "deprecations", label: "Check your own modules against a fresh deprecation list, chapter 49's table as the template" },
     { id: "cert", label: "Note whether your certification (if you hold one) now targets a version behind current" },
     { id: "oca-branch", label: "Check whether the OCA repos you depend on have a branch yet for the new version" },
-    { id: "own-modules", label: "Migrate your own modules the way chapter 46 taught: version bump first, see what actually breaks" },
+    { id: "own-modules", label: "Migrate your own modules the way chapter 49 taught: version bump first, see what actually breaks" },
   ]}
 />
 

@@ -1123,6 +1123,98 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-09-06 — chapters 43-52 audited, the same four hunts as 34-42, plus the `mail` sweep
+
+Reader asked whether 41 and up were finished. 41 and 42 had had the 2026-09-02 mechanical
+audit; 43-52 had not. Ran the same method over the ten.
+
+**The four snippet classes were already clean here**, which is the tests doing their job:
+`snippets.mjs` walks every chapter, not the audited range. So this pass hunted only what a
+test cannot see, and every finding below is one of those.
+
+**A checkpoint that unpacks into the wrong shape.** `code/checkpoints/ch44` held the module
+contents at its root; the other 27 wrap them in `librefleet/`. Chapter 8 teaches
+`diff -r addons/librefleet .checkpoints/chNN/librefleet` and says "swap `ch08` for whichever
+chapter you want", so ch44 was the one chapter where that recipe fails. Moved, no content
+changed.
+
+**A stale list that an earlier fix never swept, and now a test for it.** The 2026-09-01
+ch33 fix added `mail` to `depends` and updated the checkpoints, but four chapters quote the
+list in full: ch35, ch36, ch37 and ch46 all still showed it without `mail`. Paste any of
+them and the module stops loading on a `mail.thread` it no longer declares. This is the
+`format-patch`-shaped lesson again: **a fix to one chapter has to be checked against every
+chapter that quotes the same thing.** `snippets.mjs` check 5 now compares the last
+`"depends"` list a chapter shows against that chapter's own checkpoint (earlier ones in the
+same file are the deliberate before-state). Verified by putting ch36's bug back and
+watching it fail.
+
+**Steps in an order that cannot work.** ch45 had the reader commit, then run pre-commit.
+Its own worked example is a typo in a `readme/` fragment, and `oca-gen-addon-readme` is in
+every OCA repo's config, so the hook rewrites `README.rst` *after* the commit that should
+have carried it: the PR then fails CI on a stale source digest, for a typo. Split into
+edit, pre-commit, commit, with the reason stated.
+
+**Work the chapter claims happened but never asked for.** ch46's last step said pre-commit
+"generated a fresh README.rst from `librefleet_maintenance_reminder/readme/`'s fragments",
+and nothing in the chapter ever wrote those fragments; ch44's own gotcha is that the hook
+does nothing, silently, without them. Now a step, with the checkpoint's real fragments and
+the icon. ch44 had the matching hole for `librefleet` itself: no `mkdir` for `readme/`,
+invisible to check 4 because the three fences were untitled. Titling them made check 4 fire
+correctly, and the `mkdir` went in.
+
+**A chapter contradicting the config it had just handed over.** ch44 step 1 pastes a
+`.ruff.toml` that already carries `per-file-ignores`; step 2 then reported fifteen F401
+errors "no config tuning applied yet" and told the reader to add the line they already had.
+Reframed as what the run looked like before that line existed.
+
+**A chapter's centrepiece missing from its own Hands-on.** ch49 teaches
+`git format-patch | git am` as the thing that separates a real migration PR from a
+copy-paste, then never runs it: the Hands-on said "copy the module into `addons/`" (which
+Concepts had just said not to do) and deferred the rest to a checklist that had no
+replay-history item at all. The command is now a step, the checklist has the item, and the
+local copy is named as a local experiment.
+
+**Wrong-but-existing cross-references, which `cross-refs.mjs` cannot catch by design.**
+ch50's Verify called the chapter "ch48", a renumber casualty from 2026-09-01. ch50 credited
+`read_group`'s version change to ch39; it is ch41. ch52's October checklist credited
+version-bump-first migration to ch46; it is ch49. ch49's deprecation table credited
+server-side `t-esc` to ch39, contradicting its own callout one line below (ch39 is OWL), and
+cited "chapter 39's own finding" for the 126-file count, which lives in this plan and has
+never been in a chapter. **A test can prove a chapter number exists; only reading proves it
+is the right one.** Considered adding a fenced-reference check to `cross-refs.mjs` and did
+not: zero instances book-wide, and it could only have checked existence, which was never
+the failure.
+
+**A tool taught in three chapters and signed into in none.** ch45, ch47 and ch48 all use
+`gh`. Verified with an empty config dir: `gh api` does not degrade to anonymous access on a
+public repo, it refuses and prints "please run: gh auth login". ch48 said the opposite
+twice ("rate-limited hard", "reading a handful of PRs is fine"). `gh auth login` is now in
+ch45 where the tool first appears, and both ch48 claims are corrected. ch47 also said "two
+of the commands use `gh`" when six of its seven steps do.
+
+**Live data restated as settled fact.** ch49's tracking-issue example named
+`attachment_unindex_content` as unclaimed; it merged as #3521. Now dated, with the ticked
+and open counts (24 and 19) instead of one module's status. Separately, ch49 and ch52 both
+restated chapter 7's `ls | wc -l` counts (73/34) as module counts, which contradicts ch47
+two chapters earlier: ch47 counts 28 on `server-tools` 19.0 and teaches that naive counting
+inflates every repo by the `setup/` folder. Both now cite ch47's method.
+
+**Also fixed:** ch46's SQL cleanup told the reader to read four ids off a Concepts query
+that does not select `res_id` (now shown, with real output from the `tutorial` database);
+ch46's version bump was told, not shown; ch51 asked the reader to confirm a backup zip's
+contents with no command, and the image has no `unzip` (verified), so the stdlib
+`zipfile` one-liner is now there with its real output; ch48's import hunk was labelled as
+one of the two API changes when it carries both.
+
+**Verified live rather than trusted**, worth recording so it is not re-verified: all seven
+of ch48's merged PR references (numbers, titles, tags), its case study's 763/0/13/8 and the
+five files in the final commit, ch43's four `OCA/fleet` claims including both
+`development_status` readings, ch47's counting and file-tree commands re-run (numbers
+drifted up, exactly as that chapter says they will), ch49's `html_text` PR still open with
+an all-additions diff. **ch43 needed no changes at all.**
+
+PR #174.
+
 ### 2026-09-02 — chapters 34-42 audited mechanically; the missing-`mkdir` class closed book-wide
 
 Reader asked whether 34-42 were simple enough and told every step. These chapters had

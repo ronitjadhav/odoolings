@@ -203,8 +203,16 @@ environment specifically.
 $ docker compose exec odoo odoo db dump tutorial /tmp/backup.zip
 ```
 
-Confirm it actually contains `dump.sql`, `filestore/`, and `manifest.json`
-together, not just a SQL dump.
+The image has no `unzip`, so read the archive with Python's own zip module, which
+is always there:
+
+```console
+$ docker compose exec odoo python3 -c "import zipfile; print(sorted({n.split('/')[0] for n in zipfile.ZipFile('/tmp/backup.zip').namelist()}))"
+['dump.sql', 'filestore', 'manifest.json']
+```
+
+All three, together, in one file. A `pg_dump` of the same database would give you
+the first one only.
 </Step>
 
 <Step>

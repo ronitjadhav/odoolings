@@ -171,6 +171,17 @@ and the mechanics are what you came here to learn.
 <Step>
 ### Fork, clone, branch off the version branch
 
+Everything below uses `gh`, the GitHub command line tool. It refuses to do anything
+at all until it holds a token, so sign in once first (it opens a browser and is the
+last time you think about it, including for the read-only `gh api` calls in chapters
+47 and 48):
+
+```console
+$ gh auth login
+```
+
+Then fork, clone, and branch:
+
 ```console
 $ gh repo fork OCA/fleet --clone
 $ cd fleet
@@ -181,16 +192,16 @@ $ git checkout -b fix/readme-typo upstream/19.0
 </Step>
 
 <Step>
-### Make the fix, commit with the tag convention
+### Make the fix
 
-```console
-$ git add -A
-$ git commit -m "[FIX] fleet_vehicle_service_kanban: fix a typo in the readme"
-```
+Make the edit you picked in the step before. If it is anything in the module's
+README, that means the fragment under `readme/`, never the generated `README.rst`,
+exactly as chapters 43 and 44 both insisted. Don't commit yet: the next step
+rewrites files.
 </Step>
 
 <Step>
-### Run pre-commit before you push, not after CI tells you to
+### Run pre-commit before you commit, not after CI tells you to
 
 ```console
 $ pre-commit run --all-files
@@ -198,6 +209,24 @@ $ pre-commit run --all-files
 
 Chapter 44's whole setup, pointed at someone else's module this time. Fix anything
 it finds the same way you did there.
+
+Running it *before* the commit matters more than it looks, and a typo in a `readme/`
+fragment is the clearest case. `oca-gen-addon-readme` is in every OCA repo's config,
+so it regenerates `README.rst` from the fragment you just edited, and the regenerated
+file has to travel in the same commit. Commit first and you push a change whose
+generated half is missing, which CI then fails on a stale source digest, for a typo
+fix.
+</Step>
+
+<Step>
+### Commit with the tag convention
+
+```console
+$ git add -A
+$ git commit -m "[FIX] fleet_vehicle_service_kanban: fix a typo in the readme"
+```
+
+`git add -A` picks up both the fragment you edited and whatever pre-commit rewrote.
 </Step>
 
 <Step>
@@ -210,6 +239,10 @@ $ gh pr create --repo OCA/fleet --base 19.0 \
     --title "[19.0][FIX] fleet_vehicle_service_kanban: fix a typo in the readme" \
     --body "Fixes a typo in the readme/DESCRIPTION.md fragment."
 ```
+
+`--base 19.0` is the flag to get right. It is the whole of the Concepts section's
+"never target `master`" rule, expressed as one argument, and it is the mistake that
+gets a first PR closed unread.
 </Step>
 
 <Step>

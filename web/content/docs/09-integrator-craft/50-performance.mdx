@@ -104,8 +104,8 @@ with. The fix isn't "avoid loops", it's "don't re-query inside one."
 
 ### `read_group` became `_read_group` / `formatted_read_group`
 
-Chapter 39 hit the version fact; here's the shape, run for real against
-`account.move.line`:
+Chapter 41 hit the version fact while building the dashboard; here's the shape, run for
+real against `account.move.line`:
 
 ```python
 env['account.move.line']._read_group(
@@ -210,7 +210,7 @@ land on the same 22-vs-1 split.
 `service_order.py`'s `customer_id` backs a record rule that filters every portal
 request (`security/librefleet_security.xml`), and had no index:
 
-```python
+```python title="addons/librefleet/models/service_order.py"
 customer_id = fields.Many2one(
     related="vehicle_id.owner_id",
     store=True,
@@ -264,7 +264,7 @@ $ python3 odoolings.py check ch37
 ch37 complete! On to the next chapter 🔧
 ```
 
-No new odoolings check for ch48 itself: an index's existence isn't something
+No new odoolings check for ch50 itself: an index's existence isn't something
 XML-RPC can observe the way a field or a record can, `\d table_name` over psql is
 the real proof, same reasoning as chapters 38, 44 and 45.
 
