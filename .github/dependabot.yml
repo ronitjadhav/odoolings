@@ -24,6 +24,14 @@ updates:
         update-types:
           - minor
           - patch
+    # Known gap, hit on 2026-09-07. `fumadocs-ui` is an ALIAS
+    # ("npm:@fumadocs/base-ui@^x"), and the grouped update bumped fumadocs-core
+    # while leaving the alias alone. @fumadocs/base-ui pins fumadocs-core to an
+    # exact version as a peer, so the result could not `npm ci` at all. Nothing
+    # here can fix that from the config side; what does is the workflow now
+    # running on pull requests, which fails such a PR on its first step. If a
+    # grouped fumadocs bump ever needs doing by hand, move all three together:
+    # fumadocs-core, fumadocs-mdx and the fumadocs-ui alias.
     ignore:
       # Majors of these are never routine, so let them come as their own PRs
       # rather than inside the grouped one. Next 16 in particular: web/AGENTS.md

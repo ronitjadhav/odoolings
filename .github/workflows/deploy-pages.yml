@@ -1,7 +1,13 @@
 name: Deploy site
 
+# Pull requests run the build job and stop there. Before this, nothing tested a PR at
+# all: three Dependabot PRs sat for a week with no signal, and one of them (#175) could
+# not even `npm ci`, because Dependabot bumped fumadocs-core without the aliased
+# fumadocs-ui whose peer pins it exactly. CI would have said so on day one.
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -10,8 +16,10 @@ permissions:
   pages: write
   id-token: write
 
+# Per-ref, so a pull request's run cannot cancel main's deployment. Main keeps the old
+# behaviour: two quick pushes share a ref, and the later one wins.
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +29,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The starter repo readers instantiate carries copies of our compose file and
       # server config. This repo is the source of truth (see CLAUDE.md); if they drift,
       # chapters quote output that no longer matches what readers actually run.
@@ -38,7 +46,7 @@ jobs:
             fi
           done
           exit $fail
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -48,11 +56,13 @@ jobs:
       - run: npm run build
       - run: npm run test:export
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
           path: web/out
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
