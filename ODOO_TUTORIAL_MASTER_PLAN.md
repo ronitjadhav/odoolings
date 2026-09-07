@@ -1163,6 +1163,69 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-09-07 (later) — CI runs on pull requests, four dependency updates land, §6 made honest
+
+Housekeeping pass after the ch49-51 merge, in answer to "is anything pending".
+
+**The finding that mattered: nothing was testing pull requests.** `deploy-pages.yml`
+ran on `push: main` and `workflow_dispatch` only, so a Dependabot PR arrived with no
+signal whatsoever. Three had been open for a week for exactly that reason. The workflow
+now also runs on `pull_request`: a PR runs the build job (starter drift check,
+`npm ci`, `npm test`, `build`, `test:export`) and stops, with the artifact upload and
+the whole deploy job behind `github.event_name != 'pull_request'`. Concurrency moved
+from the fixed `pages` group to one per workflow and ref, so a PR can no longer cancel
+main's deployment. Verified on its own PR: `build: success`, `deploy: skipped`.
+
+**And the PR that proves why it was needed.** #175, the grouped npm bump, **could not
+install at all**: Dependabot moved `fumadocs-core` to ^16.15.5 and left `fumadocs-ui`
+alone, and `fumadocs-ui` is an alias (`npm:@fumadocs/base-ui@^16.14.0`) whose peer pins
+`fumadocs-core` to an exact `16.14.0`. `npm ci` cannot resolve that. **Aliased packages
+are a blind spot in grouped Dependabot updates**; no config setting fixes it, so
+`dependabot.yml` records the trap and the pull-request run is what catches the next one.
+Moving all three together (core, mdx, alias) resolves clean.
+
+**All four updates landed after verification**, in #177 rather than as four merges:
+the grouped bump (fumadocs 16.15.5/15.4.0, next 16.3.4, mermaid 11.17.2, lucide-react
+1.40.0, `@types/*`, postcss), **typescript 6 to 7** (a major: `tsc 7.0.2 --noEmit`
+clean), and **actions/checkout and actions/setup-node v4 to v7**, which the new
+pull-request run exercised on itself. Dependabot's four PRs closed as superseded, each
+with the explanation.
+
+**§6 now tells the truth about M4-M7, which is the part worth reading.** Every chapter
+in those milestones had been live for weeks with its checkbox unticked, so the plan read
+as if the content were outstanding. Ticked what is done, and named what is not, verified
+per item rather than assumed:
+
+- **`boss3` through `boss6` do not exist.** `CHAPTERS` holds only `boss2`, from
+  2026-08-02.
+- **Per-part review quizzes exist for Part 2 alone.** It is the only part folder with an
+  `index.mdx`.
+- **`ci.yml` was never built**, which is how ch38's and ch51's Odoo test suites came to
+  run on a developer's machine and nowhere else. This pass built the site half; running
+  the *module* suites still needs a workflow with a Postgres service and an odoo
+  container.
+
+So **M4-M7 are content-complete and acceptance-incomplete**, a larger outstanding block
+than all of M8, and §5.6's challenge scaffolding turns out to have been built once and
+never repeated. Recorded at the top of §6 so a cold start sees it before ticking
+anything.
+
+The reader-clarity sweep is closed as superseded: its backlog line still read "left
+ch25-30, then decide whether ch31-50 needs it", stale twice over, since those chapters
+were done and ch31-50 is no longer the tail of a 55-chapter book. **Its method is kept
+verbatim**, because the 2026-09-02 and 2026-09-06 audits reused it and it is the best
+description of what to hunt for.
+
+**Still owed, and neither is mine to close:** the author's manual re-execution of
+ch49-51's Hands-on (rule 4), and one screenshot for ch49, the `Discount (Fixed)` column
+on a quotation line. That screen defeated two attempts: the field is gated behind
+`sale.group_discount_per_so_line`, and enabling the setting did not make the column
+appear in the session, while `web_responsive` (installed for ch50) means any capture now
+shows a shell a ch49 reader does not have. The chapter states only what was verified
+from the view XML, which is that the `groups=` attribute is there.
+
+PR #177.
+
 ### 2026-09-07 — Part 8 gains a hands-on OCA track (ch49-51), Part 9 shifts to 52-55
 
 Reader's question, and it was the right one: "can we have a few chapters where we
