@@ -1,0 +1,571 @@
+---
+title: "51. Changing an OCA Module Without Forking It"
+description: Deciding between an upstream pull request and a module of your own, writing the glue module, testing it, and understanding what you signed up for when the next version ships.
+---
+
+**Goal:** change an OCA module's behaviour for your project without touching its code,
+and know what that choice costs you later. · **Time:** ~2.5 h · **Checkpoint:**
+`code/checkpoints/ch51` (the new module only, LibreFleet is untouched this chapter).
+
+## Why this matters
+
+Chapter 49 left a real finding on the table. `sale_fixed_discount` converts a fixed
+amount into a percentage and does not cap it, so a discount of 150.00 on a unit price of
+100.00 gives a subtotal of -100.00 and a discount of 150%, with no error.
+
+Now you have to do something about it, and this is the moment most developers get
+wrong. The instinct is to open the file and fix it, because the file is right there in
+`oca/sale-workflow/` and the fix is four lines. **Do that and you have created a
+problem your successor will spend a day on:** the next `git pull` on that repository
+either wipes your fix or refuses to merge, and nothing anywhere records that your
+production behaviour is not the behaviour of the module you appear to be running.
+
+There are three honest options and one dishonest one. This chapter walks the decision,
+then builds the option you will pick most often, then shows you the bill that arrives
+with it a year later.
+
+## Concepts
+
+### Three options, and how to choose between them
+
+The question that decides it is not technical. It is **whose problem is this?**
+
+<CardGrid cols={2}>
+  <Card tone="sage" icon={<Icon name="branch" />} title="Upstream pull request">
+    The behaviour is wrong for everybody, not just you. Fix it in the module, chapter
+    45's mechanics, and every other user gets the fix. Slower, and it is not yours to
+    schedule.
+  </Card>
+  <Card tone="sand" icon={<Icon name="tool" />} title="A module of your own">
+    The behaviour is a policy question and reasonable projects would answer it
+    differently. Add your answer in a module that depends on theirs, and leave theirs
+    alone. Fast, yours to schedule, and it is on you forever.
+  </Card>
+  <Card tone="violet" icon={<Icon name="source" />} title="Fork the repository">
+    You need changes so deep that gluing cannot express them. Real, occasionally
+    correct, and expensive: you now migrate that fork every October, alone.
+  </Card>
+  <Card tone="plain" icon={<Icon name="fail" />} title="Edit the clone in place">
+    The dishonest one. Invisible, unrecorded, and destroyed by the next pull. Never,
+    including "just for now".
+  </Card>
+</CardGrid>
+
+For today's finding, apply the test. Is an uncapped fixed discount wrong for everybody?
+Not obviously: a credit line with a negative subtotal is exactly what some businesses
+want, and the module's author may well have relied on it. It is a policy question, so it
+gets a module of our own. **A behaviour you would have to argue about in a pull request
+is usually a behaviour that belongs in your own module.**
+
+### The glue module, which OCA already showed you
+
+You built one of these in chapter 46 without calling it that, and chapter 50 watched OCA
+install one automatically: `sale_order_secondary_unit` exists purely to connect
+`product_secondary_unit` to `sale`. OCA calls that a **bridge module**, and the shape is
+always the same:
+
+- It depends on the module it changes, so it loads after it.
+- It uses a classic extension, `_inherit` with no `_name` (chapter 31), to reach the
+  same model.
+- It contains only the difference. Nothing is copied.
+
+<Mermaid
+  label="A glue module depends on the OCA module it modifies and extends the same model, so the OCA clone stays untouched and can be pulled at any time"
+  chart={`flowchart LR
+    core["sale<br/>(core)"]
+    oca["sale_fixed_discount<br/>(oca/sale-workflow, never edited)"]
+    glue["sale_fixed_discount_limit<br/>(addons/, yours)"]
+    core -->|"depends"| oca
+    oca -->|"depends"| glue
+    glue -->|"_inherit sale.order.line<br/>adds one constraint"| model["sale.order.line"]
+    oca -->|"_inherit sale.order.line<br/>adds discount_fixed"| model`}
+/>
+
+### Naming it, and why the name matters more here
+
+Chapter 44's naming rule was about avoiding collisions in a global namespace. For a
+glue module there is a second job: the name has to say what it glues. OCA's convention
+is `<module you extend>_<what you add>`, so `sale_fixed_discount_limit` reads as "the
+limit part of sale_fixed_discount" to anyone who lists the addons directory.
+
+That is not decoration. Six months from now, someone debugging a rejected discount will
+grep the installed module list for `discount`, and the name is the entire clue.
+
+### The one method name you must not reuse
+
+A classic extension puts your class in the same MRO as theirs, which means **a method
+you define with a name they already used replaces theirs** unless you call `super()`.
+
+`sale_fixed_discount` already has a constraint method called `_check_discounts`. Define
+your own `_check_discounts` in your glue module and their consistency check quietly
+stops running, and nothing warns you: same name, same model, last module loaded wins.
+Give yours a name of its own and both run.
+
+<Callout type="warn" title="Gotcha">
+  This is the most expensive mistake in glue-module work, because it makes something
+  *stop happening* rather than start. Before naming any method in an extension, grep
+  the module you are extending for that name. `grep -rn "def _check" oca/sale-workflow/sale_fixed_discount/`
+  takes two seconds.
+</Callout>
+
+## Hands-on
+
+<Steps>
+
+<Step>
+### Scaffold the module in your own addons directory
+
+Yours, so `addons/`, next to LibreFleet. Not `oca/`, which is for checkouts.
+
+```console
+$ mkdir -p addons/sale_fixed_discount_limit/{models,tests,readme}
+$ touch addons/sale_fixed_discount_limit/__init__.py
+$ touch addons/sale_fixed_discount_limit/models/__init__.py
+$ touch addons/sale_fixed_discount_limit/tests/__init__.py
+```
+
+```python title="addons/sale_fixed_discount_limit/__manifest__.py"
+{
+    "name": "Sale Fixed Discount Limit",
+    "summary": "Refuse a fixed discount larger than the line's unit price",
+    "version": "19.0.1.0.0",
+    "category": "Sale",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "development_status": "Beta",
+    "application": False,
+    "depends": ["sale_fixed_discount"],
+}
+```
+
+One dependency, and it is the OCA module rather than `sale`. That is deliberate: you
+need `discount_fixed` to exist before your constraint can mention it, and depending on
+the module that defines it is what guarantees load order. Depending on `sale` instead
+would leave you extending a field that may not be there.
+
+Notice what the manifest does *not* have: no `data`, no views, no security. This module
+adds one Python constraint, so it needs nothing else.
+</Step>
+
+<Step>
+### Check the name you are about to use
+
+Before writing the method, find out what theirs are called:
+
+```console
+$ grep -rn "def _check" oca/sale-workflow/sale_fixed_discount/
+```
+
+```text
+oca/sale-workflow/sale_fixed_discount/models/sale_order_line.py:19:    def _check_discounts(self):
+```
+
+`_check_discounts` is taken. Anything else is fine, and a long specific name is better
+than a short one here, since it is what shows up in a traceback.
+</Step>
+
+<Step>
+### Write the difference, and nothing else
+
+```python title="addons/sale_fixed_discount_limit/models/sale_order_line.py"
+from odoo import api, models
+from odoo.exceptions import ValidationError
+
+
+class SaleOrderLine(models.Model):
+    _inherit = "sale.order.line"
+
+    @api.constrains("discount_fixed", "price_unit")
+    def _check_discount_fixed_not_above_unit_price(self):
+        """A fixed discount above the unit price makes the line negative.
+
+        sale_fixed_discount converts the amount to a percentage and does not
+        cap it, which is a deliberate choice upstream. This is our policy, so
+        it lives here rather than in a fork of theirs.
+        """
+        for line in self:
+            if line.discount_fixed > line.price_unit:
+                raise ValidationError(
+                    self.env._(
+                        "A fixed discount of %(discount)s is larger than the "
+                        "unit price of %(price)s, which would make the line "
+                        "negative.",
+                        discount=line.discount_fixed,
+                        price=line.price_unit,
+                    )
+                )
+```
+
+Fourteen lines of logic, and the docstring is doing real work: it records *why* this is
+not a pull request. Write that down while you still remember, because the next person to
+read this file will otherwise assume you did not know about upstream.
+
+The rest is chapter-by-chapter familiar: `@api.constrains` from chapter 14,
+`self.env._()` for the translatable message from chapter 44's linter finding, and a
+`for line in self` loop because a constraint gets a recordset, not a record.
+
+Wire up the imports:
+
+```python title="addons/sale_fixed_discount_limit/__init__.py"
+from . import models
+```
+
+```python title="addons/sale_fixed_discount_limit/models/__init__.py"
+from . import sale_order_line
+```
+</Step>
+
+<Step>
+### Install it and try to break the rule
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -i sale_fixed_discount_limit --stop-after-init
+```
+
+```text
+INFO functional odoo.modules.loading: Loading module sale_fixed_discount_limit (128/128)
+INFO functional odoo.modules.loading: Modules loaded.
+```
+
+Then repeat chapter 49's experiment, both halves:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+from odoo.exceptions import ValidationError
+tmpl = env['product.template'].create({'name': 'Brake Pad Set', 'list_price': 100.0, 'type': 'consu'})
+order = env['sale.order'].create({'partner_id': env['res.partner'].search([], limit=1).id})
+def line(fixed):
+    return env['sale.order.line'].create({'order_id': order.id, 'product_id': tmpl.product_variant_id.id,
+        'product_uom_qty': 2, 'price_unit': 100.0, 'discount_fixed': fixed})
+print(f"discount_fixed = 25.00:  subtotal {line(25.0).price_subtotal:.2f}")
+try:
+    line(150.0)
+    print("discount_fixed = 150.00: allowed, which means the constraint did not fire")
+except ValidationError as e:
+    print("discount_fixed = 150.00: refused ->", str(e).strip().splitlines()[0])
+env.cr.rollback()
+```
+
+```text
+discount_fixed = 25.00:  subtotal 150.00
+discount_fixed = 150.00: refused -> A fixed discount of 150.0 is larger than the unit price of 100.0, which would make the line negative.
+```
+
+The reasonable discount still works exactly as the OCA module intended, per unit and
+all. The one you did not want is refused, by your rule, in your module. **The OCA clone
+has not been touched, and `git status` inside it is clean**, which is the whole point:
+
+```console
+$ git -C oca/sale-workflow status --short
+```
+
+```text
+```
+
+Nothing. You can pull that repository tomorrow.
+</Step>
+
+<Step>
+### Test your own rule, and keep the test out of the way of other modules
+
+A glue module needs a test more than most code does, for a reason worth stating:
+**it is the only place that records what you decided.** The constraint is four lines and
+somebody will eventually wonder whether it was intentional.
+
+```python title="addons/sale_fixed_discount_limit/tests/test_discount_limit.py"
+from odoo.exceptions import ValidationError
+from odoo.tests.common import TransactionCase
+
+
+class TestDiscountLimit(TransactionCase):
+    """The guard, on a line built from a product that already exists.
+
+    Creating a product.template here instead would make the test depend on
+    every other module's opinion of what a product template requires: in a
+    database with website_sale installed, that create needs a column this test
+    would never think to set. Reusing a product keeps the test about our own
+    constraint.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.product = cls.env["product.product"].search(
+            [("sale_ok", "=", True)], limit=1
+        )
+        cls.order = cls.env["sale.order"].create(
+            {"partner_id": cls.env["res.partner"].search([], limit=1).id}
+        )
+
+    def _line(self, discount_fixed):
+        return self.env["sale.order.line"].create(
+            {
+                "order_id": self.order.id,
+                "product_id": self.product.id,
+                "product_uom_qty": 2,
+                "price_unit": 100.0,
+                "discount_fixed": discount_fixed,
+            }
+        )
+
+    def test_discount_below_unit_price_is_allowed(self):
+        self.assertEqual(self._line(25.0).price_subtotal, 150.0)
+
+    def test_discount_equal_to_unit_price_is_allowed(self):
+        self.assertEqual(self._line(100.0).price_subtotal, 0.0)
+
+    def test_discount_above_unit_price_is_refused(self):
+        with self.assertRaises(ValidationError):
+            self._line(150.0)
+```
+
+```python title="addons/sale_fixed_discount_limit/tests/__init__.py"
+from . import test_discount_limit
+```
+
+That docstring is the lesson chapter 49 half-taught. There, the OCA module's own tests
+errored in your `functional` database because their `setUpClass` creates a
+`product.template`, and `website_sale` (installed back in chapter 42) has a required
+column that create never fills. **A test that creates a product template inherits every
+installed module's opinion of what a product template needs.** Reusing an existing
+product avoids the whole class of problem, and it is why the run below is green in the
+same database that could not run theirs:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -u sale_fixed_discount_limit --test-tags /sale_fixed_discount_limit \
+    --http-port=8070 --stop-after-init
+```
+
+```text
+INFO functional odoo.addons.sale_fixed_discount_limit.tests.test_discount_limit: Starting TestDiscountLimit.test_discount_above_unit_price_is_refused ...
+INFO functional odoo.addons.sale_fixed_discount_limit.tests.test_discount_limit: Starting TestDiscountLimit.test_discount_below_unit_price_is_allowed ...
+INFO functional odoo.addons.sale_fixed_discount_limit.tests.test_discount_limit: Starting TestDiscountLimit.test_discount_equal_to_unit_price_is_allowed ...
+INFO functional odoo.tests.result: 0 failed, 0 error(s) of 3 tests when loading database 'functional'
+```
+
+Three tests, in your own database, and the middle one earns its place: a discount of
+exactly the unit price gives a free line, which is allowed. Boundaries are where
+constraints are wrong.
+</Step>
+
+<Step>
+### Write the readme fragments, then let the tooling finish the module
+
+Chapter 44's stack applies to this module too, and the fragments are where you explain
+the decision to anyone who did not read this chapter:
+
+```markdown title="addons/sale_fixed_discount_limit/readme/DESCRIPTION.md"
+Refuses a fixed discount larger than the line unit price.
+
+sale_fixed_discount converts a fixed amount into a percentage and does not cap
+it, so a discount above the unit price silently produces a negative subtotal.
+That is a reasonable default upstream and the wrong one for us, so this module
+adds the constraint without changing theirs.
+```
+
+```markdown title="addons/sale_fixed_discount_limit/readme/CONTRIBUTORS.md"
+- Odoolings readers <https://odoolings.ronit.io/>
+```
+
+```markdown title="addons/sale_fixed_discount_limit/readme/ROADMAP.md"
+- A per-company switch, for a workshop that genuinely wants credit lines.
+- The same guard on account.move.line, which the other half of the feature uses.
+```
+
+Then run chapter 44's pre-commit stack, which lints the new module and generates its
+`README.rst` from those three files:
+
+```console
+$ pre-commit run --all-files
+```
+
+The checkpoint for this chapter ships the module without the generated `README.rst`, so
+a `diff -r` against it will show that one file as the only difference. That is expected.
+</Step>
+
+<Step>
+### Read the bill
+
+Your module now depends on someone else's field name, and that is a real, ongoing
+commitment rather than a one-off. Measure it rather than worrying about it, using
+chapter 48's tooling:
+
+```console
+$ gh api "repos/OCA/sale-workflow/commits?path=sale_fixed_discount&sha=19.0&per_page=100" \
+    --jq '.[] | "\(.commit.author.date[0:10])  \(.commit.message | split("\n")[0])"' | head -6
+```
+
+```text
+2026-06-08  [BOT] post-merge updates
+2026-05-17  [FIX] sale_fixed_discount: correct field name in portal template
+2026-01-22  [BOT] post-merge updates
+2026-01-22  [UPD] Update sale_fixed_discount.pot
+2025-11-25  [MIG] sale_fixed_discount: Migration to 19.0
+2025-04-09  [MIG] sale_fixed_discount: Migration to 18.0
+```
+
+Thirty-five commits on this branch touch that module. Scroll further and one of them is
+worth reading twice:
+
+```text
+2024-05-25  [FIX] sale_fixed_discount: convert _onchange_discount_fixed() to computed method
+```
+
+An onchange became a compute. Any glue module that had overridden
+`_onchange_discount_fixed` kept loading fine and quietly stopped doing anything, because
+the method it was overriding no longer ran. **The thing you extend is a moving target,
+and the failure mode is silence.** Your test suite is what turns that silence into a red
+build, which is the real reason chapter 38's habit matters more on glue code than
+anywhere else.
+
+Then look at the date on the 19.0 migration: **2025-11-25**, a month or so after Odoo 19
+itself shipped. That is the other half of the bill. Your module cannot be installed on a
+new major until theirs is ported, so you have inherited their schedule. Chapter 47's
+count is the honest planning number: roughly half the modules on the 18.0 branches had
+reached 19.0 by the time this chapter was written.
+
+That is not an argument against glue modules. It is the argument for knowing exactly how
+many you have, which is a question you should be able to answer about any project you
+work on:
+
+```console
+$ ls addons/
+```
+
+```text
+librefleet
+librefleet_maintenance_reminder
+sale_fixed_discount_limit
+```
+
+One, today. On a five-year-old client project it is twenty, and every October somebody
+has to work out which of them can move.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch51 --db functional
+```
+
+```text
+✔ sale_fixed_discount_limit is installed and depends on the OCA module
+✔ a fixed discount above the unit price is refused
+✔ the refusal left the line exactly as it was
+
+ch51 complete! On to the next chapter 🔧
+```
+
+The third check is worth a moment. A `ValidationError` raised from `@api.constrains`
+aborts the whole write, so the line comes back untouched. Had you put the guard in an
+overridden `write()` that saved first and checked afterwards, the value would already be
+in the row when the error was raised, and check three is what tells those two designs
+apart.
+
+Nothing in these three can prove you did not shadow `_check_discounts`, which is why
+this chapter's fourth exercise makes you do it on purpose and watch what happens.
+
+## Gotchas
+
+- **Never edit the clone in `oca/`.** The next `git pull` decides what happens to your
+  change, and nothing anywhere records that it existed. `git -C oca/<repo> status` should
+  always come back empty.
+- **Depend on the module you extend, not on its dependencies.** `depends:
+  ["sale_fixed_discount"]` is what guarantees `discount_fixed` exists when your
+  constraint loads. Depending on `sale` would leave the load order to chance.
+- **A method name you share with the module you extend replaces theirs.** Grep before
+  you name, and remember the symptom is something silently *not* happening.
+- **A test that creates core records inherits every installed module's requirements.**
+  The OCA module's own tests cannot run in your `functional` database for exactly this
+  reason. Build fixtures from records that already exist where you can.
+- **Your glue module pins you to their migration schedule.** It cannot be installed on
+  a new major before theirs is ported, and half the OCA modules take more than a year.
+  Count your glue modules before promising an upgrade date.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You need an OCA module to behave differently for one client, and reasonable projects would disagree about which behaviour is right. What do you do?',
+      options: [
+        'edit the module in your clone and note the change in the project README so the team knows',
+        'write a module that depends on theirs and adds only the difference',
+        'fork the repository so the change is version-controlled somewhere you own',
+      ],
+      answer: 1,
+      why: 'A policy disagreement is not an upstream bug, so a pull request is the wrong instrument. A glue module keeps their code pullable and puts your decision somewhere a person can find it. A fork is for changes too deep to express as an extension, and it makes every future migration yours alone.',
+    },
+    {
+      q: "Your glue module defines _check_discounts on sale.order.line, the same name the OCA module already uses. What happens?",
+      options: [
+        'Odoo refuses to load the module, since two constraints on one model cannot share a name',
+        'yours replaces theirs, so their check silently stops running',
+        'both run in load order, with theirs first because its module loads first',
+      ],
+      answer: 1,
+      why: 'A classic extension puts both classes in the same MRO. Same name, same model, and the module that loads last wins unless it calls super(). The consequence is a check that stops happening, which no error message will ever tell you about.',
+    },
+    {
+      q: "Why does this chapter's glue module depend on sale_fixed_discount rather than on sale?",
+      options: [
+        'because the constraint mentions discount_fixed, which only exists once that module has loaded',
+        'because OCA requires every extension module to declare the OCA module it extends',
+        'because depending on sale directly would install a second copy of the discount feature',
+      ],
+      answer: 0,
+      why: 'Dependencies are what determine load order. The constraint refers to a field the OCA module defines, so that module has to be loaded first, and declaring the dependency is the only thing that guarantees it.',
+    },
+    {
+      q: 'The module you depend on turned an onchange into a computed method in a 2024 commit. What is the risk to a glue module that overrode that onchange?',
+      options: [
+        'the module fails to load, because the method it overrides no longer exists on the class',
+        'it keeps loading and quietly stops having any effect, with no error at all',
+        'the override still runs, but after the compute, so the computed value wins',
+      ],
+      answer: 1,
+      why: 'Python is happy to define a method nobody calls. The override loads, the framework never invokes it, and nothing reports a problem. That silence is why a glue module needs tests more than ordinary code does.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add the second item from the module's own `ROADMAP.md`: the same guard on
+   `account.move.line`, where `account_invoice_fixed_discount` puts its version of the
+   field. Note that the field is `monetary` there and `float` on the sale line, and
+   decide whether that changes your constraint.
+2. ⭐⭐ Take the opposite decision, on paper. Write the pull request description you
+   would open against `OCA/sale-workflow` arguing that the cap belongs upstream: what it
+   changes, who it could break, and what you would offer as a compromise (a setting? a
+   company field?). Chapter 45's etiquette section is the model.
+3. ⭐⭐ Point a glue module at your own capstone instead. Write
+   `librefleet_service_order_audit`, depending on `librefleet` and `auditlog`, that
+   ships a confirmed `auditlog.rule` on `librefleet.service.order` as a data file. You
+   now own a bridge between two modules you did not write together.
+4. ⭐⭐⭐ Break-it lab, and it is the one from the Gotchas. Rename your constraint method
+   to `_check_discounts`, upgrade, and then set `discount_fixed` and `discount` to values
+   that contradict each other, which the OCA module's own constraint exists to reject.
+   Watch it be accepted. Then explain, in writing, why nothing warned you, and put the
+   name back.
+
+## Further reading
+
+- <Icon name="source" /> [OCA/sale-workflow: `sale_order_secondary_unit`](https://github.com/OCA/sale-workflow/tree/19.0/sale_order_secondary_unit):
+  a bridge module written by OCA, the same shape as yours, with `auto_install` on top.
+- <Icon name="docs" /> [Inheritance and extension (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#inheritance-and-extension):
+  the classic extension your glue module leans on, from the reference.
+- <Icon name="docs" /> [OCA contribution guidelines](https://github.com/OCA/odoo-community.org/blob/master/website/Contribution/CONTRIBUTING.rst):
+  worth re-reading now that you have a concrete change and a real decision about where
+  it belongs.
+- <Icon name="talk" /> [OCA Days talks](https://www.youtube.com/@OdooCommunity):
+  the glue-versus-upstream argument is a recurring theme, usually under the heading of
+  maintenance cost.

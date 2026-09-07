@@ -32,7 +32,19 @@ marks it done and logs the feedback as a chatter note. A model needs
 **addon**: see *module*. The two words are used interchangeably; `--addons-path` is
 the directory list Odoo scans for them.
 
-**addons path**: the ordered list of directories Odoo searches for modules.
+**addons path**: the ordered list of directories Odoo searches for modules, set with
+`addons_path` in `odoo.conf` or `--addons-path` on the command line. Odoo scans each
+entry **exactly one level deep**: an immediate child holding a `__manifest__.py` is a
+module, and it does not recurse. Since an OCA repository keeps its modules at the
+repository root, **each repository is its own entry** (chapter 49), which is why real
+deployments have a long comma-separated list. The server logs the resolved list as
+`addons paths: [...]` at startup, including the image's own built-in directories.
+
+**auto_install**: a manifest flag meaning "install me automatically as soon as every
+module I depend on is installed". Nobody asks for these; they arrive, which is how
+*bridge modules* ship. Two consequences worth knowing: installing one module can install
+others that were waiting for it, possibly from repositories you cloned for something
+else, and an `auto_install` module cannot be found by searching Apps (chapters 43, 50).
 
 **arch (view architecture)**: the XML document stored in an `ir.ui.view` record's
 `arch` field describing how to render a model (`<list>`, `<form>`, ...). Validated
@@ -64,6 +76,13 @@ computed (never stored) `display_name`.
 system's protocol. Per the connector docs it "has a common interface to speak with the
 backend" and "translates the basic orders (search, read, write)" into that system's API.
 One adapter per backend, all answering the same method names (appendix on components).
+
+**bridge module**: a small module whose only job is to connect two other modules that
+do not know about each other, depending on both and holding just the glue. Usually
+`auto_install`, so it appears by itself once both sides are installed;
+`sale_order_secondary_unit` bridges `product_secondary_unit` and `sale`. The same shape,
+written deliberately for one project and *not* auto-installed, is how you change an OCA
+module's behaviour without editing it (chapter 51).
 
 **button box**: the `<div name="button_box">` at the top of a form sheet holding
 smart buttons. Extensions target it by name to add their own buttons.
@@ -346,6 +365,14 @@ naming, like one2many.
 real foreign key and an `ondelete` policy. Singular `_id` naming. One2many and
 many2many are built on top of it.
 
+**monkey patching**: replacing a method on a class at runtime rather than through
+inheritance, keeping the original so the replacement can still call it
+(`new.origin = getattr(cls, name); setattr(cls, name, new)`). OCA's `auditlog` audits
+any model this way, which is why nothing in the audited model's own source mentions it.
+The hardest kind of Odoo behaviour to trace, and the reason to check the installed
+module list when code cannot explain what a model is doing (chapter 50). The web client
+has its own version, `patch()` from `@web/core/utils/patch` (chapters 40, 50).
+
 **mixin**: an `AbstractModel` inherited via the list form of `_inherit` to pull in a
 bundle of ready-made fields and methods (chatter, activities) without any of them
 belonging to a real parent record. Composition through classic extension, not a new
@@ -443,6 +470,15 @@ a `static template` naming a QWeb template, a `setup()` method (hooks go here, n
 constructor), and reactive state from `useState` (chapter 39).
 
 
+**pre_init_hook / post_init_hook**: manifest keys naming functions, defined in the
+module's `__init__.py`, that run around installation. The pre-init one runs **before**
+the module's models load, so it works in raw SQL and is the sanctioned way to add a
+column to a table that already has rows; the post-init one runs after, with the ORM
+available. `crm_lead_code` uses both to give every pre-existing lead a sequence number,
+which no data file could do. Read them before installing anything on a database that
+matters: a per-row loop in a post-init hook is a maintenance window on real data
+(chapter 50).
+
 **pinning**: fixing every external dependency (OCA repos, Odoo itself) to an exact
 commit or package version so a production build is reproducible from the project repo
 alone. Done with git submodules, git-aggregator, or pip requirements.
@@ -508,7 +544,7 @@ recordset. Iterate records that came from a single `search()` and touch a relate
 field on each, and the ORM fetches the whole batch in a handful of queries rather
 than one per record. A fresh `search()` called inside a loop starts a new,
 unbatched recordset every time, defeating this entirely, the real mechanism behind
-the N+1 query trap (chapter 50).
+the N+1 query trap (chapter 53).
 
 **price-included tax (`price_include`)**: a tax treated as already inside the price you
 type, so 100.00 at 15% is 86.96 of revenue plus 13.04 of tax rather than 115.00. In Odoo

@@ -1707,6 +1707,168 @@ def librefleet_no_longer_depends_on_base_automation(env):
         "logic moves to librefleet_maintenance_reminder, remove it from depends.")
 
 
+# --- chapter 49: install and run an OCA module (functional db) ----------------
+
+def _module_state(env, name):
+    rows = env.call("ir.module.module", "search_read",
+                     [("name", "=", name)], fields=["state", "latest_version"])
+    return rows[0] if rows else None
+
+
+def sale_fixed_discount_is_installed(env):
+    mod = _module_state(env, "sale_fixed_discount")
+    assert mod, (
+        "Odoo has never even heard of sale_fixed_discount. That means the "
+        "addons path does not reach it: check the `addons paths` line in "
+        "`docker compose logs odoo` and remember the entry is the repository "
+        "directory (/mnt/oca/sale-workflow), not its parent.")
+    assert mod["state"] == "installed", (
+        "sale_fixed_discount is on the addons path but its state is %r. "
+        "Install it with -i sale_fixed_discount against the functional "
+        "database." % mod["state"])
+
+
+def fixed_discount_dependency_came_along(env):
+    mod = _module_state(env, "account_invoice_fixed_discount")
+    assert mod and mod["state"] == "installed", (
+        "account_invoice_fixed_discount is not installed. It is "
+        "sale_fixed_discount's dependency and it lives in a DIFFERENT "
+        "repository, OCA/account-invoicing, so it needs its own clone and its "
+        "own addons_path entry. You cannot install the first module without it.")
+
+
+def sale_order_line_has_discount_fixed(env):
+    fields = env.call("sale.order.line", "fields_get", [], ["type"])
+    assert "discount_fixed" in fields, (
+        "sale.order.line has no discount_fixed field, so the module's Python "
+        "never loaded even though the module reports installed. Try -u "
+        "sale_fixed_discount and read the log for an import error.")
+    ttype = fields["discount_fixed"]["type"]
+    assert ttype == "float", (
+        "discount_fixed is a %s, expected float. If this fails you are "
+        "probably looking at account.move.line's version of the field, which "
+        "is monetary and comes from the other module." % ttype)
+
+
+# --- chapter 50: five modules, five ways in (functional db) -------------------
+
+CH50_MODULES = ("crm_lead_code", "product_secondary_unit", "auditlog",
+                "web_responsive")
+
+
+def ch50_modules_are_installed(env):
+    rows = env.call("ir.module.module", "search_read",
+                     [("name", "in", list(CH50_MODULES))], fields=["name", "state"])
+    states = {r["name"]: r["state"] for r in rows}
+    missing = [m for m in CH50_MODULES if states.get(m) != "installed"]
+    assert not missing, (
+        "not installed: %s. Each one needs its repository cloned into oca/ AND "
+        "an addons_path entry of its own: crm_lead_code is in OCA/crm, "
+        "product_secondary_unit in OCA/product-attribute, auditlog in "
+        "OCA/server-tools, web_responsive in OCA/web."
+        % ", ".join(missing))
+
+
+def auto_install_bridge_arrived(env):
+    rows = env.call("ir.module.module", "search_read",
+                     [("name", "=", "sale_order_secondary_unit")],
+                     fields=["state", "auto_install"])
+    assert rows, (
+        "sale_order_secondary_unit is not in the module list at all, so "
+        "OCA/sale-workflow is not on your addons path. It is chapter 49's "
+        "clone, keep it there.")
+    assert rows[0]["state"] == "installed", (
+        "sale_order_secondary_unit is %r, but it declares auto_install and "
+        "both of its dependencies (sale, product_secondary_unit) should be "
+        "installed by now. Install product_secondary_unit and it arrives on "
+        "its own; you never name it." % rows[0]["state"])
+
+
+def every_old_lead_got_a_code(env):
+    total = env.call("crm.lead", "search_count", [])
+    assert total, (
+        "no leads at all in this database. Run this check against the "
+        "functional database, the one Parts 4 and 5 built.")
+    without = env.call("crm.lead", "search_count", [("code", "=", False)])
+    assert without == 0, (
+        "%d of %d leads have no code. The post_init_hook assigns codes to "
+        "leads that already existed, so it only runs on install: if you "
+        "upgraded (-u) rather than installed (-i), the hook never fired."
+        % (without, total))
+
+
+def product_secondary_unit_model_exists(env):
+    rows = env.call("ir.model", "search_read",
+                     [("model", "=", "product.secondary.unit")], fields=["name"])
+    assert rows, (
+        "product.secondary.unit does not exist. Unlike the other modules in "
+        "this chapter, this one defines a brand new model with _name, so its "
+        "absence means the module's Python never loaded.")
+
+
+# --- chapter 51: changing an OCA module without forking it (functional db) ----
+
+def _a_draft_sale_line(env):
+    lines = env.call("sale.order.line", "search_read",
+                      [("state", "=", "draft"), ("price_unit", ">", 0)],
+                      fields=["price_unit", "discount_fixed"], limit=1)
+    assert lines, (
+        "no draft sale order line with a price in this database, so there is "
+        "nothing to test the constraint against. Run this against the "
+        "functional database.")
+    return lines[0]
+
+
+def discount_limit_module_installed(env):
+    rows = env.call("ir.module.module", "search_read",
+                     [("name", "=", "sale_fixed_discount_limit")],
+                     fields=["state", "dependencies_id"])
+    assert rows, (
+        "sale_fixed_discount_limit is not in the module list, so Odoo cannot "
+        "see addons/sale_fixed_discount_limit. Check the directory name and "
+        "that it holds a __manifest__.py.")
+    assert rows[0]["state"] == "installed", (
+        "sale_fixed_discount_limit is %r. Install it with "
+        "-i sale_fixed_discount_limit." % rows[0]["state"])
+    deps = env.call("ir.module.module.dependency", "read",
+                     rows[0]["dependencies_id"], ["name"])
+    names = {d["name"] for d in deps}
+    assert "sale_fixed_discount" in names, (
+        "the manifest depends on %s, but not on sale_fixed_discount. That "
+        "dependency is what guarantees discount_fixed exists before your "
+        "constraint mentions it: depending on sale instead leaves load order "
+        "to chance." % sorted(names))
+
+
+def discount_above_unit_price_refused(env):
+    line = _a_draft_sale_line(env)
+    try:
+        env.call("sale.order.line", "write", [line["id"]],
+                 {"discount_fixed": line["price_unit"] * 2})
+    except xmlrpc.client.Fault:
+        return
+    # The write went through, so put the line back before reporting: a failing
+    # check should not leave the reader's data worse than it found it.
+    env.call("sale.order.line", "write", [line["id"]],
+             {"discount_fixed": line["discount_fixed"]})
+    raise AssertionError(
+        "a fixed discount of twice the unit price was accepted on line %d. "
+        "Your @api.constrains is missing, or it compares the wrong two "
+        "fields, or the module was not upgraded after you wrote it."
+        % line["id"])
+
+
+def refused_write_left_the_line_alone(env):
+    line = env.call("sale.order.line", "read", [_a_draft_sale_line(env)["id"]],
+                     ["discount_fixed"])[0]
+    assert not line["discount_fixed"], (
+        "line %d now carries discount_fixed = %s, so the refused write was "
+        "applied in part before the constraint fired. A ValidationError has "
+        "to abort the whole write, which it does when it is raised from "
+        "@api.constrains rather than from an override that writes first."
+        % (line["id"], line["discount_fixed"]))
+
+
 def exactly_one_maintenance_automation(env):
     automations = env.call("base.automation", "search_read", [],
                             fields=["name"])
@@ -3169,6 +3331,56 @@ CHAPTERS = {
          "that a plain -u never deleted. Run this chapter's cleanup SQL "
          "against the leftover ir_model_data-tracked rows under module="
          "'librefleet'."),
+    ],
+    "ch49": [
+        ("sale_fixed_discount is installed",
+         sale_fixed_discount_is_installed,
+         "Clone OCA/sale-workflow into oca/, add /mnt/oca/sale-workflow to "
+         "addons_path, restart, then -i sale_fixed_discount -d functional."),
+        ("its cross-repository dependency came with it",
+         fixed_discount_dependency_came_along,
+         "The install refuses until OCA/account-invoicing is on the addons "
+         "path too. One feature, two repositories."),
+        ("sale.order.line gained a discount_fixed field",
+         sale_order_line_has_discount_fixed,
+         "The field is the module's whole point. If it is missing, the module "
+         "is registered but its code did not load."),
+    ],
+    "ch50": [
+        ("all four of this chapter's modules are installed",
+         ch50_modules_are_installed,
+         "One clone and one addons_path entry per repository, then "
+         "-i crm_lead_code,product_secondary_unit,auditlog,web_responsive."),
+        ("the auto_install bridge arrived on its own",
+         auto_install_bridge_arrived,
+         "sale_order_secondary_unit declares auto_install: True and depends on "
+         "sale plus product_secondary_unit. Installing the second one is all "
+         "it was waiting for."),
+        ("every pre-existing lead was given a code",
+         every_old_lead_got_a_code,
+         "crm_lead_code's post_init_hook walks the leads that were already "
+         "there. Hooks run on install, never on upgrade."),
+        ("product.secondary.unit is a real model now",
+         product_secondary_unit_model_exists,
+         "This is the chapter's only brand-new model, and it comes from an "
+         "OCA module rather than from your own code."),
+    ],
+    "ch51": [
+        ("sale_fixed_discount_limit is installed and depends on the OCA module",
+         discount_limit_module_installed,
+         "Scaffold addons/sale_fixed_discount_limit with depends: "
+         "['sale_fixed_discount'], then -i sale_fixed_discount_limit."),
+        ("a fixed discount above the unit price is refused",
+         discount_above_unit_price_refused,
+         "The @api.constrains('discount_fixed', 'price_unit') raises "
+         "ValidationError when discount_fixed exceeds price_unit. Give the "
+         "method a name of its own: reusing the OCA module's _check_discounts "
+         "replaces theirs instead of adding yours."),
+        ("the refusal left the line exactly as it was",
+         refused_write_left_the_line_alone,
+         "A constraint raising ValidationError aborts the whole write. If the "
+         "line kept a value, the guard is running somewhere that writes "
+         "first, such as an overridden write(), rather than in a constraint."),
     ],
     "ch34-demo": [
         ("the demo partner exists", demo_partner_exists,

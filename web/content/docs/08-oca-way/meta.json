@@ -6,6 +6,9 @@
     "45-contributing-to-oca",
     "46-refactor-into-an-oca-quality-module",
     "47-reading-oca-at-scale",
-    "48-reading-real-pull-requests"
+    "48-reading-real-pull-requests",
+    "49-install-and-run-an-oca-module",
+    "50-five-modules-five-ways-in",
+    "51-changing-an-oca-module-without-forking-it"
   ]
 }

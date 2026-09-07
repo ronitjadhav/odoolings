@@ -1,0 +1,645 @@
+---
+title: "49. Install and Run an OCA Module"
+description: Putting a real OCA module on the addons path, resolving a dependency chain that crosses repositories, and measuring what the module actually does rather than trusting its summary.
+---
+
+**Goal:** install a real OCA module into your own Odoo, prove what it added, and
+measure what it does. · **Time:** ~2.5 h · **Checkpoint:** none, this chapter
+installs other people's code rather than changing yours.
+
+## Why this matters
+
+Six chapters into Part 8 and you have read a lot of OCA code without running any of
+it. Chapter 43 taught you to find a module and judge it, chapter 47 to survey a
+repository, chapter 48 to read a merged pull request. All of that is reading.
+
+Reading only gets you so far, because the question a client actually asks is "can we
+use this instead of building it", and that question has two halves. Does it do what we
+need, and what does it cost us to carry. You cannot answer either from a README.
+
+There is a specific reason this chapter has to exist rather than being a paragraph in
+chapter 43. **OCA modules do not appear in your Apps list.** Nothing to search for,
+nothing to tick. They are files in a git repository on someone else's server, and
+getting Odoo to see them is a real setup step that you do once and then repeat on every
+project for the rest of your career.
+
+The other half of the chapter is less obvious and more valuable. Today's module,
+`sale_fixed_discount`, does not do what its one-line summary says it does. Not because
+anyone lied: because a "fixed amount discount" turns out to be per *unit*, and no
+sentence in the module says so. You will find that by measuring it in a shell, in
+about four minutes, which is the habit worth taking away.
+
+## Concepts
+
+### Why OCA modules are invisible until you do something
+
+Chapter 5 set `addons_path = /mnt/extra-addons` in `odoo.conf` and described it as
+telling the server where to look for extra modules. That is the whole mechanism, and it
+is worth being precise about now that you are pointing it at code you did not write.
+
+`addons_path` is an ordered list of directories. Odoo scans each one **exactly one
+level deep**: every immediate child that contains a `__manifest__.py` is a module, and
+that is the end of the search. It does not recurse.
+
+That single fact decides how OCA repositories have to be arranged, because of the layout
+chapter 47 measured: an OCA repository holds its modules as directories at the
+repository root. So the repository directory itself is an addons-path entry, and the
+modules inside it are what Odoo finds.
+
+```text
+oca/sale-workflow/              <- this is the addons_path entry
+  sale_fixed_discount/          <- this is a module
+    __manifest__.py
+  sale_order_type/              <- so is this
+    __manifest__.py
+```
+
+Clone the repository one level higher and point `addons_path` at the parent, and Odoo
+finds nothing at all: `oca/` has no `__manifest__.py` in any of its children's
+children, and it never looks that deep. No error, no warning, just an empty Apps list.
+**One addons-path entry per repository** is the rule that falls out of this, and it is
+why a real production `addons_path` is often a long comma-separated line.
+
+<Mermaid
+  label="A host directory holding one clone per OCA repository is bind-mounted into the container, and each repository directory becomes its own addons_path entry, with the modules one level inside"
+  chart={`flowchart LR
+    subgraph host["your workspace"]
+      a["addons/<br/>(your own code)"]
+      o1["oca/sale-workflow/"]
+      o2["oca/account-invoicing/"]
+    end
+    subgraph container["container"]
+      m1["/mnt/extra-addons"]
+      m2["/mnt/oca/sale-workflow"]
+      m3["/mnt/oca/account-invoicing"]
+    end
+    a --> m1
+    o1 --> m2
+    o2 --> m3
+    m1 --> ap["addons_path"]
+    m2 --> ap
+    m3 --> ap
+    ap --> mods["librefleet<br/>sale_fixed_discount<br/>account_invoice_fixed_discount<br/>..."]`}
+/>
+
+### The dependency chain, now with consequences
+
+Chapter 47 made the point in the abstract: a module's `depends` list names modules, and
+module names say nothing about which repository holds them. Today you feel it.
+
+`sale_fixed_discount` lives in `OCA/sale-workflow`, and its manifest reads:
+
+```python
+"depends": ["sale", "account_invoice_fixed_discount"],
+```
+
+`sale` is core. `account_invoice_fixed_discount` is not in `OCA/sale-workflow` at all,
+it lives in `OCA/account-invoicing`, and it in turn depends on core `account`. One
+feature, two repositories, and nothing in the first repository tells you about the
+second one. You find out when the install refuses, which is exactly what happens below.
+
+<Callout type="info" title="In the field">
+  This is why "just install the OCA module" is never an estimate. Before promising a
+  timeline, resolve the whole chain and check that every repository in it has a branch
+  for your Odoo version. Two repositories is a normal answer. Five is not unusual, and
+  each one is another clone to keep current for the life of the project.
+</Callout>
+
+### What "installing" actually does to your database
+
+Installing is not copying files into place, the files were already in place. It is a
+database operation, and it leaves three kinds of trace worth knowing how to look at:
+
+- **A row in `ir_module_module`** flipping from `uninstalled` to `installed`, with the
+  manifest's version string recorded in `latest_version`.
+- **Real Postgres columns**, if the module adds stored fields. `discount_fixed` becomes
+  a genuine column on `sale_order_line`, not a computed nicety.
+- **Rows in `ir_model_data`**, one per record the module's data files and registry
+  entries created: its views, its groups, its fields' metadata, each tagged with the
+  module that owns it. That table is how you answer "what did this module actually
+  add", and you will query it in the Hands-on.
+
+### Read the source before you trust the summary
+
+`sale_fixed_discount`'s summary is one line: "Allows to apply fixed amount discounts in
+sales orders." Perfectly true, and it leaves out the thing you most need to know.
+
+Rather than tell you now, the Hands-on has you measure it. The order matters: predict,
+measure, then read the four lines of Python that explain the gap. That sequence is the
+chapter's real subject, and it works on any module, not just this one.
+
+## Hands-on
+
+Everything here happens against your `functional` database, the one Parts 4 and 5 built.
+That is deliberate: `sale_fixed_discount` extends Sales, so it needs a database with
+Sales in it, and your `tutorial` database has no business apps at all.
+
+<Steps>
+
+<Step>
+### Make a home for other people's code
+
+Your workspace has `addons/` for code you write. Other people's repositories need
+their own place, kept out of your git history since they have their own:
+
+```console
+$ mkdir -p oca
+$ echo "oca/" >> .gitignore
+```
+
+Two directories, two different meanings, and it is worth being strict about the line
+between them from the start: anything under `addons/` is yours to change, anything
+under `oca/` is a checkout you will pull updates into. Chapter 51 is about what to do
+when you want to change something in the second kind.
+</Step>
+
+<Step>
+### Clone the repository the module lives in
+
+Chapter 47's shallow single-branch clone, because you want the `19.0` branch and
+nothing else:
+
+```console
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/sale-workflow.git oca/sale-workflow
+$ ls oca/sale-workflow | head -5
+```
+
+```text
+checklog-odoo.cfg
+eslint.config.cjs
+LICENSE
+partner_contact_sale_info_propagation
+partner_sale_pivot
+```
+
+Module directories, and a few repository-level files that are not modules. Odoo will
+ignore anything without a `__manifest__.py`, so the stray config files cost you
+nothing.
+</Step>
+
+<Step>
+### Put the repository on the addons path
+
+Two edits, in two files, and both are needed. Miss either one and the module stays
+invisible.
+
+- **`docker-compose.yml`**: mount the new directory into the container, next to the
+  bind mount chapter 5 set up.
+
+```yaml title="docker-compose.yml"
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./addons:/mnt/extra-addons
+      - ./oca:/mnt/oca
+```
+
+- **`odoo.conf`**: add the repository directory, not its parent, to `addons_path`.
+
+```ini title="odoo.conf"
+addons_path = /mnt/extra-addons,/mnt/oca/sale-workflow
+```
+
+Then restart, because both a mount and a config value are read at startup:
+
+```console
+$ docker compose up -d
+$ docker compose logs odoo | grep "addons paths"
+```
+
+```text
+addons paths: _NamespacePath(['/usr/lib/python3/dist-packages/odoo/addons', '/var/lib/odoo/.local/share/Odoo/addons/19.0', '/mnt/extra-addons', '/mnt/oca/sale-workflow', '/usr/lib/python3/dist-packages/addons'])
+```
+
+Read that line every time you touch the addons path. It is the server telling you
+exactly what it will search, in order, and it is the fastest way to find out that your
+mount went to the wrong place. The two paths you did not write are the image's own
+built-in addons, which is why core modules keep working.
+</Step>
+
+<Step>
+### Install it, and read the refusal
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -i sale_fixed_discount --stop-after-init
+```
+
+```text
+odoo.exceptions.UserError: You try to install module "sale_fixed_discount" that depends on module "account_invoice_fixed_discount".
+But the latter module is not available in your system.
+```
+
+That is chapter 47's cross-repository dependency, arriving as an error message. Note
+how good the error is: it names the missing module exactly, which is all you need to go
+find it.
+
+You already know how to. The module name is the search term, and the catalog from
+chapter 43 answers in one query; so does GitHub's code search if you prefer. Either way
+the answer is `OCA/account-invoicing`.
+</Step>
+
+<Step>
+### Clone the second repository, and install for real
+
+Same clone, same two-line addition to `addons_path`:
+
+```console
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/account-invoicing.git oca/account-invoicing
+```
+
+```ini title="odoo.conf"
+addons_path = /mnt/extra-addons,/mnt/oca/sale-workflow,/mnt/oca/account-invoicing
+```
+
+Restart, then install again:
+
+```console
+$ docker compose up -d
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -i sale_fixed_discount --stop-after-init
+```
+
+```text
+INFO functional odoo.modules.loading: Loading module account_invoice_fixed_discount (121/122)
+INFO functional odoo.modules.loading: Loading module sale_fixed_discount (122/122)
+INFO functional odoo.modules.loading: 122 modules loaded in 1.14s, 330 queries (+330 extra)
+INFO functional odoo.modules.loading: Modules loaded.
+```
+
+Look at the counter. You asked for one module and Odoo loaded two, in dependency order,
+the one from the other repository first. **That is the whole point of declaring
+dependencies rather than documenting them:** you never install a chain by hand.
+</Step>
+
+<Step>
+### Ask the database what just arrived
+
+Two questions, both worth knowing how to ask about any module you inherit.
+
+What columns appeared:
+
+```console
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select table_name, column_name, data_type from information_schema.columns where column_name = 'discount_fixed' order by table_name;"
+```
+
+```text
+    table_name     |  column_name   | data_type
+-------------------+----------------+-----------
+ account_move_line | discount_fixed | numeric
+ sale_order_line   | discount_fixed | numeric
+(2 rows)
+```
+
+Two tables, because the two modules each extended one: the invoice line comes from
+`account_invoice_fixed_discount`, the order line from `sale_fixed_discount`. The
+feature follows the document from quotation to invoice, which is the sort of thing a
+summary never tells you and a column list does.
+
+And what records they own:
+
+```console
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select module, model, count(*) from ir_model_data where module in ('sale_fixed_discount','account_invoice_fixed_discount') group by module, model order by module, model;"
+```
+
+```text
+             module             |      model      | count
+--------------------------------+-----------------+-------
+ account_invoice_fixed_discount | ir.model        |     2
+ account_invoice_fixed_discount | ir.model.fields |     5
+ account_invoice_fixed_discount | ir.ui.view      |     2
+ account_invoice_fixed_discount | res.groups      |     1
+ sale_fixed_discount            | ir.model        |     1
+ sale_fixed_discount            | ir.model.fields |     3
+ sale_fixed_discount            | ir.ui.view      |     4
+(7 rows)
+```
+
+Six views and a security group between them, and now you know to go looking for that
+group: a module that ships one is telling you the feature is not for everybody.
+
+That is not the only group involved, and the other one explains something you would
+otherwise spend an afternoon on. Read how the module puts its field on the form:
+
+```console
+$ grep -n -A2 'name="discount_fixed"' oca/sale-workflow/sale_fixed_discount/views/sale_order_views.xml | head -3
+```
+
+```text
+14:                    name="discount_fixed"
+15-                    optional="show"
+16-                    groups="sale.group_discount_per_so_line"
+```
+
+`optional="show"` puts the column in the order-line list. `groups=` then hides it from
+anybody outside core's *Discount on lines* group, which is off by default: on a fresh
+`functional` database the field is fully installed, writable over RPC, and **invisible
+in the interface**. Switch it on under **Sales → Configuration → Settings → Discounts**
+before you go hunting for a column that was never going to appear.
+
+This is the single most common way an OCA install looks broken when it is not, and it
+is why the next step measures the behaviour in a shell rather than in a form.
+</Step>
+
+<Step>
+### Predict the numbers, then measure them
+
+Before you run this, commit to an answer. A line for two units at 100.00 each is
+200.00. Apply a *fixed discount* of 25.00. What is the subtotal?
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+product = env['product.product'].create({'name': 'Brake Pad Set', 'list_price': 100.0, 'type': 'consu'})
+order = env['sale.order'].create({
+    'partner_id': env['res.partner'].search([], limit=1).id,
+    'order_line': [(0, 0, {'product_id': product.id, 'product_uom_qty': 2, 'price_unit': 100.0})],
+})
+line = order.order_line
+print(f"no discount:            subtotal {line.price_subtotal:.2f}")
+line.discount_fixed = 25.0
+print(f"discount_fixed = 25.00: subtotal {line.price_subtotal:.2f}, discount {line.discount:.2f}%")
+```
+
+```text
+no discount:            subtotal 200.00
+discount_fixed = 25.00: subtotal 150.00, discount 25.00%
+```
+
+**150.00, not 175.00.** The fixed amount comes off each unit, not off the line. And
+there is a second surprise sitting next to the first: the module wrote 25% into
+core's own `discount` field, which is a percentage. Keep going in the same shell:
+
+```python
+line.discount_fixed = 100.0
+print(f"discount_fixed = 100.00: subtotal {line.price_subtotal:.2f}, discount {line.discount:.2f}%")
+line.discount_fixed = 150.0
+print(f"discount_fixed = 150.00: subtotal {line.price_subtotal:.2f}, discount {line.discount:.2f}%")
+env.cr.rollback()
+```
+
+```text
+discount_fixed = 100.00: subtotal 0.00, discount 100.00%
+discount_fixed = 150.00: subtotal -100.00, discount 150.00%
+```
+
+A discount larger than the unit price gives a negative subtotal and a discount above
+100%, with no error and no warning. Whether that is a bug depends on who you ask, and
+chapter 51 is where you decide what to do about it.
+
+The `env.cr.rollback()` throws the experiment away explicitly, and chapter 6's rule is
+the safety net underneath it: a shell session that never calls `env.cr.commit()` leaves
+the database exactly as it found it.
+</Step>
+
+<Step>
+### Read the four lines that explain both surprises
+
+Now the source, and only the part that matters. You are looking for whatever writes
+`discount`:
+
+```console
+$ grep -n "_get_discount_from_fixed_discount\|_compute_discount" \
+    oca/sale-workflow/sale_fixed_discount/models/sale_order_line.py
+```
+
+```text
+81:    def _compute_discount(self):
+84:            line.discount = line._get_discount_from_fixed_discount()
+87:        )._compute_discount()
+89:    def _get_discount_from_fixed_discount(self):
+```
+
+Two methods, nine lines apart. Read the second one:
+
+```console
+$ sed -n '89,100p' oca/sale-workflow/sale_fixed_discount/models/sale_order_line.py
+```
+
+```python
+    def _get_discount_from_fixed_discount(self):
+        """Calculate the discount percentage from the fixed discount amount."""
+        self.ensure_one()
+        if not self.discount_fixed:
+            return 0.0
+
+        return (
+            (self.price_unit != 0)
+            and ((self.discount_fixed) / self.price_unit) * 100
+            or 0.00
+        )
+```
+
+`discount_fixed / price_unit * 100`. Both surprises come out of that one expression:
+the division is by the *unit* price, which is why the amount is per unit, and there is
+nothing capping the result at 100, which is why 150.00 off a 100.00 unit price gives
+150%.
+
+Then read the first one, which is how that value reaches core:
+
+```console
+$ sed -n '80,88p' oca/sale-workflow/sale_fixed_discount/models/sale_order_line.py
+```
+
+```python
+    @api.depends("discount_fixed", "price_unit")
+    def _compute_discount(self):
+        lines_with_discount_fixed = self.filtered(lambda sol: sol.discount_fixed)
+        for line in lines_with_discount_fixed:
+            line.discount = line._get_discount_from_fixed_discount()
+        return super(
+            SaleOrderLine, self - lines_with_discount_fixed
+        )._compute_discount()
+```
+
+That is worth slowing down for, because it is a pattern chapter 31's three inheritance
+types never showed you. The module overrides a core compute, handles **only the lines
+it cares about**, and then calls `super()` on the rest, `self - lines_with_discount_fixed`,
+so core computes those exactly as it always did. An override that took the whole
+recordset would have had to reimplement core's own discount logic to avoid breaking it.
+
+That is not sloppy code, it is a design decision with a cost. Expressing the feature as
+a percentage means every downstream thing that already understands `discount`, the
+report layouts, the tax computation, the portal templates, keeps working untouched. The
+price is that a fixed amount is now a derived percentage, with the rounding and the
+missing ceiling that implies. **Reading the four lines told you more about the module
+than its README, its badges and its 5 tests combined.**
+</Step>
+
+<Step>
+### Run the module's own tests, in a database they can pass in
+
+The module ships tests. Run them the way chapter 38 taught, against the database you
+just installed into:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -u sale_fixed_discount --test-tags /sale_fixed_discount --http-port=8070 --stop-after-init
+```
+
+```text
+ERROR functional odoo.tests.suite: ERROR: setUpClass (odoo.addons.sale_fixed_discount.tests.test_sale_fixed_discount.TestSaleFixedDiscount)
+psycopg2.errors.NotNullViolation: null value in column "base_unit_count" of relation "product_template" violates not-null constraint
+0 failed, 1 error(s) of 0 tests when loading database 'functional'
+```
+
+Zero tests ran, and read the reason carefully before blaming the module. `base_unit_count`
+is a column `website_sale` adds to `product_template`, and `website_sale` is in your
+`functional` database because chapter 42 put it there. The module's `setUpClass` creates
+a product without that column, which is fine in every database except one shaped like
+yours.
+
+**This is not the module being broken, it is your database being unusual.** OCA's own
+CI runs each module against a database holding that module and its dependencies, and
+nothing else. Do the same, in a throwaway:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d oca_lab \
+    -i sale_fixed_discount --with-demo \
+    --test-tags /sale_fixed_discount --http-port=8070 --stop-after-init
+```
+
+```text
+INFO oca_lab odoo.addons.sale_fixed_discount.tests.test_sale_fixed_discount: Starting TestSaleFixedDiscount.test_05_fixed_discount_invoice ...
+INFO oca_lab odoo.tests.result: 0 failed, 0 error(s) of 5 tests when loading database 'oca_lab'
+```
+
+Five tests, green. `--with-demo` matters: the tests build a tax, and a tax needs a tax
+group, which arrives with demo data. Chapter 4's gotcha in reverse, and a reminder that
+`odoo -i` gives you no demo data unless you ask.
+
+Keep `oca_lab` around. Chapter 50 installs four more modules and it is the right place
+to run their tests too.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch49 --db functional
+```
+
+```text
+✔ sale_fixed_discount is installed
+✔ its cross-repository dependency came with it
+✔ sale.order.line gained a discount_fixed field
+
+ch49 complete! On to the next chapter 🔧
+```
+
+Then the proof that does not go through Odoo at all, the column that was not there an
+hour ago:
+
+```console
+$ docker compose exec db psql -U odoo -d functional -c "\d sale_order_line" | grep discount
+```
+
+```text
+ discount                  | numeric                     |           |          |
+ discount_fixed            | numeric                     |           |          |
+```
+
+Core's percentage, and the OCA module's amount, side by side in one table.
+
+## Gotchas
+
+- **A repository is not a module.** `addons_path` entries are directories whose
+  *children* are modules, and Odoo does not recurse. Point it at `oca/` instead of
+  `oca/sale-workflow` and you get no error, just an Apps list with nothing new in it.
+- **Both edits or neither.** The mount lives in `docker-compose.yml` and the path in
+  `odoo.conf`. Doing one and restarting gets you a confusing half-state, so read the
+  `addons paths` log line rather than guessing which half you forgot.
+- **"Fixed discount" is per unit.** Measured, not deduced: 25.00 off a two-unit line
+  takes off 50.00. Assume nothing from a field label, in this module or any other.
+- **Installed is not the same as visible.** `sale_fixed_discount`'s field carries
+  `groups="sale.group_discount_per_so_line"`, so it is missing from every form until
+  Sales → Configuration → Settings → Discounts is on. Check the view XML before
+  concluding an install failed.
+- **A module's own tests can fail on your database and still be fine.** Yours has apps
+  the module never expected. Run someone else's tests in a database holding that module
+  and its dependencies, which is what their CI does.
+- **`--depth 1 -b 19.0` cannot see the other branches.** Chapter 47's gotcha applies to
+  these clones too: `git switch 18.0` fails until you fetch that branch explicitly.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: "You clone three OCA repositories into oca/ and add exactly one entry, /mnt/oca, to addons_path. Odoo starts fine and the Apps list has nothing new. Why?",
+      options: [
+        'the clones need their dependencies installed before Odoo will list any of their modules',
+        'Odoo scans an addons_path entry one level deep, so it sees three repositories rather than any modules',
+        'a shallow clone omits the manifest files that Odoo needs in order to list a module at all',
+      ],
+      answer: 1,
+      why: "The children of /mnt/oca are repository directories, and none of them has a __manifest__.py. The modules are one level deeper, and Odoo never looks there. One entry per repository is the fix.",
+    },
+    {
+      q: 'Installing sale_fixed_discount fails with "depends on module account_invoice_fixed_discount. But the latter module is not available in your system." What is actually wrong?',
+      options: [
+        'the dependency lives in a different OCA repository, which is not on your addons path yet',
+        'the dependency exists but its own 19.0 branch is missing, so Odoo refuses to load either module',
+        'the two modules declare incompatible versions and Odoo will not install them together',
+      ],
+      answer: 0,
+      why: 'Module names carry no repository information. account_invoice_fixed_discount is in OCA/account-invoicing, and Odoo can only install what it can find on the path you gave it.',
+    },
+    {
+      q: 'A line of 2 units at 100.00 with discount_fixed set to 25.00 came out at 150.00. What does that tell you about the module?',
+      options: [
+        'the amount is taken off each unit, so the field means 25.00 per unit rather than per line',
+        'the module rounds the discount down to the nearest multiple of the unit price before applying it',
+        'a pricelist on the customer applied a further reduction on top of the fixed discount',
+      ],
+      answer: 0,
+      why: 'The module computes discount = discount_fixed / price_unit * 100, so the amount is per unit by construction. 2 x (100 - 25) = 150.',
+    },
+    {
+      q: "The module's test suite errors in your functional database and passes in a fresh one. What should you conclude?",
+      options: [
+        'the module is only compatible with databases created by its own continuous integration setup',
+        'your database has apps the tests never anticipated, which is why OCA runs each module alone',
+        'the tests are order-dependent and need to run before any other module in the database is loaded',
+      ],
+      answer: 1,
+      why: "website_sale, installed back in chapter 42, makes a column NOT NULL that the test's product create never fills. Nothing about the module is broken, and testing someone else's module in a database with only its dependencies is the standard practice for exactly this reason.",
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Install `product_secondary_unit` from `OCA/product-attribute` into `functional`,
+   by yourself, start to finish. Its `depends` list is one line long, so the only real
+   work is the addons-path entry. Chapter 50 assumes it is there.
+2. ⭐⭐ Take any module from chapter 47's table of seven and resolve its whole
+   dependency chain on paper before installing anything: every name in every `depends`
+   list, until each one is either core or a specific OCA repository. Then install it and
+   count how many repositories you needed.
+3. ⭐⭐ Query `ir_model_data` for a module you did not install deliberately, one that
+   arrived as a dependency, and write down what it added. Then decide whether you would
+   have noticed it in a code review of the manifest change that pulled it in.
+4. ⭐⭐⭐ Break-it lab and a real finding. Pick a second OCA module whose summary makes
+   a claim you can measure, predict the number, then measure it in a shell. If the two
+   disagree, work out from the source which one is wrong, and keep your notes: chapter
+   51 turns exactly this kind of find into either a glue module or a pull request.
+
+## Further reading
+
+- <Icon name="source" /> [OCA/sale-workflow: `sale_fixed_discount`](https://github.com/OCA/sale-workflow/tree/19.0/sale_fixed_discount):
+  today's module, including the tests you ran and the readme fragments chapter 44 taught
+  you to read first.
+- <Icon name="source" /> [OCA/account-invoicing: `account_invoice_fixed_discount`](https://github.com/OCA/account-invoicing/tree/19.0/account_invoice_fixed_discount):
+  the dependency from the other repository, and the module that owns the invoice half of
+  the feature.
+- <Icon name="docs" /> [Command-line interface (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/cli.html):
+  `--addons-path`, `-i`, `-u` and the flags this chapter used, from the source of truth.
+- <Icon name="store" /> [OCA module catalog](https://apps.odoo-community.org/modules):
+  the fastest way to answer "which repository holds this module name", which is the
+  question the failed install left you with.

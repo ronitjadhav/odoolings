@@ -1,0 +1,589 @@
+---
+title: "50. Five Modules, Five Ways In"
+description: Four more OCA modules installed and driven for real, each hooking into Odoo by a different mechanism, and how to tell which one you are looking at before you debug it.
+---
+
+**Goal:** install four more real OCA modules, watch each one work, and identify the
+mechanism each uses to change behaviour it does not own. · **Time:** ~2.5 h ·
+**Checkpoint:** none, still other people's code.
+
+## Why this matters
+
+Chapter 49 installed one module and read four lines of it. Those four lines used one
+mechanism: a classic extension overriding a compute. If that were the only way a module
+could reach into Odoo, this chapter would not exist.
+
+It is not. Chapter 31 taught you three kinds of inheritance, and they are the ones you
+write yourself. Real OCA modules also rewrite existing rows during installation, publish
+mixins for other modules to build on, patch methods at runtime on models they never
+mention, and change the entire web client without touching a model at all. Five modules
+below, five different mechanisms, and three of them appear nowhere else in this book.
+
+This is not trivia. **The mechanism decides how you debug the module, and whether you
+can safely change it.** A module that overrode a compute breaks differently from one
+that patched `write()`, and the second one will not show up in any inheritance diagram
+you draw. When a client's database does something you cannot explain, knowing that
+"patched at runtime" is a thing that exists is what stops you searching the source for
+an `_inherit` that was never there.
+
+## Concepts
+
+### The five mechanisms, and the evidence for each
+
+Read this table now and again at the end of the chapter. The right-hand column is the
+part to remember: not what the mechanism is, but what it looks like when you are staring
+at unfamiliar code trying to work out why the database is behaving oddly.
+
+| Module | What it reaches | Mechanism | How you spot it |
+|---|---|---|---|
+| `sale_fixed_discount` | one core compute | classic extension overriding `_compute_discount` | a compute method the module does not own, and `super()` called on `self - subset` |
+| `crm_lead_code` | every row that already existed | `pre_init_hook` and `post_init_hook` | hook keys in `__manifest__.py`, raw SQL in `__init__.py` |
+| `product_secondary_unit` | its own new model, plus a mixin for others | `_name` and an `AbstractModel` other modules consume | a `_name` you have not seen, and a mixin whose docstring documents a contract |
+| `auditlog` | any model at all, none of them named | runtime method patching, `setattr` on the model class | `_patch_method`, a saved `.origin`, and no `_inherit` of the audited model |
+| `web_responsive` | the web client shell | asset bundles and OWL `patch()` | 21 asset entries, twenty JavaScript files, two lines of model code |
+
+### Two of these are not inheritance at all
+
+The two worth pausing on are `auditlog` and `web_responsive`, because they break the
+mental model chapter 31 gave you.
+
+`auditlog` audits `sale.order` without `sale.order` appearing anywhere in its Python as
+an `_inherit`. It cannot: it does not know which model you will point it at. Instead it
+replaces the method on the model's class object while the server runs:
+
+```python
+new_method.origin = getattr(model_class, method_name)
+setattr(model_class, method_name, new_method)
+```
+
+That is **monkey patching**: reaching into a class at runtime and swapping a method,
+keeping a reference to the original so the replacement can still call it. Powerful, and
+invisible to every static reading of the audited module. Odoo's own registry has no
+record that `sale.order.write` is not the one core shipped.
+
+`web_responsive` does the client-side equivalent, and Part 7 already showed you the
+tool:
+
+```javascript
+import {patch} from "@web/core/utils/patch";
+```
+
+Same idea, other language, other runtime. Chapter 40 patched a web client component to
+add a widget; this module patches the navbar, the control panel, the chatter and the
+form renderer to reshape the whole shell.
+
+<Callout type="warn" title="Gotcha">
+  A patched method is the hardest kind of Odoo behaviour to trace, because nothing in
+  the model's own definition mentions it. When a model does something its code cannot
+  explain, list the installed modules and look for the ones that patch: `auditlog`,
+  `base_automation` (chapter 35), and most audit or workflow modules work this way.
+</Callout>
+
+### A module can install itself
+
+One more mechanism, and it is the one that surprises people in production. A manifest
+can declare:
+
+```python
+"auto_install": True,
+```
+
+which means "install me automatically as soon as every module I depend on is
+installed". Nobody asks for these. They arrive.
+
+Chapter 43 mentioned the consequence in passing, that an `auto_install` module cannot be
+found by searching Apps. Here you get the other half: installing one module can install
+a *third* module, from a repository you cloned for something else entirely, because that
+third module was waiting for exactly this combination. OCA calls these **bridge
+modules**, and they are how the "many small modules" convention keeps two features from
+having to know about each other.
+
+You will watch one appear in the Hands-on, and chapter 51 is where you write one on
+purpose.
+
+## Hands-on
+
+Same `functional` database as chapter 49, and the same two rules: one addons-path entry
+per repository, and read the `addons paths` log line after every change.
+
+<Steps>
+
+<Step>
+### Clone the three remaining repositories and install four modules
+
+Three more repositories, using chapter 47's clone and chapter 49's addons-path
+mechanics. You already did `product-attribute` if you took chapter 49's first exercise.
+
+```console
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/crm.git oca/crm
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/product-attribute.git oca/product-attribute
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/server-tools.git oca/server-tools
+$ git clone --depth 1 -b 19.0 https://github.com/OCA/web.git oca/web
+```
+
+```ini title="odoo.conf"
+addons_path = /mnt/extra-addons,/mnt/oca/sale-workflow,/mnt/oca/account-invoicing,/mnt/oca/crm,/mnt/oca/product-attribute,/mnt/oca/server-tools,/mnt/oca/web
+```
+
+That line is now long and ugly, and it is exactly what a real project's config looks
+like. Restart, then take one reading before you install anything: how many leads carry
+a reference code today.
+
+```console
+$ docker compose up -d
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select count(*) from information_schema.columns where table_name='crm_lead' and column_name='code';"
+```
+
+```text
+ count
+-------
+     0
+(1 row)
+```
+
+No such column. Now install all four in one command, which is also a small lesson:
+`-i` takes a comma-separated list and resolves the whole graph once.
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
+    -i crm_lead_code,product_secondary_unit,auditlog,web_responsive --stop-after-init
+```
+</Step>
+
+<Step>
+### crm_lead_code: the module that rewrote rows you already had
+
+```console
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select id, code, name from crm_lead order by id limit 3;" \
+    -c "select count(*) as leads, count(code) as with_code from crm_lead;"
+```
+
+```text
+ id |  code  |          name
+----+--------+------------------------
+  1 | LD0001 | Club Office Furnitures
+  2 | LD0002 | Design Software
+  3 | LD0003 | Pricing for 25 desks
+(3 rows)
+
+ leads | with_code
+-------+-----------
+    45 |        45
+(1 row)
+```
+
+Stop and notice what happened. Forty-five leads that existed before the install now
+carry sequence numbers. **A data file cannot do that.** Chapter 34's data files create
+records; nothing in them reaches back and edits rows that were already there.
+
+The manifest says how:
+
+```console
+$ grep -n "init_hook" oca/crm/crm_lead_code/__manifest__.py
+```
+
+```text
+32:    "pre_init_hook": "create_code_equal_to_id",
+33:    "post_init_hook": "assign_old_sequences",
+```
+
+Two functions named in the manifest, and both live in the module's `__init__.py`:
+
+```python
+def create_code_equal_to_id(env):
+    env.cr.execute("ALTER TABLE crm_lead ADD COLUMN code character varying;")
+    env.cr.execute("UPDATE crm_lead SET code = id;")
+
+
+def assign_old_sequences(env):
+    lead_obj = env["crm.lead"]
+    sequence_obj = env["ir.sequence"]
+    leads = lead_obj.search([], order="id")
+    for lead_id in leads.ids:
+        env.cr.execute(
+            "UPDATE crm_lead SET code = %s WHERE id = %s;",
+            (
+                sequence_obj.next_by_code("crm.lead"),
+                lead_id,
+            ),
+        )
+```
+
+Read the timing off the names. **`pre_init_hook` runs before the module's models are
+loaded**, which is why it has to reach for raw SQL: the field does not exist to the ORM
+yet, so `ALTER TABLE` is the only way to put the column there and fill it. The
+**`post_init_hook` runs after**, when the ORM is available, and walks every existing
+lead handing out real sequence numbers.
+
+Two things to take away, and the second one is the reason to read hooks before you
+install anything on a client database:
+
+- Hooks are the documented escape hatch for adding a column to a table that already has
+  rows in it. That is a genuinely hard problem and this is the sanctioned answer.
+- The post-init hook is one `UPDATE` per lead. Forty-five rows is instant. Chapter 53
+  will teach you to read that loop as N queries, and a database with two hundred
+  thousand leads turns this install into a long wait, on production, at whatever time
+  you chose to run it.
+</Step>
+
+<Step>
+### product_secondary_unit: and the module that installed itself
+
+First, ask which modules are installed that you never named:
+
+```console
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select name, state, auto_install from ir_module_module where name like '%secondary_unit%';"
+```
+
+```text
+                name                |    state    | auto_install
+------------------------------------+-------------+--------------
+ sale_order_secondary_unit          | installed   | t
+ sale_stock_secondary_unit          | uninstalled | t
+ product_secondary_unit             | installed   | f
+ sale_product_matrix_secondary_unit | uninstalled | f
+(4 rows)
+```
+
+You asked for `product_secondary_unit`. You also got `sale_order_secondary_unit`, from
+`OCA/sale-workflow`, a repository you cloned in chapter 49 for something unrelated. Its
+manifest explains itself in two lines:
+
+```python
+"auto_install": True,
+"depends": ["sale", "product_secondary_unit"],
+```
+
+`sale` was already installed, `product_secondary_unit` just arrived, so its condition
+became true and Odoo installed it. That is the bridge-module pattern working exactly as
+designed.
+
+Then read the row below it, because the negative case teaches the rule better than the
+positive one. `sale_stock_secondary_unit` is also `auto_install: True` and it did *not*
+arrive:
+
+```console
+$ docker compose exec db psql -U odoo -d functional \
+    -c "select d.name as depends_on from ir_module_module_dependency d join ir_module_module m on m.id=d.module_id where m.name='sale_stock_secondary_unit';"
+```
+
+```text
+        depends_on
+---------------------------
+ sale_order_secondary_unit
+ stock_secondary_unit
+(2 rows)
+```
+
+One of those two is installed and the other is not, because `stock_secondary_unit` lives
+in `OCA/stock-logistics-warehouse` and you have never cloned it. **`auto_install` fires
+only when every dependency is present**, so the chain stopped there.
+
+Now use the feature. It sells a product in a unit that is not its stock unit:
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
+
+```python
+tmpl = env['product.template'].create({'name': 'Engine Oil 1L', 'list_price': 8.0, 'type': 'consu'})
+unit = env['product.secondary.unit'].create({
+    'name': 'Case of 12', 'product_tmpl_id': tmpl.id,
+    'uom_id': env.ref('uom.product_uom_unit').id, 'factor': 12.0})
+order = env['sale.order'].create({'partner_id': env['res.partner'].search([], limit=1).id})
+line = env['sale.order.line'].create({'order_id': order.id, 'product_id': tmpl.product_variant_id.id})
+line.write({'secondary_uom_id': unit.id, 'secondary_uom_qty': 3.0})
+print(f"3 x '{unit.name}' -> product_uom_qty {line.product_uom_qty:.0f} {line.product_uom_id.name}")
+```
+
+```text
+3 x 'Case of 12' -> product_uom_qty 36 Units
+```
+
+Order three cases, get thirty-six units, priced per unit. Note that you wrote
+`secondary_uom_qty` on the sale line, and the field is not defined by the module you
+installed:
+
+```python
+f = env['ir.model.fields'].search([('model','=','sale.order.line'),('name','=','secondary_uom_qty')])
+print(env['ir.model.data'].search([('model','=','ir.model.fields'),('res_id','=',f.id)]).module)
+```
+
+```text
+sale_order_secondary_unit
+```
+
+The bridge owns it. `product_secondary_unit` owns the concept, the bridge owns its
+appearance on a sale order, and the split exists so a warehouse that never sells
+anything can install the first without the second.
+
+That split is worth one more look, because it shows the OCA convention as code rather
+than as advice. `product_secondary_unit` publishes an `AbstractModel`:
+
+```python
+class ProductSecondaryUnitMixin(models.AbstractModel):
+    """
+    Mixin model that allows to compute a field from a secondary unit helper
+    ...
+    You must add a dictionary `_secondary_unit_fields` as class variable
+    """
+```
+
+and the bridge consumes it by declaring the contract in three lines:
+
+```python
+    _secondary_unit_fields = {
+        "qty_field": "product_uom_qty",
+        "uom_field": "product_uom_id",
+    }
+```
+
+Chapter 33 met `AbstractModel` as something core provides you (`mail.thread`). This is
+the same tool used by an OCA module to provide something to *other* OCA modules,
+including ones in other repositories: `purchase_order_secondary_unit` in
+`OCA/purchase-workflow` declares the same dict against its own field names.
+</Step>
+
+<Step>
+### auditlog: reaching a model without naming it
+
+`auditlog` records who changed which field, on any model you point it at. Nothing is
+audited until you create a rule:
+
+```python
+rule = env['auditlog.rule'].create({
+    'name': 'Sale orders',
+    'model_id': env['ir.model']._get('sale.order').id,
+    'log_write': True, 'log_create': True, 'log_type': 'full', 'state': 'confirmed'})
+order = env['sale.order'].search([('state', '=', 'draft')], limit=1)
+order.write({'client_order_ref': 'PO-4471'})
+log = env['auditlog.log'].search([], order='id desc', limit=1)
+print(f"model: {log.model_model}   method: {log.method}   user: {log.user_id.name}")
+for ln in log.line_ids:
+    print(f"  {ln.field_name}: {ln.old_value_text!r} -> {ln.new_value_text!r}")
+```
+
+```text
+model: sale.order   method: write   user: OdooBot
+  client_order_ref: False -> 'PO-4471'
+```
+
+One write, one log entry, with the field, both values and the user. Chapter 33's chatter
+tracking does something similar for fields you marked `tracking=True` on a model you
+own. This works on a model you do not own, for fields nobody marked, and it was switched
+on by creating a record rather than by changing code.
+
+`state: 'confirmed'` is the switch. A draft rule audits nothing, which is the first
+thing to check when a rule "does not work".
+
+Now the mechanism, and it is the reason this module is in the chapter:
+
+```console
+$ grep -n "setattr(model_class\|new_method.origin\|_inherit" oca/server-tools/auditlog/models/auditlog_rule.py
+```
+
+```text
+258:            new_method.origin = getattr(model_class, method_name)
+259:            setattr(model_class, method_name, new_method)
+```
+
+Two lines, and no `_inherit` of `sale.order` anywhere in the file, because there could
+not be: the module has no idea which model you will audit. It saves the original method
+on `.origin`, then replaces the attribute on the class. Every later `write()` on that
+model goes through auditlog's version, which logs and then calls the original.
+
+Leave the shell without committing and the rule disappears with it. If you want to keep
+auditing, create the rule in the interface instead: **Settings → Technical → Audit →
+Rules**, which is also where the resulting log entries are readable by a human.
+</Step>
+
+<Step>
+### web_responsive: a module with almost no Python in it
+
+The last one changes what Odoo looks like rather than what it stores. Count its files
+before reading any of them:
+
+```console
+$ find oca/web/web_responsive -name "*.js" | wc -l
+$ find oca/web/web_responsive -name "*.py" | wc -l
+```
+
+```text
+20
+8
+```
+
+Twenty JavaScript files, and the eight Python ones are mostly `__init__.py`. Its whole
+model footprint is two small extensions, `res.users` and `ir.http`. What it actually
+ships is assets:
+
+```console
+$ grep -n -A3 '"assets"' oca/web/web_responsive/__manifest__.py | head -6
+```
+
+```text
+25:    "assets": {
+26-        "web._assets_primary_variables": {
+27-            "/web_responsive/static/src/legacy/scss/form_variable.scss",
+28-            "/web_responsive/static/src/legacy/scss/primary_variable.scss",
+```
+
+Five bundles, twenty-one entries in `web.assets_backend` alone, and the JavaScript does
+its work the way chapter 40 taught:
+
+```console
+$ grep -n "patch\|NavBar\|WebClient" oca/web/web_responsive/static/src/components/apps_menu/apps_menu.esm.js | head -4
+```
+
+```text
+13:import {NavBar} from "@web/webclient/navbar/navbar";
+14:import {WebClient} from "@web/webclient/webclient";
+16:import {patch} from "@web/core/utils/patch";
+```
+
+Core's `NavBar` and `WebClient`, imported so they can be patched. Reload
+`localhost:8069` after installing this and the apps menu, the search behaviour and the
+form layout are all different, with nothing in the database changed except an assets
+bundle.
+
+![The Odoo backend after installing web_responsive: the apps menu opens as a searchable grid inside the page rather than as a dropdown](/screens/ch50-web-responsive-apps-menu.jpg)
+
+That is worth knowing as a category. When a client says "the interface is wrong since
+the upgrade", an assets-only module is a strong suspect, and the first diagnostic is to
+uninstall it rather than to read model code.
+</Step>
+
+<Step>
+### Put the five side by side
+
+You have now driven all five. Go back to the Concepts table and check it against what
+you saw, then answer the question the table exists for: **given a symptom, which
+mechanism would you suspect?**
+
+- A field appeared on a model and its own module's code does not mention that field:
+  look for a bridge module that `auto_install`ed itself.
+- Existing rows changed the moment a module was installed: init hooks.
+- A method behaves differently and the model's source cannot explain it: a runtime
+  patch, from a module that never names the model.
+- The interface changed and the data did not: assets.
+- A computed field is right for some records and wrong for others: an extension
+  overriding the compute for a subset, and getting the subset wrong.
+
+That last one is chapter 51's starting point.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check ch50 --db functional
+```
+
+```text
+✔ all four of this chapter's modules are installed
+✔ the auto_install bridge arrived on its own
+✔ every pre-existing lead was given a code
+✔ product.secondary.unit is a real model now
+
+ch50 complete! On to the next chapter 🔧
+```
+
+The third check is the interesting one to have automated: it passes only because a
+`post_init_hook` rewrote rows that predate the module, which is the one effect in this
+chapter that leaves a permanent mark on data you did not create.
+
+## Gotchas
+
+- **`auto_install` modules arrive without being asked, and only when every dependency
+  is present.** One bridge installed itself here and its sibling did not, purely because
+  a repository was missing. Read `ir_module_module` after any install on a client
+  database rather than assuming you got what you typed.
+- **An `auto_install` module cannot be found by searching Apps** (chapter 43's trap).
+  Search `ir_module_module` in psql, not the interface.
+- **A draft `auditlog.rule` audits nothing.** The state field is the switch, and a rule
+  created in a shell that never commits is not a rule at all.
+- **Init hooks run on your data, at install time, once.** Read them before installing
+  anything on a database that matters, especially the post-init one: a per-row loop is
+  fine on demo data and a maintenance window on real data.
+- **A patched method is invisible in the model's own source.** If behaviour cannot be
+  explained by the code in front of you, suspect a patch before you suspect yourself.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You install one OCA module and afterwards three new modules show up as installed. What happened?',
+      options: [
+        'Odoo installed the module\'s dependencies, which is the only way extra modules can appear',
+        'some modules declare auto_install and install themselves once their dependencies are all present',
+        'the addons path picked up sibling directories in the same repository and installed them together',
+      ],
+      answer: 1,
+      why: 'Dependencies explain modules the one you asked for needs. auto_install explains modules that were waiting for it: bridge modules that fire as soon as every module they depend on is installed, whichever repository they live in.',
+    },
+    {
+      q: "Forty-five leads that existed before you installed crm_lead_code now have sequence codes. Which mechanism did that, and why could a data file not have?",
+      options: [
+        'a post_init_hook, because data files create records rather than editing rows that already exist',
+        'a noupdate data file, which is specifically designed to rewrite pre-existing records once',
+        'the field\'s compute method, which ran over every lead the first time the module loaded',
+      ],
+      answer: 0,
+      why: "Data files (chapter 34) load records the module ships. Nothing in them reaches back over rows the database already had. The manifest's pre_init_hook adds the column with raw SQL and the post_init_hook walks the existing leads assigning sequence numbers.",
+    },
+    {
+      q: "auditlog logs every write to sale.order, and sale.order appears nowhere in auditlog's Python as an _inherit. How is that possible?",
+      options: [
+        'the rule record adds an _inherit dynamically to the audited model when it is confirmed',
+        'it replaces the method on the model class at runtime, keeping the original on .origin',
+        'it reads the Postgres write-ahead log rather than going through the ORM at all',
+      ],
+      answer: 1,
+      why: 'setattr(model_class, "write", new_method) is monkey patching: the class object is modified while the server runs. The module cannot name the model because you choose it, which is the whole point of a rule record.',
+    },
+    {
+      q: 'A client says the backend looks wrong since last week, but every report and every number is correct. Which kind of module would you check first?',
+      options: [
+        'a module that patches a core compute method, since a wrong subset would look like this',
+        'an assets-only module, which changes the client shell and stores nothing',
+        'a module with init hooks, since anything installed recently has already touched the data',
+      ],
+      answer: 1,
+      why: "web_responsive is the example: five asset bundles, twenty JavaScript files and two lines of model code. Appearance changed, data did not, and uninstalling is a faster diagnostic than reading model code.",
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Point `auditlog` at your own work. Install it in your `tutorial` database (it
+   depends on `base` alone, so nothing else is needed), create a confirmed rule on
+   `librefleet.service.order`, change a stage, and read the log line. You have just
+   audited a model whose author never considered auditing.
+2. ⭐⭐ Find one more `auto_install` module in the repositories you have cloned, and
+   work out from its `depends` list exactly which combination would trigger it. Then say
+   whether your `functional` database is one module away from getting it.
+3. ⭐⭐ `product_secondary_unit` publishes a mixin and `sale_order_secondary_unit`
+   consumes it. Find the third consumer, in `OCA/purchase-workflow`, and compare its
+   `_secondary_unit_fields` dict with the sale one. Write two sentences on what the
+   mixin's author had to get right for both to work.
+4. ⭐⭐⭐ Break-it lab. Create an `auditlog` rule with `log_read` switched on as well,
+   then open a list view of that model and count the log entries. Explain what you see,
+   decide whether you would ever enable it on production, and check your reasoning
+   against chapter 53's query-counting habit.
+
+## Further reading
+
+- <Icon name="source" /> [OCA/server-tools: `auditlog`](https://github.com/OCA/server-tools/tree/19.0/auditlog):
+  the patching code, and its rule and log models.
+- <Icon name="source" /> [OCA/web: `web_responsive`](https://github.com/OCA/web/tree/19.0/web_responsive):
+  the assets-only module, and one of the most installed OCA modules anywhere.
+- <Icon name="docs" /> [Module manifests (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html):
+  `auto_install`, `pre_init_hook` and `post_init_hook` in the official reference.
+- <Icon name="docs" /> [Patching in the web client (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/frontend/patching_code.html):
+  the client-side `patch()` helper `web_responsive` leans on throughout.

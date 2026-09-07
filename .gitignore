@@ -10,3 +10,8 @@ __pycache__/
 # code/docker-compose.yml stays byte-identical to the starter's copy, as the deploy
 # workflow's drift check requires, while your machine keeps its own adjustments.
 code/docker-compose.override.yml
+
+# OCA repositories cloned for the Part 8 hands-on chapters (ch49-51). Readers
+# clone their own; ours are working copies, not content. The committed artifact
+# is the chapter text and the glue module's checkpoint.
+code/oca/
