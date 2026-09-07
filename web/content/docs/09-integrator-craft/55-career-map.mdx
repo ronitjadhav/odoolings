@@ -12,7 +12,7 @@ handle the yearly version bump that never stops coming. · **Time:** ~1.5 h ·
 
 Chapter 8 built an empty module. Fifty-five chapters later you've extracted a feature
 into a standalone, tooled, tested OCA-quality module (chapter 46), ported a module to a
-new Odoo version the way OCA actually does it (chapter 55), and read the real SQL your
+new Odoo version the way OCA actually does it (chapter 52), and read the real SQL your
 own code produces (chapter 53). That's not a finish line, it's the point where the
 tutorial stops handing you the next chapter and you start choosing. This one is about
 how.
@@ -89,16 +89,16 @@ From this project's own planning record, a real, standing decision: **Odoo has n
 LTS, one major version per year, the last three supported at any time**, and this
 tutorial's own author re-verifies its entire baseline every October when a new
 major ships. That's not a one-off task, it's routine, budgeted-for maintenance,
-the same posture chapter 55 asked you to bring to migrating any module. Apply it
+the same posture chapter 52 asked you to bring to migrating any module. Apply it
 to yourself:
 
 <MigrationChecklist
   items={[
     { id: "changelog", label: "Read the new version's own release notes / changelog first" },
-    { id: "deprecations", label: "Check your own modules against a fresh deprecation list, chapter 55's table as the template" },
+    { id: "deprecations", label: "Check your own modules against a fresh deprecation list, chapter 52's table as the template" },
     { id: "cert", label: "Note whether your certification (if you hold one) now targets a version behind current" },
     { id: "oca-branch", label: "Check whether the OCA repos you depend on have a branch yet for the new version" },
-    { id: "own-modules", label: "Migrate your own modules the way chapter 55 taught: version bump first, see what actually breaks" },
+    { id: "own-modules", label: "Migrate your own modules the way chapter 52 taught: version bump first, see what actually breaks" },
   ]}
 />
 
@@ -144,7 +144,7 @@ you're past the point this tutorial was built to get you to.
 ## Gotchas
 
 - **A certification is version-locked.** An Odoo 18 certificate doesn't quietly
-  become 19 knowledge; the framework moved, chapter 55's whole subject.
+  become 19 knowledge; the framework moved, chapter 52's whole subject.
 - **The certificate and a contribution history measure different things.** Don't
   substitute one for the other when the question is "can this person actually
   write Odoo code."

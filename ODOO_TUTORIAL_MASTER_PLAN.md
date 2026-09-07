@@ -1140,6 +1140,91 @@ is not a reason to add a glyph to every bullet point in the tutorial.
 
 ## 10. Changelog (running log — update whenever a decision or milestone changes)
 
+### 2026-09-07 — Part 8 gains a hands-on OCA track (ch49-51), Part 9 shifts to 52-55
+
+Reader's question, and it was the right one: "can we have a few chapters where we
+install one of the OCA modules and test it and see how it actually works". Part 8 had
+six chapters about OCA code and never once ran any of it. Three chapters now do.
+
+**Placement, decided with the author.** Appended after ch48 rather than inserted after
+ch43, where the find-judge-install arc would seem to want them. Two reasons, and the
+second is the real one: appending renumbers 4 chapters and 32 references instead of 9
+and 85, and **ch51 needs ch44's tooling and ch46's second-module skill as
+prerequisites**, so it cannot sit at 46. Not a compromise, the correct order.
+
+**The chapters, and what each is really about:**
+
+- **ch49 Install and Run an OCA Module.** The addons path as a real mechanism (one entry
+  per repository, scanned exactly one level deep), a dependency chain that crosses
+  repositories, and then the part that matters: measuring the module instead of trusting
+  its summary.
+- **ch50 Five Modules, Five Ways In.** `sale_fixed_discount`, `crm_lead_code`,
+  `product_secondary_unit`, `auditlog`, `web_responsive`, chosen because each hooks in
+  differently: a core compute overridden for part of a recordset, init hooks that rewrite
+  existing rows, a new model plus a published mixin, runtime method patching that names
+  no model, and an assets-only module. Three of those five appear nowhere else in the
+  book.
+- **ch51 Changing an OCA Module Without Forking It.** The glue module, chosen against an
+  upstream PR by a stated test (is this wrong for everybody, or is it policy?), plus the
+  bill that arrives later.
+
+**Everything was executed. The findings are the reason the chapters are worth reading:**
+
+- `sale_fixed_discount` does not do what it says. A fixed discount of 25.00 on a line of
+  2 units at 100.00 gives **150.00, not 175.00**: the amount is per unit, because the
+  module computes `discount = discount_fixed / price_unit * 100`. Nothing caps it either,
+  so 150.00 gives a subtotal of -100.00 and a discount of 150%. Four lines of source
+  explain both, which is the chapter's whole method: predict, measure, then read.
+- **Installing it pulls a module from another repository.** Its dependency
+  `account_invoice_fixed_discount` lives in OCA/account-invoicing, and the error a reader
+  actually gets is excellent: "You try to install module ... But the latter module is not
+  available in your system."
+- **Installed is not visible.** That field carries
+  `groups="sale.group_discount_per_so_line"`, off by default, so on a fresh database it
+  is fully installed, writable over RPC and absent from every form. This is the most
+  likely way the chapter looks broken to a reader, and it is now a step and a gotcha.
+- **Installing `product_secondary_unit` installed a third module nobody asked for.**
+  `sale_order_secondary_unit` is `auto_install` and was waiting for exactly that
+  combination. Its sibling `sale_stock_secondary_unit` did *not* arrive, because one of
+  its dependencies lives in a repository we never cloned, which teaches the rule better
+  than the positive case does.
+- **`crm_lead_code` rewrote 45 rows that predated it**, via `pre_init_hook` (raw SQL,
+  before the models load, the sanctioned way to add a column to a populated table) and
+  `post_init_hook` (one UPDATE per lead, which is a maintenance window on real data).
+- **`auditlog` audits any model without naming one**, by `setattr` on the model class at
+  runtime. A patched method is invisible to every static reading of the audited module,
+  and that is now taught explicitly, with the glossary entry to match.
+
+**Two things about testing other people's code, both learned the hard way.** The OCA
+module's own tests **error in the `functional` database** (`base_unit_count` NOT NULL,
+from the `website_sale` ch42 installed) and pass 5/5 in a fresh `--with-demo` database,
+which is what OCA CI does. Our own glue module's test hit the identical wall, so it was
+rewritten to reuse an existing product rather than create a `product.template`: **a test
+that creates core records inherits every installed module's requirements.** It now passes
+in the reader's own database, which is the better lesson and the shorter diff.
+
+**A trap in our own tooling, worth recording before the next renumber.** The reference
+bump script crashed partway through (`web/app/llms.mdx` is a directory) and was re-run.
+Files touched by both runs got **double-bumped**: 49 to 52 to 55. It passed my first
+sanity check because 55 is a real chapter number. Caught by reading every 52-55 reference
+in context, then proved by diffing reference counts per file against the pre-renumber
+tree: 49-refs and 52-refs now match one for one, as do 50 and 53. **A renumber needs a
+count-per-file diff against the old tree, not a grep for out-of-range numbers.**
+
+**`cross-refs.mjs` gained check 3**, because the 2026-09-01 renumber left two range
+strings stale and nothing noticed: the landing page tier read "ch 43-50" and
+`docs/index.mdx` "chapters 43-50" four chapters after that stopped being true. Check 1
+passes them, since 50 was still *a* chapter. The new check compares `TOTAL_CHAPTERS`
+against the chapter files on disk, and the widest range stated anywhere (the landing page
+included) against the last chapter.
+
+odoolings gained ch49, ch50 and ch51 check sets, all run red and green for real, and
+ch51's is self-cleaning: when the constraint check fails it puts the line back rather
+than leaving the reader's data worse than it found it. `code/checkpoints/ch51` holds the
+glue module. `npm run test:ci` green: 55 chapters, 882 references, 192 pages.
+
+PR #176.
+
 ### 2026-09-06 — chapters 43-52 audited, the same four hunts as 34-42, plus the `mail` sweep
 
 Reader asked whether 41 and up were finished. 41 and 42 had had the 2026-09-02 mechanical

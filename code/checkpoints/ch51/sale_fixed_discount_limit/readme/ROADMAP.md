@@ -1,0 +1,2 @@
+- A per-company switch, for a workshop that genuinely wants credit lines.
+- The same guard on account.move.line, which the other half of the feature uses.
