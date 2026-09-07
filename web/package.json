@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
-    "cnfast": "^0.1.0",
+    "cnfast": "^0.2.0",
     "fumadocs-core": "^16.15.5",
     "fumadocs-mdx": "^15.4.0",
     "fumadocs-ui": "npm:@fumadocs/base-ui@^16.15.5",
