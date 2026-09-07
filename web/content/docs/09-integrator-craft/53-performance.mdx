@@ -1,11 +1,11 @@
 ---
-title: "50. Performance"
+title: "53. Performance"
 description: Reading the ORM's own SQL, the N+1 trap measured in real queries, batch create, indexes, and when dropping to SQL is actually justified.
 ---
 
 **Goal:** read what your own code does to Postgres, recognize the N+1 pattern by its
 query count rather than by guessing, and know the few cases where SQL beats the ORM.
-· **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch50`
+· **Time:** ~2 h · **Checkpoint:** `code/checkpoints/ch53`
 
 ## Why this matters
 
@@ -264,7 +264,7 @@ $ python3 odoolings.py check ch37
 ch37 complete! On to the next chapter 🔧
 ```
 
-No new odoolings check for ch50 itself: an index's existence isn't something
+No new odoolings check for ch53 itself: an index's existence isn't something
 XML-RPC can observe the way a field or a record can, `\d table_name` over psql is
 the real proof, same reasoning as chapters 38, 44 and 45.
 

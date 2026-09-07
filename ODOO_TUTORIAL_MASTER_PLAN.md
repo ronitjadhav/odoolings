@@ -356,7 +356,7 @@ added Parts 4-5 and pushed the old Parts 4-7 to 6-9):
   module.
 - **Tier 2 — Professional (Parts 4–7, ch 21–42):** understands the business system
   Odoo actually is, extends core apps safely, writes tests, builds UI, debugs anything.
-- **Tier 3 — Expert/Integrator (Parts 8–9, ch 43–50):** works the OCA way, migrates
+- **Tier 3 — Expert/Integrator (Parts 8–9, ch 43–55):** works the OCA way, migrates
   modules, tunes performance, reasons about deployments and upgrades.
 
 **The narrative turn, and why Parts 4-5 sit exactly here.** Parts 2-3 build LibreFleet
@@ -578,20 +578,37 @@ matrix; get the author's sign-off before writing Part 2.)
 48. Reading real pull requests (added 2026-09): a merged PR as the best teaching
     material in open source. Case study OCA/sale-workflow#4276, the commit-tag
     vocabulary, why a migration PR shows 0 deletions, generated files you must never
-    hand-edit, and the ocabot merge flow. Feeds straight into ch49's migration work.
+    hand-edit, and the ocabot merge flow. Feeds straight into ch52's migration work.
+49. Install and run an OCA module (added 2026-09-07, reader request): the addons
+    path, a dependency chain that crosses repositories (`sale_fixed_discount` needs
+    `account_invoice_fixed_discount` from OCA/account-invoicing), what installing
+    actually added to the database, measuring the behaviour rather than trusting the
+    summary, and running the module's own test suite where it will actually pass.
+50. Five modules, five ways in (added 2026-09-07): `sale_fixed_discount`,
+    `crm_lead_code`, `product_secondary_unit`, `auditlog` and `web_responsive`, each
+    picked because it hooks into Odoo differently: a core compute overridden for part
+    of a recordset, pre/post-init hooks that rewrite existing rows, a new model plus a
+    mixin, runtime method patching that names no model at all, and an assets-only
+    module with no Python model change. Three of those five mechanisms appear nowhere
+    else in the book.
+51. Changing an OCA module without forking it (added 2026-09-07): the glue-module
+    pattern, deciding between an upstream PR (ch45) and a local module, `_inherit`
+    into code you do not own, testing your glue, and what the next migration does to
+    a module that depends on someone else's field names.
 
 **Part 9 — Integrator craft** (was Part 7, ch 37-40; +10 by D13; +2 by the 2026-09
-Part 8 insertion, which moved 47-50 to 49-52)
-49. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
+Part 8 insertion, which moved 47-50 to 49-52; +3 by the 2026-09-07 hands-on OCA
+insertion, which moved 49-52 to 52-55)
+52. Migrations: why yearly releases force them, migrating a module 18→19 (manifest,
     views, API changes — the deprecation list from the D1 revision is the exercise
     material), OCA migration process & preserving git history, OpenUpgrade
     for database migrations, Enterprise upgrade service (concept level).
-50. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
+53. Performance: read the ORM's SQL, N+1 patterns, `read_group`, batch `create`,
     indexes, `prefetch`, profiling; when to drop to SQL (and the rules for doing so).
-51. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
+54. Deployments & ops (concept level): workers, longpolling/gevent, nginx, filestore,
     backups, staging/prod flows, odoo.sh vs Docker platforms; multi-company and
     localization awareness.
-52. Career map: reading core source effectively, Odoo certification, OCA Days /
+55. Career map: reading core source effectively, Odoo certification, OCA Days /
     Odoo Experience, keeping up with version releases; what changes in Odoo 19/20
     and how to re-learn efficiently each October.
 
@@ -778,7 +795,7 @@ collides with old numbering. Measured surface as of 2026-08-05:
    renumbered. Do this by hand, not by script.
 7. **Update the site's chapter arithmetic:** `web/lib/shared.ts` `TOTAL_CHAPTERS`
    40 → 50, and the homepage `TIERS` array's `parts` strings to
-   `Parts 0–3 · ch 1–20` / `Parts 4–7 · ch 21–42` / `Parts 8–9 · ch 43–50`.
+   `Parts 0–3 · ch 1–20` / `Parts 4–7 · ch 21–42` / `Parts 8–9 · ch 43–55`.
 8. **Update `roadmap.mdx`** to the §6 milestone remap below.
 9. **Verify:** `npm run build`, `npm test`, `grep -rn '—' web/content/docs/` empty,
    full odoolings suite green ch05-ch34 (the renamed keys), and a link check that no
@@ -874,10 +891,10 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 - **Acceptance:** custom widget + client action work with `--dev=all` hot reload.
 
 ### M7 — Parts 8 & 9, the expert tier (weeks 13–15)
-- [ ] Chapters 43–50; pre-commit adopted repo-wide; the extracted OCA-style module
+- [ ] Chapters 43–55; pre-commit adopted repo-wide; the extracted OCA-style module
       passes `pre-commit run -a` and has readme fragments.
 - [ ] Author makes one real (small) OCA contribution as the ch45 exercise.
-- [ ] ch47 interactive migration checklist (§4.4).
+- [ ] ch52 interactive migration checklist (§4.4).
 - **Acceptance:** the extracted module would plausibly survive an OCA review;
   migration exercise completed against a real 18.0 module (18→19).
 

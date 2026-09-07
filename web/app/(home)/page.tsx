@@ -35,7 +35,7 @@ const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; 
   {
     icon: GitPullRequest,
     name: 'Expert / Integrator',
-    parts: 'Parts 8–9 · ch 43–50',
+    parts: 'Parts 8–9 · ch 43–55',
     blurb: 'Work the OCA way: contributions, migrations, performance, deployments.',
     tone: 'violet',
   },
