@@ -857,17 +857,27 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   builds, `npm test` passes, and no MDX references a chapter number that no longer
   exists. **Nothing in M4 may start until this lands.**
 
+> **Status note, added 2026-09-07 (read this before ticking anything below).** Every
+> chapter in M4-M7 is written, merged and live. What is *not* done is the same three
+> things in each milestone, and they were never started rather than half-finished:
+> **the boss challenges (`boss3` through `boss6`), the per-part review quizzes for
+> Parts 3-7, and `ci.yml`.** Only `boss2` and Part 2's review quiz exist, both from
+> 2026-08-02. §5.6 designed that scaffolding for every part; it got built once. So the
+> chapter lines below are ticked and the challenge, quiz and CI lines deliberately are
+> not: M4-M7 are content-complete and acceptance-incomplete, which is a bigger
+> outstanding block than all of M8.
+
 ### M4 — Parts 4 & 5, the functional act (weeks 5–7) — NEW (D12)
-- [ ] `odoolings snapshot` / `odoolings diff` (§4.4) built and used from ch21 on. This
+- [x] `odoolings snapshot` / `odoolings diff` (§4.4) built and used from ch21 on. This
       comes first: every functional chapter's "Read what it did" movement depends on it.
-- [ ] The shared `functional` demo database recipe, documented once in ch21 and reused:
+- [x] The shared `functional` demo database recipe, documented once in ch21 and reused:
       `-d functional -i <apps> --with-demo`.
-- [ ] Chapters 21–30 per §5.3, each with odoolings checks that verify *business state*
+- [x] Chapters 21–30 per §5.3, each with odoolings checks that verify *business state*
       (confirmed order, quant at a location, `payment_state == 'paid'` with reconciled
       lines, `mrp.production` done) rather than module structure.
 - [ ] `boss4` (end-to-end business run) + its two stretch builds (recurring maintenance
-      billing, commission calc) + Parts 4/5 review quizzes.
-- [ ] Glossary: the functional vocabulary block (journal entry, reconciliation, quant,
+      billing, commission calc) + Parts 4/5 review quizzes. **Not started.**
+- [x] Glossary: the functional vocabulary block (journal entry, reconciliation, quant,
       BoM, fiscal position, payment term, COGS, AVCO/FIFO, MO, RFQ, UoM, pricelist).
 - **Write order if the whole part cannot be done at once** (highest unblocking value
   first, because Part 6 depends on them): ch21, ch22, ch27, ch28, then ch23-26, ch29-30.
@@ -876,41 +886,49 @@ now Part 6 and moved to M5, so M3 is just Part 3.
   `stock.move`, and clears `boss4`.
 
 ### M5 — Part 6, business logic (weeks 8–10)
-- [ ] Chapters 31–38 (ch31-34 already written as the old ch21-24) + checkpoints; test
-      suite grows with ch38 and CI (`ci.yml`) starts running module tests on every push.
-- [ ] `boss5` (was `boss4`); Part 6 review quiz.
-- [ ] Revisit ch32/ch36/ch37 once Parts 4-5 exist: each gains a short prerequisite
-      pointer and can drop any hand-waving it currently does about Sales/invoices.
+- [x] Chapters 31–38 (ch31-34 already written as the old ch21-24) + checkpoints; test
+      suite grows with ch38.
+- [ ] **CI (`ci.yml`) running the module tests on every push. Not started:**
+      `.github/workflows/` holds only `deploy-pages.yml`, so ch38's suite and ch51's
+      run on a developer's machine and nowhere else.
+- [ ] `boss5` (was `boss4`); Part 6 review quiz. **Not started.**
+- [x] Revisit ch32/ch36/ch37 once Parts 4-5 exist: ch36 points at ch27 and ch37 at
+      ch22. ch32 still has no Parts 4-5 pointer, which is defensible (it extends
+      `product.template`, taught in ch21, and says so) but worth a look in the M8
+      read-through.
 - **Acceptance:** CI green; PDF report renders; portal page works logged-in and
   logged-out; ≥ 15 meaningful tests; author clears the boss.
 
 ### M6 — Part 7, frontend (weeks 11–12)
-- [ ] Chapters 39–42; OWL dashboard functional; `boss6` (was `boss5`); Part 7 review quiz.
-- [ ] ch42 absorbs the POS functional context (§5.3), so POS arrives as an OWL case
+- [x] Chapters 39–42; OWL dashboard functional (ch41).
+- [ ] `boss6` (was `boss5`); Part 7 review quiz. **Not started.**
+- [x] ch42 absorbs the POS functional context (§5.3), so POS arrives as an OWL case
       study rather than a Part 4 chapter.
 - **Acceptance:** custom widget + client action work with `--dev=all` hot reload.
 
 ### M7 — Parts 8 & 9, the expert tier (weeks 13–15)
-- [ ] Chapters 43–55; pre-commit adopted repo-wide; the extracted OCA-style module
-      passes `pre-commit run -a` and has readme fragments.
+- [x] Chapters 43–55, including the hands-on OCA track added 2026-09-07 (ch49-51); the
+      extracted OCA-style module passes `pre-commit run -a` and has readme fragments.
+- [ ] **pre-commit adopted in *this* repo.** ch44 sets it up in the reader's workspace
+      and ch46/ch51's modules pass it, but this repository has no
+      `.pre-commit-config.yaml` of its own, so nothing lints the site or the checker.
 - [ ] Author makes one real (small) OCA contribution as the ch45 exercise.
-- [ ] ch52 interactive migration checklist (§4.4).
+- [x] ch52 interactive migration checklist (§4.4), `<MigrationChecklist>`, reused by
+      ch55's October plan.
 - **Acceptance:** the extracted module would plausibly survive an OCA review;
   migration exercise completed against a real 18.0 module (18→19).
 
 ### M8 — Polish & launch (week 16)
 
-> **Live status of the two running sweeps (updated 2026-08-17).** Both are partly done;
-> pick either up cold from here.
+> **Live status of the two sweeps (updated 2026-09-07).**
 >
-> | Sweep | Done | Left |
-> |---|---|---|
-> | Screenshot backfill | ch4, ch21-28 | **ch29** (1 image, vs 3-4 in its neighbours) |
-> | Reader-clarity pass | ch12-24 | **ch25-30**, then a decision on ch31-50 |
+> | Sweep | State |
+> |---|---|
+> | Screenshot backfill | ch4 and ch21-28 done; **ch29 still thin** (1 image against 3-4 in its neighbours). ch49-51 carry one image between them, and ch49's discount-column screen is still owed. |
+> | Reader-clarity pass | **Superseded, close the item.** The comprehension-first pass (2026-08-25) and the plain-language pass (2026-08-30) covered all chapters, and the 2026-09-02 and 2026-09-06 mechanical audits then swept ch34-52 for the defect classes a prose pass cannot see. The old "left: ch25-30, then decide on ch31-50" line was stale in two ways: those chapters were done, and ch31-50 is no longer the book's tail. |
 >
-> The clarity pass is the newer of the two and is described in its own M8 item below.
 > ch30 was written after the screenshot policy changed and carries its own images by
-> §6 rule 4b, so it is not part of the backfill; it *is* in scope for the clarity pass.
+> §6 rule 4b, so it was never part of the backfill.
 
 - [ ] **Backfill screenshots for the chapters written before the policy changed**: ch4 and
       ch21-29, which shipped with no images because the pipeline was broken until
@@ -933,9 +951,14 @@ now Part 6 and moved to M5, so M3 is just Part 3.
       it. Screenshots arrive as **jpeg at 1568px wide** from the browser tool, so check
       whether small UI text survives the compression before committing to a whole pass;
       re-crop with the `zoom` action for anything fiddly like a distribution table.
-- [ ] **Reader-clarity pass, chapter by chapter** (started 2026-08-16 after the author
-      read the tutorial as a learner and kept getting stuck). **Done: ch12-24. Left:
-      ch25-30, then decide whether ch31-50 needs it.**
+- [x] **Reader-clarity pass, chapter by chapter** (started 2026-08-16 after the author
+      read the tutorial as a learner and kept getting stuck). **Closed 2026-09-07:**
+      ch12-24 got this pass by hand, then the comprehension-first (2026-08-25) and
+      plain-language (2026-08-30) sweeps covered every chapter, and the mechanical
+      audits of 2026-09-02 and 2026-09-06 took ch34-52 apart for the defects prose
+      passes cannot see. **Keep the method below**, it is the best description of what
+      to hunt for and it is what the audits reused; what is closed is the backlog, not
+      the technique.
       This is not a proofread. It hunts seven specific defects, and the two that matter
       most are the ones a normal review misses:
       **steps that cannot be followed at all** (ch22's hands-on told the reader to press
