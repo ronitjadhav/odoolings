@@ -391,6 +391,17 @@ A discount larger than the unit price gives a negative subtotal and a discount a
 100%, with no error and no warning. Whether that is a bug depends on who you ask, and
 chapter 51 is where you decide what to do about it.
 
+The same rule holds in the interface, on any line you like. This is a five-unit line at
+295.00 with a fixed discount of 25.00 typed into it, before saving:
+
+![A quotation's order lines with the OCA module's Discount (Fixed) column next to core's Disc.% column. A line of 5 units at 295.00 with 25.00 in the fixed column shows 8.47 percent and an amount of 1,350.00](/screens/ch49-discount-fixed-on-a-quotation-line.jpg)
+
+Read the row across and every claim above is on the screen at once. The amount fell by
+125.00, which is 5 x 25.00 rather than 25.00, and `Disc.%` reads **8.47**, which is
+25.00 / 295.00 as a percentage. The module's own column sits immediately left of core's,
+which is the tidiest possible summary of what it does: it takes an amount from you and
+hands core a percentage.
+
 The `env.cr.rollback()` throws the experiment away explicitly, and chapter 6's rule is
 the safety net underneath it: a shell session that never calls `env.cr.commit()` leaves
 the database exactly as it found it.
