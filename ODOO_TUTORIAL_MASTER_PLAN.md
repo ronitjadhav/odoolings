@@ -924,7 +924,7 @@ now Part 6 and moved to M5, so M3 is just Part 3.
 >
 > | Sweep | State |
 > |---|---|
-> | Screenshot backfill | ch4 and ch21-28 done; **ch29 still thin** (1 image against 3-4 in its neighbours). ch49-51 carry one image between them, and ch49's discount-column screen is still owed. |
+> | Screenshot backfill | ch4 and ch21-28 done; **ch29 still thin** (1 image against 3-4 in its neighbours). ch49 and ch50 each carry one; ch51 has none and needs none, since every step of it is a file or a command. |
 > | Reader-clarity pass | **Superseded, close the item.** The comprehension-first pass (2026-08-25) and the plain-language pass (2026-08-30) covered all chapters, and the 2026-09-02 and 2026-09-06 mechanical audits then swept ch34-52 for the defect classes a prose pass cannot see. The old "left: ch25-30, then decide on ch31-50" line was stale in two ways: those chapters were done, and ch31-50 is no longer the book's tail. |
 >
 > ch30 was written after the screenshot policy changed and carries its own images by
@@ -1216,13 +1216,26 @@ were done and ch31-50 is no longer the tail of a 55-chapter book. **Its method i
 verbatim**, because the 2026-09-02 and 2026-09-06 audits reused it and it is the best
 description of what to hunt for.
 
-**Still owed, and neither is mine to close:** the author's manual re-execution of
-ch49-51's Hands-on (rule 4), and one screenshot for ch49, the `Discount (Fixed)` column
-on a quotation line. That screen defeated two attempts: the field is gated behind
-`sale.group_discount_per_so_line`, and enabling the setting did not make the column
-appear in the session, while `web_responsive` (installed for ch50) means any capture now
-shows a shell a ch49 reader does not have. The chapter states only what was verified
-from the view XML, which is that the `groups=` attribute is there.
+**Still owed, and it is not mine to close:** the author's manual re-execution of
+ch49-51's Hands-on (rule 4).
+
+**ch49's screenshot, captured on the third attempt, and the diagnosis is the reusable
+part.** Two earlier attempts failed with the column simply absent, and the reason was
+neither the group nor the view: `get_views` asked as the admin user **did** contain
+`discount_fixed`, so the server was right all along and the *client* was holding a
+session from before the group was granted. A hard reload does not clear that. Restarting
+the odoo container does. **When a field is provably in the arch and still missing from
+the screen, restart the container before suspecting the view.**
+
+Two other things mattered for the capture, both worth reusing: `web_responsive` had to be
+uninstalled first, because it reshapes the shell and a ch49 reader does not have it yet
+(reinstalled afterwards, ch49's and ch50's check sets re-run green), and the value was
+typed and then **discarded rather than saved**, so the demo order still reads
+`discount_fixed = NULL` on all four lines. The image earns its place by showing a
+*different* line from the shell transcript, 5 units at 295.00 rather than 2 at 100.00:
+the amount falls by 125.00 and `Disc.%` reads 8.47, so the per-unit rule visibly
+generalises instead of looking like one arithmetic coincidence. It sits after the
+measurement step on purpose, since the step above it asks the reader to predict.
 
 PR #177.
 
