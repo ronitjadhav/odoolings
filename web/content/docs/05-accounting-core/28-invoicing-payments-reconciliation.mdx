@@ -151,15 +151,29 @@ invoice through draft, partial and paid; then you read what each step actually p
 <Step>
 ### Invoice the order
 
-Snapshot, then open your confirmed order and press **Create Invoice**. In the wizard,
-keep **Regular invoice** and confirm. You land on a **draft** invoice: no number in the
-title, and nothing has hit the books.
+If you read results in the shell, take a snapshot first, and a fresh one after reading
+each `diff` below, so every diff shows one step:
 
-![A draft customer invoice: the title reads Draft, no invoice number anywhere on the page](/screens/ch28-draft-invoice.jpg)
+```console
+$ python3 odoolings.py snapshot --db functional
+```
+
+Open your confirmed order and press **Create Invoice**. In the wizard, keep **Regular
+invoice** and press **Create Draft**:
+
+![The Create invoice(s) wizard over S00025: Regular invoice selected and the Create Draft button, both highlighted](/screens/ch28-create-invoice-wizard.jpg)
+
+You land on a **draft** invoice: no number in the title, and nothing has hit the books.
+
+![The draft customer invoice for S00025: the title reads Draft, the statusbar is at Draft, the Confirm button and the 363.40 total are highlighted](/screens/ch28-draft-invoice.jpg)
 
 Press **Confirm** to post it.
 
-![The same invoice posted and numbered, Amount Due 276.00, nothing paid yet](/screens/ch28-posted-invoice-not-paid.jpg)
+![The same invoice posted as INV/2026/00010: the number, the Posted stage and the Pay button highlighted, Amount Due 363.40](/screens/ch28-posted-invoice-not-paid.jpg)
+
+Acme also has older demo credits, so a blue **outstanding credits** banner and an
+**Outstanding credits** list with **Add** buttons appear. Leave them alone: adding one
+would settle this invoice with an old credit instead of the payments below.
 
 </Step>
 
@@ -168,41 +182,59 @@ Press **Confirm** to post it.
 
 On the posted invoice, press **Pay** (labelled **Register Payment** in older Odoo
 versions and in some documentation, but this is the same button: it still calls
-`action_register_payment` underneath). Change the amount to **200.00** (the
-invoice is 363.40) and confirm. The invoice does not say Paid.
+`action_register_payment` underneath). Change the **Amount** to **200.00** (the invoice
+is 363.40) and press **Create Payment**:
 
-![A PARTIAL ribbon across the invoice, Paid 200.00 against a 276.00 total, Amount Due 76.00](/screens/ch28-invoice-partial.jpg)
+![The Pay dialog: Journal Bank, Manual Payment, Amount changed to 200.00 and highlighted, and the Create Payment button highlighted](/screens/ch28-pay-200.jpg)
+
+The invoice does not say Paid. A **PARTIAL** ribbon goes across it, and under the totals:
+
+![The invoice after the first payment: Paid on 10/07/2026 $200.00 and Amount Due $163.40 highlighted, and the chatter entry Not Paid → Partially Paid (Payment Status) highlighted](/screens/ch28-invoice-partial.jpg)
 
 </Step>
 
 <Step>
 ### Pay the rest
 
-Press **Pay** again. Leave the amount alone: it already defaults to what is
-still owed. Confirm.
+Press **Pay** again. Leave the amount alone: it already defaults to what is still owed,
+163.40. Press **Create Payment**.
 
-![A PAID ribbon across the invoice, two payment lines totalling the invoice amount, Amount Due 0.00](/screens/ch28-invoice-paid.jpg)
+![A PAID ribbon across INV/2026/00010: two payment lines, $200.00 and $163.40, and Amount Due $0.00 highlighted, with the chatter entry Invoice paid, Partially Paid → Paid](/screens/ch28-invoice-paid.jpg)
 
 </Step>
 
 <Step>
 ### What invoicing created
 
+<UiOrShell>
+<Tab>
+
+Open the invoice's **Journal Items** tab (chapter 27's group unlocked it):
+
+![INV/2026/00010's Journal Items tab: 400000 Product Sales credited 316.00, 251000 Tax Received credited 47.40, and 121000 Account Receivable debited 363.40, the tab and the three lines highlighted](/screens/ch28-invoice-journal-items.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
       new   INV/2026/00010           move_type=out_invoice  state=posted  amount_total=363.4  payment_state=not_paid
 account.move.line   +3
-      new   Brake Pad Set (Front)    account_id=Product Sales  credit=316.0
-      new   15%                      account_id=Tax Received  credit=47.4
-      new   S00025 - INV/2026/00010  account_id=Account Receivable  debit=363.4
+      new   Brake Pad Set (Front)    account_id=400000 Product Sales  credit=316.0
+      new   15%                      account_id=251000 Tax Received  credit=47.4
+      new   S00025 - INV/2026/00010  account_id=121000 Account Receivable  debit=363.4
 sale.order          ~
       chg   S00025                   invoice_status: to invoice -> invoiced
 ```
 
+The order's `invoice_status` moved to `invoiced`, closing the loop chapter 22 opened.
+
+</Tab>
+</UiOrShell>
+
 There are the three lines, and 316.00 plus 47.40 is exactly the 363.40 debited to the
-customer. The order's `invoice_status` moved to `invoiced`, closing the loop chapter 22
-opened. Your numbers will differ.
+customer. Your numbers will differ.
 
 </Step>
 
@@ -211,24 +243,29 @@ opened. Your numbers will differ.
 
 Chapter 27's rule was that a draft has no number and no accounting effect. This invoice is
 a chance to watch that hold on a document you did *not* hand-write, one the wizard built
-for you.
+for you. In the UI you have already seen it: the draft's title read **Draft**, the posted
+one **INV/2026/00010**.
 
-First get a handle on the invoice, because the rest of this chapter keeps reading fields
-off it. Do not reach for "the newest customer invoice": this database has plenty, and you
-would end up reading somebody else's. Come at it from the order you confirmed back in
-chapter 22, which is the one thing here you know is yours:
+In the shell, first get a handle on the invoice, because the rest of this chapter keeps
+reading fields off it. Do not reach for "the newest customer invoice": this database has
+plenty, and you would end up reading somebody else's. Come at it from the order you
+confirmed back in chapter 22, which is the one thing here you know is yours:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
 
 ```python
->>> env.cr.rollback()
 >>> so = env["sale.order"].search([("name", "=", "S00025")], limit=1)   # your own order name
 >>> inv = so.invoice_ids[0]
 >>> inv.name, inv.amount_total
 ('INV/2026/00010', 363.4)
 ```
 
-Substitute your own order's name in that search. The `env.cr.rollback()` is the
-stale-snapshot habit from chapter 25: a shell that has been open since before you pressed
-Confirm cannot see the invoice until it refreshes.
+Substitute your own order's name in that search. If your shell was already open from
+before you pressed Confirm, start with `env.cr.rollback()`: the stale-snapshot habit from
+chapter 25, since a shell that has been open since before you posted cannot see the
+invoice until it refreshes.
 
 Now read the two lines below as **two different moments rather than one session**: the
 first is what the wizard handed you, before you pressed Confirm in step 1, and the second
@@ -252,21 +289,35 @@ yet. There are no sticky notes in the tray.
 <Step>
 ### What a partial payment created
 
+<UiOrShell>
+<Tab>
+
+Click the ⓘ next to the first **Paid on** line. The popover's title gives the game away:
+**Journal Entry Info**.
+
+![The payment popover over the invoice: Journal Entry Info, Amount $200.00, Memo PBNK1/2026/00001 (INV/2026/00010), Journal Bank (Manual Payment), with Unreconcile and View buttons, highlighted](/screens/ch28-payment-popover.jpg)
+
+The payment is its own entry, `PBNK1/2026/00001`, in the **Bank** journal. Note the
+**Unreconcile** button too: it undoes the link between this payment and the invoice
+(step 8 shows what that link is). Close the popover without pressing it.
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
       new   PBNK1/2026/00001         move_type=entry  state=posted  amount_total=200.0  payment_state=not_paid
       chg   INV/2026/00010           payment_state: not_paid -> partial
 account.move.line   +2
-      new   Manual Payment: INV/2026/00010 account_id=Outstanding Receipts  debit=200.0
-      new   Manual Payment: INV/2026/00010 account_id=Account Receivable  credit=200.0  reconciled=True
+      new   Manual Payment: INV/2026/00010 account_id=101403 Outstanding Receipts  debit=200.0
+      new   Manual Payment: INV/2026/00010 account_id=121000 Account Receivable  credit=200.0  reconciled=True
 account.payment     +1
       new   PBNK1/2026/00001         state=in_process  amount=200.0  payment_type=inbound
 ```
 
-Read the first line again: `move_type=entry`. **The payment is a journal entry**, in the
-bank journal, numbered by that journal's sequence. And its receivable credit line comes
-out already `reconciled=True`, because all 200.00 of it was matched immediately.
+Read the first line again: `move_type=entry`. And its receivable credit line comes out
+already `reconciled=True`, because all 200.00 of it was matched immediately.
 
 The invoice is now `partial`:
 
@@ -275,10 +326,25 @@ The invoice is now `partial`:
 ('partial', 163.4)
 ```
 
+</Tab>
+</UiOrShell>
+
+**The payment is a journal entry**, in the bank journal, numbered by that journal's
+sequence.
+
 </Step>
 
 <Step>
 ### The moment it becomes paid
+
+<UiOrShell>
+<Tab>
+
+The chatter of the paid invoice (step 3's screenshot) logs **Partially Paid → Paid**
+under the second payment. What changed underneath is the subject of the next step.
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -286,8 +352,8 @@ account.move        +1
       new   PBNK1/2026/00002         move_type=entry  state=posted  amount_total=163.4  payment_state=not_paid
       chg   INV/2026/00010           payment_state: partial -> paid
 account.move.line   +2
-      new   Manual Payment: INV/2026/00010 account_id=Outstanding Receipts  debit=163.4
-      new   Manual Payment: INV/2026/00010 account_id=Account Receivable  credit=163.4  reconciled=True
+      new   Manual Payment: INV/2026/00010 account_id=101403 Outstanding Receipts  debit=163.4
+      new   Manual Payment: INV/2026/00010 account_id=121000 Account Receivable  credit=163.4  reconciled=True
       chg   S00025 - INV/2026/00010  reconciled: None -> True
 account.payment     +1
       new   PBNK1/2026/00002         state=paid  amount=163.4  payment_type=inbound
@@ -300,14 +366,29 @@ The important line is the one that changed, not the ones that were created:
 chg   S00025 - INV/2026/00010  reconciled: None -> True
 ```
 
+</Tab>
+</UiOrShell>
+
 That is **the invoice's own receivable line** flipping to reconciled. It stayed unmatched
 through the first payment and only flipped once the second one covered the rest. The
-`payment_state: partial -> paid` on the line above it is the *consequence*.
+switch to Paid is the *consequence*.
 
 </Step>
 
 <Step>
 ### Look at the links themselves
+
+<UiOrShell>
+<Tab>
+
+Open **Invoicing → Review → Journal Items** and search the **Label** for
+`INV/2026/00010`. The three receivable lines, the invoice's debit and the two payments'
+credits, carry the same number in the **Matching** column:
+
+![Journal Items labelled INV/2026/00010: the three 121000 Account Receivable lines highlighted, INV/2026/00010 debit 363.40 and the two payments' credits 200.00 and 163.40, all with Matching 1](/screens/ch28-matching.jpg)
+
+</Tab>
+<Tab>
 
 ```python
 >>> inv.payment_state, inv.amount_residual   # settled
@@ -317,9 +398,12 @@ through the first payment and only flipped once the second one covered the rest.
 (2, [200.0, 163.4])
 ```
 
+</Tab>
+</UiOrShell>
+
 Two reconciliation records, one per instalment, summing to 363.40. Those two rows are
-what "paid" actually means. Delete them and the invoice is unpaid again, whatever
-`payment_state` said a moment earlier.
+what "paid" actually means. Delete them (the popover's **Unreconcile** does exactly that)
+and the invoice is unpaid again, whatever `payment_state` said a moment earlier.
 
 There are the two sticky notes, and there is the tray. The 200.00 and the 163.40 add up to
 the 363.40 slip they are attached to, which is the entire reason this invoice reads as

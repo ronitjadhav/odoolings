@@ -255,6 +255,19 @@ either is Odoo 18 knowledge.
 <Step>
 ### Give the product a category, and watch nothing happen
 
+<UiOrShell>
+<Tab>
+
+Open **Inventory → Products → Products → Brake Pad Set**, and on the **General
+Information** tab set **Category** to **Goods**. Save.
+
+![The Brake Pad Set form, General Information tab, with Category set to Goods and highlighted; the chatter logs None → Goods (Product Category)](/screens/ch30-product-category.jpg)
+
+The cost is still zero.
+
+</Tab>
+<Tab>
+
 ```python
 >>> goods = env["product.category"].search([("name", "=", "Goods")], limit=1)
 >>> prod.product_tmpl_id.categ_id = goods.id
@@ -262,6 +275,9 @@ either is Odoo 18 knowledge.
 >>> prod.valuation, prod.cost_method, prod.standard_price
 ('periodic', 'standard', 0.0)
 ```
+
+</Tab>
+</UiOrShell>
 
 Still zero. The category exists, but the demo's Goods category is itself on Standard
 Price and Periodic, so the product inherited a costing method that says "the cost is
@@ -271,6 +287,22 @@ whatever you typed", and nobody has typed anything.
 
 <Step>
 ### Throw both switches
+
+<UiOrShell>
+<Tab>
+
+Open **Inventory → Configuration → Product Categories → Goods**. Set **Costing Method** to
+**Average Cost (AVCO)** and **Inventory Valuation** to **Perpetual (at invoicing)**, and
+save.
+
+![The Goods category: Costing Method Average Cost (AVCO) and Inventory Valuation Perpetual (at invoicing) highlighted, and its Stock Account, 110100 Stock Valuation, highlighted](/screens/ch30-goods-avco-perpetual.jpg)
+
+The brake pads' cost is now 33.16 (**Inventory → Reporting → Stock** shows it as **Unit
+Cost**). It appeared out of nowhere, except it did not: 630.00 divided by the 19 on hand is
+33.16.
+
+</Tab>
+<Tab>
 
 ```python
 >>> goods.write({"property_valuation": "real_time", "property_cost_method": "average"})
@@ -284,14 +316,17 @@ The cost appeared out of nowhere, except it did not:
 
 ```python
 >>> 630.0 / 19
-33.15789473684211
+33.1578947368421
 ```
+
+</Tab>
+</UiOrShell>
 
 That is the whole point of AVCO. The value was recorded on every move all along; asking
 for an average is what makes Odoo go and read it. Nothing was imported and no cost was
 typed.
 
-Both switches moved in that single `write`, so be precise about which one did what. This
+Both switches moved at once, in one save, so be precise about which one did what. This
 is the exact spot where they get conflated:
 
 - **`property_cost_method` to `average`** produced the 33.16. That is the costing half, and
@@ -308,8 +343,10 @@ that is precisely why this chapter ends with a stock account showing a negative 
 <Step>
 ### Tell the Customers location what stock becomes when it leaves
 
-In the interface this is **Inventory → Configuration → Locations → Customers**, field
-**Stock Valuation Account**. From the shell:
+This one has to happen in the shell. The location form only shows its **Accounting
+Information** for the Inventory adjustment and Production locations, so the Customers
+location's valuation account has no field on screen. (Open the shell as in step 1 if you
+clicked through the last two steps.)
 
 ```python
 >>> cust = env["stock.location"].search([("usage", "=", "customer")], limit=1)
@@ -317,7 +354,12 @@ In the interface this is **Inventory → Configuration → Locations → Custome
 >>> cust.valuation_account_id = cogs.id
 >>> cogs.code, cogs.name
 ('500000', 'Cost of Goods Sold')
+>>> env.cr.commit()
 ```
+
+Commit this time, on purpose. The next step happens in the browser, and the browser cannot
+see what an uncommitted shell transaction wrote. If you did steps 3 and 4 in the shell too,
+this one commit saves them as well.
 
 </Step>
 
@@ -328,13 +370,27 @@ In the interface this is **Inventory → Configuration → Locations → Custome
 chapter 24's receipt quietly made reservable. It has been sitting at `assigned` ever
 since. Open **Inventory → Deliveries**, find it, and **Validate**.
 
-Odoo may ask whether to send the customer an SMS. Decline; the demo has no SMS credits
-and it is not part of this lesson.
+Odoo may ask whether to send the customer an SMS. Click **Disable SMS**: it validates
+without sending anything and switches that prompt off (the demo has no SMS credits, and
+it is not part of this lesson).
+
+![The SMS dialog over WH/OUT/00044: You are about to confirm this Delivery Order by SMS Text Message, with the Disable SMS button highlighted](/screens/ch30-sms-disable.jpg)
 
 </Step>
 
 <Step>
 ### The first stock journal entry in the database
+
+<UiOrShell>
+<Tab>
+
+**Invoicing → Accounting → Journal Entries**, search the **Journal** for `STJ`, and open
+the only entry:
+
+![Journal entry STJ/2026/10/0001, reference WH/OUT/00044, in the Inventory Valuation journal: 110100 Stock Valuation credited 132.63 and 500000 Cost of Goods Sold debited 132.63, the journal and both lines highlighted](/screens/ch30-stj-entry.jpg)
+
+</Tab>
+<Tab>
 
 ```python
 >>> pick = env["stock.picking"].search([("name", "=", "WH/OUT/00044")])
@@ -345,13 +401,16 @@ and it is not part of this lesson.
 (4.0, 132.63)
 >>> am = mv.account_move_id
 >>> am.name, am.journal_id.name
-('STJ/2026/08/0001', 'Inventory Valuation')
+('STJ/2026/10/0001', 'Inventory Valuation')
 >>> for l in am.line_ids:
 ...     print(l.account_id.code, l.account_id.name, l.debit, l.credit)
 ...
 110100 Stock Valuation 0.0 132.63
 500000 Cost of Goods Sold 132.63 0.0
 ```
+
+</Tab>
+</UiOrShell>
 
 Four units at the 33.16 average is 132.63, and it lands as a balanced pair. Read the two
 lines as the parked money finally changing shape:
@@ -373,6 +432,23 @@ same two sides, same requirement that they match.
 <Step>
 ### Now look at the damage
 
+<UiOrShell>
+<Tab>
+
+**Inventory → Reporting → Stock**, searched for `Brake Pad Set`:
+
+![The Stock report: Brake Pad Set (Front) with Unit Cost $33.16, Total Value $497.37 and On Hand 15.00 highlighted](/screens/ch30-stock-value.jpg)
+
+Then **Invoicing → Review → Journal Items**, searched for **Account** `110100`:
+
+![Journal Items for account 110100: one line, STJ/2026/10/0001, crediting 132.63, and the totals Debit $0.00, Credit $132.63, highlighted](/screens/ch30-stock-account.jpg)
+
+Nothing was ever debited to the stock account, and 132.63 was credited: a balance of
+**minus 132.63**.
+
+</Tab>
+<Tab>
+
 ```python
 >>> acc = env["account.account"].search([("code", "=", "110100")], limit=1)
 >>> lines = env["account.move.line"].search([("account_id", "=", acc.id), ("parent_state", "=", "posted")])
@@ -380,8 +456,11 @@ same two sides, same requirement that they match.
 -132.63
 >>> prod.invalidate_recordset()
 >>> prod.qty_available * prod.standard_price
-497.3684210526316
+497.36842105263156
 ```
+
+</Tab>
+</UiOrShell>
 
 Your warehouse holds 497.37 of brake pads. Your balance sheet says stock is worth
 **minus 132.63**. The difference is 630.00, and you have seen that number before: it is
