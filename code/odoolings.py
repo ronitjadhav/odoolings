@@ -2768,8 +2768,8 @@ CHAPTERS = {
          "This failed in ch09 by design. It passes once the ACLs exist and admin "
          "is in the Workshop / Manager group (the users field on the group record)."),
         ("technician user 'tina' exists in Workshop / User", technician_exists_in_group,
-         "Create the user from odoo shell as in the hands-on (login 'tina', "
-         "group_ids includes librefleet.group_librefleet_user) and env.cr.commit()."),
+         "Settings > Users & Companies > Users > New, login 'tina', Workshop = "
+         "User, then save. From odoo shell, don't forget env.cr.commit()."),
     ],
     "ch11": [
         ("librefleet.service.type model with the right fields", service_type_fields_typed,

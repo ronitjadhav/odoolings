@@ -1,7 +1,9 @@
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
+import type { ReactNode } from 'react';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Files, File, Folder } from 'fumadocs-ui/components/files';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { Quiz } from '@/components/quiz';
 import { Mermaid } from '@/components/mermaid';
 import { Term } from '@/components/term';
@@ -27,6 +29,17 @@ function pre(props: Parameters<NonNullable<typeof defaultMdxComponents.pre>>[0] 
   );
 }
 
+// A step the reader can do by clicking or by typing. The UI comes first because that is
+// how the work is usually done; the shell is the optional second tab. One groupId with
+// persist means the reader's choice sticks across every chapter.
+function UiOrShell({ children }: { children: ReactNode }) {
+  return (
+    <Tabs groupId="ui-or-shell" persist items={['In the UI', 'In the shell']}>
+      {children}
+    </Tabs>
+  );
+}
+
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
@@ -44,6 +57,8 @@ export function getMDXComponents(components?: MDXComponents) {
     File,
     Folder,
     BreakIt,
+    UiOrShell,
+    Tab,
     MigrationChecklist,
     ...components,
   } satisfies MDXComponents;

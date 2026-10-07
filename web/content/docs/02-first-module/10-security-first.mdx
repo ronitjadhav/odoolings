@@ -258,7 +258,39 @@ and `data` is what ties the two new files to it:
   </Folder>
 </Files>
 
-Upgrade:
+Now upgrade LibreFleet so Odoo loads the two new files. Keep
+`docker compose logs -f odoo` (chapter 5) running in a terminal: the log is where the
+proof shows up, whichever way you upgrade.
+
+<UiOrShell>
+<Tab>
+
+Open **Apps** and search `librefleet`. Your manifest says `"application": True`, so
+LibreFleet shows up even with the default **Apps** filter still on. Open the **⋮** menu
+on its card and choose **Upgrade**:
+
+![The Apps screen searched for librefleet, with the Apps filter still on: the LibreFleet card's ⋮ menu is open and Upgrade is highlighted, between Learn More and Uninstall](/screens/ch10-apps-upgrade-librefleet.jpg)
+
+The page reloads when the upgrade is done, and the log shows both files loading:
+
+```text
+INFO tutorial odoo.modules.loading: loading librefleet/security/librefleet_security.xml
+INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.csv
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 86 queries (+86 other)
+```
+
+The button ran the upgrade inside the web server itself, so the new rules are live as
+soon as the page comes back.
+
+One thing has to be true for the button to see your new `data` lines: the server must
+be running your *edited* manifest. That is what `dev_mode = all` in your `odoo.conf`
+takes care of. It restarts the server whenever a `.py` file changes, and
+`__manifest__.py` is one, so the log printed
+`autoreload: python code updated, autoreload activated` the moment you saved it. If you
+never saw that line, run `docker compose restart odoo` before pressing **Upgrade**.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -268,10 +300,6 @@ INFO tutorial odoo.modules.loading: loading librefleet/security/ir.model.access.
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 76 queries (+76 other)
 ```
 
-Chapter 9's WARNING about missing access rules is gone. (The query count moves a
-little between runs, ours has shown 76 and 78 on otherwise identical upgrades; don't
-worry if yours differs.)
-
 That upgrade ran in its own process, separate from your long-running web server. You
 might expect to need a restart before the server notices, the way a pure Python
 change does without `dev=all` (chapter 6). It doesn't: every request, HTTP or RPC,
@@ -279,12 +307,50 @@ starts by checking a small signaling table (`orm_signaling_registry`) for a chan
 another process made, and reloads the registry first if so. Security data is exactly
 the kind of change this catches, so the very next request after the upgrade already
 sees it, no restart needed.
+
+</Tab>
+</UiOrShell>
+
+Chapter 9's WARNING about missing access rules is gone from the log. (The query count
+moves between runs, ours has shown 76, 78 and 86 on otherwise identical upgrades; don't
+worry if yours differs.)
 </Step>
 
 <Step>
 ### Create a technician to test with
 
-You need a user who is *only* a technician. From `odoo shell`:
+You need a user who is *only* a technician, with the password `technician` (later
+chapters log in as her).
+
+<UiOrShell>
+<Tab>
+
+Go to **Settings → Users & Companies → Users → New** and fill in:
+
+- **Name** (the big field at the top): `Tina Technician`.
+- **Login**: `tina`.
+- **Workshop**, on the **Access Rights** tab: `User`. Leave **Role** on **User**.
+
+Then save with the cloud icon next to the record name.
+
+![The new user form: Tina Technician with login tina, the Access Rights tab showing Role set to User and, under a SERVICES heading, Workshop set to User; the login, the Workshop row and the save icon are highlighted](/screens/ch10-new-user-tina.jpg)
+
+Look at where that **Workshop** row sits. The **Services** heading above it is the
+`category_id` you gave the privilege in step 1, **Workshop** is the privilege itself,
+and its choices (User, Manager) are your two groups. The XML you just wrote is now a
+form field.
+
+Now the password. Open the **Actions** menu (the ⚙ next to the record name) and
+choose **Change Password**:
+
+![The saved user Tina Technician with the Actions menu open: Duplicate, Archive, Delete, then Change Password, highlighted, and Disable two-factor authentication](/screens/ch10-actions-change-password.jpg)
+
+Click the **New Password** cell, type `technician`, and press **Change Password**:
+
+![The Change Password dialog: a row for user login tina, the New Password cell filled with a masked password and highlighted, and the Change Password button highlighted](/screens/ch10-change-password-dialog.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -300,14 +366,21 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 ```
 
 There's `env.ref()` again: the Python side of XML id resolution.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Feel the permissions with `with_user`
 
-Still in the shell (or a new one), replay tina's workday:
+This one stays in the shell, whichever tab you used above. LibreFleet has no menus yet
+(chapter 11 adds them), so there is no screen tina could open, but the shell can act as
+her anyway. Open one if you don't have it, and replay tina's workday:
 
 ```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> tina = env["res.users"].search([("login", "=", "tina")])
 >>> Vehicle = env["librefleet.vehicle"].with_user(tina)
 >>> Vehicle.search([]).mapped("display_name")
 ['ZH 468 202', 'BE 30 447']
@@ -401,7 +474,24 @@ ch10 complete! On to the next chapter 🔧
 
 Note the third check: it is chapter 9's `AccessError` failure, inverted. odoolings
 talks to Odoo over XML-RPC as admin, so every call hit that error until the ACLs and
-the admin membership existed. Cross-check the matrix in psql:
+the admin membership existed. Now cross-check the matrix itself:
+
+<UiOrShell>
+<Tab>
+
+With developer mode on (chapter 4), open **Settings → Technical → Security → Access
+Rights**:
+
+![The Settings app with the Technical menu open and scrolled to its Security section: Record Rules, Access Rights (highlighted) and User Devices](/screens/ch10-technical-access-rights-menu.jpg)
+
+Type `librefleet.vehicle` in the search bar and pick **Search Model for:
+librefleet.vehicle**. Two rows, one per line of your CSV, and the four checkbox columns
+are its four `perm_*` booleans:
+
+![Access Rights filtered on model librefleet.vehicle: librefleet.vehicle user for Workshop / User with Read and Write ticked, and librefleet.vehicle manager for Workshop / Manager with all four ticked; the filter and the checkbox block are highlighted](/screens/ch10-access-rights-matrix.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read as r, a.perm_write as w, a.perm_create as c, a.perm_unlink as u from ir_model_access a join ir_model m on a.model_id = m.id where m.model = 'librefleet.vehicle';"
@@ -410,6 +500,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read
  librefleet.vehicle user    | t | t | f | f
  librefleet.vehicle manager | t | t | t | t
 ```
+
+</Tab>
+</UiOrShell>
 
 ## Gotchas
 
@@ -422,7 +515,7 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select a.name, a.perm_read
   the truth; test one before every release.
 - **ACLs are additive, so there is no "deny" line.** If a user seems to have too
   much power, some group they're in grants it; hunt the union, don't try to
-  subtract. Settings → Technical → Access Rights filters by model.
+  subtract. Settings → Technical → Security → Access Rights filters by model.
 - **Don't paste the WARNING's suggested line as-is.** The chapter 9 hint granted
   read to `base.group_user`: *every internal user in the company*. It's a syntax
   example, not a security design. Decide who needs what first.
