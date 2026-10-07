@@ -3434,8 +3434,8 @@ CHAPTERS = {
 #
 # This is the one part of odoolings that touches the filesystem (a single JSON
 # dotfile in the current directory). It still never reads the reader's module,
-# so §4.5's "location-independent" contract holds: the tool works against any
-# --url/--db from any directory.
+# so the "location-independent" contract in CONTRIBUTING.md holds: the tool
+# works against any --url/--db from any directory.
 
 SNAPSHOT_FILE = ".odoolings-snapshot.json"
 SNAPSHOT_LIMIT = 800

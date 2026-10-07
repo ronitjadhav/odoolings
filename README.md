@@ -35,11 +35,8 @@ No signup, no account. Progress and quiz scores live in your browser only.
 
 ## Where it's at
 
-24 of ~40 chapters are live, through Part 4 (Business Logic). See the
-[roadmap](https://odoolings.ronit.io/docs/roadmap) for the full
-milestone breakdown, and
-[`ODOO_TUTORIAL_MASTER_PLAN.md`](ODOO_TUTORIAL_MASTER_PLAN.md) for the curriculum and
-the reasoning behind every decision, including a running changelog.
+All 55 chapters are written; what's left before launch is polish. See the
+[roadmap](https://odoolings.ronit.io/docs/roadmap) for the full milestone breakdown.
 
 ## Following the tutorial?
 
@@ -62,7 +59,6 @@ checker, and the reference snapshots readers diff against.
 | `code/odoolings.py` | The rustlings-style CLI that checks a reader's work chapter by chapter |
 | `code/checkpoints/` | A snapshot of LibreFleet after each chapter, the reference to diff against |
 | `code/docker-compose.yml` | The Odoo 19 + Postgres 16 dev environment used throughout |
-| `ODOO_TUTORIAL_MASTER_PLAN.md` | The full curriculum, every decision, and why it was made |
 
 Two repositories in total:
 

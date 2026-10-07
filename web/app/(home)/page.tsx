@@ -190,7 +190,7 @@ export default function HomePage() {
           One project, three tiers.
         </h2>
         <p className="mt-4 max-w-xl text-fd-muted-foreground">
-          40 chapters, one capstone project, and a checkpoint to diff against after every
+          55 chapters, one capstone project, and a checkpoint to diff against after every
           single one.
         </p>
         <CardGrid cols={3} className="mt-10">
