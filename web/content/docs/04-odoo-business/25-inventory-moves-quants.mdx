@@ -94,6 +94,20 @@ a multi-step route and read what changed.
 <Step>
 ### On-hand versus forecast, before you touch anything
 
+<UiOrShell>
+<Tab>
+
+Open **Inventory → Reporting → Stock** and search for `Brake Pad Set`:
+
+![The Stock report filtered on Brake Pad Set: the Brake Pad Set (Front) row, and its On Hand 10.00, Free to Use 6.00, Incoming 0.00 and Outgoing 4.00, highlighted](/screens/ch25-stock-before.jpg)
+
+**On Hand** is 10, **Outgoing** is 4, and **Free to Use** is 6. (The **Forecast** button
+at the end of the row opens the full projection; with nothing incoming, it lands on the
+same 6.)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
 ```
@@ -103,6 +117,9 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 >>> front.qty_available, front.virtual_available, front.outgoing_qty, front.free_qty
 (10.0, 6.0, 4.0, 6.0)
 ```
+
+</Tab>
+</UiOrShell>
 
 Ten physically on the shelf, four already promised to chapter 22's delivery. So the
 honest number to quote a new customer is the forecast, 6.0, not the ten in the warehouse.
@@ -117,7 +134,11 @@ and the number you can safely promise are not the same field.
 
 The warehouse form does not show routing options until you turn them on. **Inventory →
 Configuration → Settings**, tick **Multi-Step Routes** under the Warehouse section, and
-save. Only then does **Inventory → Configuration → Warehouses** show a **Warehouse
+save.
+
+![Inventory settings, Warehouse section: Multi-Step Routes ticked and highlighted, and the Save button highlighted](/screens/ch25-settings-multistep.jpg)
+
+Only then does **Inventory → Configuration → Warehouses** show a **Warehouse
 Configuration** tab: open the one warehouse, and set **Incoming Shipments** to *Receive
 then Store (2 steps)*.
 
@@ -128,8 +149,24 @@ then Store (2 steps)*.
 <Step>
 ### Raise and confirm a small purchase
 
-Take a snapshot, then raise an RFQ for **5** more `Brake Pad Set (Front)` from a vendor
-and confirm it.
+If you read results in the shell, take a snapshot first, and take a fresh one after
+reading each `diff` below, so every diff shows one step:
+
+```console
+$ python3 odoolings.py snapshot --db functional
+```
+
+Then raise an RFQ for **5** more `Brake Pad Set (Front)` from a vendor, at 42.00, and
+confirm it.
+
+<UiOrShell>
+<Tab>
+
+The confirmed order has one **Receipt** smart button, and behind it one transfer,
+`WH/IN/00008`, ready to receive five brake pads. Nothing else.
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -143,10 +180,9 @@ stock.picking       +1
       new   WH/IN/00008              state=assigned  picking_type_id=YourCompany: Receipts
 ```
 
-One transfer, not two. Confirm it from the shell, rolling back first so the shell sees
-what the browser just committed. This is chapter 23's stale-transaction problem again:
-the shell holds a `REPEATABLE READ` transaction, so browser changes stay invisible until
-you refresh it.
+Ask the order for its transfers, rolling back first so the shell sees what the browser
+just committed. This is chapter 23's stale-transaction problem again: the shell holds a
+`REPEATABLE READ` transaction, so browser changes stay invisible until you refresh it.
 
 ```python
 >>> env.cr.rollback()
@@ -155,12 +191,27 @@ you refresh it.
 ['WH/IN/00008']
 ```
 
-The second leg genuinely does not exist yet.
+</Tab>
+</UiOrShell>
+
+One transfer, not two. The second leg genuinely does not exist yet.
 
 </Step>
 
 <Step>
 ### Validate the receipt, and watch the second leg appear
+
+Open the **Receipt** and press **Validate**.
+
+<UiOrShell>
+<Tab>
+
+The receipt is Done, and a **Next Transfer** smart button has appeared on it:
+
+![Receipt WH/IN/00008, Done, with the Done stage and the new Next Transfer smart button highlighted](/screens/ch25-receipt-next-transfer.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -180,10 +231,15 @@ stock.quant         +1
       chg   Brake Pad Set (Front)    quantity: -10.0 -> -15.0
 ```
 
-Read that carefully. `receipt_status` already reads `full` while the goods are still in
-`WH/Input`. Receipt status tracks whether the **vendor** has delivered, not whether your
-warehouse has finished putting the stock away. And there it is: `WH/STOR/00001`, the
-second leg, created only now.
+`receipt_status` already reads `full` while the goods are still in `WH/Input`.
+
+</Tab>
+</UiOrShell>
+
+Read that carefully. The purchase order already counts as fully received while the goods
+are still in `WH/Input`. Receipt status tracks whether the **vendor** has delivered, not
+whether your warehouse has finished putting the stock away. And there it is:
+`WH/STOR/00001`, the second leg, created only now. Click **Next Transfer** to open it:
 
 ![The second-leg internal transfer, source location WH/Input, destination WH/Stock, created only after the receipt was validated](/screens/ch25-second-leg-transfer.jpg)
 
@@ -191,6 +247,18 @@ second leg, created only now.
 
 <Step>
 ### Validate the internal transfer
+
+Press **Validate** on `WH/STOR/00001`.
+
+<UiOrShell>
+<Tab>
+
+Back in **Inventory → Reporting → Stock**, the front pads now read 15 on hand:
+
+![The Stock report after both legs: Brake Pad Set (Front) with On Hand 15.00, highlighted](/screens/ch25-stock-after.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -203,8 +271,7 @@ stock.quant         ~
       chg   Brake Pad Set (Front)    quantity: 10.0 -> 15.0
 ```
 
-The Input quant drains back to zero as the goods finish their journey into Stock, which
-now reads 15 (the 10 from chapter 24 plus these 5).
+The Input quant drains back to zero as the goods finish their journey into Stock.
 
 ```python
 >>> front.invalidate_recordset()
@@ -212,26 +279,55 @@ now reads 15 (the 10 from chapter 24 plus these 5).
 15.0
 ```
 
+</Tab>
+</UiOrShell>
+
+Stock now reads 15: the 10 from chapter 24 plus these 5.
+
 </Step>
 
 <Step>
 ### Set a reordering rule
 
 Reordering rules do not have a menu of their own. They live on the replenishment screen:
-**Inventory → Operations → Replenishment** (under the *Procurement* heading), then **New**.
-Product `Brake Pad Set (Front)`, minimum **5**, maximum **15**.
+**Inventory → Operations → Replenishment** (under the *Procurement* heading).
 
-That screen opens with **To Reorder** and **Not Snoozed** already filtered, so a rule for a
-product you have plenty of will not be in the list you are looking at. Clear the filters, or
-pick **All** in the Trigger panel on the left, if you want to see the rule you just made.
+Opening that menu does more than open a list. It first asks every product whether stock
+will run short, and creates a **Manual** rule as a suggestion for each one that will: in
+this demo database, three furniture products, with an **Order** button each. Your brake
+pads are not short, so they get none.
 
-![The replenishment screen with filters cleared, showing the Brake Pad Set (Front) rule at minimum 5, maximum 15, alongside the demo furniture's own reordering rules](/screens/ch25-replenishment-rule.jpg)
+Click **New**: product `Brake Pad Set (Front)`, **Min** **5**, **Max** **15**, then save.
+A rule made on this screen starts out **Manual**, which means it waits for someone to press
+its **Order** button. The scheduled action chapter 35 looks at only touches **Auto**
+rules, so switch it: open the column toggle at the right end of the header, tick
+**Trigger**, and set the rule's **Trigger** to **Auto**.
+
+![The Replenishment screen with the Trigger column shown: the three suggested furniture rules on Manual, and the Brake Pad Set (Front) rule on Auto with Min 5.00 and Max 15.00, highlighted](/screens/ch25-replenishment-rule.jpg)
+
+The screen opens with **To Reorder** and **Not Snoozed** already filtered, so next time,
+a rule for a product you have plenty of will not be in the list you are looking at. Clear
+the filters, or pick **All** in the Trigger panel on the left, to see it.
+
+<UiOrShell>
+<Tab>
+
+The screenshot is the reading: four rules, three suggestions and yours.
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
-stock.warehouse.orderpoint +1
+stock.warehouse.orderpoint +4
+      new   [FURN_8900] Drawer Black trigger=manual
+      new   [E-COM06] Corner Desk Right Sit trigger=manual
+      new   [FURN_1118] Corner Desk Left Sit trigger=manual
       new   Brake Pad Set (Front)    product_min_qty=5.0  product_max_qty=15.0  trigger=auto
 ```
+
+</Tab>
+</UiOrShell>
 
 Current stock sits exactly at 15, the maximum, so this rule is not due yet, and nothing
 should happen until forecast falls under 5. Chapter 35 covers the scheduled action that

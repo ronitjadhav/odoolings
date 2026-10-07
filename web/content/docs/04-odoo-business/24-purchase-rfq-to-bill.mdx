@@ -122,8 +122,10 @@ Continuing in `functional`.
 <Step>
 ### Raise an RFQ
 
-Movement 2 reads a separate diff for each of the four steps in this Movement, so take a
-fresh snapshot right before each one, starting now:
+Movement 2 reads what each of the four steps in this Movement did. Reading in the UI needs
+no preparation. If you will use the shell tabs, take a snapshot now, then after each of
+the four steps run `diff` (keep its output: Movement 2 walks through it) and `snapshot`
+again, so that every diff shows one step and nothing else:
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -144,7 +146,7 @@ Then **Purchase → Orders → Requests for Quotation → New**:
 Press **Confirm Order**. Note the title changes from Request for Quotation to Purchase
 Order, and a **Receipt** smart button appears.
 
-![The confirmed purchase order P00013: a Receipt smart button reading 1 and a Vendor Bills smart button reading 1, top right, with the statusbar past RFQ and RFQ Sent, at Purchase Order](/screens/ch24-purchase-order-receipt.jpg)
+![The confirmed purchase order P00013: the Bill Matching and Receipt (1) smart buttons at the top and the statusbar at Purchase Order, all highlighted](/screens/ch24-po-confirmed.jpg)
 
 </Step>
 
@@ -159,6 +161,8 @@ Back on the purchase order:
    to **Demand**, and set it to **10** if it is not already.
 3. Press **Validate**. The transfer's status moves to Done.
 
+![Receipt WH/IN/00007 from Gemini Furniture in the Ready state: the Validate button, the Ready stage, and the line's Demand 10.00 and Quantity 10.00, all highlighted](/screens/ch24-receipt-ready.jpg)
+
 Demand is what the order asked for and Quantity is what you are saying actually turned up.
 They are two columns rather than one for exactly the reason this chapter is about.
 
@@ -171,10 +175,13 @@ The purchase order's own **Upload Bill** button wants a real file (a scanned inv
 attach before it will create anything, so that is not today's path. Instead, go to
 **Purchase → Orders → Purchase Orders** (the confirmed-orders list, a different menu item
 from Requests for Quotation), tick the checkbox next to your order, and press **Create
-Bills** in the toolbar that appears. Yours will not be numbered `P00013`, because the
-sequence keeps counting: read every number in this chapter's output, `P00013`,
-`WH/IN/00007`, `BILL/2026/08/0002`, as "the record I just made". Odoo drops you straight onto a draft bill, pre-filled from the
-PO's lines.
+Bills** in the toolbar that appears.
+
+![The Purchase Orders list with P00013 ticked and its Billing Status reading Waiting Bills, and the Create Bills button highlighted](/screens/ch24-create-bills.jpg)
+
+Yours will not be numbered `P00013`, because the sequence keeps counting: read every number
+in this chapter's output, `P00013`, `WH/IN/00007`, `BILL/2026/10/0002`, as "the record I
+just made". Odoo drops you straight onto a draft bill, pre-filled from the PO's lines.
 
 ![A draft vendor bill created by the Create Bills bulk action, with the Bill Date field empty and outlined in red as required, the Brake Pad Set line pre-filled at qty 10 and $420.00 total](/screens/ch24-draft-vendor-bill.jpg)
 
@@ -185,10 +192,24 @@ Give it a **Bill Date**, then press **Confirm** to post it.
 <Step>
 ### The RFQ, and what it does not have yet
 
+<UiOrShell>
+<Tab>
+
+Look back at the RFQ before you confirmed it. The statusbar sat on **RFQ**, the main button
+was **Confirm Order**, and there was no smart button at all: nothing had been promised
+yet, so there was no receipt to expect.
+
+![RFQ P00013 before confirmation: the RFQ / RFQ Sent / Purchase Order statusbar, the Confirm Order button, and the line of 10 brake pads at 42.00, all highlighted, and no smart buttons at the top](/screens/ch24-rfq.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
 purchase.order      +1
-      new   P00013                   state=draft  amount_total=420.0
+      new   P00013                   state=draft  amount_total=420.0  invoice_status=no
+purchase.order.line +1
+      new   Brake Pad Set (Front)    product_qty=10.0  price_unit=42.0
 ```
 
 Now open a shell on the same database and pick up the order you just created, which is the
@@ -207,10 +228,23 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 `receipt_status` is `False`, not `'pending'`. A draft RFQ has no receipt expectation at
 all, because nothing has been promised yet.
 
+</Tab>
+</UiOrShell>
+
 </Step>
 
 <Step>
 ### Confirming spawns a receipt
+
+<UiOrShell>
+<Tab>
+
+The **Receipt** smart button from step 2 is the new record: behind it is `WH/IN/00007`,
+of operation type **Receipts**, already **Ready** with ten brake pads expected (step 3's
+screenshot).
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -223,6 +257,9 @@ stock.picking       +1
       new   WH/IN/00007              state=assigned  picking_type_id=YourCompany: Receipts
 ```
 
+</Tab>
+</UiOrShell>
+
 Compare that with chapter 22's confirmation, which produced `WH/OUT` and a Delivery Order.
 Same mechanism, opposite direction: `purchase_stock` overrides confirmation the way
 `sale_stock` does, each bridge module contributing the transfer its own direction needs.
@@ -232,7 +269,27 @@ Same mechanism, opposite direction: `purchase_stock` overrides confirmation the 
 <Step>
 ### The receipt, and the surprise
 
-This is the diff worth reading twice.
+This is the reading worth taking twice.
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Reporting → Moves History** lists the move you validated, from **Vendors**
+to **WH/Stock**:
+
+![Moves History with the WH/IN/00007 reference highlighted, and its From Vendors, To WH/Stock and Quantity 10.00 highlighted](/screens/ch24-moves-history.jpg)
+
+Now open chapter 22's order, S00025, and its **Delivery** smart button. WH/OUT/00044 is no
+longer Waiting. It is **Ready**, its four brake pads available, and its chatter says when:
+the moment you validated the receipt, under your name.
+
+![Delivery WH/OUT/00044 now Ready: the Ready stage, the line's Demand 4.00 and Quantity 4.00, and the chatter entry Waiting → Ready (Status) logged under Mitchell Admin, all highlighted](/screens/ch24-delivery-ready.jpg)
+
+And back in **Purchase → Orders → Purchase Orders**, P00013's **Billing Status** moved to
+**Waiting Bills** (step 4's screenshot).
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
@@ -252,34 +309,54 @@ stock.quant         +2
       new   Brake Pad Set (Front)    location_id=WH/Stock  quantity=10.0
 ```
 
-Three separate things happened, and only one of them was your purchase order. Both
-`stock.move` rows print the same product name, so read them against the pickings below
+Both `stock.move` rows print the same product name, so read them against the pickings below
 them: `assigned -> done` is the receipt's own move, and `confirmed -> assigned` belongs to
 a document you never opened.
 
-**The two quants are the move's two ends.** `WH/Stock` gained 10 and `Vendors` lost 10.
-Nothing was created; ten brake pads moved across a boundary, and Odoo recorded both sides,
-exactly as an accounting entry records a debit and a credit.
+</Tab>
+</UiOrShell>
+
+Three separate things happened, and only one of them was your purchase order.
+
+**The receipt has two ends.** `WH/Stock` gained 10 and `Vendors` lost 10 (in the shell,
+those are the two new quants). Nothing was created; ten brake pads moved across a
+boundary, and Odoo recorded both sides, exactly as an accounting entry records a debit and
+a credit.
 
 **`WH/OUT/00044` changed state, and you did not touch it.** That is the *customer delivery
-from chapter 22*, stuck at `confirmed` because there was no stock to reserve. Your receipt
-gave it stock, so it advanced to `assigned`: reserved and ready to pick.
+from chapter 22*, stuck at Waiting (`confirmed`) because there was no stock to reserve. Your
+receipt gave it stock, so it advanced to Ready (`assigned`): reserved and ready to pick.
 
 Nobody ran anything. It follows from inventory being a shared pool rather than a per-order
 ledger, and it is the moment Parts 4 and 5 stop being a tour of separate apps.
 
-**And `invoice_status` moved to `to invoice`.** Receiving is what makes the order billable,
-which mirrors chapter 22's delivered-versus-ordered invoicing policy from the buying side.
+**And the order became billable** (`invoice_status` moved to `to invoice`). Receiving is
+what makes the order billable, which mirrors chapter 22's delivered-versus-ordered
+invoicing policy from the buying side.
 
 </Step>
 
 <Step>
 ### The bill, mirrored
 
+<UiOrShell>
+<Tab>
+
+The posted bill takes its number from the Purchases journal, and links back to P00013
+through its **Purchases** smart button:
+
+![Vendor bill BILL/2026/10/0002, Posted: the Purchases P00013 smart button, the bill number, the Posted stage, and the $420.00 totals, all highlighted](/screens/ch24-bill-posted.jpg)
+
+The bill's journal lines, its debits and credits, sit behind a setting chapter 27 switches
+on; until then the shell tab is the way to see them.
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
-      new   BILL/2026/08/0002        move_type=in_invoice  state=posted  amount_total=420.0  payment_state=not_paid
+      new   BILL/2026/10/0002        move_type=in_invoice  state=posted  amount_total=420.0  payment_state=not_paid
 account.move.line   +2
       new   Brake Pad Set (Front)    account_id=Expenses  debit=420.0
       new   Account Payable          credit=420.0
@@ -289,6 +366,9 @@ purchase.order.line ~
       chg   Brake Pad Set (Front)    qty_invoiced: 0.0 -> 10.0
 ```
 
+</Tab>
+</UiOrShell>
+
 Put that beside chapter 28's customer invoice and the symmetry is complete:
 
 | | debit | credit |
@@ -296,13 +376,24 @@ Put that beside chapter 28's customer invoice and the symmetry is complete:
 | customer invoice (`out_invoice`) | Account Receivable | income |
 | vendor bill (`in_invoice`) | expense | Account Payable |
 
-Same model, same balance rule, opposite direction. And note the number: `BILL/2026/08/0002`
+Same model, same balance rule, opposite direction. And note the number: `BILL/2026/10/0002`
 comes from the Purchases journal, not the Sales one.
 
 </Step>
 
 <Step>
 ### The match, closed
+
+<UiOrShell>
+<Tab>
+
+Open P00013 again. The line now reads 10.00 three times over, **Quantity**, **Received**
+and **Billed**, and a **Vendor Bills** smart button has joined the Receipt:
+
+![P00013 after the bill: the Vendor Bills (1) and Receipt (1) smart buttons, and the line's Quantity, Received and Billed all at 10.00, highlighted](/screens/ch24-po-match.jpg)
+
+</Tab>
+<Tab>
 
 If the shell from step 5 is still open, quit it with `Ctrl-D` and start a new one first.
 An Odoo shell holds one database transaction open, so it keeps returning the values it
@@ -320,6 +411,9 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 >>> po.receipt_status, po.invoice_status
 ('full', 'invoiced')
 ```
+
+</Tab>
+</UiOrShell>
 
 Ordered, received and billed all agree. That is what a clean purchase looks like, and now
 you know which three numbers to compare when one does not.

@@ -86,7 +86,7 @@ when nothing else interferes.
 The middle one has a catch worth knowing before you go hunting for it. The `discount`
 column is behind its own setting, **Grant discounts on sales order lines**, in the same
 Sales → Pricing block you are about to visit, and it is switched off here. The field
-still exists on `sale.order.line` either way: only the view hides it. That is why step 7
+still exists on `sale.order.line` either way: only the view hides it. That is why step 5
 can read `discount` from the shell even though no such column appears on your quotation.
 
 The third one surprises people. A claimed <Term k="reward (loyalty)">reward</Term> (the discount or free item a
@@ -133,6 +133,18 @@ Continuing in `functional`.
 <Step>
 ### Confirm the baseline before changing anything
 
+<UiOrShell>
+<Tab>
+
+Open the order you confirmed in chapter 22, S00025. There is no **Pricelist** field
+anywhere on it, and the line's **Unit Price** is 79.00, exactly Brake Pad Set's sales
+price:
+
+![S00025 before pricelists exist: the Order Date and Payment Terms block, where a Pricelist field would sit, and the line's Unit Price of 79.00, both highlighted](/screens/ch23-baseline-no-pricelist.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
 ```
@@ -147,6 +159,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 ```
 
 No pricelists exist, the order has none, and the line price is exactly the product price.
+
+</Tab>
+</UiOrShell>
+
 That is the "no mechanism fired" state, and it is what you compare against.
 
 </Step>
@@ -154,11 +170,25 @@ That is the "no mechanism fired" state, and it is what you compare against.
 <Step>
 ### Turn pricelists on
 
-**Settings → Sales**, under the **Pricing** section, tick **Pricelists**, save.
+**Settings → Sales**, under the **Pricing** section, tick **Pricelists**, then **Save**.
 
-![The Sales app's Pricing settings section: Discounts unchecked, Promotions/Loyalty & Gift Card checked, Pricelists checked with a link to manage them, Margins unchecked](/screens/ch23-sales-pricing-settings.jpg)
+![The Sales settings' Pricing section with Pricelists ticked and highlighted, and the Save button highlighted](/screens/ch23-settings-pricelists.jpg)
 
-Now go back to the shell you left open in step 1, and do **not** just re-run the count: it
+One browser quirk before you go on. The first form you open after changing a setting can
+be the copy the browser cached before it, so a field the setting just added may be
+missing. If a quotation shows no **Pricelist** field, reload the page before you type
+anything. Navigate away from a half-filled form instead and Odoo saves it on the way out,
+and that empty quotation takes an order number the rest of this part counts on.
+
+<UiOrShell>
+<Tab>
+
+The new menu is the next step. You'll count the pricelists there.
+
+</Tab>
+<Tab>
+
+Go back to the shell you left open in step 1, and do **not** just re-run the count: it
 will still report the old number. A shell session holds one long-running database
 transaction, and Postgres fixed that transaction's view of the data at your first query,
 before the browser saved anything. Anything committed since then is invisible to it. End
@@ -170,13 +200,16 @@ the transaction to get a fresh view, then look again:
 3
 ```
 
-Three, not one: this demo database has three companies, and switching the feature on runs
-core code that creates a Default pricelist for each of them.
-
 That `env.cr.rollback()` is the same one you have used since chapter 14 to undo an
 experiment. It also throws away the ORM's in-memory cache, which is what you want here.
 Expect to need it every time you change something in the browser and then read it back
 from a shell that was already open.
+
+</Tab>
+</UiOrShell>
+
+There are three pricelists, not one: this demo database has three companies, and switching
+the feature on runs core code that creates a Default pricelist for each of them.
 
 Hold on to the three, because it changes how you read the rest of the chapter. The shell
 does not apply the company filter the interface does. It runs as the superuser, skipping
@@ -184,7 +217,7 @@ record rules entirely, so a bare `search([])` returns all three companies' price
 while the same list in the browser shows only the active company's.
 
 So whenever you go looking for "the" pricelist from a script, say which company you mean.
-That is what step 6 does with `("company_id", "=", env.company.id)`, and chapter 27 comes
+That is what step 8 does with `("company_id", "=", env.company.id)`, and chapter 27 comes
 back to the problem properly.
 
 </Step>
@@ -195,10 +228,15 @@ back to the problem properly.
 Ticking the setting also added a menu: **Sales → Products → Pricelists**. Open it and you
 will see exactly one row, the Default pricelist for your own company.
 
-That is the multi-company visibility rule from the last step again, now in the browser
-instead of the shell. All three Default pricelists exist (the 3 you just counted), one
-per company, but the list view only shows the one tied to your active company, named in
-the top bar. Open it.
+That is the multi-company visibility rule from the last step again. All three Default
+pricelists exist, one per company, but the list only shows the ones of the companies
+ticked in the company switcher at the top right. Tick the other two there, click
+**Confirm**, and the list grows to three:
+
+![The Pricelists list with all three companies active: three Default pricelists, one per company, and the company switcher in the top bar, highlighted](/screens/ch23-three-companies.jpg)
+
+Untick them again (back to My Company (San Francisco) alone), then open the one Default
+left in the list.
 
 On its **Sales Prices** tab, click **Add a line**. The dialog never asks you for
 `applied_on`, which catches people out: that field is hidden, and Odoo works it out from
@@ -216,7 +254,9 @@ So the first rule, the global one:
 - **Price Type**: **Discount**.
 - **Discount**: **10** %.
 
-Save it, then **Add a line** again for the second rule, the specific one:
+![The Create Pricelist Rules dialog for the global rule: Product left empty with its All products placeholder, and Price Type Discount at 10.00 %, both highlighted](/screens/ch23-rule-global.jpg)
+
+**Save & Close**, then **Add a line** again for the second rule, the specific one:
 
 - **Apply To**: **Product**.
 - **Product**: `Brake Pad Set`.
@@ -226,9 +266,11 @@ Save it, then **Add a line** again for the second rule, the specific one:
 - **Price Type**: **Fixed Price**.
 - **Fixed Price**: **60.00**.
 
-Save the pricelist. In the rules list, the **Apply on** column now reads "All Products"
-for the first and "Variant: Brake Pad Set (Front)" for the second. That column is Odoo
-telling you back the `applied_on` it derived.
+![The same dialog for the variant rule: Product Brake Pad Set and Variant Brake Pad Set (Front) highlighted, and Price Type Fixed Price at 60.00 per Units highlighted](/screens/ch23-rule-variant.jpg)
+
+**Save & Close**, then save the pricelist. In the rules list, the **Apply on** column
+now reads "All Products" for the first and "Variant: Brake Pad Set (Front)" for the
+second. That column is Odoo telling you back the `applied_on` it derived.
 
 ![The Default pricelist's two rules: Variant Brake Pad Set (Front) at $60.00, and All Products at 10% discount on sales price](/screens/ch23-pricelist-two-rules.jpg)
 
@@ -237,9 +279,10 @@ telling you back the `applied_on` it derived.
 <Step>
 ### Quote it and watch the price
 
-Snapshot first, so that the `diff` in step 7 shows this quotation and nothing else.
-`diff` always compares against the last snapshot you took, so without this it either
-reports that no snapshot exists or reports everything that has changed since chapter 22:
+If you are reading the results in the shell, snapshot first, so that the `diff` in the
+next step shows this quotation and nothing else. `diff` always compares against the last
+snapshot you took, so without this it either reports that no snapshot exists or reports
+everything that has changed since chapter 22:
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -251,10 +294,56 @@ Then, in **Sales → Orders → Quotations → New**:
 2. **Pricelist**: the Default you just edited. Set this **before** you add any line. A
    line takes its price at the moment it is created, so a line added first keeps 79.00
    and changing the pricelist underneath it afterwards does not move it.
-3. Add an order line for **Brake Pad Set (Front)**, quantity **2**.
+3. Add a line for **Brake Pad Set**: keep **Axle** on **Front** in the configurator and
+   set the quantity to **2**.
 4. Save. The unit price reads 60.00, not 79.00.
 
+![Quotation S00026 for Azure Interior: Pricelist Default (USD) highlighted, and the Brake Pad Set (Front) line at quantity 2.00 with a highlighted Unit Price of 60.00; totals $120.00 untaxed, $138.00 total](/screens/ch23-quotation-pricelist.jpg)
+
 Leave it as a draft quotation. Nothing in this chapter needs it confirmed.
+
+</Step>
+
+<Step>
+### What the quotation took
+
+<UiOrShell>
+<Tab>
+
+Look at the line again: 60.00 in **Unit Price**, and nothing anywhere saying it was
+reduced. There is not even a discount column. That is a separate feature (the
+**Discounts** setting, still off), and a pricelist rule does not use it anyway.
+
+</Tab>
+<Tab>
+
+```console
+$ python3 odoolings.py diff --db functional
+sale.order          +1
+      new   S00026                   state=draft  amount_untaxed=120.0  amount_total=138.0  invoice_status=no
+sale.order.line     +1
+      new   Brake Pad Set (Front)    product_uom_qty=2.0  price_unit=60.0
+```
+
+`price_unit=60.0` against a 79.00 product. Note what is **not** here: the `discount` field
+is untouched. Point `so` at this new quotation (the rollback again, so the shell can see
+it) and read the line:
+
+```python
+>>> env.cr.rollback()
+>>> so = env["sale.order"].search([("state", "=", "draft")], order="id desc", limit=1)
+>>> l = so.order_line[0]
+>>> l.price_unit, l.discount, l.product_id.lst_price
+(60.0, 0.0, 79.0)
+```
+
+</Tab>
+</UiOrShell>
+
+A pricelist rule rewrites the price. It does not populate the discount column, so a
+customer reading this quote sees 60.00 with no visible reduction. Whether that is what your
+client wants is a configuration question, and it is a common source of "where did our
+discount go".
 
 </Step>
 
@@ -263,16 +352,20 @@ Leave it as a draft quotation. Nothing in this chapter needs it confirmed.
 
 First install the promotions machinery, from the same screen you used in step 2. Go to
 **Settings → Sales**, and in the **Pricing** section tick **Promotions, Loyalty & Gift
-Card**, then **Save**. That installs the `loyalty` module, and `sale_loyalty` (the bridge
-that teaches `sale.order` about rewards) comes along on its own, because its manifest
-marks it `auto_install` and both of the modules it depends on are now present.
+Card**, then **Save**.
+
+![The Sales settings' Pricing section with Promotions, Loyalty & Gift Card ticked and highlighted, Pricelists still ticked below it, and the Save button highlighted](/screens/ch23-settings-promotions.jpg)
+
+That installs the `loyalty` module, and `sale_loyalty` (the bridge that teaches
+`sale.order` about rewards) comes along on its own, because its manifest marks it
+`auto_install` and both of the modules it depends on are now present.
 
 Do not go looking for either of them in Apps. Neither declares itself an application, and
 the Apps list filters to applications by default, so a search for `sale_loyalty` there
 finds nothing at all.
 
-Now snapshot again, so step 8's `diff` isolates what the promotion did rather than
-re-reporting the quotation you already looked at:
+Shell readers, snapshot again, so the next step's `diff` isolates what the promotion did
+rather than re-reporting the quotation you already looked at:
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -280,14 +373,78 @@ $ python3 odoolings.py snapshot --db functional
 
 The demo data includes a discount-code programme called *Code for 10% on orders*, whose
 code is `10pc`. On your quotation, click the **Coupon Code** button below the order lines,
-enter that code in the "Enter Promotion or Coupon Code" dialog, and **Apply**.
+enter that code in the **Enter Promotion or Coupon Code** dialog, and **Apply**:
+
+![The Enter Promotion or Coupon Code dialog over S00026, with 10pc in the Coupon Code field and the Apply button highlighted](/screens/ch23-coupon-code.jpg)
+
+A second dialog, **Available Rewards**, asks which reward to claim. There is only one,
+*Code for 10% on orders - 10% on your order*. Pick it and **Apply**:
+
+![The Available Rewards dialog: the Code for 10% on orders - 10% on your order option selected, and the Apply button, both highlighted](/screens/ch23-available-rewards.jpg)
 
 ![The quotation after both mechanisms: Brake Pad Set (Front) at the pricelist's $60.00 unit price, and a separate "10% on your order" line at -$12.00, total $124.20](/screens/ch23-quotation-pricelist-and-reward.jpg)
 
 </Step>
 
 <Step>
+### What the promotion did, which is different
+
+<UiOrShell>
+<Tab>
+
+**A new line, priced at minus 12.00.** The Brake Pad Set line is untouched at 60.00; the
+total fell from 138.00 to 124.20 because a negative line joined the order.
+
+</Tab>
+<Tab>
+
+```console
+$ python3 odoolings.py diff --db functional
+sale.order          ~
+      chg   S00026                   amount_untaxed: 120.0 -> 108.0
+      chg   S00026                   amount_total: 138.0 -> 124.2
+sale.order.line     +1
+      new   10% on your order        product_uom_qty=1.0  price_unit=-12.0
+```
+
+**A new line, priced at minus 12.00.** The product line is untouched at 60.00; the total
+fell because a negative line joined the order.
+
+```python
+>>> env.cr.rollback()
+>>> for l in so.order_line:
+...     print(l.product_id.display_name[:32], l.price_unit, l.price_subtotal)
+...
+Brake Pad Set (Front) 60.0 120.0
+10% on your order -12.0 -12.0
+```
+
+</Tab>
+</UiOrShell>
+
+Ten percent of 120.00 is 12.00, and it arrived as its own row. If you were hunting for a
+missing discount on the product line, you would never have found it.
+
+</Step>
+
+<Step>
 ### Specificity, proved
+
+<UiOrShell>
+<Tab>
+
+Open the Default pricelist again and click **Print**. That opens the **Pricelist Report**.
+Click **Add Products**, tick **Brake Pad Set** and **Office Chair**, and **Select**. The
+report prices every variant through the pricelist:
+
+![The Pricelist Report for Default at quantities 1, 5 and 10: Brake Pad Set (Front) at $60.00, Brake Pad Set (Rear) at $71.10 and Office Chair at $63.00, those three rows highlighted](/screens/ch23-pricelist-report.jpg)
+
+The front pads have a rule of their own and land on the flat 60.00. The rear pads and the
+chair have none, so they fall through to the global 10%: 71.10 is 79.00 less ten percent,
+63.00 is the chair's 70.00 less ten percent.
+
+</Tab>
+<Tab>
 
 ```python
 >>> pl = env["product.pricelist"].search([("company_id", "=", env.company.id)], limit=1)
@@ -312,8 +469,12 @@ product that has a specific rule and once for a product that does not:
 ```
 
 The brake pads land on 60.00, the flat variant price. The chair has no rule of its own, so
-it falls through to the global 10% and lands on 63.00. That is the whole resolution order,
-in two lines of output.
+it falls through to the global 10% and lands on 63.00.
+
+</Tab>
+</UiOrShell>
+
+That is the whole resolution order, in a handful of prices.
 
 <Callout type="warn" title="Gotcha">
   `_get_product_price` works in the shell but is **private**, so RPC refuses it, exactly
@@ -325,66 +486,15 @@ in two lines of output.
 </Step>
 
 <Step>
-### What the quotation took
-
-```console
-$ python3 odoolings.py diff --db functional
-sale.order          +1
-      new   S00026                   state=draft  amount_untaxed=120.0  amount_total=138.0  invoice_status=no
-sale.order.line     +1
-      new   Brake Pad Set (Front)    product_uom_qty=2.0  price_unit=60.0
-```
-
-`price_unit=60.0` against a 79.00 product. Note what is **not** here: the `discount` field
-is untouched.
-
-```python
->>> l = so.order_line[0]
->>> l.price_unit, l.discount, l.product_id.lst_price
-(60.0, 0.0, 79.0)
-```
-
-A pricelist rule rewrites the price. It does not populate the discount column, so a
-customer reading this quote sees 60.00 with no visible reduction. Whether that is what your
-client wants is a configuration question, and it is a common source of "where did our
-discount go".
-
-</Step>
-
-<Step>
-### What the promotion did, which is different
-
-```console
-$ python3 odoolings.py diff --db functional
-sale.order          ~
-      chg   S00026                   amount_untaxed: 120.0 -> 108.0
-      chg   S00026                   amount_total: 138.0 -> 124.2
-sale.order.line     +1
-      new   10% on your order        product_uom_qty=1.0  price_unit=-12.0
-```
-
-**A new line, priced at minus 12.00.** The product line is untouched at 60.00; the total
-fell because a negative line joined the order.
-
-```python
->>> for l in so.order_line:
-...     print(l.product_id.display_name[:32], l.price_unit, l.price_subtotal)
-...
-Brake Pad Set (Front) 60.0 120.0
-10% on your order -12.0 -12.0
-```
-
-Ten percent of 120.00 is 12.00, and it arrived as its own row. If you were hunting for a
-missing discount on the product line, you would never have found it.
-
-</Step>
-
-<Step>
 ### The two-step claim, seen once
 
-Worth doing once so you recognise it later, but do it on a **different** order. Make a
-second draft quotation in the browser with the same product on it and no code applied,
-then point `so` at it:
+You already went through both steps in the browser without noticing: the **Coupon Code**
+dialog validated the code, and the **Available Rewards** dialog claimed the reward. The
+API keeps those two steps apart too, and that is worth meeting once in the shell, because
+a script that does only the first one fails silently.
+
+Do it on a **different** order. Make a second draft quotation in the browser with the same
+product on it and no code applied, then point `so` at it:
 
 ```python
 >>> env.cr.rollback()
@@ -397,14 +507,14 @@ newest draft, which is the quotation you just made.
 
 Why a fresh order? Because `_try_apply_code` checks first whether that code is already on
 this order, and if it is, it returns an error dict saying the promo code is already applied
-instead of the mapping below. Run it on the quotation from step 5 and you meet the refusal,
+instead of the mapping below. Run it on the quotation from step 6 and you meet the refusal,
 not the mechanism.
 
 With a clean order in hand: validating a code is not applying it.
 
 ```python
 >>> so._try_apply_code("10pc")
-defaultdict(<function ...>, {loyalty.card(1,): loyalty.reward(2,)})
+defaultdict(<function ...>, {loyalty.card(2,): loyalty.reward(2,)})
 ```
 
 That return value is a mapping of *claimable* rewards, and the order has not changed. The
@@ -416,7 +526,8 @@ second step is what appends the line:
 ...     so._apply_program_reward(rewards[0], coupon)
 ```
 
-Call only the first and nothing happens, with no error to tell you why.
+Call only the first and nothing happens, with no error to tell you why. Leave the shell
+without committing: this second quotation stays a plain draft.
 </Step>
 
 </Steps>
