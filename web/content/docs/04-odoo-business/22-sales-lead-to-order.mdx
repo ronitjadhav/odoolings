@@ -160,12 +160,17 @@ still gets its turn.
 ## Hands-on
 
 Same two movements as chapter 21. This continues in the `functional` database, and it
-uses the Brake Pad Set you created there.
+uses the Brake Pad Set you created there. Movement 2, reading what each click did, comes
+in two tabs: **In the UI** reads it off the records themselves, **In the shell** uses
+`odoolings diff` and `odoo shell`. Pick one; the site remembers your choice.
 
 <Steps>
 
 <Step>
-### Snapshot first
+### Snapshot first (shell readers only)
+
+Reading the results in the UI needs no preparation. If you will use the shell tab, take
+a baseline now:
 
 ```console
 $ python3 odoolings.py snapshot --db functional
@@ -182,6 +187,8 @@ an opportunity and hides the conversion step this chapter is about. Turn it on f
 **CRM → Configuration → Settings**, tick **Leads** ("Add a qualification step before
 the creation of an opportunity"), **Save**. A new **Leads** menu appears in the top bar.
 
+![CRM settings with the Leads option ticked and highlighted, the Save button highlighted, and the new Leads menu highlighted in the top bar](/screens/ch22-crm-settings-leads.jpg)
+
 In **CRM → Leads → New**, fill in two things:
 
 - The big title field at the top of the form: `Fleet brake refresh`.
@@ -192,7 +199,7 @@ missing app: while a record's `type` is still `lead`, Odoo hides that field unle
 already holds a partner, on the reasoning that an unqualified lead usually has nobody
 attached yet. The next click is where the partner arrives. Save the lead.
 
-![A CRM lead form: title field, Probability, Company Name, Contact Name, and a Convert to Opportunity button top left](/screens/ch22-lead-convert-to-opportunity.jpg)
+![The saved lead Fleet brake refresh: the title and Company Name (Acme Corporation) are highlighted, as is the Convert to Opportunity button top left; there is no Customer field](/screens/ch22-lead-convert-to-opportunity.jpg)
 
 Now press **Convert to Opportunity**. Rather than converting on the spot it opens a
 dialog, which asks you two things:
@@ -205,23 +212,46 @@ dialog, which asks you two things:
   what keeps the opportunity and the quotation you are about to write pointing at the
   same `res.partner`.
 
-Press **Create Opportunity**. Watch the breadcrumb: you are still on the same record.
+![The Convert to opportunity dialog: Convert to opportunity selected, Link to an existing customer selected with Acme Corporation in the Customer box, and the Create Opportunity button, all highlighted](/screens/ch22-convert-dialog.jpg)
+
+Press **Create Opportunity**. Watch the breadcrumb: you are still on the same record. The
+chatter says so too: under the original **Lead/Opportunity created** message, a new
+entry reads **Lead → Opportunity (Type)**, and the browser's address bar still ends in
+the same record id.
+
+![The record after conversion: a pipeline status bar (New, Qualified, Proposition, Won) and, in the chatter, Lead → Opportunity (Type) above the earlier Lead/Opportunity created message, all highlighted](/screens/ch22-opportunity-same-record.jpg)
 
 </Step>
 
 <Step>
 ### Quote four brake pads
 
-In **Sales → Orders → Quotations → New**:
+In **Sales → Orders → Quotations → New**, set **Customer** to the same partner you used
+on the lead, `Acme Corporation`.
 
-1. **Customer**: the same partner you used on the lead.
-2. Add an order line for **Brake Pad Set (Front)**, quantity **4**.
-3. Save, but do not confirm yet.
+Click **Add a product** and pick **Brake Pad Set**. Because the product has variants, a
+**Configure your product** dialog asks which one: keep **Axle** on **Front**, set the
+quantity to **4**, and press the dialog's **Confirm** (this one only adds the line).
+
+![The Configure your product dialog for Brake Pad Set (Front): Axle set to Front, quantity 4, Total $316.00, and the dialog's Confirm button, all highlighted](/screens/ch22-configure-product.jpg)
+
+Save the quotation, but do not confirm it yet.
+
+![Quotation S00025 for Acme Corporation in the Quotation state: one line, Brake Pad Set (Front), 4.00 at 79.00 with 15% tax, totals $316.00 untaxed, $47.40 tax, $363.40 total; the Confirm button, the status bar, the line and the totals are highlighted](/screens/ch22-quotation-four-brake-pads.jpg)
 
 </Step>
 
 <Step>
 ### Confirm it
+
+<UiOrShell>
+<Tab>
+
+Take one last look at the quotation in the screenshot above: the status bar reads
+**Quotation**, and there is no smart button above the form. Both are about to change.
+
+</Tab>
+<Tab>
 
 Movement 2 reads this order twice, once on each side of the button, so take both readings
 before you click anything. A `diff` always compares against your most recent snapshot,
@@ -233,15 +263,30 @@ baseline so the next `diff` shows the confirmation on its own.
 - Run `python3 odoolings.py snapshot --db functional`. This makes "now" the new point
   of comparison.
 
+</Tab>
+</UiOrShell>
+
 Now press **Confirm**. Two things happen that you did not ask for: a **Delivery** smart
 button appears at the top of the order, and the order's status changes.
 
-![The confirmed sales order S00025: a Delivery smart button reading 1 and an Invoices smart button reading 1, top right, with the statusbar past Quotation and Quotation Sent, at Sales Order](/screens/ch22-confirmed-order-delivery.jpg)
+![The confirmed sales order S00025: a Delivery smart button reading 1, the status bar at Sales Order, and in the chatter Quotation → Sales Order (Status), all highlighted](/screens/ch22-confirmed-order-delivery.jpg)
 
 </Step>
 
 <Step>
 ### The quotation, as the database saw it
+
+<UiOrShell>
+<Tab>
+
+You already took this reading, in two screenshots. The opportunity's chatter showed one
+record whose **Type** changed from Lead to Opportunity, under the message that created
+it: converting reused the record, it did not make a second one. And the quotation's
+totals read $316.00 untaxed against $363.40 total, which is four brake pads at 79.00
+plus 47.40 of tax.
+
+</Tab>
+<Tab>
 
 Running `diff` after step 3 (before confirming) gives you the lead conversion and the
 quotation together:
@@ -256,15 +301,36 @@ sale.order.line     +1
       new   Brake Pad Set (Front)    product_uom_qty=4.0  price_unit=79.0
 ```
 
-Your order number will differ, since the sequence keeps counting. Note `+1 crm.lead`,
-not two: converting really did reuse the record. And note `amount_untaxed=316.0` against
-`amount_total=363.4`, which is four brake pads at 79.00 plus 47.40 of tax. Chapter 29
-takes that apart.
+Note `+1 crm.lead`, not two: converting really did reuse the record. And note
+`amount_untaxed=316.0` against `amount_total=363.4`, which is four brake pads at 79.00
+plus 47.40 of tax.
+
+</Tab>
+</UiOrShell>
+
+Your order number may differ, since the sequence keeps counting. Chapter 29 takes the tax
+apart.
 
 </Step>
 
 <Step>
-### Now the interesting diff
+### Now read the confirmation
+
+<UiOrShell>
+<Tab>
+
+On the confirmed order, press the **Delivery** smart button:
+
+![Delivery WH/OUT/00044: Operation Type YourCompany: Delivery Orders, Source Document S00025, status bar at Waiting, and one operation line, Brake Pad Set (Front) with a demand of 4.00 and a Not Available badge; the reference, those fields, the line and the status bar are highlighted](/screens/ch22-delivery-picking.jpg)
+
+That is the delivery order Confirm created: **WH/OUT/00044**, of operation type
+**Delivery Orders**, pointing back at S00025, with one line asking for four Brake Pad
+Sets. The status bar reads **Waiting**, which is the label of state `confirmed`: the
+warehouse has no stock to reserve yet, hence the **Not Available** badge. Back on the
+order, a **Create Invoice** button appeared too; step 8 explains why.
+
+</Tab>
+<Tab>
 
 You took the fresh snapshot and pressed Confirm back in step 4, so all that is left is
 to diff again. Because the baseline was reset immediately before the button, this one
@@ -280,6 +346,9 @@ stock.move          +1
 stock.picking       +1
       new   WH/OUT/00044             state=confirmed  picking_type_id=YourCompany: Delivery Orders
 ```
+
+</Tab>
+</UiOrShell>
 
 One button, four consequences: the order advanced, it became invoiceable, a delivery
 order appeared, and a stock move appeared inside it.
@@ -336,11 +405,30 @@ A file on disk is not the same as an installed module, and only installed module
 contribute code. That grep searched the whole addons directory, so ask the database which
 of the seven you actually have:
 
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Apps**, remove the **Apps** filter, add **Filters →
+Installed**, switch to the list view, and search `sale` (pick **Search Module for:
+sale**). The **Technical Name** column is the name grep printed:
+
+![Apps in list view, filtered on Installed and Module sale: twelve installed modules, with the rows for sale, sale_purchase and sale_stock highlighted](/screens/ch22-installed-bridges.jpg)
+
+`sale`, `sale_purchase` and `sale_stock` are there. `sale_project` and
+`website_sale_slides` are not. Search `delivery` and `repair` the same way if you want
+to rule those out too.
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec db psql -U odoo -d functional -t -c \
   "select string_agg(name,', ' order by name) from ir_module_module where state='installed' and name in ('sale','sale_stock','sale_purchase','sale_project','delivery','repair','website_sale_slides');"
  sale, sale_purchase, sale_stock
 ```
+
+</Tab>
+</UiOrShell>
 
 Three of the seven, and you never asked for two of them. `sale_stock` and `sale_purchase`
 both carry `auto_install: True` in their manifest, which tells Odoo to install them the
@@ -381,6 +469,30 @@ forms in core.
 <Step>
 ### Prove the invoice policy claim yourself
 
+<UiOrShell>
+<Tab>
+
+Open **Sales → Products → Products → Brake Pad Set**. On the **General Information**
+tab, **Invoicing Policy** sits right under **Product Type**:
+
+![The Brake Pad Set product form: Product Type Goods and Invoicing Policy Ordered quantities, both highlighted](/screens/ch22-brake-pad-invoicing-policy.jpg)
+
+Now open **Office Chair**, a demo product:
+
+![The Office Chair product form: Product Type Goods and Invoicing Policy Delivered quantities, both highlighted](/screens/ch22-office-chair-invoicing-policy.jpg)
+
+Same product type, opposite billing behaviour. Now look at your confirmed order again:
+
+![Sales order S00025 after confirmation: a Create Invoice button, the line's Delivered and Invoiced columns both at 0.00, and the totals, all highlighted](/screens/ch22-order-invoiceable.jpg)
+
+Nothing delivered, nothing invoiced, and yet **Create Invoice** is offered. **Sales →
+To Invoice → Orders to Invoice** agrees, listing S00025 as **To Invoice**:
+
+![Sales, To Invoice, Orders to Invoice: S00025 for Acme Corporation, $363.40, Invoice Status To Invoice, with the row and the To Invoice menu highlighted](/screens/ch22-orders-to-invoice.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
 ```
@@ -405,9 +517,13 @@ Same product type, opposite billing behaviour. Now look at your order line:
 'to invoice'
 ```
 
+</Tab>
+</UiOrShell>
+
 Nothing has shipped, and it is already fully invoiceable, because this product bills on
-ordered quantities. Quote the Office Chair instead and `qty_to_invoice` would be `0.0`,
-with invoicing refused until you deliver. Chapter 28 does the invoicing properly.
+ordered quantities. Quote the Office Chair instead and nothing would be invoiceable
+(`qty_to_invoice` would be `0.0`) until you deliver. Chapter 28 does the invoicing
+properly.
 </Step>
 
 </Steps>

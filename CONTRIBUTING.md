@@ -113,6 +113,24 @@ description: One sentence.
 ## Further reading      <- official docs, OCA examples
 ```
 
+- **UI first, shell optional.** Wherever a reader can do a step by clicking (creating
+  records, settings, **Apps → ⋮ → Upgrade**, reading results through developer mode
+  and **Settings → Technical**), the UI is the main path and the command goes in a
+  second tab:
+
+  ```mdx
+  <UiOrShell>
+  <Tab>
+  ...the clicks, with a screenshot per step...
+  </Tab>
+  <Tab>
+  ...the same step in the shell...
+  </Tab>
+  </UiOrShell>
+  ```
+
+  The reader's choice of tab is remembered across chapters. The shell stays the only
+  path where it is the lesson: the ORM in `odoo shell`, tests, git, reading core source.
 - **Hands-on chapters register `odoolings` checks** for their end state, and Verify
   runs them. New jargon gets a glossary entry (`web/content/docs/glossary.mdx`) the
   same day.
@@ -140,7 +158,10 @@ description: One sentence.
   to follow along. Links out are for going deeper, always pinned to
   `/documentation/19.0/`.
 - **Screenshots** come from the real running instance, captured while the chapter is
-  written, with the browser viewport pinned so a chapter's images match. Files go in
+  written, with the browser viewport pinned so a chapter's images match. Every UI step
+  gets one, with what the reader must click or read outlined in red, taken against a
+  database in the state that chapter's reader has (and named like theirs: developer
+  mode prints the database name in the top bar). Files go in
   `web/public/screens/`, referenced as `/screens/...` with plain markdown `![]()`
   (MDX has no `<http://...>` autolinks; it parses them as JSX). Check every UI claim
   against the screen, not against `ir.ui.menu`: the web client filters menus by
