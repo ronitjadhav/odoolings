@@ -1,6 +1,6 @@
 ---
 title: "27. Accounting Foundations: Double-Entry & account.move"
-description: Write a journal entry by hand, then discover that the invoice you made in chapter 22 is the very same model.
+description: Write a journal entry by hand, then discover that a customer invoice is the very same model.
 ---
 
 **Goal:** understand double-entry well enough to read any Odoo accounting record, and
@@ -26,7 +26,7 @@ that treats invoices as a special case, then cannot explain why the accounting i
 
 So this chapter does it in the honest order. First you hand-write a journal entry, which
 forces you to meet debits and credits with nothing else in the way. Then you go and look
-at the invoice chapter 22 produced, and find it is built from exactly the same parts.
+at a real customer invoice, and find it is built from exactly the same parts.
 
 ## Concepts
 
@@ -88,7 +88,7 @@ from a moment ago is the example running through it.
   Each carries an `account_type` (`asset_receivable`, `asset_cash`, `expense`, `income`,
   `equity`, and so on), and that type is what reports group by, which is how a report can
   say "assets" without hard-coding account numbers. Your demo database ships a generic
-  chart with 55 accounts visible to this company. Only *this* company: the same
+  chart with 51 accounts visible to this company. Only *this* company: the same
   multi-company visibility rule that the Gotchas section below shows journals obeying.
 - A <Term k="journal (`account.journal`)">`account.journal`</Term> is the book an entry is written in, and it owns the numbering
   sequence. Sales, Purchases, Bank and Miscellaneous are the ones you will meet first.
@@ -197,8 +197,8 @@ firing for real.
 ## Hands-on
 
 Continuing in the `functional` database. First you hand-write and post a journal entry,
-then you read what posting it actually did, and find the invoice from chapter 22 built
-from the exact same parts.
+then you read what posting it actually did, and find a customer invoice built from the
+exact same parts.
 
 <Callout type="warn" title="Half the accounting menus are missing, on purpose">
   Community's accounting app is called **Invoicing** (the one called Accounting is the
@@ -228,7 +228,9 @@ from the exact same parts.
 
   Save, then **hard-refresh** (F5, not a client-side navigation) any accounting page:
   the server sees the new group immediately, but the browser session's own cache of your
-  groups does not, so a plain click-through still shows the old, line-free form.
+  groups does not, so a plain click-through still shows the old, line-free form. After the
+  refresh the missing menus are there too: an **Accounting** menu with **Journal
+  Entries**, a **Review** menu, and **Chart of Accounts** under **Configuration**.
 </Callout>
 
 <Steps>
@@ -236,15 +238,22 @@ from the exact same parts.
 <Step>
 ### Look at the chart of accounts and the journals
 
-Open the chart of accounts at
-`http://localhost:8069/odoo/action-account.action_account_form`, sort by code and scroll.
-Note the **Type** column: that is `account_type`, and it is what makes a report able to
-say "assets" without hard-coding account numbers.
+Open **Invoicing → Configuration → Chart of Accounts**. Note the **Type** column: that is
+`account_type`, and it is what makes a report able to say "assets" without hard-coding
+account numbers.
 
-![The Chart of Accounts list, 55 accounts for this company, sorted by code with Type and Allow Reconciliation columns visible](/screens/ch27-chart-of-accounts.jpg)
+![The Chart of Accounts list, 51 accounts for this company sorted by code, with the Type column and the 1-51 / 51 pager highlighted](/screens/ch27-chart-of-accounts.jpg)
 
 Then **Invoicing → Configuration → Journals** (it sits under the *Accounting* heading in
-that dropdown). Eleven for this company, in this same `functional` database:
+that dropdown). Seven for this company, in this same `functional` database.
+
+<UiOrShell>
+<Tab>
+
+![The Journals list: Sales, Purchases, Bank, Miscellaneous Operations, then Exchange Difference, Cash Basis Taxes and Inventory Valuation, the last three highlighted](/screens/ch27-journals.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -258,32 +267,34 @@ INV Sales sale
 BILL Purchases purchase
 BNK1 Bank bank
 MISC Miscellaneous Operations general
-CSH1 Cash Furn. Shop cash
-CSH2 Cash Clothes Shop cash
-CSH3 Cash Bakery cash
 CABA Cash Basis Taxes general
 EXCH Exchange Difference general
-POSS Point of Sale general
 STJ Inventory Valuation general
 ```
+
+</Tab>
+</UiOrShell>
 
 Three of those are worth noticing now. **STJ, Inventory Valuation**, is where chapter
 30's stock accounting lands. **CABA** and **EXCH** exist so tax-on-payment and currency
 movements have somewhere to go, which is a good early hint that Odoo would rather create
-a journal than fudge a number. The three **CSH** journals and **POSS** are here because
-this same `functional` database gets `point_of_sale` installed later, for chapter 42;
-if you are working through the tutorial in order and have not reached that chapter yet,
-you will only see the first seven.
+a journal than fudge a number. Chapter 42 installs `point_of_sale` in this same
+database, and four more journals (three **CSH** cash journals and **POSS**) join this
+list then.
 
 </Step>
 
 <Step>
 ### Try to post an entry that does not balance
 
-Journal entries are the other gated screen, so open them the same way:
-`http://localhost:8069/odoo/action-account.action_move_journal_line`
+If you read results in the shell, take a snapshot first, for the `diff` in step 5:
 
-Press **New**, pick the **Miscellaneous Operations** journal, and on the **Journal Items**
+```console
+$ python3 odoolings.py snapshot --db functional
+```
+
+Open **Invoicing → Accounting → Journal Entries**, another screen the group unlocked. Press
+**New**, pick the **Miscellaneous Operations** journal, and on the **Journal Items**
 tab (the one the callout above unlocked for you) add two lines:
 
 - Account `611000 Purchase of Equipments`, **Label** `Workshop tool cabinet`, **Debit**
@@ -351,7 +362,10 @@ draft and a posted entry, and you need the draft to exist to see it.
 
 This time the save succeeds, because the entry balances.
 
-![A saved but unposted journal entry: Draft in the statusbar, no entry number, two balanced lines of 250.00 debit and credit](/screens/ch27-entry-saved-draft.jpg)
+![A saved but unposted journal entry: the title showing MISC/2026/10/0001 in grey, the Draft stage, and the balanced 250.00 debit and credit totals, all highlighted](/screens/ch27-entry-saved-draft.jpg)
+
+The grey number in the title is only a placeholder: Odoo's preview of the number posting
+will take. The field itself is still empty.
 
 Now grab a handle on it from the
 shell you opened in step 1:
@@ -375,8 +389,9 @@ then spend the next two steps reading a record you never touched.
 <Step>
 ### The number arrives on posting, not on creation
 
-That draft has no number at all. Its `name` came back as `False`, not `"/"` and not an
-empty string: there was no number to show, because none had been requested yet.
+That draft has no number at all, whatever the grey placeholder suggests. Its `name` came
+back as `False`, not `"/"` and not an empty string: there was no number to show, because
+none had been requested yet.
 
 Now press **Post** in the browser.
 
@@ -388,12 +403,11 @@ fields to watch them change:
 ```python
 >>> env.cr.rollback()
 >>> mv.name, mv.state          # after posting
-('MISC/2026/08/0004', 'posted')
+('MISC/2026/10/0001', 'posted')
 ```
 
 The number arrived at posting time, and it encodes the journal code and the period: `MISC`,
-year, month, counter. Your own counter will differ from the one above, since this database
-has been through the exercise more than once.
+year, month, counter. Your own year and month will be the day you do this.
 
 Then confirm the rule Odoo just enforced:
 
@@ -409,14 +423,26 @@ Then confirm the rule Odoo just enforced:
 <Step>
 ### What the diff saw
 
+<UiOrShell>
+<Tab>
+
+The posted entry is the reading: one document, the two lines you typed, 250.00 on each
+side.
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
 account.move        +1
-      new   MISC/2026/08/0004        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
+      new   MISC/2026/10/0001        move_type=entry  state=posted  amount_total=250.0  payment_state=not_paid
 account.move.line   +2
-      new   Workshop tool cabinet    account_id=Purchase of Equipments  debit=250.0
-      new   Paid from bank           account_id=Bank  credit=250.0
+      new   Workshop tool cabinet    account_id=611000 Purchase of Equipments  debit=250.0
+      new   Paid from bank           account_id=101401 Bank  credit=250.0
 ```
+
+</Tab>
+</UiOrShell>
 
 One document, two lines, one debit, one credit, equal amounts. That is a complete
 accounting transaction and there is nothing else hiding behind it.
@@ -429,8 +455,23 @@ accounting transaction and there is nothing else hiding behind it.
 This step and the next one are the payoff, and they do two separate jobs. This one proves
 there is only one notebook. The next one opens a page and looks underneath.
 
-So: ask the model how many documents it is holding of each kind. The loop walks every
-possible label and counts the documents wearing it, skipping the labels nothing uses yet:
+So: ask the model how many documents it is holding of each kind.
+
+<UiOrShell>
+<Tab>
+
+The **Journal Entries** list you just used can answer that. Remove its **Posted** chip,
+open the search panel, and under **Group By** pick **Type** from **Custom Group**:
+
+![The Journal Entries list grouped by the custom group Type: Journal Entry (13), Vendor Bill (3), Vendor Credit Note (1), Customer Invoice (9) and Customer Credit Note (4), all highlighted with the Type facet and the Journal Entries title](/screens/ch27-entries-by-type.jpg)
+
+One menu, one list, and every kind of document in it.
+
+</Tab>
+<Tab>
+
+The loop walks every possible label and counts the documents wearing it, skipping the
+labels nothing uses yet:
 
 ```python
 >>> M = env["account.move"]
@@ -439,17 +480,23 @@ possible label and counts the documents wearing it, skipping the labels nothing 
 ...     if n:
 ...         print(f"{mt:12} {n}")
 ...
-entry        26
+entry        25
 out_invoice  18
 out_refund   8
-in_invoice   4
+in_invoice   5
 in_refund    2
 ```
 
-Five labels came back, and every one of those counts came out of **the same table**. Not
+These count every company's documents: the shell skips the company filter the list
+applies (the Gotchas come back to that).
+
+</Tab>
+</UiOrShell>
+
+Five kinds came back, and every one of those counts came out of **the same table**. Not
 five tables for five kinds of document: one table, holding customer invoices, credit notes,
 vendor bills, vendor refunds and plain hand-written entries side by side. Your own hand-made
-entry from three steps ago is one of the 26 `entry` records.
+entry from three steps ago is one of the `entry` records.
 
 The counts themselves do not matter and will not match yours, because every sale, purchase
 and manufacturing order you have posted since chapter 21 added a document here. Only the
@@ -464,9 +511,20 @@ expects.)
 <Step>
 ### Open one invoice and look underneath
 
-Now take a real customer invoice, one Odoo made for you back in chapter 22, and see what
-it is actually built from. It is pinned by name so the example stays this simple one no
-matter how many invoices your database has accumulated since:
+Now take a real customer invoice, one the demo data made for you, and see what it is
+actually built from. It is pinned by name so the example stays this simple one no matter
+how many invoices your database has accumulated since.
+
+<UiOrShell>
+<Tab>
+
+Open **Invoicing → Customers → Invoices**, search `INV/2026/00008`, and open its
+**Journal Items** tab (the group unlocked that one too):
+
+![Customer invoice INV/2026/00008 for LightsUp, Posted, on its Journal Items tab: 400000 Product Sales credited 750.00 and 121000 Account Receivable debited 750.00, the tab and both lines highlighted](/screens/ch27-invoice-journal-items.jpg)
+
+</Tab>
+<Tab>
 
 ```python
 >>> inv = env["account.move"].search([("name", "=", "INV/2026/00008"),
@@ -479,6 +537,9 @@ matter how many invoices your database has accumulated since:
 400000 Product Sales 0.0 750.0
 121000 Account Receivable 750.0 0.0
 ```
+
+</Tab>
+</UiOrShell>
 
 Underneath the invoice there are just two plain lines. Read them exactly like the tool
 cabinet you typed by hand:
@@ -500,6 +561,8 @@ one of these yourself in a form with two boxes; Odoo generated the other one fro
 order and drew it with a customer name, a due date and a Send button. That difference is
 `move_type` plus a different form view, and it is the entire difference.
 
+In the shell, one more line confirms it:
+
 ```python
 >>> sum(inv.line_ids.mapped('debit')) == sum(inv.line_ids.mapped('credit'))
 True
@@ -515,19 +578,28 @@ changing.
 <Step>
 ### Lock the sales period, and watch the invoice defend itself
 
+This one stays in the shell: Community has no screen for lock dates.
 `sale_lock_date` is the one that doesn't hit the unreconciled-lines check, so it's
 the cleanest way to see the actual edit-blocking behavior rather than the
-book-cleanliness check that fires first on the broader locks:
+book-cleanliness check that fires first on the broader locks. Lock the sales period on
+the invoice's own date. If you clicked through step 7, open the shell and fetch the
+invoice first:
 
 ```python
->>> env.company.sale_lock_date = '2026-08-10'
+>>> inv = env["account.move"].search([("name", "=", "INV/2026/00008"),
+...                                   ("company_id", "=", env.company.id)], limit=1)
+```
+
+```python
+>>> env.company.sale_lock_date = inv.invoice_date
 >>> inv.button_draft()
 Traceback (most recent call last):
     ...
-odoo.exceptions.UserError: You cannot add/modify entries prior to and inclusive of: Sales Lock Date (08/10/2026).
+odoo.exceptions.UserError: You cannot add/modify entries prior to and inclusive of: Sales Lock Date (10/07/2026).
 ```
 
-The invoice from step 7, dated `2026-08-05`, is now inclusive of that lock. Nobody
+The invoice from step 7 is now inclusive of that lock (your date will be the day your
+demo database was created). Nobody
 can reopen it, not through the UI, not through a script, not through this exact
 shell session. Reset it before you move on, it's shared demo data:
 
@@ -564,9 +636,9 @@ ch27 complete! On to the next chapter 🔧
   psql queries against a `code` column, because the value lives in
   `account.code.mapping` rather than on the account row.
 - **The shell does not apply the company filter the interface does.** This demo database
-  has three companies and eighteen journals, but only eleven belong to the active one
-  (eleven is the count from step 1; it is seven if you have not yet reached chapter 42 and
-  installed `point_of_sale`, which adds four to this company). A
+  has three companies and fourteen journals, but only seven belong to the active one
+  (seven is the count from step 1; chapter 42's `point_of_sale` later adds four to this
+  company). A
   bare `search([])` in a script crosses company boundaries in a way the same action in
   the interface would not, which is a genuinely dangerous difference when you are writing
   a fix against production data.
@@ -608,7 +680,7 @@ ch27 complete! On to the next chapter 🔧
         'The journal has no sequence configured, so numbering silently returns nothing',
       ],
       answer: 1,
-      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/08/0004", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
+      why: 'A draft move stores False in name, verified in the chapter: (False, "draft") before posting and ("MISC/2026/10/0001", "posted") after. The journal sequence is only asked for a number at posting time, which is exactly why accounting numbering has no gaps. Nothing is consumed and rolled back.',
     },
     {
       q: 'Reading line.account_id.code in a script returns False, though the account clearly has a code in the interface. Why?',
