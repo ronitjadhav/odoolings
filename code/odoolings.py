@@ -2343,8 +2343,8 @@ def a_reordering_rule_exists_for_brake_pads(env):
                      [("product_id", "in", variants)],
                      fields=["product_min_qty", "product_max_qty"])
     assert rules, (
-        "no reordering rule exists for the Brake Pad Set. Inventory > Configuration > "
-        "Reordering Rules > New, and set a minimum and maximum. Chapter 35 covers the "
+        "no reordering rule exists for the Brake Pad Set. Inventory > Operations > "
+        "Replenishment > New, and set a minimum and maximum. Chapter 35 covers the "
         "scheduled action that actually acts on it.")
     assert rules[0]["product_max_qty"] > rules[0]["product_min_qty"] >= 0, (
         "the rule's max (%s) should be greater than its min (%s)"

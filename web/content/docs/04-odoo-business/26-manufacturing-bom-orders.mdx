@@ -99,6 +99,13 @@ second reads what running it actually did.
 <Step>
 ### Stock two components
 
+If you read results in the shell, take a snapshot before you start, and a fresh one after
+reading each `diff` in this chapter, so every diff shows one step:
+
+```console
+$ python3 odoolings.py snapshot --db functional
+```
+
 A recipe needs ingredients, so build the two components first. Both are ordinary stocked
 goods.
 
@@ -125,33 +132,60 @@ What opens is a live list of the quants that already exist, so your two new prod
 **not on it yet**: a product with no stock anywhere has no quant to list. Click **New**
 and the list grows an editable row at the bottom. Fill in three fields:
 
-- **Location**: `WH/Stock`
+- **Location**: `WH/Stock` (it is usually filled in already)
 - **Product**: `Friction Material`
 - **Counted**: `20`. The **Difference** column appears the moment you type it, reading
   +20.00 against an **On Hand** of zero.
 
 Click **New** again and repeat for `Backing Plate`, same location, same 20.
 
-Now post the count. Each row grows its own **Apply** button (the little save icon at the
-end of the row) as soon as it has a Counted value, so clicking that on both rows applies
-them one at a time. The header's **Apply All** does the whole sheet at once instead,
-after asking for an Inventory Reason. Despite the thirty-odd demo rows around yours,
-Apply All is safe: it only posts rows where somebody entered a Counted value, leaving the
-untouched furniture exactly as it was.
+![The Physical Inventory count, scrolled to the bottom: the two new rows, Friction Material and Backing Plate in WH/Stock, each with On Hand 0.00, Counted 20.00, Difference 20.00 and its own Apply button, highlighted](/screens/ch26-count-rows.jpg)
 
-![The Physical Inventory count screen, listing every stocked product with its On Hand, Counted and Difference columns; Backing Plate, Brake Pad Set (Front) and Friction Material appear among the rows](/screens/ch26-physical-inventory-count.jpg)
+Now post the count. Each row has its own **Apply** button as soon as it has a Counted
+value, so clicking that on both rows applies them one at a time. The header's **Apply
+All** does the whole sheet at once instead, after asking for an Inventory Reason. Despite
+the thirty-odd demo rows around yours, Apply All is safe: it only posts rows where somebody
+entered a Counted value, leaving the untouched furniture exactly as it was.
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Reporting → Moves History**, searched for the two products, shows how the
+count was recorded: one move each, from **Inventory adjustment** to **WH/Stock**, 20 units.
+
+![Moves History for Friction Material or Backing Plate: the two Product Quantity Updated moves from Inventory adjustment to WH/Stock, 20.00 each, highlighted. The two WH/MO/00007 rows above them only appear after step 5; this capture was taken at the end of the chapter](/screens/ch26-count-moves.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
-product.template     +2
+product.product     +2
+      new   Friction Material        lst_price=1.0
+      new   Backing Plate            lst_price=1.0
+product.template    +2
       new   Friction Material        list_price=1.0  type=consu
       new   Backing Plate            list_price=1.0  type=consu
-stock.quant          +4
+stock.move          +2
+      new   Friction Material        reference=Product Quantity Updated (Mitchell Admin)  product_uom_qty=20.0  state=done
+      new   Backing Plate            reference=Product Quantity Updated (Mitchell Admin)  product_uom_qty=20.0  state=done
+stock.quant         ~
       new   Friction Material        location_id=WH/Stock  quantity=20.0
-      new   Friction Material        location_id=Inventory adjustment  quantity=-20.0
       new   Backing Plate            location_id=WH/Stock  quantity=20.0
+      new   Friction Material        location_id=Inventory adjustment  quantity=-20.0
       new   Backing Plate            location_id=Inventory adjustment  quantity=-20.0
+      gone  [E-COM10] Pedal Bin
+      gone  Large Desk (Wood)
+      gone  [FURN_7777] Office Chair
+      gone  Brake Pad Set (Front)
 ```
+
+The four `gone` lines are not your doing. Opening the count screen tidies away quants
+that hold nothing: three sold-out demo products, and the brake pads' `WH/Input` quant that
+chapter 25's storage transfer drained to zero.
+
+</Tab>
+</UiOrShell>
 
 Even a manual stock count is double-entry: Odoo invents nothing, it moves the 20 units
 from a virtual **Inventory adjustment** location into your warehouse, the same pattern
@@ -167,7 +201,8 @@ one more time.
 - **Product**: `Brake Pad Set`
 - **Quantity**: 1
 - Components: `Friction Material` × **0.5**, `Backing Plate` × **1**
-- One operation: **Bond friction material**, work center **Assembly 1**
+- One operation: on the **Operations** tab, **Add Operation**, name it **Bond friction
+  material**, work center **Assembly 1**, and save it.
 
 ![The Brake Pad Set bill of materials, Components tab: Friction Material at 0.50 and Backing Plate at 1.00, BoM Type set to Manufacture this product](/screens/ch26-brake-pad-set-bom.jpg)
 
@@ -177,7 +212,16 @@ one more time.
 ### Manufacture 4 of them
 
 **Manufacturing → Operations → Manufacturing Orders → New**, product
-`Brake Pad Set (Front)`, quantity **4**. Look at the order before you do anything else to it:
+`Brake Pad Set (Front)`, quantity **4**, then **save**. The title reads *New* until you
+do: the order only gets its name, and only exists in the database, once it is saved.
+
+<UiOrShell>
+<Tab>
+
+![Manufacturing order WH/MO/00007 just saved: its name, the Draft stage and the Confirm button highlighted; the Components tab lists Friction Material 2.00 and Backing Plate 4.00 to consume, both Available](/screens/ch26-mo-draft.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -189,7 +233,10 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 ('WH/MO/00007', 'draft')
 ```
 
-Named, in draft. Press **Confirm**, then **Mark as Done** (skip the quality/work-order
+</Tab>
+</UiOrShell>
+
+Named, in draft. Press **Confirm**, then **Produce All** (skip the quality/work-order
 prompts if you are asked; a basic recipe like this one does not need them).
 
 </Step>
@@ -197,34 +244,64 @@ prompts if you are asked; a basic recipe like this one does not need them).
 <Step>
 ### Confirming reserved the components
 
+<UiOrShell>
+<Tab>
+
+Right after **Confirm**, the order looks like this:
+
+![WH/MO/00007 confirmed: the Produce All button and the Confirmed stage highlighted, and the components' To Consume and Consumed columns, 2.00 and 4.00, highlighted](/screens/ch26-mo-confirmed.jpg)
+
+The chatter logs the order going Ready, the components are marked Available, and their
+quantities are already filled in: reserved, but nothing has moved yet.
+
+</Tab>
+<Tab>
+
 ```console
 $ python3 odoolings.py diff --db functional
-mrp.production       +1
+mrp.production      +1
       new   WH/MO/00007              state=confirmed  product_qty=4.0
-stock.move           +3
+stock.move          +3
       new   Friction Material        reference=WH/MO/00007  product_uom_qty=2.0  state=assigned
       new   Backing Plate            reference=WH/MO/00007  product_uom_qty=4.0  state=assigned
       new   Brake Pad Set (Front)    reference=WH/MO/00007  product_uom_qty=4.0  state=assigned
 ```
 
+</Tab>
+</UiOrShell>
+
 Three moves for one order: two raw materials, already scaled to 4 units (0.5 x 4 = 2,
-1 x 4 = 4), and one for the finished good. All three are only `assigned`, reserved, not
+1 x 4 = 4), and one for the finished good. All three are only reserved (`assigned`), not
 yet moved.
 
 </Step>
 
 <Step>
-### Marking it done executes all three at once
+### Producing it executes all three at once
+
+<UiOrShell>
+<Tab>
+
+After **Produce All**, the order is Done:
+
+![Manufacturing order WH/MO/00007, statusbar at Done, quantity 4.00 / 4.00, Components tab showing Friction Material 2.00 consumed and Backing Plate 4.00 consumed](/screens/ch26-manufacturing-order-done.jpg)
+
+**Moves History**, searched for reference `WH/MO/00007`, shows the three moves it made:
+
+![Moves History for WH/MO/00007: Brake Pad Set (Front) from Production to WH/Stock 4.00, Backing Plate from WH/Stock to Production 4.00, Friction Material from WH/Stock to Production 2.00, with the products and the From, To and Quantity columns highlighted](/screens/ch26-mo-moves.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ python3 odoolings.py diff --db functional
-mrp.production       ~
+mrp.production      ~
       chg   WH/MO/00007              state: confirmed -> done
-stock.move           ~
+stock.move          ~
       chg   Brake Pad Set (Front)    state: assigned -> done
       chg   Backing Plate            state: assigned -> done
       chg   Friction Material        state: assigned -> done
-stock.quant          +3
+stock.quant         +3
       new   Friction Material        location_id=Production  quantity=2.0
       new   Backing Plate            location_id=Production  quantity=4.0
       new   Brake Pad Set (Front)    location_id=Production  quantity=-4.0
@@ -233,14 +310,6 @@ stock.quant          +3
       chg   Brake Pad Set (Front)    quantity: 15.0 -> 19.0
 ```
 
-![Manufacturing order WH/MO/00007, statusbar at Done, quantity 4.00 / 4.00, Components tab showing Friction Material 2.00 consumed and Backing Plate 4.00 consumed](/screens/ch26-manufacturing-order-done.jpg)
-
-Read the Production quants as one small ledger. Friction Material and Backing Plate
-arrive there positive (where the components went), and Brake Pad Set arrives **negative**
-(where the finished good came from). Meanwhile Stock lost 2 Friction, lost 4 Backing
-Plate, and gained 4 Brake Pad Set. Every number ties to the recipe: 0.5 and 1.0 per unit,
-times 4 produced.
-
 ```python
 >>> friction = env["product.product"].search([("name", "=", "Friction Material")])
 >>> plate = env["product.product"].search([("name", "=", "Backing Plate")])
@@ -248,6 +317,15 @@ times 4 produced.
 >>> friction.qty_available, plate.qty_available, front.qty_available
 (18.0, 16.0, 19.0)
 ```
+
+</Tab>
+</UiOrShell>
+
+Read **Production** as one small ledger. Friction Material and Backing Plate arrive there
+(where the components went), and Brake Pad Set leaves it (where the finished good came
+from), so its Production balance goes **negative**. Meanwhile Stock lost 2 Friction, lost
+4 Backing Plate, and gained 4 Brake Pad Set: 18, 16 and 19 on hand now. Every number ties
+to the recipe: 0.5 and 1.0 per unit, times 4 produced.
 
 Two components in, one product out, every quantity accounted for.
 </Step>
@@ -270,7 +348,7 @@ ch26 complete! On to the next chapter 🔧
 - **A manufacturing order gets its name at creation, not confirmation.** This is the one
   document type in this whole part that breaks the "no name until posted" pattern
   chapters 27 and 28 established. Do not assume it generalises to every document.
-- **Confirming reserves; Mark as Done executes.** Between the two, the raw material and
+- **Confirming reserves; Produce All executes.** Between the two, the raw material and
   finished-good moves sit at `assigned`, which is a real, inspectable state, not a
   placeholder. If component quantities look unconsumed, check whether the order was ever
   actually marked done.
@@ -309,7 +387,7 @@ ch26 complete! On to the next chapter 🔧
       why: 'The BoM line quantity is per single unit of the finished product, so a run of 4 scales it: 0.5 times 4 equals 2.0, which is exactly what the completed order consumed. Backing Plate at 1.0 per unit consumed 4.0 for the same run. Consumption should always scale with product_qty times each line, never stay fixed at the BoM line value.',
     },
     {
-      q: 'Right after Mark as Done, where do you find a quant showing the finished product with a negative quantity?',
+      q: 'Right after Produce All, where do you find a quant showing the finished product with a negative quantity?',
       options: [
         'Nowhere; negative quants are always an error and should be investigated',
         'At the Production location, the virtual point the output move is recorded as leaving',
@@ -326,7 +404,7 @@ ch26 complete! On to the next chapter 🔧
         'The components are the wrong product, so Odoo silently refuses to consume them',
       ],
       answer: 1,
-      why: 'Confirming an order reserves its raw materials and creates the finished-good move, but everything stays at assigned until Mark as Done actually executes the moves. Missing operations do not block execution (plenty of valid BoMs have none), and a wrong component would raise an error rather than sitting reserved silently.',
+      why: 'Confirming an order reserves its raw materials and creates the finished-good move, but everything stays at assigned until Produce All actually executes the moves. Missing operations do not block execution (plenty of valid BoMs have none), and a wrong component would raise an error rather than sitting reserved silently.',
     },
   ]}
 />

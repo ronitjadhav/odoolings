@@ -200,7 +200,42 @@ like a user. Then you **read what it did**, which is where the learning is.
 <Step>
 ### Build the functional database
 
-Once, and reused by chapters 22 to 30:
+Once, and reused by chapters 22 to 30. The apps are Sales, Purchase, Inventory,
+Manufacturing and CRM, on a database with demo data.
+
+<UiOrShell>
+<Tab>
+
+Open the database manager at
+[http://localhost:8069/web/database/manager](http://localhost:8069/web/database/manager)
+and click **Create Database**. Fill in **Database Name** `functional`, **Email** `admin`
+and **Password** `admin`, tick **Demo Data**, and click **Continue**:
+
+![The Create Database dialog: Database Name functional, Email admin and a masked Password highlighted, Demo Data ticked and highlighted, and the Continue button highlighted](/screens/ch21-create-database.jpg)
+
+Leave the **Master Password** Odoo proposes as it is. Your `odoo.conf` still has the
+insecure default, so Odoo generates a new one and tries to write it into that file. The
+starter mounts the file read-only, so the write fails quietly (the server log says
+`ERROR: couldn't write the config file`) and the new password only lasts until the next
+restart. Nothing to fix; just don't be surprised by the line.
+
+About ten seconds later you land in the new database, on **Apps**, already logged in. Its
+**Email** is the login, so from now on that is `admin` / `admin`. Switch Apps to the
+list view (the icon at the top right), tick **Sales**, **CRM**, **Inventory**,
+**Purchase** and **Manufacturing**, and click **Activate** once for all five:
+
+![The Apps list view with five rows ticked and highlighted (Sales, CRM, Inventory, Purchase, Manufacturing) and the Activate button highlighted above them](/screens/ch21-activate-five-apps.jpg)
+
+That is one install of all five, like the shell tab's `-i`, and it takes about a minute.
+Then filter Apps on **Installed**. Six apps are there rather than five: **Invoicing**
+(`account`) came along because Sales depends on it.
+
+![The Apps kanban filtered on Installed, the first six cards highlighted: Sales, Invoicing, CRM, Inventory, Purchase, Manufacturing](/screens/ch21-installed-apps.jpg)
+
+Your `tutorial` database is untouched, and stays that way for the whole of Parts 4 and 5.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
@@ -242,6 +277,9 @@ This database was created from the command line rather than from the database ma
 so it carries core's default credentials: login `admin`, password `admin`. Your
 `tutorial` database is untouched, and stays that way for the whole of Parts 4 and 5.
 
+</Tab>
+</UiOrShell>
+
 </Step>
 
 <Step>
@@ -261,7 +299,7 @@ Whenever you want a clean baseline, take another snapshot first.
 
 ```console
 $ python3 odoolings.py snapshot --db functional
-snapshot: 15 models, 705 records (database 'functional')
+snapshot: 19 models, 941 records (database 'functional')
 
 Now do something in the interface, then: odoolings.py diff --db functional
 ```
@@ -314,7 +352,30 @@ up.
 </Step>
 
 <Step>
-### Confirm the relationship from the shell
+### Confirm the relationship
+
+<UiOrShell>
+<Tab>
+
+Click the **Variants** smart button on Brake Pad Set. The breadcrumb says where you came
+from, and the list holds two records, one per axle:
+
+![The Product Variants list opened from Brake Pad Set: breadcrumb Products / Brake Pad Set / Product Variants, and two rows, Brake Pad Set with Axle: Front and with Axle: Rear, both at 79.00](/screens/ch21-variants-list.jpg)
+
+Now find where the name lives. With developer mode on, open **Settings → Technical →
+Database Structure → Fields**, search **Model** for `product.template` and again for
+`product.product`, then **Field** for `name`. Open **name** on **Product**: **Stored** is
+ticked.
+
+![The Name (Product) field record: Model Product and the ticked Stored checkbox highlighted](/screens/ch21-template-name-stored.jpg)
+
+Go to the next record, **name** on **Product Variant**. **Stored** is not ticked there,
+and the **Compute** tab tells you why:
+
+![The Name (Product Variant) field record on its Compute tab: Model Product Variant and Related Field Definition product_tmpl_id.name highlighted](/screens/ch21-variant-name-related.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -336,6 +397,9 @@ True
 >>> env["product.product"]._fields["name"].related
 'product_tmpl_id.name'
 ```
+
+</Tab>
+</UiOrShell>
 
 Stored on the template, *related* on the variant. Exactly the mechanism chapter 13
 taught you, used by core on the model you will meet most often.
@@ -366,6 +430,31 @@ nothing. Worth remembering the first time a psql query on a name comes back empt
 <Step>
 ### Look at the partner model wearing all four hats
 
+<UiOrShell>
+<Tab>
+
+**Invoicing → Customers → Customers** opens on a **Customer Invoices** filter, which is
+`customer_rank > 0`: four partners.
+
+![The Customers list with its Customer Invoices facet and the pager reading 1-4 / 4 highlighted: Acme Corporation, OpenWood, Azure Interior, LightsUp](/screens/ch21-customers.jpg)
+
+**Invoicing → Vendors → Vendors** is the same model behind a **Vendor Bills** filter,
+`supplier_rank > 0`: two.
+
+![The Vendors list with its Vendor Bills facet and the pager reading 1-2 / 2 highlighted: Ready Mat and Gemini Furniture](/screens/ch21-vendors.jpg)
+
+Remove that chip and tick **Companies** instead: twelve. Ticking Customer Invoices and
+Vendor Bills together would not show you the overlap, by the way: they sit side by side
+in the filter menu, so they OR (chapter 18). That question is the shell tab's.
+
+Open **Acme Corporation** from the companies. It is a company, and its **Contacts** tab
+lists its people, each one another `res.partner` record:
+
+![Acme Corporation's form: the Person/Company switch on Company and the three contact cards (Addison Olson, Douglas Fletcher, Floyd Steward) highlighted](/screens/ch21-acme-contacts.jpg)
+
+</Tab>
+<Tab>
+
 ```python
 >>> P = env["res.partner"]
 >>> P.search_count([("is_company", "=", True)])
@@ -390,12 +479,23 @@ climbs the moment you buy from someone you also sell to. Confirm the hierarchy t
 ['Addison Olson', 'Douglas Fletcher', 'Floyd Steward']
 ```
 
+</Tab>
+</UiOrShell>
+
 One model, one table, a company and its people.
 
 </Step>
 
 <Step>
 ### Walk the unit tree and convert something
+
+This one stays in the shell. The units menu only appears once **Units of Measure &
+Packagings** is switched on in the settings, and that adds a unit column to the order
+lines in the chapters ahead. If you clicked through the last steps, open the shell first:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
 
 ```python
 >>> unit = env.ref("uom.product_uom_unit")
