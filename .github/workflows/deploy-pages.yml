@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # The starter repo readers instantiate carries copies of our compose file and
-      # server config. This repo is the source of truth (see CLAUDE.md); if they drift,
+      # server config. This repo is the source of truth (see CONTRIBUTING.md); if they drift,
       # chapters quote output that no longer matches what readers actually run.
       - name: Starter repo has not drifted
         working-directory: .
@@ -73,6 +73,6 @@ jobs:
       # Node.js 24"). That is when this job started failing, on 2026-08-06: the same
       # artifact deployed at 11:38 and then would not at 11:59, every attempt reaching
       # deployment_in_progress and timing out, with Pages reporting operational and no
-      # incidents. v5 declares node24. See the §10 changelog.
+      # incidents. v5 declares node24.
       - id: deployment
         uses: actions/deploy-pages@v5

@@ -13,7 +13,7 @@ const config = {
   // without this the export still builds but emits `/_next/image/?url=...` URLs for
   // every screenshot. There is no optimizer on static hosting, so those are 404s:
   // images work in `npm run dev` and break in production. tests/export-preview
-  // asserts on this now. See the M8 screenshot pass in the plan.
+  // asserts on this now.
   images: { unoptimized: true },
 };
 

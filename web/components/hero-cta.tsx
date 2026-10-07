@@ -18,8 +18,8 @@ export function HeroCta({ chapters }: { chapters: ChapterLink[] }) {
   const done = progress?.done ?? {};
   const next = chapters.find((c) => !done[c.id]);
   const resuming = Boolean(progress && Object.keys(done).length > 0 && next);
-  // Chapter titles are already "NN. Title" (see the write-chapter skill's
-  // frontmatter template); strip the repeated number for this inline label.
+  // Chapter titles are already "NN. Title" (see the chapter template in
+  // CONTRIBUTING.md); strip the repeated number for this inline label.
   const nextTitle = next?.title.replace(/^\d+\.\s*/, '');
 
   return (

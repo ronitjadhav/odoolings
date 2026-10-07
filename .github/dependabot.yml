@@ -34,10 +34,10 @@ updates:
     # fumadocs-core, fumadocs-mdx and the fumadocs-ui alias.
     ignore:
       # Majors of these are never routine, so let them come as their own PRs
-      # rather than inside the grouped one. Next 16 in particular: web/AGENTS.md
-      # warns that this version's APIs and file structure differ from what most
-      # tooling expects, and the site is a static export with a custom domain,
-      # so a major bump needs a real read of the migration notes plus a manual
+      # rather than inside the grouped one. Next 16 in particular: its APIs and
+      # file structure differ from what most tooling expects, and the site is a
+      # static export with a custom domain, so a major bump needs a real read of
+      # the migration notes plus a manual
       # check that out/ still contains CNAME and the OG images.
       - dependency-name: next
         update-types: ["version-update:semver-major"]
@@ -84,7 +84,7 @@ updates:
 #      would break CI on its own PR, because the starter would still hold the
 #      old tag.
 #
-#   2. CLAUDE.md requires the starter's default branch to match the baseline
+#   2. CONTRIBUTING.md requires the starter's default branch to match the baseline
 #      Odoo version, and requires branching the old version in the starter
 #      BEFORE moving it. Chapter 7 teaches that branch-per-version workflow, so
 #      a silent bump would also contradict what the tutorial says to do.
@@ -94,6 +94,6 @@ updates:
 #      which is a re-verification project, not a merge.
 #
 # Bumping the baseline is a real milestone: branch the starter, mirror the
-# compose file, re-run the odoolings checks against all three databases, and
-# log it in the plan's section 10. Do not automate it.
+# compose file, and re-run the odoolings checks against all three databases.
+# Do not automate it.
 # -----------------------------------------------------------------------------
