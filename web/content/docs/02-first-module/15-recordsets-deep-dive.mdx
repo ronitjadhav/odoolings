@@ -512,23 +512,48 @@ The rest reads with this chapter's eyes:
   supplied a real reference. It is also why the field keeps `default="New"`: a form sends
   that literal along on save, and the guard reads it as "no number yet".
 
-Bump the manifest to `19.0.1.8.0`, then upgrade and restart:
+Bump the manifest to `19.0.1.8.0`, then upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade.** `dev_mode = all` already reloaded the Python, so the
+running server has the new `create`.
+
+</Tab>
+<Tab>
+
+Upgrade and restart:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Prove the improvement
 
-Quit the shell you were in with `Ctrl-D` (it is still running the pre-restart Python)
-and open a fresh one:
+First, what opening "New" costs now.
 
-```console
-$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
-```
+<UiOrShell>
+<Tab>
+
+Open **Fleet → Service Orders → New**. Chapter 14 showed you a drawn number in the title
+the moment the form opened. Now:
+
+![A brand-new, empty service order whose title reads New, highlighted](/screens/ch15-new-form-no-number.jpg)
+
+**Discard** it, then check the counter in **Settings → Technical → Sequences**, the way
+chapter 14 did. It has not moved:
+
+![The Sequences list for librefleet.service.order with Next Number 9, highlighted, the same value as before the form was opened](/screens/ch15-sequence-unchanged.jpg)
+
+</Tab>
+<Tab>
 
 `default_get` is the method a new form calls to prefill its fields, so it shows
 exactly what opening "New" now costs:
@@ -537,6 +562,21 @@ exactly what opening "New" now costs:
 >>> SO = env["librefleet.service.order"]
 >>> SO.default_get(["reference"])
 {'reference': 'New'}
+```
+
+</Tab>
+</UiOrShell>
+
+Now a real save, in a batch. This part is about `create` itself, so it is the shell for
+everyone. Quit the shell you were in with `Ctrl-D` (it is still running the old Python)
+and open a fresh one:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+```console
+>>> SO = env["librefleet.service.order"]
 >>> two = SO.create([
 ...     {"vehicle_id": 1, "scheduled_start": "2026-09-01 08:00:00", "scheduled_end": "2026-09-01 09:00:00"},
 ...     {"vehicle_id": 2, "scheduled_start": "2026-09-01 08:00:00", "scheduled_end": "2026-09-01 09:00:00"},
@@ -585,8 +625,22 @@ ch15 complete! On to the next chapter 🔧
 
 The first check calls `default_get` over RPC and fails if it still returns a drawn
 number; the second creates two orders in one call (then deletes them) to prove your
-`vals_list` loop numbers each entry. And straight from Postgres, the state your shell
-session left behind:
+`vals_list` loop numbers each entry. And the state your shell session left behind:
+
+<UiOrShell>
+<Tab>
+
+**Fleet → Vehicles** shows SHELL-001, and neither of the other two:
+
+![The Vehicles list with ZH 468 202, BE 30 447 and SHELL-001, the SHELL-001 row highlighted](/screens/ch15-vehicles-shell-001.jpg)
+
+SHELL-002 is archived, which hides it from every default view; SHELL-003 is gone. The
+list cannot tell those two apart, which is the point of archiving. The shell tab can.
+
+</Tab>
+<Tab>
+
+Straight from Postgres:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select license_plate, active, notes from librefleet_vehicle where license_plate like 'SHELL%' order by license_plate;"
@@ -598,6 +652,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select license_plate, acti
 ```
 
 Archived means still there with `active = f`; unlinked means not there at all.
+
+</Tab>
+</UiOrShell>
 
 ## Gotchas
 

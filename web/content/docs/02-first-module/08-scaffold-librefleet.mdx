@@ -100,7 +100,7 @@ chapter 3's "the UI is data"). Installing then:
 Upgrading (`-u`) redoes steps 2–3 for a module that's already installed. That's how
 changed XML gets back into the database (the chapter 6 rule). The `state` field walks
 a small lifecycle (`uninstalled`, `to install`, `installed`, `to upgrade`...) that
-you can watch from psql.
+you can watch on the module's own form in Apps, or from psql.
 
 <Callout type="info" title="Official docs">
   The [manifest reference](https://www.odoo.com/documentation/19.0/developer/reference/backend/module.html)
@@ -162,9 +162,47 @@ That's the whole module, three files:
 </Step>
 
 <Step>
-### Install it from the CLI
+### Install it
 
 The directory is already visible inside the container thanks to the ch5 bind mount.
+Keep `docker compose logs -f odoo` running in a terminal (chapter 5): the log tells you
+what each click did.
+
+<UiOrShell>
+<Tab>
+
+Apps only lists the modules registered in the database, and a brand-new directory is
+not registered yet. With developer mode on (chapter 4), open **Apps** and click
+**Update Apps List** in the top bar:
+
+![The Apps screen in developer mode, with Update Apps List highlighted in the top bar](/screens/ch08-update-apps-list.jpg)
+
+Then press **Update** in the dialog:
+
+![The Module Update dialog, Click on Update below to start the process, with the Update button highlighted](/screens/ch08-update-apps-list-dialog.jpg)
+
+The button can only register what the running server has seen. The `dev_mode = all`
+line in your `odoo.conf` takes care of that: the server restarts by itself the moment
+new module files appear, and the log prints
+`autoreload: python code updated, autoreload activated`. If you never saw that line
+(say, you run without `dev_mode`), run `docker compose restart odoo` first, then update
+the list again.
+
+Now search `librefleet` and press **Activate**:
+
+![Apps searched for librefleet: the LibreFleet card, technical name librefleet, with the Activate button highlighted](/screens/ch08-activate-librefleet.jpg)
+
+The log shows what the button did:
+
+```text
+INFO tutorial odoo.modules.loading: Loading module librefleet (15/15)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.05s, 10 queries (+10 other)
+INFO tutorial odoo.modules.loading: Modules loaded.
+```
+
+</Tab>
+<Tab>
+
 Install (with the ch6 alias, this is `oc -d tutorial -i librefleet --stop-after-init`):
 
 ```console
@@ -175,26 +213,39 @@ INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.01s, 9 queries
 INFO tutorial odoo.modules.loading: Modules loaded.
 ```
 
-Read that middle line with respect: your module, nine queries, done in a blink.
+No **Update Apps List** needed here: a command-line `-i` refreshes the module list
+itself as it starts. Now find it in the UI: Apps, filter to *Services* (or search
+"LibreFleet"). There's your tile with its icon, already installed.
 
-Don't read anything into the position (2nd of 15 here). The loader orders modules by
-the dependency graph it resolved, not by "whatever you just asked to install goes
-last", so your own run may show a different number in a different spot.
+</Tab>
+</UiOrShell>
 
-Now find it in the UI: Apps, filter to *Services* (or search "LibreFleet"). There's
-your tile with its icon, already installed.
+Read that middle line with respect: your module, about ten queries, done in a blink.
 
-<Callout type="warn" title="Installing from the UI instead?">
-  Two extra steps bite everyone once. The running web server only scans the addons
-  path at startup, so after adding a brand-new module directory:
-  `docker compose restart odoo`, then (in developer mode) **Apps → Update Apps
-  List**. Only then does the tile appear for UI installation. The CLI path skips
-  both because it starts a fresh process.
-</Callout>
+Don't read anything into the position (2nd of 15 from the command line, 15th of 15
+from the button, on the same module). The loader orders modules by the dependency graph
+it resolved, not by "whatever you just asked to install goes last", so your own run may
+show a different number in a different spot.
 </Step>
 
 <Step>
 ### Look at the record you just created
+
+<UiOrShell>
+<Tab>
+
+On the LibreFleet card in Apps, open the **⋮** menu and choose **Module Info**. The
+**Information** tab has the technical name and the version:
+
+![The LibreFleet module form, Information tab: Technical Name librefleet and Latest Version 19.0.1.0.0, both highlighted, with Upgrade and Uninstall buttons above](/screens/ch08-module-info.jpg)
+
+And with developer mode on, the **Technical Data** tab has its `state`, shown as
+**Status**:
+
+![The Technical Data tab: Application ticked and Status Installed, both highlighted, with base listed under Dependencies](/screens/ch08-module-technical-data.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select name, state, latest_version from ir_module_module where name='librefleet';"
@@ -203,13 +254,42 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, state, latest
  librefleet | installed | 19.0.1.0.0
 ```
 
-The Apps screen and this row are the same data.
+</Tab>
+</UiOrShell>
+
+The Apps screen and this row are the same data: one `ir.module.module` record.
 </Step>
 
 <Step>
 ### Run the upgrade cycle
 
-Bump `"version"` to `"19.0.1.0.1"` in the manifest, then:
+Bump `"version"` to `"19.0.1.0.1"` in the manifest and save it.
+
+<UiOrShell>
+<Tab>
+
+Reload the module's form, and **Latest Version** already reads 19.0.1.0.1, before you
+have upgraded anything. That field reads the manifest on disk. What the database has
+installed is a different field, and developer mode can show it: open the debug menu
+(the bug icon in the top bar) and choose **Data**:
+
+![The debug menu open on the module form, with the bug icon and the Data item highlighted](/screens/ch08-debug-menu-data.jpg)
+
+![The Data dialog for ir.module.module(702): installed_version 19.0.1.0.1 and latest_version 19.0.1.0.0, both highlighted](/screens/ch08-data-before-upgrade.jpg)
+
+`installed_version` is the manifest on disk (the form's "Latest Version"), and
+`latest_version` is what the database last installed: still 19.0.1.0.0. Yes, the names
+are backwards from what you would guess. Close the dialog and press **Upgrade** on the
+form:
+
+![The module form with the Upgrade button highlighted and Latest Version 19.0.1.0.1 highlighted](/screens/ch08-module-upgrade-button.jpg)
+
+Open **Data** again, and the two agree:
+
+![The Data dialog after the upgrade: installed_version and latest_version both 19.0.1.0.1, highlighted](/screens/ch08-data-after-upgrade.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -219,7 +299,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select latest_version from
  19.0.1.0.1
 ```
 
-Edit file, `-u`, observe. That loop is the rest of this tutorial. Set the version
+</Tab>
+</UiOrShell>
+
+Edit file, upgrade, observe. That loop is the rest of this tutorial. Set the version
 back to `19.0.1.0.0` and upgrade again to match the checkpoint.
 </Step>
 
@@ -290,8 +373,13 @@ you were told to supply yourself. Anything else is worth reading.
 - **Technical name = directory name, forever.** Renaming the directory later means a
   migration, because the name is baked into the database (`ir_module_module`, XML
   ids, table names). Choose carefully once.
-- **New module, invisible in Apps?** Restart the server, then Update Apps List
-  (developer mode). The CLI never needs this; the UI always does, for *new* modules.
+- **New module, invisible in Apps?** Run **Update Apps List** (developer mode). It can
+  only register what the running server has seen: `dev_mode = all` restarts the server
+  by itself when new module files appear, otherwise restart it first. A command-line
+  `-i` needs neither, because it refreshes the list as it starts.
+- **The module form's "Latest Version" is the manifest on disk, not what is
+  installed.** It changes the moment you save the manifest. The installed version is
+  `latest_version`, under debug → **Data** (or in psql).
 - **Uninstall is not "undo".** Uninstalling drops the module's data and models from
   the database (its `ir_module_module` row remains, state `uninstalled`). What it
   deletes can surprise you. On real databases, treat uninstall as destructive and
@@ -324,14 +412,14 @@ you were told to supply yourself. Anything else is worth reading.
       why: 'Convention: Odoo major first, then the module’s own major.minor.patch. The prefix makes version branches (chapter 7) instantly readable.',
     },
     {
-      q: 'You added a brand-new module directory, but Apps in the browser cannot find it. The CLI installs it fine. Why the difference?',
+      q: 'You added a brand-new module directory, but Apps in the browser cannot find it. A command-line -i installs it fine. Why the difference?',
       options: [
-        'the UI only lists modules with application: True',
-        'the running server scanned the addons path at startup; a fresh CLI process scans again',
-        'the browser cache is stale',
+        'the UI only lists modules flagged application: True, and a fresh module is not flagged yet',
+        'Apps lists modules registered in the database, and a command-line -i refreshes that list itself',
+        'the browser cached the old Apps page, and a hard reload would show the new module',
       ],
       answer: 1,
-      why: 'Module discovery happens when a process starts (plus explicit Update Apps List). The CLI run is a new process, so it sees the new directory immediately.',
+      why: 'Apps shows ir.module.module records, not folders. A new directory becomes a record when Update Apps List runs (developer mode), or when a command-line -i/-u run refreshes the list on startup. The browser has nothing to do with it.',
     },
   ]}
 />
@@ -341,7 +429,8 @@ you were told to supply yourself. Anything else is worth reading.
 1. ⭐ Change the `summary` in the manifest, upgrade, and find where the new text
    shows up in the Apps UI.
 2. ⭐⭐ Create a second minimal module `playground`, install it, uninstall it from the
-   Apps UI, and watch its `state` in `ir_module_module` at each step from psql.
+   Apps UI, and watch its `state` at each step (Module Info → Technical Data, or
+   `ir_module_module` from psql).
    Delete the directory afterwards and note what the Apps list does with the
    leftover row.
 3. ⭐⭐⭐ Run `odoo scaffold demo_scaffold /mnt/extra-addons` inside the container and

@@ -255,16 +255,27 @@ number reads as the record's title:
 <Step>
 ### Upgrade, and watch the backfill quirk
 
-Bump the manifest to `19.0.1.6.0`, then upgrade and restart the running server so it
-loads the new Python (Python changes need the restart; the upgrade alone runs in a
-throwaway process):
+Bump the manifest to `19.0.1.6.0`, then upgrade, and look at what the two orders you
+already have got for a reference.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade.** No restart needed: `dev_mode = all` reloaded the new
+Python when you saved it. Then open **Fleet → Service Orders**:
+
+![The Service Orders list with its new Reference column reading New for both orders, highlighted](/screens/ch14-references-new.jpg)
+
+</Tab>
+<Tab>
+
+Upgrade, then restart the running server so it loads the new Python (Python changes need
+the restart; the upgrade alone runs in a throwaway process):
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
-
-Look at what the two orders you already have got for a reference:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select id, reference from librefleet_service_order order by id;"
@@ -273,6 +284,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, reference from 
   1 | New
   2 | New
 ```
+
+</Tab>
+</UiOrShell>
 
 Both say `New`, not `SO/2026/0001`. That is the safety net firing.
 
@@ -285,8 +299,9 @@ number correctly; the legacy two need a one-time backfill.
 <Step>
 ### Backfill the legacy orders
 
-Open a shell. Steps 5, 7 and 8 all happen in this one session, so leave it running
-until the end of the chapter:
+This step needs the shell whichever tab you follow: `reference` is read-only on the form,
+so no screen can type a number into it. Open a shell (if you follow the shell tabs, keep it
+running: steps 7 and 8 use the same session):
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -366,11 +381,42 @@ Those last two are the whole overlap test: two windows overlap exactly when each
 starts before the other finishes. `stage` is in the trigger list too, so cancelling an
 order re-runs the check and un-cancelling re-validates it.
 
-Bump the manifest to `19.0.1.7.0`, upgrade, and restart.
+Bump the manifest to `19.0.1.7.0` and upgrade (from Apps, or `-u` plus a restart).
 </Step>
 
 <Step>
 ### See all three guards fire
+
+Try to break each rule.
+
+<UiOrShell>
+<Tab>
+
+**The unique plate.** **Fleet → Vehicles → New**, License Plate `ZH 468 202` (order 1's
+vehicle), save:
+
+![A new vehicle with license plate ZH 468 202 and a Validation Error: The operation cannot be completed: That license plate is already registered on another vehicle; the plate and the message are highlighted](/screens/ch14-duplicate-plate.jpg)
+
+That is your SQL constraint's message: Postgres refused the insert, and Odoo translated the
+refusal into the text you wrote. Close the dialog.
+
+**The model year.** On the same form, change the plate to `NEW-CAR` and the Year to
+`1850`, save:
+
+![The same form with plate NEW-CAR and Year 1,850 highlighted, and a Validation Error: Model year 1850 is out of range (1900 to next year)](/screens/ch14-year-out-of-range.jpg)
+
+Close it and **Discard** the vehicle.
+
+**The overlap.** **Fleet → Service Orders → New**: vehicle `ZH 468 202`, from 16 July
+2026 08:30 to 09:30, save:
+
+![A new service order for ZH 468 202 from Jul 16 8:30 to 9:30 AM and a Validation Error: ZH 468 202 is already booked during that window; the vehicle, the schedule and the message are highlighted](/screens/ch14-overlap-refused.jpg)
+
+Close it and **Discard**. Each refusal arrived as a dialog, and nothing reached the
+database.
+
+</Tab>
+<Tab>
 
 From the shell, try to break each rule. First the unique plate (order 1's vehicle is
 `ZH 468 202`):
@@ -414,9 +460,6 @@ odoo.exceptions.ValidationError: ZH 468 202 is already booked during that window
 >>> env.cr.rollback()
 ```
 
-The overlap create collides with order 1's existing 08:00–09:00 window on the same
-vehicle.
-
 Be precise about what those rollbacks did, because it is easy to read them as undoing the
 failures. They did not. A Python `ValidationError` already prevented its write, and the
 `UniqueViolation` was refused by Postgres.
@@ -424,6 +467,12 @@ failures. They did not. A Python `ValidationError` already prevented its write, 
 What the rollbacks cleared is the *transaction state* the first failure left behind. Your
 two orders and two vehicles are untouched throughout, but not because anything "rolled
 itself back" for you.
+
+</Tab>
+</UiOrShell>
+
+The overlap attempt collides with order 1's existing 08:00–09:00 window on the same
+vehicle.
 </Step>
 
 <Step>
@@ -433,7 +482,30 @@ itself back" for you.
 Sequences give out numbers that a rollback can't take back. Watch the counter itself
 rather than the references on your orders, because that makes the leak impossible to
 miss. `number_next_actual` is the field on `ir.sequence` holding the number the
-sequence will hand out next:
+sequence will hand out next.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Sequences & Identifiers →
+Sequences** and search `librefleet`. Read the **Next Number** column:
+
+![The Sequences list filtered on librefleet: librefleet.service.order, LibreFleet Service Order, prefix SO/%(year)s/, Next Number 7; the code and the next number are highlighted](/screens/ch14-sequence-before.jpg)
+
+Now open **Fleet → Service Orders → New** and type nothing at all. The form already
+shows a reference:
+
+![A brand-new, empty service order whose title already reads SO/2026/0007, highlighted along with the discard button](/screens/ch14-new-order-draws-number.jpg)
+
+**Discard** it, and read the counter again:
+
+![The same Sequences list, Next Number now 8](/screens/ch14-sequence-after.jpg)
+
+Your numbers will differ from these, and that is fine: read your own counter, and check
+it went up by exactly one.
+
+</Tab>
+<Tab>
 
 ```console
 >>> seq = env["ir.sequence"].search([("code", "=", "librefleet.service.order")])
@@ -456,8 +528,11 @@ because this database has had orders created, `odoolings` run, and step 7's expe
 done to it. Yours has its own history, and any chapter promising you a specific reference
 number is lying about a counter it cannot see.
 
-What matters is the arithmetic: the number was drawn, the rollback threw the *record*
-away, and the counter did not go back. That number is gone forever.
+</Tab>
+</UiOrShell>
+
+What matters is the arithmetic: the number was drawn, the record was thrown away (by the
+rollback, or by Discard), and the counter did not go back. That number is gone forever.
 
 Step 7 already demonstrated this without saying so. Its overlap create failed on a Python
 constraint, yet the callable default had already drawn a number before the constraint ever
@@ -470,7 +545,8 @@ the callable-default approach draws a number the instant a form opens: a user wh
 
 If gap-free numbering ever becomes a hard requirement, the usual fix is to draw the number
 in an overridden `create` at save time instead of in the default, which you will be ready
-for after chapter 15. Roll back so no test order survives.
+for after chapter 15. In the shell, roll back so no test order survives; in the UI, Discard
+already did that.
 </Step>
 
 </Steps>
@@ -489,12 +565,31 @@ ch14 complete! On to the next chapter 🔧
 
 Two of those checks work by *trying* to create bad data over RPC and confirming the
 server refuses it, so they prove the constraints actually fire, not merely that a
-method exists. And the SQL constraint, straight from Postgres:
+method exists. And the SQL constraint itself:
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Database Structure → Model
+Constraints** and search **Constraint** `license_plate`:
+
+![Model Constraints filtered on license_plate: one row, type u, librefleet_vehicle_license_plate_unique, module LibreFleet, model Workshop Vehicle, highlighted](/screens/ch14-model-constraints.jpg)
+
+Type `u` is unique. Odoo records every constraint it created in the database here, foreign
+keys included (type `f`).
+
+</Tab>
+<Tab>
+
+Straight from Postgres:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "\d librefleet_vehicle" | grep -i unique
     "librefleet_vehicle_license_plate_unique" UNIQUE CONSTRAINT, btree (license_plate)
 ```
+
+</Tab>
+</UiOrShell>
 
 The constraint is a real database object with the name you gave it, enforced on every
 insert and update regardless of what code runs above it.
