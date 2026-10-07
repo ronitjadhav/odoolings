@@ -189,7 +189,29 @@ Chapter 8's three files are now five:
 ### Upgrade and read the log
 
 Adding a model is a feature, so bump the manifest version to `"19.0.1.1.0"` (minor
-bump, chapter 8's scheme). Then upgrade and actually read the output:
+bump, chapter 8's scheme). Then upgrade and actually read the output.
+
+<UiOrShell>
+<Tab>
+
+In **Apps**, search `librefleet`, open the **⋮** menu on its card and choose
+**Upgrade**:
+
+![The Apps screen searched for librefleet: the LibreFleet card's ⋮ menu is open and Upgrade is highlighted](/screens/ch10-apps-upgrade-librefleet.jpg)
+
+The page reloads when it is done. Now read what happened in the log
+(`docker compose logs -f odoo`):
+
+```text
+INFO tutorial odoo.modules.loading: Loading module librefleet (2/15)
+INFO tutorial odoo.registry: module librefleet: creating or updating database tables
+WARNING tutorial odoo.modules.loading: The models ['librefleet.vehicle'] have no access rules in module librefleet, consider adding some, like:
+librefleet.access_librefleet_vehicle,access_librefleet_vehicle,librefleet.model_librefleet_vehicle,base.group_user,1,0,0,0
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.04s, 37 queries (+37 other)
+```
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -201,6 +223,9 @@ librefleet.access_librefleet_vehicle,access_librefleet_vehicle,librefleet.model_
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.06s, 37 queries (+37 other)
 ```
 
+</Tab>
+</UiOrShell>
+
 Two lines to respect. "Creating or updating database tables" is the DDL moment from
 the diagram. And the WARNING says our model has **no access rules**: right now, no
 regular user (not even admin through the web client) is allowed to touch it. We're
@@ -210,6 +235,27 @@ because of it.
 
 <Step>
 ### Inspect what the ORM built
+
+The ORM keeps two records of your class: the model in Odoo's own tables, and the
+real table in Postgres. Look at both.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Database Structure → Models**:
+
+![The Settings app with the Technical menu open, Database Structure section, Models highlighted](/screens/ch09-technical-models-menu.jpg)
+
+Search `librefleet` and open **Workshop Vehicle**. Every field of your class is a row
+on the **Fields** tab, with its type, and `license_plate` is ticked **Required**:
+
+![The Workshop Vehicle model form: Model librefleet.vehicle, In Apps librefleet, and the Fields tab listing active, create_date, create_uid, display_name, id, license_plate (Required ticked), mileage_km, model_name, notes, vin, write_date, write_uid and year; the model name, the app, and the display_name and license_plate rows are highlighted](/screens/ch09-model-fields.jpg)
+
+Notice `display_name` in that list. It is a field the ORM computes on the fly: switch
+to the **In the shell** tab and you will see it has no column in the table.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c '\d librefleet_vehicle'
@@ -239,6 +285,9 @@ Read it against the class: every field became the predicted column type,
 `license_plate` is `not null`, the five free columns are there, and `create_uid` /
 `write_uid` are proper foreign keys to `res_users`. Notice what's *absent* too:
 no `display_name` column, exactly as promised.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>

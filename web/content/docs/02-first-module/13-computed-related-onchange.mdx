@@ -277,7 +277,23 @@ On the line model:
             self.price_unit = self.part_id.list_price
 ```
 
-Bump the version to `19.0.1.5.0`, upgrade, restart:
+Bump the version to `19.0.1.5.0`, then upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade.** No restart: `dev_mode = all` already reloaded your
+new Python the moment you saved it. The log:
+
+```text
+INFO tutorial odoo.models: Prepare computation of librefleet.service.order.line.subtotal
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 286 queries (+286 other)
+```
+
+</Tab>
+<Tab>
+
+Upgrade, then restart so the running web server picks up the new Python:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -286,6 +302,9 @@ INFO tutorial odoo.models: Prepare computation of librefleet.service.order.line.
 ...
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.13s, 279 queries (+279 other)
 ```
+
+</Tab>
+</UiOrShell>
 
 That one line is the whole backfill, and one line rather than six is exactly the point:
 
@@ -308,7 +327,31 @@ snap to 79.00 before you save (that's the onchange; remove the line again).
 
 ![The oil change service order: line subtotals (24.50 and 75.60), the Money group showing Parts Total 100.10, Labor Total 89.00 and Margin 139.10, and Customer reading Anna Keller](/screens/ch13-service-order-money.jpg)
 
-Now the same physics from the shell. Open one:
+Now change something and watch it ripple.
+
+<UiOrShell>
+<Tab>
+
+In **Parts Used**, set the engine oil quantity from 4 to 5 and look before you save:
+
+![The oil change with the engine oil line at quantity 5.00 and subtotal 94.50, the Money group at Parts Total 119.00 and Margin 148.50, highlighted with the unsaved form's save icon](/screens/ch13-qty-ripple.jpg)
+
+One edit, and the change rippled through the stored subtotal into two non-stored totals,
+before anything was saved: the form asked the server to recompute through the same
+dependency graph. Discard the change.
+
+Now the related field's party trick. Open **Fleet → Vehicles → ZH 468 202**, set
+**Owner** to `Beat Muster` and save. Back on the oil change:
+
+![The oil change order with Vehicle ZH 468 202 and Customer Beat Muster, highlighted](/screens/ch13-customer-follows-owner.jpg)
+
+You wrote on the *vehicle*; the stored copy on the order followed. Set the owner back to
+Anna Keller, so Anna keeps her car.
+
+</Tab>
+<Tab>
+
+Open a shell:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -338,12 +381,17 @@ no manual refresh. Put `qty` back to 4. Now the related field's party trick:
 
 You wrote on the *vehicle*; the stored copy on the order followed instantly.
 Roll that back (`env.cr.rollback()`), Anna keeps her car.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Prove onchange's limit
 
-Still in the shell, create a line the way an import or another module would:
+This one needs the shell, because the point is code that never touches a form. Create a
+line the way an import or another module would (open a shell first if you don't have
+one: `docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http`):
 
 ```console
 >>> env["librefleet.service.order.line"].create({
@@ -364,7 +412,22 @@ onchange. Roll back to discard the broken line.
 ### Break-it lab: the missing depends
 
 Delete the `@api.depends("qty", "price_unit")` line above `_compute_subtotal`
-(keep the method), upgrade, and change a quantity:
+(keep the method), upgrade, and change a quantity.
+
+<UiOrShell>
+<Tab>
+
+On the oil change, set the oil filter's quantity to 3. The subtotal does not move, not
+even before you save. Save, reload the page, and the lie is stored:
+
+![The oil change after saving: the Oil filter line reads quantity 3.00, unit price 24.50, subtotal 24.50, highlighted; the Money group shows Parts Total 100.10 and Margin 115.10](/screens/ch13-stale-subtotal.jpg)
+
+Look at **Margin** too: 115.10. It is not stored and reads the quantities itself, so it
+now subtracts three filters' cost from one filter's revenue. A stale stored field
+corrupts everything computed from it.
+
+</Tab>
+<Tab>
 
 ```console
 >>> line = env["librefleet.service.order.line"].browse(1)
@@ -384,12 +447,16 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select qty, price_unit, su
    3 |       24.5 |     24.5
 ```
 
+</Tab>
+</UiOrShell>
+
 Now restore the decorator and upgrade. Note something important: **the stale value stays
 stale** until a dependency actually changes. Read it back and it is still 24.5.
 
 Fixing the code does not fix the data; touching `qty` again does. On a production database
-that means a targeted recompute script, not a shrug. Set `qty` back to 1 and commit, which
-both heals the row and restores the checkpoint state.
+that means a targeted recompute script, not a shrug. Set the quantity back to 1 (in the
+form and save, or in the shell and commit), which both heals the row and restores the
+checkpoint state.
 </Step>
 
 </Steps>
@@ -409,7 +476,20 @@ ch13 complete! On to the next chapter 🔧
 
 These checks recompute everything independently over RPC and compare, so they'll
 catch a wrong or missing `depends` path, not just a missing field. And the
-store-vs-not decision, straight from the database:
+store-vs-not decision:
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Database Structure → Fields** and
+search **Model** `librefleet.service.order`. Look at the **Stored** column:
+
+![The Fields list filtered on librefleet.service.order: customer_id has Stored ticked, labor_total, margin and parts_total do not; those four rows are highlighted](/screens/ch13-fields-stored.jpg)
+
+</Tab>
+<Tab>
+
+Straight from the database:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_service_order' and column_name in ('customer_id','parts_total','labor_total','margin');"
@@ -417,6 +497,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select column_name from in
 -------------
  customer_id
 ```
+
+</Tab>
+</UiOrShell>
 
 Four derived fields, one column: exactly as designed.
 

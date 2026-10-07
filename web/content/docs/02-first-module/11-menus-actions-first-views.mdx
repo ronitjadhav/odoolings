@@ -400,6 +400,25 @@ applied):
     ],
 ```
 
+Then upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, as in chapter 10. This time the page does not
+come back to Apps: Odoo opens your app's first menu straight away, so you land on
+the new Vehicles list. The log shows the three view files loading:
+
+```text
+INFO tutorial odoo.modules.loading: loading librefleet/views/vehicle_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/service_type_views.xml
+INFO tutorial odoo.modules.loading: loading librefleet/views/librefleet_menus.xml
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.10s, 182 queries (+182 other)
+```
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ...
@@ -409,9 +428,6 @@ INFO tutorial odoo.modules.loading: loading librefleet/views/librefleet_menus.xm
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.11s, 182 queries (+182 other)
 ```
 
-(This number moves between otherwise-identical runs, chapter 8 already flagged why; don't
-worry if yours differs.)
-
 Menus, actions and views are the same kind of data as chapter 10's groups: the
 registry-signaling mechanism (chapter 10's real finding) picks them up on the very
 next request, no server restart required. The one thing that genuinely needs a
@@ -419,6 +435,12 @@ fresh look is a browser tab you already had open before the upgrade: the web
 client fetched the old menu tree into memory when that tab loaded, same as any
 single-page app, so reload it (a plain refresh, not a server restart) rather than
 opening a whole new tab to be safe.
+
+</Tab>
+</UiOrShell>
+
+(The query count moves between otherwise-identical runs, chapter 8 already flagged why;
+don't worry if yours differs.)
 </Step>
 
 <Step>
@@ -470,7 +492,15 @@ False
 
 Views are validated against the model when they load. In the vehicle list view,
 change `license_plate` to `licence_plate` (a one-letter typo a British keyboard
-makes for free) and upgrade:
+makes for free) and upgrade.
+
+From **Apps**, the upgrade stops with an **Oops! Something went wrong** dialog. Click
+**See technical details** and scroll to the bottom of the traceback, where the real
+message always is:
+
+![The Oops! error dialog with technical details open, scrolled to the end: ParseError while parsing vehicle_views.xml:4, the list arch with field licence_plate, and Field "licence_plate" does not exist in model "librefleet.vehicle", highlighted](/screens/ch11-upgrade-parse-error.jpg)
+
+From the command line it is the same message, at the end of the output:
 
 ```text
 odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views.xml:4
@@ -507,6 +537,17 @@ ch11 complete! On to the next chapter 🔧
 
 And see your views living in the database like any other records:
 
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → User Interface → Views** and
+search `librefleet` (pick **Search Model for**):
+
+![The Views list filtered on model librefleet: librefleet.vehicle.list (List), librefleet.vehicle.form (Form) and librefleet.service.type.list (List), each with its external ID; the rows and the Model filter are highlighted](/screens/ch11-technical-views.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select name, type from ir_ui_view where model like 'librefleet%' order by model, type;"
              name             | type
@@ -515,6 +556,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, type from ir_
  librefleet.vehicle.form      | form
  librefleet.vehicle.list      | list
 ```
+
+</Tab>
+</UiOrShell>
 
 ## Gotchas
 
