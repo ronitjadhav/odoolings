@@ -54,6 +54,23 @@ because the interface and your file write to the same place.
 
 Look at LibreFleet's own rows (this is your database, after chapter 15):
 
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → User Interface → Views** and search
+**Model** `librefleet.vehicle`:
+
+![The Views list filtered on model librefleet.vehicle: librefleet.vehicle.list (List) and librefleet.vehicle.form (Form), no Inherited View, highlighted](/screens/ch16-views-before.jpg)
+
+Open one. The form shows the columns this chapter is about, under friendlier labels:
+**Sequence** is `priority`, **View inheritance mode** is `mode` ("Base view" is
+`primary`), and **Inherited View** is `inherit_id`:
+
+![The librefleet.vehicle.list view record: Sequence 16 highlighted, and Inherited View empty with View inheritance mode Base view highlighted; the Architecture tab shows the list's XML](/screens/ch16-view-record.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, priority, mode, inherit_id from ir_ui_view where model = 'librefleet.vehicle' order by id;"
  id  |          name           | type | priority |  mode   | inherit_id
@@ -62,6 +79,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, pri
  254 | librefleet.vehicle.form | form |       16 | primary |
 (2 rows)
 ```
+
+</Tab>
+</UiOrShell>
 
 Two views, both `primary`, both at the default priority of 16. `mode` has exactly two
 values: `primary` means "a view in its own right", and `extension` means "a bundle of
@@ -241,14 +261,14 @@ is that it goes up.
   works; skip it on a real project and nobody can tell your releases apart.
 </Callout>
 
-Then upgrade:
+Then upgrade: **Apps → LibreFleet ⋮ → Upgrade**, or from the command line:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-A clean run ends with `Modules loaded.` and no traceback. If instead it stops with this,
-do not read past it:
+A clean run ends quietly (the page reloads, or the command ends with `Modules loaded.`).
+If instead it stops with this, do not read past it:
 
 ```text
 odoo.tools.convert.ParseError: while parsing /mnt/extra-addons/librefleet/views/vehicle_views_inherit.xml:7
@@ -297,13 +317,24 @@ against, and it matches how real modules ship an alternative screen: parked at a
 priority, opened only by an action that names it with `view_id`.
 
 It lives in the same already-registered file, so no new manifest entry and no version
-bump, just:
+bump. Upgrade, then check the table.
+
+<UiOrShell>
+<Tab>
+
+After **Apps → LibreFleet ⋮ → Upgrade**, the same **Views** search lists four:
+
+![The Views list for librefleet.vehicle, now four rows: the reception form, whose Inherited View is librefleet.vehicle.form, and the reception list, which has none; both new rows highlighted](/screens/ch16-views-after.jpg)
+
+Open the reception form and its mode reads **Extension View**; open the reception list
+and its **Sequence** reads 99.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
-
-Then check the table:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, priority, mode, inherit_id from ir_ui_view where model = 'librefleet.vehicle' order by id;"
@@ -316,15 +347,40 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select id, name, type, pri
 (4 rows)
 ```
 
-Everything this chapter claimed, visible in one query: the extension with its
-`inherit_id`, the standalone at priority 99.
+</Tab>
+</UiOrShell>
+
+Everything this chapter claimed, visible at once: the extension with its `inherit_id`,
+the standalone at priority 99.
 </Step>
 
 <Step>
 ### Watch the combination happen
 
 <Term k="get_view">`get_view`</Term> is the method the web client itself calls, and it hands back a dict
-whose `arch` key holds the finished XML. Open a shell against the tutorial database:
+whose `arch` key holds the finished XML.
+
+<UiOrShell>
+<Tab>
+
+Open **Fleet → Vehicles → ZH 468 202**. Both patches are on screen: the mileage label
+reads **Odometer (km)**, and an **Active** checkbox now follows Service Count:
+
+![The ZH 468 202 form with Odometer (km) and Active highlighted, both added by the extension view](/screens/ch16-combined-form.jpg)
+
+To see the XML the browser received, open the debug menu (developer mode on) and choose
+**Computed Arch**. It is `get_view`'s result:
+
+![The Computed Arch dialog: the merged form XML, with field mileage_km carrying string="Odometer (km)" and the injected field active, both highlighted](/screens/ch16-computed-arch.jpg)
+
+The injected `active` line even gives itself away by its indentation. The base form's own
+record, in **Technical → Views → librefleet.vehicle.form**, still has neither change in
+its **Architecture** tab: the merge happened at request time.
+
+</Tab>
+<Tab>
+
+Open a shell against the tutorial database:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -342,8 +398,12 @@ True
 ```
 
 The base record's arch in the database still has neither change (check it in the psql
-`arch_db` column if you're curious); the merge happened at request time. That's why
-this mechanism is safe: nothing was edited, something was *composed*.
+`arch_db` column if you're curious); the merge happened at request time.
+
+</Tab>
+</UiOrShell>
+
+That's why this mechanism is safe: nothing was edited, something was *composed*.
 
 **The sentence to carry out of this chapter:** Odoo does not keep the screen, it keeps the
 ingredients and cooks it to order. That is why your patch cannot damage the base view, why
@@ -354,10 +414,29 @@ uninstalling your module leaves the original behind with nothing to clean up, an
 <Step>
 ### Rig the priority contest, then unrig it
 
-Still in the shell, make the reception list win and watch the default flip live. The
-tell is `service_count`: the base list shows `license_plate`, `owner_id`, `model_name`,
-`year` and `mileage_km`, and only reception's list shows `service_count`, so whether
-that name turns up in the combined arch tells you which of the two views won:
+Make the reception list win and watch the default flip live. The tell is
+`service_count`: the base list shows `license_plate`, `owner_id`, `model_name`, `year` and
+`mileage_km`, and only reception's list shows `service_count`.
+
+<UiOrShell>
+<Tab>
+
+In **Technical → Views**, open **librefleet.vehicle.list.reception**, set **Sequence** to
+`8`, and save:
+
+![The reception list's view record with Sequence set to 8, highlighted, and the save icon highlighted](/screens/ch16-priority-8.jpg)
+
+Now open **Fleet → Vehicles**:
+
+![The Vehicles list now showing only License Plate, Owner and Service Count columns, with the Service Count column highlighted](/screens/ch16-reception-list-wins.jpg)
+
+That is reception's list, opened by the plain Vehicles menu. Set the Sequence back to
+`99`, save, and the original list is back.
+
+</Tab>
+<Tab>
+
+Still in the shell, check which view wins by looking for that name in the combined arch:
 
 ```console
 >>> Vehicle = env["librefleet.vehicle"]
@@ -373,11 +452,14 @@ False
 >>> env.cr.rollback()
 ```
 
+</Tab>
+</UiOrShell>
+
 Priority 8 beats 16, so every plain vehicles action in the whole database would now
 open reception's list; back at 99, order is restored. No file changed, no upgrade ran:
-priority is data, and the winner is recomputed on every request. (The rollback keeps
-your database matching the checkpoint; the file's `eval="99"` is the state that
-ships.)
+priority is data, and the winner is recomputed on every request. (Putting it back to 99,
+by rollback or by hand, keeps your database matching the checkpoint; the file's
+`eval="99"` is the state that ships.)
 </Step>
 
 <Step>
@@ -391,7 +473,12 @@ that doesn't exist:
 <xpath expr="//field[@name='does_not_exist']" position="after">
 ```
 
-Upgrade and read the failure carefully:
+Upgrade and read the failure carefully. From **Apps**, you get the **Oops!** dialog; open
+**See technical details** and scroll to the end of the traceback:
+
+![The Oops! dialog's technical details: ParseError while parsing vehicle_views.xml:18, Element xpath does_not_exist cannot be located in parent view, and the view error context naming librefleet.vehicle.form.reception, ir.ui.view(259), view.model and view.parent ir.ui.view(254); the error and those four context lines highlighted](/screens/ch16-xpath-parse-error.jpg)
+
+From the command line, the same text ends the output:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init

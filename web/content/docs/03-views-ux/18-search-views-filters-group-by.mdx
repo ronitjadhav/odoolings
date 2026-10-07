@@ -245,11 +245,26 @@ in:
 Leave the `help` block and the closing `</record>` below it untouched.
 
 That's `not_cancelld`, missing the second `e`. Bump the manifest to `19.0.1.11.0` and
-upgrade:
+upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then open **Fleet → Service Orders**. The search bar
+is empty, and the search panel (the ▾ at the end of the bar) shows **Exclude Cancelled**
+right there, unticked:
+
+![The Service Orders list with an empty search bar and the search panel open: Exclude Cancelled is listed under Filters but not ticked, both highlighted](/screens/ch18-typo-no-chip.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 Zero errors. Zero warnings. The upgrade succeeds exactly as cleanly as it would with the
 correct spelling. Nothing in the loading process ever reads a filter's `name` attribute
@@ -277,6 +292,17 @@ list: read the action's `context` dict, read the filter names out of the search 
 arch, and compare the two strings yourself. Nothing in Odoo does this comparison for you,
 ever, which is exactly why the check exists.
 
+You can make the same comparison by eye. With developer mode on, open Service Orders and
+choose **Action** in the debug menu. The action record's **Context Value** holds the key
+as you typed it:
+
+![The Service Orders action record: Context Value reads the search_default_not_cancelld key, highlighted](/screens/ch18-action-context-typo.jpg)
+
+Go back to the list and choose **SearchView** in the same menu. The search view's
+**Architecture** tab holds the filter's real name:
+
+![The librefleet.service.order.search view record, its Architecture tab with the Exclude Cancelled filter line highlighted: name="not_cancelled"](/screens/ch18-searchview-filter-name.jpg)
+
 Two details make it useful. It lists the filters it did find, which is usually enough to
 spot the typo without opening the XML. And it reads the live arch rather than a fixed
 list, so filters you add yourself (exercises 1 and 3) count as real ones.
@@ -293,13 +319,27 @@ those two strings before you doubt anything else.
 <field name="context">{'search_default_not_cancelled': 1}</field>
 ```
 
-The manifest is already at `19.0.1.11.0` from step 2, so leave the version alone:
-`-u librefleet` reloads the module's data files whether or not the version changed.
-Upgrade again to push the corrected action into the database:
+The manifest is already at `19.0.1.11.0` from step 2, so leave the version alone: an
+upgrade reloads the module's data files whether or not the version changed. Upgrade
+again to push the corrected action into the database.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then reopen **Fleet → Service Orders**. The chip is
+in the search bar before you touch anything:
+
+![The Service Orders list opened fresh, with the Exclude Cancelled facet already in the search bar, highlighted](/screens/ch18-default-chip.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 Then re-run the check and watch the third line flip:
 
@@ -317,16 +357,29 @@ ch18 complete! On to the next chapter 🔧
 <Step>
 ### Prove group-by actually aggregates
 
-The next three steps all run in `odoo shell` against your `tutorial` database. Open it
-and keep it open:
+Grouping is not the browser slicing up a list it already downloaded. The server does the
+counting and hands back one row per bucket.
+
+<UiOrShell>
+<Tab>
+
+In the search panel, pick **Group By → Vehicle**. A second chip joins the first, and each
+section header carries the count the server computed for that bucket:
+
+![The Service Orders list grouped by Vehicle: the Exclude Cancelled and Vehicle facets, and the two group headers ZH 468 202 (1) and BE 30 447 (1), highlighted](/screens/ch18-groupby-counts.jpg)
+
+</Tab>
+<Tab>
+
+The shell tabs of the next three steps all run in `odoo shell` against your `tutorial`
+database. Open it and keep it open:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
 
-Grouping is not the browser slicing up a list it already downloaded. The server does the
-counting and hands back one row per bucket. Call that aggregation yourself with
-`read_group` and you get exactly the buckets the Group By menu draws:
+Call the aggregation yourself with `read_group` and you get exactly the buckets the
+Group By menu draws:
 
 ```console
 >>> action_id = env.ref("librefleet.action_librefleet_service_order").id
@@ -337,12 +390,32 @@ counting and hands back one row per bucket. Call that aggregation yourself with
 [((1, 'ZH 468 202'), 1), ((2, 'BE 30 447'), 1)]
 ```
 
+The action's context now reads back exactly as written: the fixed string.
+
+</Tab>
+</UiOrShell>
+
 One order per vehicle, which matches the two vehicles and two orders you've had since
-chapter 12. The action's context now reads back exactly as written: the fixed string.
+chapter 12.
 </Step>
 
 <Step>
 ### Prove My Services actually scopes
+
+<UiOrShell>
+<Tab>
+
+Sign in as tina (password `technician`) in a private window, so your admin session stays
+put, and open **Fleet → Service Orders**. Remove the **Exclude Cancelled** chip first:
+next to it, My Services would OR (step 7 shows why). Then tick **My Services**:
+
+![Signed in as tina (avatar T): the My Services facet, the single row SO/2026/0001 with Tina Technician, and the pager at 1-1 / 1, all highlighted](/screens/ch18-my-services-tina.jpg)
+
+One order, the one she's assigned to (from chapter 12). Nobody typed her id: the client
+filled `uid` in from her session before the search went out.
+
+</Tab>
+<Tab>
 
 `with_user` from chapter 15 makes this the cheapest security-relevant test you'll ever
 write:
@@ -358,14 +431,47 @@ Tina's own filter, evaluated as Tina, returns exactly the one order she's assign
 (from chapter 12). In the browser, the exact same domain runs when she clicks "My
 Services", with `uid` standing in for `tina.id`, because the client fills it in from her
 session.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Prove that two ticked filters OR
 
 The Concepts claim is easy to state and easier to disbelieve, so measure it. Your orders
-are all in `draft` right now, so flip one to `confirmed` first. We never commit, so the
-flip evaporates when the shell exits (chapter 6's lesson, put to work):
+are all in `draft` right now, so one has to move to `confirmed` first.
+
+<UiOrShell>
+<Tab>
+
+Open **SO/2026/0002** and click **Confirmed** in the stage bar. On a saved record the
+click writes at once, no Save needed:
+
+![SO/2026/0002 with Confirmed, highlighted, now the current stage in the statusbar](/screens/ch18-statusbar-confirmed.jpg)
+
+Back on the list, tick **Draft** in the search panel: one order. Tick **Confirmed** as
+well: two, under a single chip that says so in words.
+
+![The Service Orders list with Draft and Confirmed ticked in the search panel, the facet reading Draft or Confirmed, and the two Stage badges, Confirmed and Draft, all highlighted](/screens/ch18-draft-or-confirmed.jpg)
+
+Exclude Cancelled stays a chip of its own, ANDed with the stage chip, because a
+`<separator/>` stands between them. Now meet the missing separator from Concepts. Remove
+the **Draft or Confirmed** chip and tick **My Services**. Admin is on no order at all,
+yet both orders stay:
+
+![My Services and Exclude Cancelled ticked together: one facet reading My Services or Exclude Cancelled, and the pager still at 1-2 / 2, all highlighted](/screens/ch18-my-services-or.jpg)
+
+One chip, two filters, an OR. Exercise 4 adds the separator that fixes it.
+
+A click in the UI is a real write, so undo it: open SO/2026/0002 again and click
+**Draft**.
+
+</Tab>
+<Tab>
+
+Flip one in the shell. We never commit, so the flip evaporates when the shell exits
+(chapter 6's lesson, put to work):
 
 ```console
 >>> O = env["librefleet.service.order"]
@@ -382,6 +488,9 @@ One record each, an ANDed domain that can never match anything, and an ORed doma
 returns both. Ticking **Draft** and **Confirmed** in the browser gives you 2, so the
 search view is building the second domain. Quit without `env.cr.commit()` and both
 orders are back to draft.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 </Steps>
@@ -404,7 +513,9 @@ per-vehicle sections,
 
 ![The Service Orders list with the Exclude Cancelled filter chip already checked on load, grouped by Vehicle into two collapsed sections: ZH 468 202 (1) and BE 30 447 (1)](/screens/ch18-groupby-vehicle.jpg)
 
-and toggle My Services as tina to see the list narrow to her own booking.
+and, signed in as tina, remove the Exclude Cancelled chip and tick My Services to see the
+list narrow to her own booking. Leave the chip on and the two OR (step 7), which shows
+her everything.
 
 ## Gotchas
 

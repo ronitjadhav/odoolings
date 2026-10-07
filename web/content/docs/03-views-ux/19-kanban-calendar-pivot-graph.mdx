@@ -252,11 +252,25 @@ line with all six types. Keep `list` first so the action still opens on the list
 <field name="view_mode">list,kanban,calendar,pivot,graph,form</field>
 ```
 
-Bump the manifest to `19.0.1.12.0` and upgrade:
+Bump the manifest to `19.0.1.12.0` and upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then open **Fleet → Service Orders**. Five view icons
+now sit at the top right, one per type before `form`:
+
+![The Service Orders list with the view switcher at the top right highlighted: list, kanban, calendar, pivot and graph icons](/screens/ch19-view-switcher.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 Zero errors. All four views loaded, arch and all, `margin` field reference included.
 That's worth sitting with for a second: **the view installed completely cleanly with
@@ -271,7 +285,24 @@ metadata: a description of what the pivot should look like. Rendering a pivot is
 separate step that *fetches aggregated data*, calling `read_group` under the hood.
 
 The upgrade only ever did the first of those two, which is why it told you nothing about
-the second. Open a shell and try both yourself:
+the second.
+
+<UiOrShell>
+<Tab>
+
+Click the pivot icon, the fourth one. **Oops!** Open **See technical details**:
+
+![The Oops! dialog's technical details, with the line Uncaught Promise > No aggregate function has been provided for the measure 'margin' highlighted, above a PivotModel stack trace](/screens/ch19-pivot-error.jpg)
+
+This time the browser itself stops, before it asks the server for a single number. The
+pivot first reads each measure's field description, and a field description only carries
+an `aggregator` (`sum`, for a float) when the field is stored. `margin` has none, so
+there is no way to total it. Close the dialog and switch back to the list.
+
+</Tab>
+<Tab>
+
+Open a shell and try both yourself:
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -290,8 +321,10 @@ code, `_read_group`, with the aggregates moved into an argument of their own. Ea
 aggregate is written `field:function`, so `margin:sum` asks for the sum of `margin` in
 every `vehicle_id` bucket.
 
-The arch loaded fine (that check passed a second ago). The aggregation itself throws,
-because `margin` has been a computed, non-stored field since chapter 13, exactly as
+</Tab>
+</UiOrShell>
+
+Either way, the arch loaded fine and the aggregation is what fails, because `margin` has been a computed, non-stored field since chapter 13, exactly as
 designed at the time: no column exists for the SQL behind `_read_group` to sum. This is
 the promise chapter 13 made you and didn't collect on yet, that "non-stored fields can't
 be searched, grouped, or aggregated."
@@ -321,12 +354,26 @@ Leave `parts_total` and `labor_total` exactly as chapter 13 left them, non-store
 more columns to keep in sync for no benefit. This is the same store-vs-not judgment call
 chapter 13 taught you to make per field, not once for the whole model.
 
-Bump to `19.0.1.13.0`, upgrade, and restart (new Python, chapter 14's rule):
+Bump to `19.0.1.13.0` and upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade.** No restart needed: `dev_mode = all` reloaded the new
+Python when you saved it.
+
+</Tab>
+<Tab>
+
+Upgrade, and restart (new Python, chapter 14's rule):
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
@@ -334,7 +381,28 @@ $ docker compose restart odoo
 
 Unlike chapter 14's sequence backfill, toggling `store=True` on an existing compute
 triggers Odoo to recompute every existing row automatically as part of the upgrade,
-no manual shell loop required:
+no manual shell loop required.
+
+<UiOrShell>
+<Tab>
+
+Open **Fleet → Service Orders** and click the pivot icon again. The numbers are there,
+computed for orders that existed long before the column did:
+
+![The Service Orders pivot rendering: Margin under Draft, 139.10 for ZH 468 202, 120.00 for BE 30 447, Total 259.10, the whole table highlighted](/screens/ch19-pivot-stored.jpg)
+
+Now check which of the three computed totals got a column. With developer mode on, open
+**Settings → Technical → Database Structure → Fields** and search **Model** for
+`librefleet.service.order`, then **Field** for `_total` and again for `margin`:
+
+![The Fields list filtered to labor_total, margin, parts_total (and the line model's subtotal): in the highlighted Stored column only margin is ticked among the three](/screens/ch19-fields-stored.jpg)
+
+Correct values already in place, and `margin` is the only one of the three that is
+stored, exactly the selective storing this chapter is demonstrating. (`subtotal` matches
+the search too: it belongs to the line model, stored since chapter 13.)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin from librefleet_service_order order by id;"
@@ -354,6 +422,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select column_name from in
 One new column, correct values already in it, and `parts_total`/`labor_total`
 confirmed still absent from the table, exactly the selective storing this chapter is
 demonstrating.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 </Steps>
