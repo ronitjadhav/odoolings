@@ -305,22 +305,58 @@ access_librefleet_service_order_approve_wizard_user,librefleet.service.order.app
 access_librefleet_service_order_approve_wizard_manager,librefleet.service.order.approve.wizard manager,model_librefleet_service_order_approve_wizard,group_librefleet_manager,1,1,1,1
 ```
 
-Bump the manifest to `19.0.1.14.0`, then upgrade and restart. The upgrade loads the new
-view and the new ACL rows. The restart is what makes the long-running server pick up the
-new Python, since the upgrade runs in a separate throwaway process. That is chapter 17's
-rule, and it matters here because the wizard is a whole new Python package:
+Bump the manifest to `19.0.1.14.0`, then upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade.** No restart needed: `dev_mode = all` reloaded the
+server when the new `wizards` package appeared, and the upgrade creates the wizard's table
+and loads its view and ACL rows.
+
+</Tab>
+<Tab>
+
+Upgrade and restart. The upgrade loads the new view and the new ACL rows. The restart is
+what makes the long-running server pick up the new Python, since the upgrade runs in a
+separate throwaway process. That is chapter 17's rule, and it matters here because the
+wizard is a whole new Python package:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose restart odoo
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Two warnings you'll actually see
 
-Watch the upgrade output closely (or check it in the shell afterward) and you'll spot
-something new, and it's actually two distinct warnings, not one:
+Odoo has been printing two warnings on every upgrade since chapter 19's, easy to miss
+among the INFO lines.
+
+<UiOrShell>
+<Tab>
+
+A UI upgrade writes them to the server log, not to the screen. Fish them out:
+
+```console
+$ docker compose logs --since 5m odoo | grep -o "UserWarning: .*"
+```
+
+Each registry load prints the pair once, so you'll see it more than once.
+
+</Tab>
+<Tab>
+
+They are in the upgrade's own output, among the INFO lines.
+
+</Tab>
+</UiOrShell>
+
+Here they are, wrapped for reading:
 
 ```console
 UserWarning: librefleet.service.order: inconsistent 'compute_sudo' for computed
@@ -400,7 +436,23 @@ Notice `_compute_margin`'s `@api.depends` includes `"parts_total"` and `"labor_t
 directly. A computed field can depend on another computed field, same as any stored field,
 so the dependency chain still cascades correctly when a line's quantity changes.
 
-Bump to `19.0.1.15.0`, upgrade, and confirm both warnings are gone:
+Bump to `19.0.1.15.0`, upgrade, and confirm both warnings are gone.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then count the warnings logged in the last minute:
+
+```console
+$ docker compose logs --since 1m odoo | grep -c UserWarning
+0
+```
+
+And the numbers didn't move, only how they're computed did: SO/2026/0001's form still
+reads **Margin 139.10**.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -417,10 +469,56 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select reference, margin f
  SO/2026/0002 |    120
 (2 rows)
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Watch every guard fire, for real
+
+<UiOrShell>
+<Tab>
+
+Open **SO/2026/0001** and click **In Progress** in the stage bar. **Mark Done** appears,
+because its `invisible` reads the stage:
+
+![SO/2026/0001 in the In Progress stage, with the new Mark Done button at the top left and the In Progress stage both highlighted](/screens/ch20-mark-done-button.jpg)
+
+Click it. The popup is the wizard's form, already showing this order's margin: the
+`default_order_id` in the action's context did that.
+
+![The Approve & Complete popup over the order: Margin 139.10 and the popup's own Mark Done button highlighted, an empty Completion Note between them](/screens/ch20-wizard-margin.jpg)
+
+Click **Mark Done** in the popup. It closes, and the order has landed on **Done**:
+
+![SO/2026/0001 after the wizard: Done, highlighted, is now the current stage](/screens/ch20-order-done.jpg)
+
+Now break the money rule on purpose. Click **In Progress** again, then **Add a line**
+under Parts: **Brake pads, front**, Quantity `10`, Unit Price `0` (it fills in 79.00;
+overwrite it). Save. The margin drops to -210.90. Click **Mark Done**, then the popup's
+**Mark Done**:
+
+![The Invalid Operation dialog over the popup, highlighted: This order loses money (margin -210.90). A manager must tick the override to complete it anyway.](/screens/ch20-negative-margin-error.jpg)
+
+Close the error. With the margin negative, the popup now shows **Complete anyway
+(negative margin)**: it is `invisible` while the margin is positive, and only a manager
+can tick it (admin is one). Tick it and click **Mark Done** again. This time the order
+goes to Done.
+
+![The popup with Margin -210.90 and the ticked Complete anyway (negative margin) checkbox highlighted, and its Mark Done button highlighted](/screens/ch20-override-ticked.jpg)
+
+The wrong-stage guard can't fire from here. The button only shows on in-progress orders,
+so the UI never even asks. That guard is for every other caller, and the shell tab trips
+it. Read the shell tab even if you clicked: it opens the same wizard with no browser at
+all, which is the whole point of this chapter.
+
+A click is a real write, so put the order back. Open SO/2026/0001, delete the brake pads
+line with its 🗑, and click **Draft** in the stage bar (the click saves). Margin reads
+139.10 again.
+
+</Tab>
+<Tab>
 
 Open the shell on the `tutorial` database:
 
@@ -497,6 +595,9 @@ data matches the real chapter demonstration, not your break-it experiments:
 ```console
 >>> env.cr.rollback()
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
@@ -505,7 +606,19 @@ data matches the real chapter demonstration, not your break-it experiments:
 
 You might reasonably assume `groups=` on a field only hides it from the form, the way many
 admin tools work, and that anyone with API access could still set it. Test that assumption
-directly, as tina, a Workshop User rather than a manager:
+directly, as tina, a Workshop User rather than a manager. This one stays in the shell,
+because the question is what a raw call can do. If you clicked through step 7, open the
+shell now and fetch the order first:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+```
+
+```console
+>>> order = env["librefleet.service.order"].search([("reference", "=", "SO/2026/0001")])
+```
+
+Then:
 
 ```console
 >>> tina = env["res.users"].search([("login", "=", "tina")])
