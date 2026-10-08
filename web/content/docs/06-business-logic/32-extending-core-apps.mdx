@@ -184,7 +184,22 @@ loading, because they come from your dependencies. They are grouped last only to
 <Step>
 ### Add the smart button to a form you do not own
 
-You need core's form id, and guessing is not a plan. Ask the database:
+You need core's form id, and guessing is not a plan. Ask the database.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → User Interface → Views**. Search
+**Model** for `res.partner` and add the **Form** filter:
+
+![The Views list filtered on Model res.partner and Form: res.partner.form with External ID base.view_partner_form highlighted at the top, then res.partner.bank.form, res.partner.simplified.form, Contact Tags, Industry and res.partner.form.address](/screens/ch32-partner-form-views.jpg)
+
+The model search matches by substring, so `res.partner.bank` and friends tag along: look at
+the **Model** column. The list is sorted by priority, and an empty **Inherited View** means
+a primary view, so the first `res.partner` row is the main form.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "
@@ -201,7 +216,12 @@ where v.model='res.partner' and v.type='form' order by v.priority;"
  base.view_partner_address_form  |       20 | primary
 ```
 
-The first one, lowest priority, is the main form. Now `addons/librefleet/views/res_partner_views.xml`:
+The first one, lowest priority, is the main form.
+
+</Tab>
+</UiOrShell>
+
+Its External ID is `base.view_partner_form`. Now `addons/librefleet/views/res_partner_views.xml`:
 
 ```xml title="addons/librefleet/views/res_partner_views.xml"
 <?xml version="1.0" encoding="utf-8"?>
@@ -245,10 +265,12 @@ Miss this line and nothing announces it. The XML file simply never loads, so the
 button never appears, and the module upgrades perfectly while doing nothing. A view that
 does not show up is far more often an unregistered file than a broken `xpath`.
 
-Upgrade, then open any partner who owns a vehicle. The smart button is there, on a form you
-never touched, counting a field your module added:
+Upgrade (**Apps → LibreFleet ⋮ → Upgrade**), then open any partner who owns a vehicle. With
+no Contacts app installed, the way in is the vehicle: open ZH 468 202 in **Fleet →
+Vehicles**, hover **Owner** and click the arrow that appears after Anna Keller's name. The
+smart button is there, on a form you never touched, counting a field your module added:
 
-![The standard partner form for Anna Keller with a Vehicles smart button reading 1, top right, a screen you did not write showing data your module contributed](/screens/ch32-partner-vehicles-smart-button.jpg)
+![The standard partner form for Anna Keller, opened from her vehicle, with a highlighted Vehicles smart button reading 1 at the top, a screen you did not write showing data your module contributed](/screens/ch32-partner-vehicles-smart-button.jpg)
 
 </Step>
 
@@ -281,7 +303,23 @@ from . import product_template
 from . import res_partner
 ```
 
-Leave `depends` as `["base"]` for the moment and upgrade:
+Leave `depends` as `["base"]` for the moment.
+
+<UiOrShell>
+<Tab>
+
+Save. As in ch31, you never reach an upgrade: `dev_mode` reloads the server, every page
+answers **Internal Server Error**, and `docker compose logs odoo` says why:
+
+```text
+TypeError: Model 'product.template' does not exist in registry.
+ERROR ? odoo.registry: Failed to load registry
+```
+
+</Tab>
+<Tab>
+
+Upgrade:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -294,6 +332,9 @@ Traceback (most recent call last):
     raise TypeError(f"Model {name!r} does not exist in registry.")
 TypeError: Model 'product.template' does not exist in registry.
 ```
+
+</Tab>
+</UiOrShell>
 
 Read that message next to ch31's. They are **identical in shape and different in cause**.
 Telling them apart quickly is a genuinely useful skill:
@@ -317,6 +358,33 @@ it that `product` has to be in the cabinet first:
 "depends": ["base", "product"],
 ```
 
+Bump the version to `19.0.1.17.0` while you are there.
+
+<UiOrShell>
+<Tab>
+
+Save, and the server comes back, but without LibreFleet. The log says so plainly:
+
+```text
+WARNING ? odoo.modules.module_graph: module librefleet: some depends are not loaded (product), skipped
+```
+
+`product` is not installed yet, so Odoo refuses to load a module that needs it rather than
+crash. **Apps → LibreFleet ⋮ → Upgrade** sorts it out: the upgrade installs the missing
+dependency first. When it finishes you land on **Discuss** instead of the Apps screen, a
+first hint that something extra arrived. `docker compose logs odoo` shows the chain:
+
+```text
+INFO tutorial odoo.modules.loading: Loading module uom (15/30)
+INFO tutorial odoo.modules.loading: Loading module mail (16/30)
+INFO tutorial odoo.modules.loading: Loading module product (26/30)
+INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.30s, 526 queries (+526 other)
+INFO tutorial odoo.modules.loading: 30 modules loaded in 6.81s, 13784 queries (+13785 extra)
+```
+
+</Tab>
+<Tab>
+
 Upgrade again and watch Odoo pull the dependency chain in for you:
 
 ```text
@@ -326,6 +394,9 @@ INFO tutorial odoo.modules.loading: Loading module product (26/30)
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.23s, 525 queries
 INFO tutorial odoo.modules.loading: 30 modules loaded in 6.15s, 13259 queries
 ```
+
+</Tab>
+</UiOrShell>
 
 <Callout type="info" title="You just installed three apps by adding one word">
   `product` needs `uom` and `mail`, so all three arrived. This is what "an integrator project
@@ -363,12 +434,32 @@ Note the `domain`: it filters the dropdown using the flag you just added to
 `product.template`. Optional on purpose too, because a workshop shelves a part long before
 anyone decides it deserves a product record.
 
+A new stored field means a new column, so upgrade once more.
+
 </Step>
 
 <Step>
 ### Ask what actually happened to the schema
 
-Extension talks about "the same table", so verify it rather than trusting the word:
+Extension talks about "the same table", so verify it rather than trusting the word.
+
+<UiOrShell>
+<Tab>
+
+Open **Settings → Technical → Database Structure → Fields** and search **Field** for
+`librefleet_`:
+
+![Six fields named librefleet_: librefleet_is_part on Product (Stored ticked) and Product Variant (Stored empty), highlighted; librefleet_vehicle_count and librefleet_vehicle_ids on Contact and on User, with the two User model cells highlighted](/screens/ch32-fields-librefleet.jpg)
+
+Open the first row, the flag on **Product**:
+
+![The librefleet_is_part field record: Model Product and In Apps librefleet, both highlighted, with Stored ticked](/screens/ch32-is-part-in-apps.jpg)
+
+**In Apps** says which module declared the field: `librefleet`, on a model that belongs to
+`product`.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "
@@ -390,11 +481,15 @@ order by f.model, f.name;"
  res.partner      | librefleet_vehicle_ids   | one2many | t     | librefleet
 ```
 
+</Tab>
+</UiOrShell>
+
 Two things in that output deserve a second look. Here is the first; the next step takes the
 second, because it is a bigger idea than it looks.
 
 **No new table exists.** Our partner fields are attributed to `librefleet` but they live on
-core's model, and there is no `librefleet_res_partner` anywhere:
+core's model, and there is no `librefleet_res_partner` anywhere. Tables are the one thing
+the UI cannot list, so this check is Postgres's:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -tAc "
@@ -416,9 +511,21 @@ book was never inside theirs.
 <Step>
 ### The field you never declared
 
-Look at the first row of that output again. **We never declared `librefleet_is_part` on
-`product.product`, yet there it is**, unstored. That is not a bug and not magic, it is
-chapter 31 paying you back. Ask the registry why:
+Look at the product rows of that output again. **We never declared `librefleet_is_part` on
+`product.product` (Product Variant), yet there it is**, unstored. That is not a bug and not
+magic, it is chapter 31 paying you back. Ask why.
+
+<UiOrShell>
+<Tab>
+
+In the Fields list, open the **Product Variant** row and its **Compute** tab:
+
+![The librefleet_is_part field record on Product Variant, Compute tab: Model Product Variant and Related Field Definition product_tmpl_id.librefleet_is_part, both highlighted](/screens/ch32-variant-related.jpg)
+
+The same picture as ch31's loaner: a related field through the link to the parent.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -431,6 +538,9 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 >>> f.inherited, f.related, f.store
 (True, 'product_tmpl_id.librefleet_is_part', False)
 ```
+
+</Tab>
+</UiOrShell>
 
 Core's `product.product` **delegates** to `product.template`, so every field on the template
 is exposed on the variant as a non-stored related field. You added one field to one model and
@@ -448,6 +558,10 @@ where column_name = 'librefleet_is_part' order by table_name;"
  product_template | librefleet_is_part
 ```
 
+The two **User** rows in the Fields list are the same story one level up: `res.users`
+delegates to `res.partner` (every user *is* a contact), so your partner fields reached users
+too, without a column on the users table.
+
 This is why ch31 spent a whole chapter on three mechanisms that look alike: you do not only
 choose between them for your own models, you inherit the consequences of core's choices.
 
@@ -455,6 +569,24 @@ choose between them for your own models, you inherit the consequences of core's 
 
 <Step>
 ### Watch the computed count work
+
+<UiOrShell>
+<Tab>
+
+**Fleet → Vehicles → New**: **License Plate** `CH22-AAA`, and in **Owner** type `Marta
+Ferreira` and pick **Create "Marta Ferreira"**. Save. Then a second one, `CH22-BBB`, with
+Marta picked from the dropdown this time. Save, then open Marta through the arrow next to
+**Owner**:
+
+![Marta Ferreira's contact form with a highlighted Vehicles smart button reading 2, and a chatter on the right](/screens/ch32-marta-smart-button.jpg)
+
+The chatter is new: `mail` arrived with `product` in step 4. Click the smart button, which
+runs `action_librefleet_vehicles`:
+
+![The Vehicles list reached from Marta's smart button, breadcrumb ending Marta Ferreira / Vehicles, with CH22-AAA and CH22-BBB highlighted, both owned by Marta Ferreira](/screens/ch32-marta-vehicles.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -470,6 +602,9 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 >>> p.librefleet_vehicle_count
 2
 ```
+
+</Tab>
+</UiOrShell>
 
 </Step>
 
@@ -491,7 +626,18 @@ ch32 complete! On to the next chapter 🔧
 ```
 
 Then prove your button really merged into core's form rather than living in a view of its own,
-which is the whole point of extension:
+which is the whole point of extension.
+
+<UiOrShell>
+<Tab>
+
+On Marta's form, open the 🐞 developer menu and pick **Computed Arch**: the form after every
+inheriting view has been applied.
+
+![The Computed Arch dialog of the partner form, with the button_box div containing the action_librefleet_vehicles stat button highlighted, sitting inside core's sheet](/screens/ch32-computed-arch.jpg)
+
+</Tab>
+<Tab>
 
 ```python
 >>> arch = env["res.partner"].get_view(env.ref("base.view_partner_form").id, "form")["arch"]
@@ -499,9 +645,12 @@ which is the whole point of extension:
 True
 ```
 
-In the UI, open any contact that owns a vehicle: the **Vehicles** stat button is on core's
-contact form, next to buttons other apps put there, and it disappears for contacts with no
-vehicles thanks to the `invisible` expression.
+</Tab>
+</UiOrShell>
+
+Open a contact with no vehicles, such as Administrator, and the button is gone: that is the
+`invisible` expression at work. On a database with more apps installed it shares core's
+button box with their smart buttons.
 
 ## Gotchas
 

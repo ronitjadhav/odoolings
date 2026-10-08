@@ -255,8 +255,27 @@ That is the whole page. Now go and look at it, because it is not right yet.
 <Step>
 ### Render it, and meet a widget that lies
 
-Register the file in the manifest's `data` list and upgrade, then render it once
-from the shell to see it for real:
+Register the file in the manifest's `data` list and upgrade, then look at it for real.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then open **SO/2026/0001**. The report is in the form's
+gear menu, next to the record's name:
+
+![The gear menu of SO/2026/0001 open, with Service Report and its printer icon highlighted above Duplicate and Delete](/screens/ch36-print-menu.jpg)
+
+Clicking it downloads the PDF. To look without downloading anything, ask Odoo for the
+same template rendered as a web page: open
+`http://localhost:8069/report/html/librefleet.report_service_order/1` (the `1` is the
+order's id) in a new tab.
+
+![The report as a web page: Your logo and My Company, Service Report SO/2026/0001, vehicle ZH 468 202 Fiat Ducato, customer Anna Keller, and a highlighted Technicians: res.users(5,), above a parts table with prices 24.5 and 18.9](/screens/ch36-report-html-bug.jpg)
+
+</Tab>
+<Tab>
+
+Render it once from the shell:
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -264,10 +283,15 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no
 >>> report = env["ir.actions.report"]._get_report("librefleet.report_service_order")
 >>> pdf_content, report_type = report._render_qweb_pdf("librefleet.report_service_order", order.ids)
 >>> open("/tmp/service_report.pdf", "wb").write(pdf_content)
+24872
 ```
 
+The file lands in the container's `/tmp`, not yours. Copy it out, then read its text with
+`pdftotext` (from your system's `poppler-utils` package):
+
 ```console
-$ pdftotext /tmp/service_report.pdf -
+$ docker compose cp odoo:/tmp/service_report.pdf .
+$ pdftotext service_report.pdf -
 Service Report SO/2026/0001
 Vehicle
 ZH 468 202
@@ -280,6 +304,9 @@ Part
 Oil filter
 ...
 ```
+
+</Tab>
+</UiOrShell>
 
 The layout is right and the header and footer are there. But "Technicians: res.users(5,)"
 is not a name, it is a recordset's `repr()`.
@@ -350,6 +377,16 @@ if that field ever appears in the template's arch.
 <Step>
 ### Upgrade, print, and watch it handle more than one order
 
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then reload the report's web page:
+
+![The fixed report page: Technicians: Tina Technician highlighted, and a highlighted table with prices 24.50 and 18.90, subtotals 24.50 and 75.60, Parts total 100.10 and Labor 89.00, and no margin](/screens/ch36-report-html-fixed.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ...
@@ -357,10 +394,12 @@ INFO tutorial odoo.modules.loading: loading librefleet/report/service_order_repo
 INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.56s, 558 queries (+558 other)
 ```
 
-Render again and read the real output:
+Render again (the same four shell lines as before), copy the file out, and read the real
+output:
 
 ```console
-$ pdftotext /tmp/service_report.pdf -
+$ docker compose cp odoo:/tmp/service_report.pdf .
+$ pdftotext service_report.pdf -
 Service Report SO/2026/0001
 Vehicle
 ZH 468 202
@@ -394,19 +433,42 @@ Subtotal
 89.00
 ```
 
-A real technician's name this time, two decimal places on every price, and no
-margin anywhere. Select two orders and render both at once, the same call with two
-ids instead of one:
+</Tab>
+</UiOrShell>
+
+A real technician's name this time, two decimal places on every price, and no margin
+anywhere. Now two orders at once.
+
+<UiOrShell>
+<Tab>
+
+In **Fleet → Service Orders**, tick both orders. The list's own **Print** button appears
+next to **Actions**:
+
+![The Service Orders list with both orders selected and the Print menu open, its single entry Service Report highlighted](/screens/ch36-list-print-menu.jpg)
+
+**Service Report** from there gives you one PDF with two pages, one per order.
+
+</Tab>
+<Tab>
+
+The same call with two ids instead of one:
 
 ```console
 >>> orders = env["librefleet.service.order"].search([], limit=2)
 >>> pdf_content, report_type = report._render_qweb_pdf("librefleet.report_service_order", orders.ids)
+>>> open("/tmp/multi_report.pdf", "wb").write(pdf_content)
+33022
 ```
 
 ```console
-$ pdfinfo /tmp/multi_report.pdf | grep Pages
+$ docker compose cp odoo:/tmp/multi_report.pdf .
+$ pdfinfo multi_report.pdf | grep Pages
 Pages:           2
 ```
+
+</Tab>
+</UiOrShell>
 
 Two orders, two pages, no page-count field anywhere in the code you wrote. That is
 the `<div class="page">` from Concepts, earning its keep.
@@ -421,7 +483,7 @@ does not travel.
 
 <Callout type="warn" title="Gotcha">
   Testing from `odoo shell --no-http`, like the transcripts above, logs a harmless
-  `wkhtmltopdf: Exit with code 1 due to network error: ContentNotFoundError` warning.
+  `wkhtmltopdf: Exit with code 1 due to network error: ConnectionRefusedError` warning.
   `--no-http` means there is no running web server for wkhtmltopdf to fetch images
   from (a company logo, say), so any `<img>`-backed content silently fails to load
   while the rest of the PDF renders fine. Printing from the real running server, the
@@ -458,11 +520,10 @@ $ python3 odoolings.py check ch36
 ch36 complete! On to the next chapter 🔧
 ```
 
-In the UI: open any service order and check the Print dropdown in the form's header
-for "Service Report". Click it and confirm the PDF that comes back has the company's
-header and footer, the parts and labor totals, and no margin.
-
-![The service order's Actions menu open, showing Service Report with a printer icon above Duplicate and Delete](/screens/ch36-print-menu.jpg)
+In the UI: open any service order and check the gear menu next to its name for "Service
+Report" (in the list, it is under **Print** once rows are selected). Click it and confirm
+the PDF that comes back has the company's header and footer, the parts and labor totals,
+and no margin.
 
 ## Gotchas
 

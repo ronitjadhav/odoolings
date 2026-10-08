@@ -175,13 +175,16 @@ Both routes use `sudo()`: `auth="public"` means there is no logged-in user with 
 access rights at all, so without it every read would fail with an `AccessError`
 before your code got anywhere.
 
-`controllers/__init__.py` needs both files imported, and the module's own
-`__init__.py` needs the package:
+`controllers/__init__.py` imports it, and the module's own `__init__.py` needs the
+package:
 
 ```python title="addons/librefleet/controllers/__init__.py"
 from . import main
-from . import portal
 ```
+
+Only `main` for now. The portal controller joins this file in step 5, once `portal.py`
+exists: import it today and the next reload dies with `ImportError: cannot import name
+'portal'`, chapter 32's "only import a file once it exists" rule again.
 
 ```python title="addons/librefleet/__init__.py"
 from . import controllers
@@ -193,16 +196,19 @@ Write `vehicle_lookup`'s route as `type="json"` first, on purpose, and watch wha
 Odoo 19 actually does with it:
 
 ```console
-$ curl -H "Content-Type: application/json" \
+$ curl -H "X-Odoo-Database: tutorial" -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","method":"call","params":{"license_plate":"ZH 468 202"}}' \
     http://localhost:8069/librefleet/vehicles/lookup
 {"jsonrpc": "2.0", "id": null, "result": {"found": true, "model_name": "Fiat Ducato", "service_count": 1}}
 ```
 
+(The `X-Odoo-Database` header tells Odoo which database you mean. Step 2 shows what
+happens without it.)
+
 The call succeeds, silently. The warning is server-side only:
 
 ```text
-WARNING ? py.warnings: /mnt/extra-addons/librefleet/controllers/main.py:12: DeprecationWarning: Since 19.0, @route(type='json') is a deprecated alias to @route(type='jsonrpc')
+WARNING ? py.warnings: /mnt/extra-addons/librefleet/controllers/main.py:5: DeprecationWarning: Since 19.0, @route(type='json') is a deprecated alias to @route(type='jsonrpc')
 ```
 
 Change it to `type="jsonrpc"` (the version already shown above) before moving on;
@@ -238,7 +244,8 @@ the response is identical, only the log noise goes away.
 </odoo>
 ```
 
-Register both files in the manifest, bump the version, and upgrade:
+Register the file in the manifest, add `portal` to the dependencies for what comes next,
+bump the version, and upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the command below):
 
 ```python title="addons/librefleet/__manifest__.py"
 "version": "19.0.1.23.0",
@@ -247,8 +254,11 @@ Register both files in the manifest, bump the version, and upgrade:
     "data": [
         ...
         "views/website_templates.xml",
-        "views/portal_templates.xml",
 ```
+
+Register only files that exist. `views/portal_templates.xml` comes in step 6; list it here
+and the upgrade fails with `FileNotFoundError: [Errno 2] No such file or directory:
+'/mnt/extra-addons/librefleet/views/portal_templates.xml'`.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -269,21 +279,28 @@ anonymous request cannot guess which one you mean. A browser sidesteps this: log
 sets a session cookie that pins the database for every later request. A bare `curl` has
 no session yet.
 
-Your own environment has one database, so this 404 will not happen to you. Worth knowing
-why in case it ever does. Fix it with an explicit header:
+On a server with a single database, or a `dbfilter` that picks one per hostname (what
+production does), this 404 never happens. Here it does, so name the database explicitly:
 
 ```console
 $ curl -H "X-Odoo-Database: tutorial" http://localhost:8069/librefleet/services
-<html><head><title>LibreFleet Services</title></head><body><h1>What we service</h1>
-<ul><li><span>Brake inspection</span> (<span>120.0</span>)</li>
-<li><span>Full service</span> (<span>349.0</span>)</li>
+
+        <html>
+            <head><title>LibreFleet Services</title></head>
+            <body>
+                <h1>What we service</h1>
+                <ul>
+                    <li>
+                        <span>Brake inspection</span>
+                        (<span>120.0</span>)
+                    </li><li>
 ...
 ```
 
 Open the same URL in a browser, session cookie and all, and it is the identical HTML,
 just rendered:
 
-![The public /librefleet/services page: a plain, unstyled What we service heading over a bulleted list of five service types with their flat fees](/screens/ch37-public-services-page.jpg)
+![The public /librefleet/services page: a plain, unstyled What we service heading over a bulleted list of Brake inspection 120.0, Full service 349.0, Oil change 89.0, Tire Rotation 59.0 and Wheel Alignment 45.0](/screens/ch37-public-services-page.jpg)
 
 </Step>
 
@@ -305,7 +322,9 @@ just rendered:
             order.access_url = "/my/service-orders/%s" % order.id
 ```
 
-Upgrade, then check the field directly:
+Upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the command), then check the field
+directly in the shell. The form shows nothing new, which is fine: a portal URL is for
+customers, not for this screen.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -313,8 +332,10 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 
 ```console
 >>> env["librefleet.service.order"].search([], limit=1).access_url
-'/my/service-orders/1'
+'/my/service-orders/2'
 ```
+
+`search([], limit=1)` follows the model's `_order`, newest first, so that is SO/2026/0002.
 </Step>
 
 <Step>
@@ -451,6 +472,13 @@ version did not have it. Chapter 14's sequence gives orders references like
 `SO/2026/0001`. A bare slash in a `Content-Disposition` filename looks fine in a curl
 transcript and breaks quietly in a real browser, where some read it as a path separator.
 Caught by downloading the file and inspecting the header, not by reading the code twice.
+
+Now that `portal.py` exists, add it to the package:
+
+```python title="addons/librefleet/controllers/__init__.py"
+from . import main
+from . import portal
+```
 </Step>
 
 <Step>
@@ -578,18 +606,45 @@ The templates (`views/portal_templates.xml`) follow the exact shape core's own `
 `portal_my_home_service_order` is the one to remember by name: it's the template
 the break-it-lab in the exercises below asks you to come back and edit, the one
 that carries the `portal_client_category_enable` xpath.
+
+Register the file in the manifest's `data` list, right below `views/website_templates.xml`:
+
+```python title="addons/librefleet/__manifest__.py"
+    "data": [
+        ...
+        "views/website_templates.xml",
+        "views/portal_templates.xml",
+```
+
+Then upgrade. This one upgrade also loads step 4's ACL lines and record rules.
 </Step>
 
 <Step>
 ### Grant a customer portal access
 
-A real customer gets a portal account when an admin clicks "Grant Portal Access" on their
-contact form (Settings > Users > Portal Access Management, or the button on the partner
-form itself). That sends a signup email.
+A real customer gets a portal account when an admin grants it from their contact. That
+sends a signup email, and the customer picks a password from its link.
 
-This dev environment has no outgoing mail server. So drive the same wizard from the shell
-and set a password directly instead of following an email link. That is a shortcut you
-would never take in production:
+<UiOrShell>
+<Tab>
+
+Open Anna Keller's contact (the arrow next to **Owner** on ZH 468 202, as in chapter 32).
+A portal login is an email address, so fill in **Email** first: `anna.keller@example.com`,
+and save. Then open the gear menu next to her name:
+
+![Anna Keller's contact with the gear menu open: Edit Properties, Duplicate, Archive, Delete, Send SMS, Download (vCard), Privacy Lookup and the highlighted Grant portal access](/screens/ch37-grant-portal-menu.jpg)
+
+**Grant portal access** opens Portal Access Management:
+
+![The Portal Access Management dialog with Anna Keller's row highlighted: email anna.keller@example.com with a green check, and a Grant Access button](/screens/ch37-portal-access-dialog.jpg)
+
+Click **Grant Access**. The row switches to **Revoke Access** and **Re-Invite**, and the
+invitation email waits in the outgoing queue: this dev environment has no mail server.
+
+</Tab>
+<Tab>
+
+Drive the same wizard from the shell:
 
 ```console
 >>> anna = env["res.partner"].browse(8)  # Anna Keller, owns ZH 468 202
@@ -597,7 +652,19 @@ would never take in production:
 >>> wiz = env["portal.wizard"].with_context(active_ids=[anna.id]).create({})
 >>> pwu = wiz.user_ids.filtered(lambda u: u.partner_id == anna)
 >>> pwu.action_grant_access()
+>>> env.cr.commit()
+```
+
+</Tab>
+</UiOrShell>
+
+With no mail server, the email link never arrives, so set her password directly from the
+shell. That is a shortcut you would never take in production:
+
+```console
+>>> anna = env["res.partner"].browse(8)
 >>> anna.user_ids.sudo().write({"password": "portal123"})
+>>> env.cr.commit()
 ```
 </Step>
 
@@ -607,7 +674,26 @@ would never take in production:
 Anna now has a session to log in with, so this is the ordinary route: a real user, a real
 cookie, and the record rule from step 4 deciding what she is allowed to see.
 
-Log in as her and confirm the record rule actually scopes what she sees:
+Log in as her and confirm the record rule actually scopes what she sees.
+
+<UiOrShell>
+<Tab>
+
+Open a private browser window, so your admin session stays where it is, and sign in at
+`http://localhost:8069/web/login` as `anna.keller@example.com` / `portal123`, database
+`tutorial`. A portal user lands on **My account**:
+
+![Anna Keller's My account page with the Service Orders tile, Track your vehicle's service history, highlighted above Addresses and Connection & Security](/screens/ch37-portal-home.jpg)
+
+Click **Service Orders**:
+
+![The portal's Service Orders list with exactly one row, highlighted: SO/2026/0001, scheduled 07/16/2026, Done](/screens/ch37-portal-list.jpg)
+
+Then type `/my/service-orders/2` (Beat Muster's order) into the address bar: you land back
+on **My account**, no error page.
+
+</Tab>
+<Tab>
 
 ```console
 $ curl -c cookies.txt -H "Content-Type: application/json" \
@@ -631,6 +717,12 @@ $ curl -b cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:8069/my/
 
 `303` is a redirect back to `/my`, from the `except Exception: return
 request.redirect("/my")` in the controller, not a raw `AccessError` traceback.
+
+</Tab>
+</UiOrShell>
+
+`authenticate` carries the database name, so the session cookie pins it and the later
+calls need no `X-Odoo-Database` header.
 </Step>
 
 <Step>
@@ -642,33 +734,61 @@ be `auth="public"`. No cookie, no login, no user: just a URL with a token in it.
 The record rule cannot help here, because there is nobody for it to scope to. The token
 is the entire credential.
 
-Test it with no session at all, using the token from step 3:
+First the order needs a token. Nothing has created one yet; `_portal_ensure_token()`
+makes it on first call and returns the same one after that. Commit, or the token vanishes
+with the shell session:
 
 ```console
 >>> order = env["librefleet.service.order"].browse(1)
 >>> order._portal_ensure_token()
-'2eeaf5ec-506a-43a8-808b-90fea5b6de9b'
+'5a1aadf2-0180-4525-b348-ef0ba157eecb'
+>>> env.cr.commit()
 ```
 
+<UiOrShell>
+<Tab>
+
+Open the link in a private window, with no session at all:
+`http://localhost:8069/my/service-orders/1?access_token=` plus your token.
+
+![A bare Not Found page: No database is selected and the requested URL was not found in the server-wide controllers](/screens/ch37-share-link-404.jpg)
+
+Step 2's 404 again, and for the same reason: no session, three databases, no way to
+choose. A customer never sees this, because a production server runs one database per
+hostname. Here, give the private window a database without signing in: open
+`http://localhost:8069/web/login?db=tutorial` once, leave the form alone, and paste the
+link again.
+
+![The order reached through the share link: Sign in at the top right, highlighted, because there is no session, then Service Report SO/2026/0001 with vehicle ZH 468 202, Oil change, Done, two parts, and a highlighted Download Service Report button](/screens/ch37-share-link-page.jpg)
+
+**Sign in** in the corner proves it: nobody is logged in, and the token alone opened the
+order. Change one character of the token and you land on the login page instead.
+
+</Tab>
+<Tab>
+
 ```console
-$ curl -o /dev/null -w '%{http_code}\n' \
-    "http://localhost:8069/my/service-orders/1?access_token=2eeaf5ec-506a-43a8-808b-90fea5b6de9b"
+$ curl -H "X-Odoo-Database: tutorial" -o /dev/null -w '%{http_code}\n' \
+    "http://localhost:8069/my/service-orders/1?access_token=5a1aadf2-0180-4525-b348-ef0ba157eecb"
 200
-$ curl -o /dev/null -w '%{http_code}\n' \
+$ curl -H "X-Odoo-Database: tutorial" -o /dev/null -w '%{http_code}\n' \
     "http://localhost:8069/my/service-orders/1?access_token=wrong-token"
 303
 ```
 
 No cookie, no login, correct token, `200`. Wrong token, `303`, same redirect a
-session-less request with no token at all would get. Finally, the download route
-from chapter 36:
+session-less request with no token at all would get. Leave out the header and both
+answer `404`, step 2's database problem. Finally, the download route from chapter 36:
 
 ```console
-$ curl -o report.pdf \
-    "http://localhost:8069/my/service-orders/1/report?access_token=2eeaf5ec-506a-43a8-808b-90fea5b6de9b"
+$ curl -H "X-Odoo-Database: tutorial" -o report.pdf \
+    "http://localhost:8069/my/service-orders/1/report?access_token=5a1aadf2-0180-4525-b348-ef0ba157eecb"
 $ pdfinfo report.pdf | grep Pages
 Pages:           1
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 </Steps>
@@ -710,9 +830,11 @@ ch37 complete! On to the next chapter 🔧
 ```
 
 In the UI: log in as `anna.keller@example.com` / `portal123` (or your own portal
-test user) and confirm `/my` shows a "Service Orders" tile with a count, clicking it
-lands on `/my/service-orders` with only her own orders listed, and opening one shows
-the "Download Service Report" button producing the PDF from chapter 36.
+test user) and confirm `/my` shows a "Service Orders" tile, clicking it lands on
+`/my/service-orders` with only her own orders listed, and opening one shows the
+"Download Service Report" button producing the PDF from chapter 36. The tile carries no
+number: in Odoo 19 the counter only decides whether the tile appears at all (it hides at
+zero).
 
 ## Gotchas
 

@@ -278,7 +278,18 @@ all. Every core Odoo form puts it exactly here, as the last child of `<form>`.
 That single tag renders all three pieces from the Concepts table: the message thread, the
 follower list and the activity scheduler.
 
-Bump the manifest to `19.0.1.18.0` and upgrade:
+Bump the manifest to `19.0.1.18.0` and upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then open **Fleet → Service Orders → SO/2026/0002**. The
+right half of the form is new:
+
+![Service order SO/2026/0002 with the new chatter panel on the right, highlighted: Send message, Log note and Activity buttons, a follower counter at 0, and The conversation is empty](/screens/ch33-empty-chatter.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -288,7 +299,11 @@ INFO tutorial odoo.modules.loading: Module librefleet loaded in 0.29s, 522 queri
 INFO tutorial odoo.modules.loading: 30 modules loaded in 0.57s, 522 queries (+522 extra)
 ```
 
-No new module got pulled in this time, unlike chapter 32's `product`. That is expected:
+</Tab>
+</UiOrShell>
+
+No new module got pulled in this time (the shell tab's log shows 30 modules, as before),
+unlike chapter 32's `product`. That is expected:
 `mail` was already on the database, dragged in by `product`, so naming it in `depends`
 changed what your module *promises* rather than what gets installed.
 
@@ -302,6 +317,48 @@ future, on the day somebody changes `product`.
 <Step>
 ### Post, subscribe, schedule
 
+The same order, SO/2026/0002, for all of it: it is Beat Muster's, for BE 30 447.
+
+<UiOrShell>
+<Tab>
+
+**Track a change.** Click **Confirmed** in the status bar. The form saves, and the chatter
+writes its first entry by itself:
+
+![The chatter after clicking Confirmed: one message by Administrator, Draft arrow Confirmed (Stage), highlighted](/screens/ch33-tracked-stage.jpg)
+
+That is `tracking=True` on `stage` at work. You wrote no code to post it.
+
+**Post a note.** Click **Log note**, type `Customer called: OK to keep the vehicle
+overnight.` and click **Log**. A note is internal: it notifies nobody outside the company.
+
+**Subscribe.** Open the follower counter (the person icon, top right of the chatter) and
+click **Follow**, then open it again and pick **Add Followers**. One snag first: Odoo
+refuses to add followers while *you* have no email address, even with notifications off,
+and a database built without demo data gives the administrator none. The error says
+`Unable to post message, please configure the sender's email address.` So set one: your
+avatar (top right) → **My Preferences**, any address will do, then **Update Preferences**.
+
+![Change My Preferences for Administrator, with the Email field highlighted and filled with admin@example.com](/screens/ch33-my-preferences-email.jpg)
+
+Back in **Add Followers**, pick Beat Muster. If Beat has no email either, Odoo asks for one
+in a small popup; fill it in and click **Set Email**. Leave **Notify Recipients** off, the
+UI's equivalent of `message_subscribe`, then **Add Followers**.
+
+![The Add followers to this document dialog with Beat Muster in Followers and Notify Recipients off, highlighted](/screens/ch33-add-followers.jpg)
+
+**Schedule.** Click **Activity**, pick **Call** and type the summary `Call about pickup
+time`. Call pre-fills a due date two days out; keep it.
+
+![The Schedule Activity dialog: Call highlighted, then Summary Call about pickup time and Due Date Oct 10, highlighted, assigned to Administrator](/screens/ch33-schedule-call.jpg)
+
+Save, and the chatter shows all three:
+
+![The service order's chatter, highlighted: the follower counter at 2, a planned activity Due in 2 days Call about pickup time, the note Customer called: OK to keep the vehicle overnight, and the tracked Draft to Confirmed stage change](/screens/ch33-chatter-three-pieces.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
 ```
@@ -311,7 +368,7 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 >>> o.message_post(body="Customer called: OK to keep the vehicle overnight.")
 >>> env.cr.commit()
 >>> o.message_ids[0].body
-'<p>Customer called: OK to keep the vehicle overnight.</p>'
+Markup('<p>Customer called: OK to keep the vehicle overnight.</p>')
 >>> o.message_subscribe(partner_ids=o.customer_id.ids)
 >>> env.cr.commit()
 >>> o.message_follower_ids.mapped("partner_id.name")
@@ -323,17 +380,17 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-ht
 ('today', 'Call')
 ```
 
-`message_post` is the manual, no-tracking way to add a note. `message_subscribe` adds a
+</Tab>
+</UiOrShell>
+
+`message_post` is the manual, no-tracking way to add a note: **Log note** in code. `message_subscribe` adds a
 follower without posting anything; every follower gets notified the next time a message
 is logged. `activity_schedule` needs an activity type's XML id (`mail_activity_data_call`
 is core's built-in "Call" type) and gives you `activity_state` back for free, one of
 `overdue`, `today`, or `planned`, computed from the earliest deadline across all of a
-record's activities.
-
-Refresh the order in the browser and the chatter panel shows all three: the tracked
-stage change from earlier, your note, and the scheduled call.
-
-![The service order's chatter panel: a Planned Activity "Call about pickup time", a posted note "Customer called: OK to keep the vehicle overnight", and a tracked Draft to Confirmed stage change, all on one record](/screens/ch33-chatter-three-pieces.jpg)
+record's activities. Without a `date_deadline`, `activity_schedule` makes the call due
+today, while the dialog applies the type's default delay. That is why the shell says
+`today` and the browser says "Due in 2 days" for what is otherwise the same call.
 
 That is the three pieces from the top of the chapter, now real on your own model: a thread
 carrying two messages, a follower list naming who hears about them, and one activity
@@ -368,8 +425,15 @@ Create `data/mail_template.xml`:
                         The work on <t t-out="object.vehicle_id.license_plate or ''">plate</t>
                         is finished and the vehicle is ready for collection.
                     </p>
+                    <p>
+                        Reference: <t t-out="object.reference or ''">SO/0000</t><br/>
+                        Parts: <t t-out="object.parts_total or 0">0.00</t><br/>
+                        Labour: <t t-out="object.labor_total or 0">0.00</t>
+                    </p>
+                    <p>Thank you for choosing LibreFleet.</p>
                 </div>
             </field>
+            <field name="auto_delete" eval="False"/>
         </record>
 
     </data>
@@ -398,15 +462,37 @@ Now register it in the manifest, above the view files:
     ...
 ```
 
-Upgrade, then render it against a real order without sending anything:
+`auto_delete` set to `False` keeps a copy of every email sent with it, so the order's
+chatter can show what the customer actually received.
+
+Upgrade, then render it against a real order without sending anything.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Email → Templates**. The list opens
+filtered on **Base Templates**; remove that facet and open **Service Order: ready for
+collection**. Click **Preview**:
+
+![Template Preview against SO/2026/0002: Test Record SO/2026/0002, Subject Your vehicle is ready (SO/2026/0002), and Hello Beat Muster, The work on BE 30 447 is finished, all highlighted](/screens/ch33-template-preview.jpg)
+
+Now switch **Test Record** to SO/2026/0001:
+
+![The same preview against SO/2026/0001: Subject Your vehicle is ready (SO/2026/0001) and Hello Anna Keller, The work on ZH 468 202 is finished, highlighted](/screens/ch33-template-preview-0001.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 >>> tmpl = env.ref("librefleet.mail_template_service_done")
 >>> tmpl._render_field("subject", o.ids)[o.id]
 'Your vehicle is ready (SO/2026/0002)'
 >>> tmpl._render_field("body_html", o.ids)[o.id]
-'...The work on ZH 468 202 is finished...'
+Markup('<div>\n                    <p>Hello Beat Muster,</p>\n ... The work on BE 30 447 ...')
 ```
+
+</Tab>
+</UiOrShell>
 
 Two different orders render two different subjects. That is the entire point of a
 template: write the wording once, let every send fill in its own facts.

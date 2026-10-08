@@ -324,6 +324,24 @@ from . import service_type
 from . import vehicle
 ```
 
+<UiOrShell>
+<Tab>
+
+Save the file. You do not even get as far as an upgrade: `dev_mode` reloads the server on
+the save, and from then on every page of `tutorial` answers like this:
+
+![A bare Internal Server Error page: The server encountered an internal error and was unable to complete your request](/screens/ch31-import-order-500.jpg)
+
+The reason is in the server log (`docker compose logs odoo`), under `Failed to load
+registry`:
+
+```text
+TypeError: Model 'librefleet.vehicle' does not exist in registry.
+```
+
+</Tab>
+<Tab>
+
 Upgrade, and it refuses to start:
 
 ```console
@@ -331,6 +349,9 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet
 ...
 TypeError: Model 'librefleet.vehicle' does not exist in registry.
 ```
+
+</Tab>
+</UiOrShell>
 
 `loaner.py` extends `librefleet.vehicle` and prototypes `librefleet.part`, so
 both have to be registered by the time it is imported. **Within a single module,
@@ -351,14 +372,43 @@ from . import loaner
 This bites people most often when they alphabetise imports out of tidiness, or
 when a linter does it for them.
 
+With the import back at the end, upgrade for real: **Apps → LibreFleet ⋮ → Upgrade**, or
+the `-u` command above. **Fleet** gains its third menu item:
+
+![The Fleet menu open over the vehicles list: Vehicles, Service Orders, and the new Loaner Cars, highlighted](/screens/ch31-loaner-menu.jpg)
+
 </Step>
 
 <Step>
 ### Ask Postgres what actually happened
 
 This is the part worth doing slowly. Three mechanisms, three completely
-different schema outcomes, all visible in one query each. First, the classic
-extension:
+different schema outcomes.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Database Structure → Fields**. Search
+**Field** for `is_loanable` first: it is there on **Vehicle**, **Stored**, a new column on
+the existing vehicle table.
+
+Now search **Model** for `librefleet.consumable` and again for `librefleet.part`:
+
+![Fields of librefleet.consumable or librefleet.part: code, list_price, name and standard_cost each appear twice, once on Spare Part and once on Workshop Consumable, both stored, and unit only on Workshop Consumable, all highlighted](/screens/ch31-consumable-fields.jpg)
+
+Every field of the part exists twice, both **Stored**: the consumable got its own copies,
+plus its own `unit`. Finally, search **Model** for `librefleet.loaner` alone:
+
+![Fields of librefleet.loaner: available, daily_rate and vehicle_id highlighted with Stored ticked, license_plate and model_name highlighted with Stored empty](/screens/ch31-loaner-fields.jpg)
+
+The loaner lists the vehicle's fields too (`license_plate`, `model_name`, `year` and the
+rest), but none of them is stored on it. Only its own `available`, `daily_rate` and the
+`vehicle_id` link are.
+
+</Tab>
+<Tab>
+
+All visible in one query each. First, the classic extension:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select column_name from information_schema.columns where table_name='librefleet_vehicle' and column_name='is_loanable';"
@@ -411,6 +461,9 @@ Look at what is **missing**: no `license_plate`, no `model_name`, no `year`. The
 loaner table holds only its own fields plus the link. The vehicle data stays in
 the vehicle table, which is the entire point.
 
+</Tab>
+</UiOrShell>
+
 Three trips to the blueprint cabinet, three different things in the schema: a
 pencil line on a blueprint already filed, a photocopy filed under a new name, and
 a new blueprint holding a pointer instead of a copy. **The sentence to carry out of
@@ -422,7 +475,29 @@ copies it, and `_inherits` points at it.
 <Step>
 ### Delegation from the inside
 
-In the shell, watch one `create` write two rows:
+Watch one record create two.
+
+<UiOrShell>
+<Tab>
+
+**Fleet → Loaner Cars → New**: **License Plate** `LOAN-001`, **Model Name** `Fiat Panda`,
+**Daily Rate** `29.00`. Save.
+
+![The saved loaner: the Vehicle group's License Plate LOAN-001, Model Name Fiat Panda and Year 0 highlighted, and the breadcrumb reading Loaner Cars / librefleet.loaner,1](/screens/ch31-loaner-form.jpg)
+
+The breadcrumb reads `librefleet.loaner,1` because the loaner has no `name` field and no
+`_rec_name` of its own, so Odoo falls back to the model and the id. Now open **Fleet →
+Vehicles**:
+
+![The Vehicles list, now 1-4 / 4: ZH 468 202, BE 30 447, SHELL-001, and the highlighted LOAN-001, Fiat Panda](/screens/ch31-vehicles-with-loaner.jpg)
+
+Creating a loaner created a vehicle: the plate and model you typed on the loaner form went
+to the vehicle row.
+
+</Tab>
+<Tab>
+
+In the shell:
 
 ```console
 >>> V, L = env["librefleet.vehicle"], env["librefleet.loaner"]
@@ -456,19 +531,35 @@ everywhere vehicles do:
 True
 ```
 
+</Tab>
+</UiOrShell>
+
 </Step>
 
 <Step>
 ### How delegation is actually implemented
 
 `_inherits` is not magic bolted into the ORM's read path. Ask the field itself
-what it is:
+what it is.
+
+<UiOrShell>
+<Tab>
+
+In the loaner's field list from step 4, open **license_plate** and its **Compute** tab:
+
+![The License Plate (Loaner Car) field record on its Compute tab: Model Loaner Car and Related Field Definition vehicle_id.license_plate, highlighted](/screens/ch31-license-plate-related.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 >>> f = env["librefleet.loaner"]._fields["license_plate"]
 >>> f.inherited, f.related, f.store
 (True, 'vehicle_id.license_plate', False)
 ```
+
+</Tab>
+</UiOrShell>
 
 It is a **non-stored related field**, exactly the kind you wrote by hand back in
 chapter 13, generated automatically for every field on the parent. That single
@@ -479,6 +570,8 @@ writes pass through, and why `related` points along `vehicle_id`.
 
 <Step>
 ### Prototype records are strangers
+
+Consumables have no menu, so this one is the shell's:
 
 ```console
 >>> P, C = env["librefleet.part"], env["librefleet.consumable"]
@@ -499,7 +592,24 @@ class definition time, and the models have been strangers ever since.
 ### The cascade only runs one way
 
 Delete the backing vehicle and the loaner goes with it, which is what
-`ondelete="cascade"` on `vehicle_id` buys you:
+`ondelete="cascade"` on `vehicle_id` buys you. Delete the loaner, and the vehicle stays.
+
+<UiOrShell>
+<Tab>
+
+In **Fleet → Vehicles**, tick LOAN-001 and use **Actions → Delete**. **Fleet → Loaner
+Cars** is empty afterwards: the loaner went with its vehicle.
+
+Now the other way. Create a loaner `ASYM-TEST` (any daily rate), save, and delete it from
+its form (the ⚙ menu next to its name, then **Delete**). **Fleet → Vehicles** still lists
+the vehicle it was built on:
+
+![The Vehicles list after deleting the ASYM-TEST loaner: the ASYM-TEST vehicle, highlighted, is still there](/screens/ch31-asym-vehicle-left.jpg)
+
+A delete in the browser is real, so tidy up: delete that ASYM-TEST vehicle too.
+
+</Tab>
+<Tab>
 
 ```console
 >>> loaner = L.create({"license_plate": "CASCADE-1", "daily_rate": 10.0})
@@ -519,10 +629,14 @@ But go the other way and the vehicle survives on its own:
 True
 ```
 
+Roll back when you are done experimenting.
+
+</Tab>
+</UiOrShell>
+
 Deleting a loaner leaves an ordinary vehicle behind. That is defensible (the car
 still exists, it just is not a loaner any more) but it is rarely what people
-expect, and it quietly accumulates rows. Roll back when you are done
-experimenting.
+expect, and it quietly accumulates rows.
 
 </Step>
 
@@ -543,14 +657,7 @@ ch31 complete! On to the next chapter 🔧
 The third check is the interesting one: it asserts that `license_plate` on the
 loaner exists but is **non-stored** and `related` to `vehicle_id.license_plate`,
 so it fails both if you forget `_inherits` and if you "helpfully" redeclare the
-parent's fields on the child. Then see delegation from the outside, in the browser:
-Fleet → Loaner Cars, create one, then check Fleet → Vehicles and find the car you
-just created sitting there as an ordinary vehicle. That second record is not a copy,
-it is the parent row your loaner points at.
-
-![The Loaner Cars form: License Plate, Model Name and Year on the left under Vehicle, Daily Rate and Available on the right under Loan Terms](/screens/ch31-loaner-car-form.jpg)
-
-![The Vehicles list with the loaner's plate, ZH 900 001, sitting in the same table as the real fleet, no Owner and no visible difference from an ordinary vehicle](/screens/ch31-loaner-as-vehicle.jpg)
+parent's fields on the child.
 
 ## Gotchas
 
