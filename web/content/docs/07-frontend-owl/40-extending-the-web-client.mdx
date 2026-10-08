@@ -243,8 +243,9 @@ Registering a widget does not apply it anywhere. The view has to name it:
                                 </group>
 ```
 
-Bump the manifest to `19.0.1.26.0` and upgrade. The `assets` key from chapter 39
-already globs `static/src/**/*`, so new files under it need no manifest change at all:
+Bump the manifest to `19.0.1.26.0` and upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the
+command). The `assets` key from chapter 39 already globs `static/src/**/*`, so new files
+under it need no manifest change at all:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -253,9 +254,10 @@ INFO tutorial odoo.registry: Registry loaded in 2.797s
 ```
 
 Open any service order and look at the Money group. A profitable order shows a green
-up-arrow; an order underwater shows bold red with a down-arrow:
+up-arrow; an order underwater shows bold red with a down-arrow (you will build one in the
+next step):
 
-![The Money group of a service order form: Parts Total 10.00, Labor Total 89.00, and Margin rendered as a red down-arrow followed by -401.00 in bold red](/screens/ch40-margin-widget-loss.jpg)
+![SO/2026/0001 with Parts Total 100.10, Labor Total 89.00, and a highlighted Margin rendered as a green up-arrow followed by 139.10](/screens/ch40-margin-widget-profit.jpg)
 
 <Callout type="warn" title="Gotcha">
   If the widget renders nothing at all and the console says
@@ -312,10 +314,12 @@ Patching `setup` to add a service is the standard way to give a patched class
 something it did not have. `useService` is a hook, so it has to run inside `setup`,
 which is exactly where the patched version puts it.
 
-Upgrade. Create a service order that loses money (a part whose `standard_cost` exceeds
-what you charge for it), edit any field, and save. A warning toast appears top right
-reading "Negative margin: This order is being saved at a loss of -401.00", and the save
-still goes through.
+Upgrade, then build an order that loses money: a part sold below its `standard_cost`.
+Open the SHELL-001 order from chapter 39 and add a line: **Brake pads, front**, quantity
+`15`, unit price `1.00`. They cost 35.00 each, so the margin turns red while you type.
+Save. A warning toast appears top right, and the save still goes through:
+
+![The SHELL-001 order with a line of 15 brake pads at 1.00, Parts Total 15.00, Labor Total 120.00, a highlighted red down-arrow Margin of -390.00, and a highlighted toast reading Negative margin. This order is being saved at a loss of -390.00.](/screens/ch40-margin-widget-loss.jpg)
 
 That last detail is the design decision worth arguing about, so the code says why in a
 comment. This hook *can* block the save by returning `false`, and deliberately does not.
@@ -327,18 +331,27 @@ convenience for the person clicking, not a control.
 <Step>
 ### Break-it lab: remove the guard
 
-Delete the `record.resModel === "librefleet.service.order" &&` half of the condition,
-upgrade, reload, and go edit a record in a completely different app: a contact under
-Settings > Users & Companies > Contacts, say. Save it.
+Delete the `record.resModel === "librefleet.service.order" &&` half of the condition, save
+the file and reload the page (in dev mode the asset bundle rebuilds itself, no upgrade
+needed). Then go edit a record that has nothing to do with LibreFleet: Anna Keller's
+contact, through the arrow next to **Owner** on ZH 468 202. Type a **Job Position** and
+save it.
 
 Nothing visibly breaks, which is the point. `record.data.margin` is `undefined` on a
 partner, `undefined < 0` is `false`, and the notification stays quiet. Your patch is
 now running on every save of every record in the database and *happening* to be
 harmless because of a JavaScript coercion rule.
 
-Change the condition to something that is truthy on other models (`record.data.id`,
-for instance) and save that contact again to watch a LibreFleet warning appear on a
-screen that has nothing to do with LibreFleet. Then put the guard back. The lesson is
+Now change the condition to something that is truthy on every model, `record.resId` (the
+id of any saved record), reload, and save that contact again:
+
+![Anna Keller's contact behind an Oops dialog, technical details open, with TypeError: Cannot read properties of undefined (reading 'toFixed') at FormController.onWillSaveRecord highlighted](/screens/ch40-patch-blast-radius.jpg)
+
+Not a stray LibreFleet warning: a crash. The condition is true on a partner, so the
+patch reaches `record.data.margin.toFixed(2)`, and a partner has no margin. The cloud
+icon next to the name stays: **the contact cannot be saved at all**, because your
+LibreFleet patch broke saving in an app it never meant to touch. Close the dialog,
+discard the change with the ✕ next to the name, and put the guard back. The lesson is
 not "this particular patch was dangerous", it is that **the blast radius of a patch is
 the whole client and nothing warns you**.
 

@@ -161,7 +161,22 @@ number they clicked.
 
 A dashboard with one row teaches nothing, so put a few open orders in front of real
 technicians first. One order deliberately gets **two** technicians, which matters in a
-moment:
+moment.
+
+<UiOrShell>
+<Tab>
+
+In **Fleet → Service Orders**:
+
+1. Open **SO/2026/0002**, add **Tina Technician** to **Technicians**, and save.
+2. **New**: **Vehicle** ZH 468 202, **Service Type** Full service, **Technicians** Tina
+   Technician *and* Administrator, **Scheduled Start** Sep 10, 2026, 8:00. Click
+   **Confirmed** in the status bar, which saves it too.
+3. **New**: **Vehicle** SHELL-001, **Service Type** Tire Rotation, **Technicians**
+   Administrator, **Scheduled Start** Sep 11, 2026, 9:00. Click **In Progress**.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -183,6 +198,9 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no
 ...     "stage": "in_progress", "technician_ids": [(6, 0, [admin.id])]})
 >>> env.cr.commit()
 ```
+
+</Tab>
+</UiOrShell>
 
 Your reference numbers will not match any printed here: `ir.sequence` (chapter 14) has
 been counting your experiments, not ours.
@@ -360,7 +378,7 @@ The manifest entry has to come **after** `views/librefleet_menus.xml`, because
         "views/dashboard_views.xml",
 ```
 
-Bump to `19.0.1.27.0` and upgrade:
+Bump to `19.0.1.27.0` and upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the command):
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -372,14 +390,15 @@ A new Dashboard entry appears in the LibreFleet menu.
 <Step>
 ### Read the numbers, then distrust them
 
-![The Workshop load dashboard: a line reading 3 open order(s) across 2 group(s), above a table with Administrator at 2 open orders and 408.00 margin, and Tina Technician at 2 open orders and 469.00 margin](/screens/ch41-dashboard-workshop-load.jpg)
+![The Workshop load dashboard: a highlighted line reading 4 open order(s) across 3 group(s), above a table with Administrator at 2 open orders and 408.00 margin, Tina Technician at 2 and 469.00, and Unassigned at 1 and -390.00, the Open orders column highlighted](/screens/ch41-dashboard-workshop-load.jpg)
 
-Look at that screen closely. It says **3 open orders**, and the Open orders column reads
-2 and 2. Two plus two is four.
+Look at that screen closely. It says **4 open orders**, and the Open orders column reads
+2, 2 and 1. That adds up to five. (The **Unassigned** row is chapter 39's SHELL-001 order:
+nobody is on it, and chapter 40 left it losing money.)
 
-Neither number is wrong. `searchCount` counted three distinct orders, and each group
-genuinely contains two, because the order you gave two technicians is a member of both
-groups. **Grouping by a many2many double-counts by design**, and any "total" you compute
+Neither number is wrong. `searchCount` counted four distinct orders, and each technician's
+group genuinely contains two, because the order you gave two technicians is a member of
+both groups. **Grouping by a many2many double-counts by design**, and any "total" you compute
 by summing the groups will overstate reality by exactly the amount of shared work.
 
 Confirm it from the shell rather than taking the screen's word for it:
@@ -387,12 +406,12 @@ Confirm it from the shell rather than taking the screen's word for it:
 ```console
 >>> domain = [("stage", "in", ["draft", "confirmed", "in_progress"])]
 >>> Order.search_count(domain)
-3
+4
 >>> res = Order.formatted_read_group(domain=domain, groupby=["technician_ids"], aggregates=["__count", "margin:sum"])
 >>> [(r["technician_ids"], r["__count"]) for r in res]
-[((2, 'Administrator'), 2), ((5, 'Tina Technician'), 2)]
+[((2, 'Administrator'), 2), ((5, 'Tina Technician'), 2), (False, 1)]
 >>> sum(r["__count"] for r in res)
-4
+5
 ```
 
 This is worth internalising before you build a dashboard anyone makes decisions from. A
@@ -407,10 +426,13 @@ will warn you.
 That is the trap dealt with. The dashboard's other half is the drill-down, and this is
 where the `__domain` decision from Concepts earns its keep.
 
-Click one of the counts. The breadcrumb becomes "Workshop Load / Open orders: Tina
+Click Tina's count. The breadcrumb becomes "Workshop Load / Open orders: Tina
 Technician" and the list holds exactly two records, one of which visibly carries both
-technicians as tags. The count and the list agree because both came from the same
-`__domain`.
+technicians as tags:
+
+![The drill-down list: breadcrumb Workshop Load / Open orders: Tina Technician highlighted, two confirmed orders, SO/2026/0015 on ZH 468 202 with the highlighted tags Administrator and Tina Technician, and SO/2026/0002 with Tina alone](/screens/ch41-drilldown-tina.jpg)
+
+The count and the list agree because both came from the same `__domain`.
 
 That agreement is the entire point, and it is the one thing a hand-built domain cannot
 promise you. The number and the list are two renderings of a single filter, so there is no
@@ -420,14 +442,33 @@ version of this dashboard where a user clicks 2 and lands on a list of 3.
 <Step>
 ### Break-it lab: mistype the tag
 
+Leave the dashboard open in one tab, and break the tag somewhere else.
+
+<UiOrShell>
+<Tab>
+
+In a second tab, with developer mode on, open **Settings → Technical → Actions → Client
+Actions → Workshop Load**, change **Client action tag** to `librefleet_dashbord`, and save:
+
+![The Workshop Load client action, External ID librefleet.action_librefleet_dashboard, with the highlighted Client action tag reading librefleet_dashbord](/screens/ch41-tag-mistyped.jpg)
+
+</Tab>
+<Tab>
+
 Change the tag on the `ir.actions.client` record to `librefleet_dashbord`, then upgrade:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-Open the Dashboard menu **in a new browser tab**. You get an "Oops!" dialog, and the
-console carries the real reason:
+</Tab>
+</UiOrShell>
+
+Go back to the first tab. The dashboard is still on screen, looking perfectly healthy.
+Now click **Dashboard** in its menu: you get an "Oops!" dialog, and its technical details
+(or the console) carry the real reason:
+
+![The Oops! dialog over the old dashboard render, technical details open, with KeyNotFoundError: Cannot find key "librefleet_dashbord" in the "actions" registry highlighted above the stack](/screens/ch41-tag-keynotfound.jpg)
 
 ```text
 KeyNotFoundError: Cannot find key "librefleet_dashbord" in the "actions" registry
@@ -436,19 +477,21 @@ KeyNotFoundError: Cannot find key "librefleet_dashbord" in the "actions" registr
     at doAction (.../web.assets_web.min.js:10715:192)
 ```
 
-The new tab matters. A tab that already had the dashboard open keeps rendering it
-perfectly: the web client caches action definitions it has already loaded, so the stale
-tab runs the old tag against a component that still exists.
+The dashboard you were looking at was an old render, not proof that anything worked: the
+moment the tab asked for the action again, it read the new tag and failed. That is a
+genuinely confusing debugging situation. The change is live in the database, a screen
+still looks fine, and neither the server log nor the upgrade said anything. When a client
+action misbehaves, reload before you believe anything.
 
-That is a genuinely confusing debugging situation. The change is live in the database,
-one tab is broken, another is fine, and neither the server log nor the upgrade said
-anything. When a client action misbehaves, open a fresh tab before you believe anything.
-
-Put the tag back and upgrade:
+Put the tag back: `librefleet_dashboard` in the same field and save, or fix the XML and
+upgrade:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
+
+The record is plain data (no `noupdate`), so an upgrade also rewrites a tag someone
+changed in the UI.
 </Step>
 
 </Steps>
@@ -508,9 +551,9 @@ JavaScript, and rebuilding a drill-down domain by hand.
 - **The `tag` is an unvalidated string in two places.** A mismatch between the
   `ir.actions.client` record and the `actions` registry throws `KeyNotFoundError` in the
   browser and nothing anywhere else.
-- **The web client caches actions per tab.** After changing an action record, an open
-  tab may keep showing the old behaviour indefinitely. Test client actions in a fresh
-  tab.
+- **A rendered client action is a snapshot.** After changing an action record, a tab
+  that already shows it keeps showing the old render until it loads the action again.
+  Reload before you test a client action change.
 - **Data file order is load order.** A `menuitem` whose `parent` is defined in another
   file needs that file listed first in the manifest, or the upgrade fails on a missing
   external id.

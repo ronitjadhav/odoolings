@@ -145,9 +145,32 @@ This chapter runs on `functional` (Parts 4-5's database), not `tutorial`: Point 
 Sale and the website builder are core apps you are installing and using directly,
 with no `librefleet` code to write.
 
+<UiOrShell>
+<Tab>
+
+On `functional`, open **Apps** and click **Activate** on **Point of Sale**, then on
+**eCommerce** (`website_sale`, which brings the website builder with it):
+
+![The Apps screen with the Point of Sale (point_of_sale) and eCommerce (website_sale) cards highlighted, both offering Activate](/screens/ch42-apps-pos-ecommerce.jpg)
+
+Installing eCommerce opens the **Website Configurator**. Skip it: the demo website is all
+this chapter needs.
+
+![The Website Configurator's Ready to build the perfect website? screen, with the Skip and start from scratch link highlighted at the bottom right](/screens/ch42-website-configurator-skip.jpg)
+
+If Skip answers *Odoo is currently processing a scheduled action*, a background job got
+there first: close the message, reload the configurator and click Skip again. You land on
+the empty homepage of **My Website**.
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional -i point_of_sale,website_sale --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 <Steps>
 
@@ -156,7 +179,19 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional -i point_of
 
 Enable a payment method first; the demo data ships every provider disabled. Wire
 Transfer needs no external account, real gateway or fake credentials, which makes
-it the honest choice for a hands-on:
+it the honest choice for a hands-on.
+
+<UiOrShell>
+<Tab>
+
+**Invoicing → Configuration → Payment Providers**, **Activate** on the Wire Transfer card.
+On its form, set **State** to **Enabled**; the button at the top flips to **Published** by
+itself. Save.
+
+![The Wire Transfer provider form with State Enabled highlighted and the Published button highlighted at the top](/screens/ch42-wire-transfer-enabled.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -168,22 +203,37 @@ $ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-
 >>> env.cr.commit()
 ```
 
+</Tab>
+</UiOrShell>
+
 Now shop for real: `http://localhost:8069/shop`, pick any product, choose a variant.
 
-![The Customizable Desk product page with Color (White selected) and Legs (Steel selected, Aluminium +$50.40) options, $675.00 price, and an Add to cart button](/screens/ch42-shop-product-variants.jpg)
+![The Customizable Desk product page, $675.00 with $750.00 struck through, the Color (White) and Legs (Steel, Aluminium +$50.40, Custom) options highlighted, and the Add to cart button highlighted](/screens/ch42-shop-product-variants.jpg)
 
-**Add to cart**, then **Go to Checkout** on the upsell dialog (skip the cross-sell
+**Add to cart**, then **Go to Checkout** in the Configure dialog (skip the cross-sell
 offers, Conference Chair and Warranty, unless you want to see how they attach to the
-same order). Confirm the address already on file, pick **Wire Transfer**, and
-**Pay now**:
+same order). The cart offers a free pen for loyalty points (chapter 23's program at
+work); leave it and click **Checkout**. **Confirm** the address already on file, keep
+**Wire Transfer**, and **Pay now**:
 
-![The order confirmation page reading "Thank you for your order, Order S00047" with real Wire Transfer bank account details and a $675.00 total](/screens/ch42-shop-order-confirmation.jpg)
+![The order confirmation page reading Thank you for your order, with Order S00047 highlighted and the highlighted transfer details: bank account BANK134567890, Communication S00047, and a $675.00 total](/screens/ch42-shop-order-confirmation.jpg)
 
 That's a real order, `S00047`, not a sandbox mockup.
 </Step>
 
 <Step>
 ### Read what it actually created
+
+<UiOrShell>
+<Tab>
+
+**Sales → Orders → Quotations** lists it first, with **My Website** in the Website column.
+Open it:
+
+![S00047 in the backend: the status bar on Quotation Sent, highlighted, the desk and the free Standard delivery lines highlighted, and in the chatter the highlighted messages A payment with reference S00047 amounting $675.00 for your order S00047 is pending and The customer has selected Wire Transfer to make the payment](/screens/ch42-shop-order-backend.jpg)
+
+</Tab>
+<Tab>
 
 ```python
 >>> order = env['sale.order'].search([('name', '=', 'S00047')])
@@ -195,7 +245,11 @@ That's a real order, `S00047`, not a sandbox mockup.
 [('S00047', 'pending', 'Wire Transfer')]
 ```
 
-`state` reads `sent`, not `sale`, exactly as Concepts predicted. Wire Transfer cannot
+</Tab>
+</UiOrShell>
+
+The status reads **Quotation Sent** (`state` is `sent`), not Sales Order, exactly as
+Concepts predicted. Wire Transfer cannot
 confirm itself: a human has to see the money land and validate the transaction by hand
 (Invoicing → Customers → Payments, or directly on the transaction record) before this
 becomes a confirmed sale.
@@ -207,16 +261,18 @@ The order line, the delivery line, the linked transaction: all of it is the ordi
 <Step>
 ### Open a till and sell something
 
-Point of Sale > pick a shop (the demo data ships Furniture, Clothes and Bakery) >
-**New Session**. The Opening Control screen asks for a starting cash float:
+**Point of Sale**: the demo data ships three shops, Furniture, Clothes and Bakery. Click
+**Open Register** on **Bakery Shop**. The Opening Control dialog asks for a starting
+cash float:
 
-- **Opening cash:** `150.00`
+![The Opening Control dialog over the Bakery Shop terminal, Opening cash 150.00 highlighted, with an Open Register button](/screens/ch42-pos-opening-control.jpg)
 
-Click **Open Register**. This lands you in the actual POS terminal, the offline SPA:
+Type `150.00` and click **Open Register**. This lands you in the actual POS terminal, the
+offline SPA. Tap **Apple Pie** and **Wholemeal loaf**:
 
-![The POS terminal for Bakery Shop with an Apple Pie and a Wholemeal loaf in the cart, tax 2.25, total 17.24, and a numeric keypad plus Payment button below](/screens/ch42-pos-terminal-cart.jpg)
+![The POS terminal for Bakery Shop with the highlighted cart lines Apple Pie $13.80 and Wholemeal loaf $3.44, and the highlighted Taxes $2.25 and Total $17.24 above the keypad and Payment button](/screens/ch42-pos-terminal-cart.jpg)
 
-Tap two products, then **Payment**, choose **Cash**, and **Validate**. The receipt
+Then **Payment**, choose **Cash**, and **Validate**. The receipt
 that comes back is a real one, not a mockup:
 
 ```text
@@ -229,8 +285,8 @@ Total                                     $ 17.24
 Cash                                      $ 17.24
 ```
 
-Start a **New Order**, ring up something else, and pay by **Card** this time instead
-of Cash. Two orders, two different payment methods, is what makes the next part
+Start a **New Order**, ring up a **Cherry Pie** ($16.10 with tax), and pay by **Card**
+this time instead of Cash. Two orders, two different payment methods, is what makes the next part
 worth doing.
 </Step>
 
@@ -253,20 +309,42 @@ cash sale of the day, for a till that is not short a cent.
 
 Type the real total into **Cash Count** (`167.24`, the opening float plus your one
 cash sale) and the **Card Count** already shows `16.10` from the card payment. Every
-Difference line reads `$0.00`. Click **Close Register**.
+Difference line reads `$0.00`:
+
+![The same Closing Register screen with Cash Count 167.24 highlighted, and the highlighted Cash lines now reading Counted $167.24, Difference $0.00](/screens/ch42-pos-closing-balanced.jpg)
+
+Click **Close Register**. The terminal returns to a screen with a single **Open Register**
+button: Odoo has already prepared the *next* session, empty, waiting for tomorrow's float.
 </Step>
 
 <Step>
 ### Read the journal entries it posted
 
 Closing the session did not create one journal entry per order. It created three,
-each doing one job:
+each doing one job.
+
+<UiOrShell>
+<Tab>
+
+**Point of Sale → Orders → Sessions → Bakery Shop/00001**:
+
+![The session Bakery Shop/00001 on Closed & Posted, highlighted, with its Journal Entry POSS/2026/10/0003 highlighted and the Journal Items button highlighted; the chatter logs Closing difference $0.00, expected and counted $167.24](/screens/ch42-pos-session-closed.jpg)
+
+Click **Journal Items**. They come grouped by entry; open the `POSS/...` group:
+
+![Journal Items grouped by entry: CSH3/2026/00001 (2) at $17.24, PBNK1/2026/00003 (2) at $16.10, and POSS/2026/10/0003 (4) at $33.34, all highlighted, the last one open on Tax Received 4.35, Product Sales 28.99, and two Account Receivable (PoS) lines, Card 16.10 and Cash 17.24](/screens/ch42-pos-journal-items.jpg)
+
+</Tab>
+<Tab>
+
+Filter on `closed`: the newest Bakery Shop session is the empty one Odoo opened for you
+when you closed the register.
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
->>> s = env["pos.session"].search([("config_id.name", "=", "Bakery Shop")], order="id desc", limit=1)
+>>> s = env["pos.session"].search([("config_id.name", "=", "Bakery Shop"), ("state", "=", "closed")], order="id desc", limit=1)
 >>> s.move_id.name
-'POSS/2026/08/0003'
+'POSS/2026/10/0003'
 >>> for l in s.move_id.line_ids:
 ...     print(l.account_id.code, l.account_id.name, l.debit, l.credit)
 251000 Tax Received 0.0 4.35
@@ -275,16 +353,23 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --
 101300 Account Receivable (PoS) 17.24 0.0
 ```
 
-That first entry, `POSS/...`, is the session's sales summary: total revenue, total tax,
+</Tab>
+</UiOrShell>
+
+Your `POSS/...` name carries your own year and month. That first entry is the session's
+sales summary: total revenue, total tax,
 and one receivable line per order. All of it consolidated across every order in the
 session, rather than posted order by order.
 
 Then one move per payment method, clearing that receivable into the account each method
-actually settles to:
+actually settles to. In the shell, two of them carry the session's name as their
+reference, and the cash one carries it on its bank statement line instead:
 
 ```console
 >>> env["account.move"].search([("ref", "like", "Bakery Shop/00001")]).mapped("name")
-['POSS/2026/08/0003', 'PBNK1/2026/00003', 'CSH3/2026/00001']
+['POSS/2026/10/0003', 'PBNK1/2026/00003']
+>>> s.statement_line_ids.move_id.name
+'CSH3/2026/00001'
 ```
 
 `PBNK1/...` ("Combine Card POS payments") moves the card receivable into an Outstanding
@@ -304,7 +389,9 @@ itself this time.
 Any website page, **Edit** in the top right, opens the same builder every Odoo site
 uses:
 
-![The website editor's Blocks panel: categories Intro, Columns, Content, Images, People, Text, Contact & Forms, Social, Catalog, Blogs, Events, and an Inner Content section with Text, Button, Image, Video, Separator, Accordion, Alert, Rating and Card entries](/screens/ch42-website-snippet-panel.jpg)
+![The website editor on the empty homepage, DRAG BUILDING BLOCKS HERE on the left, and on the right the Blocks panel with its highlighted categories Intro, Columns, Content, Images, People, Text, Contact & Forms, Social, Catalog, Blogs and Events, above the Inner Content tiles Text, Button, Image, Video, Separator and Accordion](/screens/ch42-website-snippet-panel.jpg)
+
+Leave the editor with **Discard**.
 
 Each tile in that panel is one of the 191 `website.s_*` templates from Concepts.
 Dragging one onto a page and editing its text or image is the entire mechanism. For the

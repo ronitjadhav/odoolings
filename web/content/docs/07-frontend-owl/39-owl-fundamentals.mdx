@@ -299,7 +299,8 @@ doing the same job here.
     },
 ```
 
-Bump the version to `19.0.1.25.0` and upgrade:
+Bump the version to `19.0.1.25.0` and upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the
+command):
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -322,7 +323,7 @@ mistake since chapter 8 was reported in this terminal. This one never will be.
 
 Reload `http://localhost:8069/odoo` and look at the top right of the navbar:
 
-![The Odoo systray showing, left to right, the Discuss and activity icons, then LibreFleet's amber badge reading 2, a live clock reading 9:50:30 PM, and a refresh icon](/screens/ch39-workshop-clock-systray.jpg)
+![The Service Orders list with the systray highlighted at the top right: the Discuss and activity icons, then LibreFleet's amber badge reading 1, a live clock reading 9:04:00 AM, and a faint refresh icon](/screens/ch39-workshop-clock-systray.jpg)
 
 Three things to notice, one per piece of the component you wrote:
 
@@ -337,8 +338,20 @@ Three things to notice, one per piece of the component you wrote:
 ### Prove the count is live, not baked in
 
 A count that is correct on page load could just as easily have been rendered once by the
-server and frozen. To show it is genuinely live, create an order from the shell *without
-touching the browser*, then click refresh:
+server and frozen. To show it is genuinely live, create an order *somewhere else*, then
+click refresh in the page that was already open.
+
+<UiOrShell>
+<Tab>
+
+Open a second browser tab and create the order there: **Fleet → Service Orders → New**,
+**Vehicle** SHELL-001, **Service Type** Brake inspection, **Scheduled Start** Dec 1, 9:00,
+and save. Leave the first tab exactly as it was: no reload.
+
+</Tab>
+<Tab>
+
+From the shell, *without touching the browser*:
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -353,17 +366,24 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no
 2
 ```
 
-The badge still reads 1. Click the refresh icon and it becomes 2, with no page reload:
+</Tab>
+</UiOrShell>
+
+Back in the first tab, the badge still reads 1. Click the refresh icon and it becomes 2, with no page reload:
 that is `onRefresh` awaiting `orm.searchCount` and assigning to `this.state`, and the
 Proxy doing the rest.
+
+![The same Service Orders list after clicking refresh: the highlighted badge now reads 2, while the list below still shows only the two orders it loaded, proof that the page itself never reloaded](/screens/ch39-badge-refreshed.jpg)
 </Step>
 
 <Step>
 ### Break-it lab: the template name typo
 
 Change the `t-name` in the XML to something slightly wrong, `librefleet.WorkshopClok`,
-and reload the browser. The systray item vanishes. There is no server error, no
-failed upgrade, nothing in the Odoo log. Open the browser console (F12):
+and reload the browser. The whole web client stays blank: not just the systray item, the
+navbar and the action too, because a failure while rendering the navbar aborts the
+client's first render. There is no server error, no failed upgrade, nothing in the Odoo
+log. Open the browser console (F12):
 
 ```text
 OwlError: Missing template: "librefleet.WorkshopClock" (for component "WorkshopClock")
