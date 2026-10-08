@@ -1099,8 +1099,10 @@ def order_tracking_actually_posts(env):
         env.call("librefleet.service.order", "write", [order_id], {"stage": original})
         msgs = env.call("librefleet.service.order", "read", [order_id],
                         fields=["message_ids"])[0]["message_ids"]
-        if msgs:
-            env.call("mail.message", "unlink", msgs)
+        # only what this check posted: the reader's own chatter history stays
+        ours = [m for m in msgs if m not in before["message_ids"]]
+        if ours:
+            env.call("mail.message", "unlink", ours)
 
 
 # --- ch34: data files -------------------------------------------------------
