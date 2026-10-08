@@ -220,6 +220,19 @@ built-in addons, which is why core modules keep working.
 <Step>
 ### Install it, and read the refusal
 
+<UiOrShell>
+<Tab>
+
+Apps only lists what Odoo found on the addons path the last time it looked, so tell it to
+look again. With developer mode on: **Apps → Update Apps List → Update**. Then remove the
+**Apps** facet from the search (that filter shows applications only, and an OCA module
+like this one is not one), search `sale_fixed_discount` and click **Activate**:
+
+![The Invalid Operation dialog over the Sale Fixed Discount card, its message highlighted: You try to install module sale_fixed_discount that depends on module account_invoice_fixed_discount. But the latter module is not available in your system.](/screens/ch49-dependency-refusal.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
     -i sale_fixed_discount --stop-after-init
@@ -229,6 +242,9 @@ $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
 odoo.exceptions.UserError: You try to install module "sale_fixed_discount" that depends on module "account_invoice_fixed_discount".
 But the latter module is not available in your system.
 ```
+
+</Tab>
+</UiOrShell>
 
 That is chapter 47's cross-repository dependency, arriving as an error message. Note
 how good the error is: it names the missing module exactly, which is all you need to go
@@ -252,13 +268,26 @@ $ git clone --depth 1 -b 19.0 https://github.com/OCA/account-invoicing.git oca/a
 addons_path = /mnt/extra-addons,/mnt/oca/sale-workflow,/mnt/oca/account-invoicing
 ```
 
-Restart, then install again:
+Restart (`docker compose up -d`), then install again.
+
+<UiOrShell>
+<Tab>
+
+**Update Apps List** once more, search `fixed_discount`, and both modules are there now.
+Click **Activate** on **Sale Fixed Discount** only. The server log shows what that one
+click did:
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose up -d
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
     -i sale_fixed_discount --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 ```text
 INFO functional odoo.modules.loading: Loading module account_invoice_fixed_discount (121/122)
@@ -279,6 +308,17 @@ Two questions, both worth knowing how to ask about any module you inherit.
 
 What columns appeared:
 
+<UiOrShell>
+<Tab>
+
+**Settings → Technical → Database Structure → Fields**, search **Field** for
+`discount_fixed`:
+
+![Fields searched for discount_fixed: two stored fields labelled Discount (Fixed), one on Journal Item (monetary) and one on Sales Order Line (float), both highlighted](/screens/ch49-discount-fixed-fields.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec db psql -U odoo -d functional \
     -c "select table_name, column_name, data_type from information_schema.columns where column_name = 'discount_fixed' order by table_name;"
@@ -292,12 +332,27 @@ $ docker compose exec db psql -U odoo -d functional \
 (2 rows)
 ```
 
+</Tab>
+</UiOrShell>
+
 Two tables, because the two modules each extended one: the invoice line comes from
 `account_invoice_fixed_discount`, the order line from `sale_fixed_discount`. The
 feature follows the document from quotation to invoice, which is the sort of thing a
 summary never tells you and a column list does.
 
-And what records they own:
+And what records they own.
+
+<UiOrShell>
+<Tab>
+
+**Settings → Technical → Sequences & Identifiers → External Identifiers**, search
+**Module** for `fixed_discount`, then **Group By → Module** and **Group By → Model**, and
+open both groups:
+
+![External Identifiers for the two modules grouped by module and model: account_invoice_fixed_discount (10) with ir.model 2, ir.model.fields 5, ir.ui.view 2 and a highlighted res.groups 1; sale_fixed_discount (8) with ir.model 1, ir.model.fields 3 and ir.ui.view 4](/screens/ch49-xmlids-by-module.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d functional \
@@ -316,6 +371,9 @@ $ docker compose exec db psql -U odoo -d functional \
  sale_fixed_discount            | ir.ui.view      |     4
 (7 rows)
 ```
+
+</Tab>
+</UiOrShell>
 
 Six views and a security group between them, and now you know to go looking for that
 group: a module that ships one is telling you the feature is not for everybody.
@@ -336,8 +394,10 @@ $ grep -n -A2 'name="discount_fixed"' oca/sale-workflow/sale_fixed_discount/view
 `optional="show"` puts the column in the order-line list. `groups=` then hides it from
 anybody outside core's *Discount on lines* group, which is off by default: on a fresh
 `functional` database the field is fully installed, writable over RPC, and **invisible
-in the interface**. Switch it on under **Sales → Configuration → Settings → Discounts**
-before you go hunting for a column that was never going to appear.
+in the interface**. Switch it on under **Sales → Configuration → Settings → Discounts**,
+and save, before you go hunting for a column that was never going to appear:
+
+![Sales settings, Pricing section, with the Discounts box ticked and highlighted: Grant discounts on sales order lines](/screens/ch49-discounts-setting.jpg)
 
 This is the single most common way an OCA install looks broken when it is not, and it
 is why the next step measures the behaviour in a shell rather than in a form.
@@ -347,7 +407,9 @@ is why the next step measures the behaviour in a shell rather than in a form.
 ### Predict the numbers, then measure them
 
 Before you run this, commit to an answer. A line for two units at 100.00 each is
-200.00. Apply a *fixed discount* of 25.00. What is the subtotal?
+200.00, or 180.00 here: chapter 23 gave the Default pricelist an *All Products, 10%*
+rule, and the order's customer is on Default. Apply a *fixed discount* of 25.00. What is
+the subtotal?
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -366,13 +428,14 @@ print(f"discount_fixed = 25.00: subtotal {line.price_subtotal:.2f}, discount {li
 ```
 
 ```text
-no discount:            subtotal 200.00
+no discount:            subtotal 180.00
 discount_fixed = 25.00: subtotal 150.00, discount 25.00%
 ```
 
-**150.00, not 175.00.** The fixed amount comes off each unit, not off the line. And
-there is a second surprise sitting next to the first: the module wrote 25% into
-core's own `discount` field, which is a percentage. Keep going in the same shell:
+**150.00, not 175.00, and not 155.00 either.** The fixed amount comes off each unit, not
+off the line. And there is a second surprise sitting next to the first: the module wrote
+25% into core's own `discount` field, which is a percentage, replacing the pricelist's
+10% rather than adding to it. Keep going in the same shell:
 
 ```python
 line.discount_fixed = 100.0
@@ -391,16 +454,18 @@ A discount larger than the unit price gives a negative subtotal and a discount a
 100%, with no error and no warning. Whether that is a bug depends on who you ask, and
 chapter 51 is where you decide what to do about it.
 
-The same rule holds in the interface, on any line you like. This is a five-unit line at
-295.00 with a fixed discount of 25.00 typed into it, before saving:
+The same rule holds in the interface. On a new quotation, add two **Cable Management
+Box** (100.00 each), set **Disc.%** to 0 to clear chapter 23's 10%, then type 25.00 into
+**Discount (Fixed)**:
 
-![A quotation's order lines with the OCA module's Discount (Fixed) column next to core's Disc.% column. A line of 5 units at 295.00 with 25.00 in the fixed column shows 8.47 percent and an amount of 1,350.00](/screens/ch49-discount-fixed-on-a-quotation-line.jpg)
+![A new quotation for Azure Interior: one line of 2 Cable Management Box at 100.00, highlighted, and highlighted next to it Discount (Fixed) 25.00, Disc.% 25.00 and an amount of $150.00](/screens/ch49-discount-fixed-on-a-quotation-line.jpg)
 
-Read the row across and every claim above is on the screen at once. The amount fell by
-125.00, which is 5 x 25.00 rather than 25.00, and `Disc.%` reads **8.47**, which is
-25.00 / 295.00 as a percentage. The module's own column sits immediately left of core's,
+Read the row across and every claim above is on the screen at once. The amount is
+150.00, which is 2 x 25.00 off rather than 25.00, and `Disc.%` reads **25.00**, which is
+25.00 / 100.00 as a percentage. The module's own column sits immediately left of core's,
 which is the tidiest possible summary of what it does: it takes an amount from you and
-hands core a percentage.
+hands core a percentage. Leave with the ✕ next to the record name, so the experiment is
+not saved as a quotation.
 
 The `env.cr.rollback()` throws the experiment away explicitly, and chapter 6's rule is
 the safety net underneath it: a shell session that never calls `env.cr.commit()` leaves

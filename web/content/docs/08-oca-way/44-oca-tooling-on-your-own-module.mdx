@@ -417,7 +417,20 @@ Generate addons README files from fragments..............................Passed
 ```
 
 Then confirm the module still installs cleanly after all these edits, the actual
-proof that "passed linting" and "still works" are two different questions:
+proof that "passed linting" and "still works" are two different questions.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then **⋮ → Module Info** on the same card:
+
+![LibreFleet's Module Info with Latest Version 19.0.1.28.0 highlighted, and below it the description rendered from the generated README, its maturity Beta badge highlighted](/screens/ch44-module-info-version.jpg)
+
+The version is the one you just bumped, and the description underneath is the
+`static/description/index.html` that `oca-gen-addon-readme` generated, badges and all.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -429,6 +442,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select state, latest_versi
 -----------+----------------
  installed | 19.0.1.28.0
 ```
+
+</Tab>
+</UiOrShell>
 
 No `python3 odoolings.py check ch44`: like chapter 38's test runner, the tools
 themselves are today's verification, not a separate XML-RPC check.
