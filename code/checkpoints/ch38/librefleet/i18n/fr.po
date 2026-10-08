@@ -16,11 +16,13 @@ msgstr ""
 msgid "Tire Rotation"
 msgstr "Rotation des pneus"
 
+#. module: librefleet
 #. odoo-python
 #: code:addons/librefleet/wizards/service_order_approve.py:0
 msgid "Only an order that is in progress can be marked done."
 msgstr "Seul un ordre en cours peut être marqué comme terminé."
 
+#. module: librefleet
 #. odoo-python
 #: code:addons/librefleet/wizards/service_order_approve.py:0
 msgid ""

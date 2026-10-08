@@ -257,25 +257,66 @@ vehicle, forever.
 </odoo>
 ```
 
-`noupdate="1"` for the same reason chapter 34 used it on `ir_sequence.xml`: a manager may
+`noupdate="1"` for the same reason chapter 34 used it on the Tire Rotation master data: a manager may
 retune the schedule or disable the cron, and an upgrade must not silently reset that.
 
 Notice the cron record sets no `name`. That is deliberate. `ir.cron` delegates `name` to
 the same row as the action, so setting it here would also rename the "LibreFleet:
 maintenance reminders" entry in the Vehicles list's Action menu. One row, one name.
 
-Register the file, upgrade, and use Settings > Technical > Scheduled Actions >
-"LibreFleet: maintenance reminders" > **Run Manually** (the UI button for
-`method_direct_trigger()`) to test it without waiting a day:
+Register the file in the manifest's `data` list and upgrade. The upgrade itself goes
+through. The failure comes seconds later: a brand-new cron is due at once, so the
+scheduler fires it on its own and the running server logs this (`docker compose logs
+odoo`):
 
-```console
-$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```text
+ERROR tutorial odoo.addons.base.models.ir_cron: Job 'LibreFleet: maintenance reminders' (16) server action #208 failed
 ...
-ERROR tutorial odoo.registry: Failed to load registry
+AttributeError: 'NoneType' object has no attribute 'action_send_maintenance_reminders'
 ...
 ValueError: AttributeError("'NoneType' object has no attribute 'action_send_maintenance_reminders'") while evaluating
 'action = records.action_send_maintenance_reminders()'
 ```
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**. One surprise first: saving the manifest restarted the
+server, and until the upgrade installs `base_automation`, Odoo skips LibreFleet entirely
+(chapter 32's `some depends are not loaded` situation). The browser may greet you with an
+**Oops!** dialog ending in `KeyError: 'librefleet.service.order'`: the activity counter in
+the top bar tripping over chapter 33's scheduled call while the model is missing. Close it
+and upgrade; the upgrade puts everything back.
+
+Then reproduce the failure on demand. With developer mode on, open **Settings → Technical
+→ Scheduled Actions → LibreFleet: maintenance reminders** and click **Run Manually** (the
+UI button for `method_direct_trigger()`), the way you would test a cron without waiting a
+day:
+
+![The Oops! dialog after Run Manually, technical details open, with the line AttributeError: 'NoneType' object has no attribute 'action_send_maintenance_reminders' highlighted](/screens/ch35-run-manually-error.jpg)
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
+```
+
+Watch `docker compose logs -f odoo` for the scheduler's attempt. To trigger it on demand
+instead, call what **Run Manually** calls:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> env.ref("librefleet.cron_send_maintenance_reminders").method_direct_trigger()
+{'type': 'ir.actions.client', 'tag': 'display_exception', 'params': {'code': 0, 'message': 'Odoo Server Error', 'data': {... 'ValueError: AttributeError("\'NoneType\' object has no attribute \'action_send_maintenance_reminders\'") while evaluating\n\'action = records.action_send_maintenance_reminders()\'...'}}}
+```
+
+It does not raise. The job runs in its own transaction, catches the failure, and hands
+back a `display_exception` action with the traceback inside: exactly what the browser
+turns into its Oops dialog.
+
+</Tab>
+</UiOrShell>
 
 This is the eval-context detail from Concepts, made concrete. Run Manually, like the real
 scheduler, passes no selection. So `records` is `None`, and `None.anything` fails.
@@ -286,20 +327,62 @@ The code needs to fall back to every vehicle when nothing specific was picked:
             <field name="code">action = (records or model.search([])).action_send_maintenance_reminders()</field>
 ```
 
-Upgrade again and Run Manually a second time:
+Now the catch, and it is chapter 34 coming back to bite. **An upgrade will not deliver
+this fix.** The file is `noupdate="1"` and the server action already exists, so the
+database wins: upgrade, and its code still reads `records.action_send...`. The XML fix is
+for every future install. The record already in your database you fix by hand, exactly
+the way a manager would retune a cron:
 
-```text
-INFO tutorial odoo.addons.base.models.ir_cron: Job 'LibreFleet: maintenance reminders' (16) fully done (#loop 1; done 0; remaining 0; duration 0.16s)
+<UiOrShell>
+<Tab>
+
+On the scheduled action's form, click into the **Code** tab, replace the line with the
+fixed one and save:
+
+![The LibreFleet: maintenance reminders scheduled action with the Code tab reading action = (records or model.search([])).action_send_maintenance_reminders(), highlighted](/screens/ch35-fix-code.jpg)
+
+Click **Run Manually** again. No dialog this time.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
+>>> act = env.ref("librefleet.action_send_maintenance_reminders")
+>>> act.code = "action = (records or model.search([])).action_send_maintenance_reminders()"
+>>> env.cr.commit()
+>>> env.ref("librefleet.cron_send_maintenance_reminders").method_direct_trigger()
+True
 ```
 
-No traceback this time. Every vehicle overdue for service now has a "Schedule
-maintenance" activity, assigned to a workshop manager.
+Commit **before** triggering. The job runs in a transaction of its own, so it only sees
+committed code: trigger first and it still runs the broken line.
+
+</Tab>
+</UiOrShell>
+
+The log confirms it:
+
+```text
+INFO tutorial odoo.addons.base.models.ir_cron: Job 'LibreFleet: maintenance reminders' (16) fully done (#loop 1; done 0; remaining 0; duration 0.21s)
+```
+
+Every vehicle overdue for service now has a "Schedule maintenance" activity, assigned to a
+workshop manager (Administrator, the only member of the manager group). The vehicle form
+has no chatter, so look for them where Odoo gathers every activity: the clock icon in the
+top bar.
+
+![The activities menu open from the top bar's clock icon: Workshop Vehicle, 0 Late, 5 Today, 0 Future, highlighted, above Service Order with 1 Future](/screens/ch35-systray-reminders.jpg)
+
+**View all activities** lists them one by one:
+
+![My Activities: five Schedule maintenance To-Dos assigned to Administrator, linked to ZH 468 202, BE 30 447, SHELL-001, CH22-AAA and CH22-BBB, all due Today, highlighted](/screens/ch35-my-activities.jpg)
 
 The same server action is also the one a manager clicks by hand, right from the Vehicles
 list: select any rows, open the **Actions** cog, and it sits at the bottom, below the
 built-ins Odoo ships for every model.
 
-![The Vehicles list with rows selected and the Actions menu open, showing Export, Duplicate, Archive, Unarchive, Delete and, below them, the custom "LibreFleet: maintenance reminders" entry](/screens/ch35-action-menu.jpg)
+![The Vehicles list with two rows selected and the Actions menu open: Export, Duplicate, Archive, Unarchive, Delete and, below them, the highlighted custom LibreFleet: maintenance reminders entry](/screens/ch35-action-menu.jpg)
 
 </Step>
 
@@ -348,7 +431,21 @@ the write it must **not** match `done`; after the write it must.
 
 Register the file in the manifest's `data` list and upgrade. Then take one order through
 chapter 20's flow (statusbar to `in_progress`, then Mark Done in the approve wizard) and
-watch its vehicle:
+watch its vehicle.
+
+<UiOrShell>
+<Tab>
+
+Open **SO/2026/0001** (ZH 468 202, Anna Keller's). Click **Confirmed**, then **In
+Progress** in the status bar, then **Mark Done**, and **Mark Done** again in the Approve &
+Complete dialog. Open the clock menu:
+
+![SO/2026/0001 in Done, its chatter showing In Progress arrow Done highlighted, and the activities menu showing Workshop Vehicle down to 4 Today, highlighted](/screens/ch35-reminder-cleared.jpg)
+
+Five reminders became four: ZH 468 202's went with the order.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no-http
@@ -365,9 +462,17 @@ $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d tutorial --no
 []
 ```
 
-The reminder is gone, and the vehicle's chatter carries the record of why: a "To-Do
-done" note with the feedback "Service completed." attached, because
-`action_feedback()` posts one automatically. Nothing in the wizard or the statusbar
+</Tab>
+</UiOrShell>
+
+The reminder is gone. Strictly, it is archived: Odoo 19 keeps a done activity with its
+`date_done` instead of deleting it, which is why the ORM no longer lists it. And the
+vehicle carries the record of why: a "To-Do done" note with the feedback "Service
+completed." attached, because `action_feedback()` posts one automatically. The vehicle
+form has no chatter to show it, but developer mode does: **Settings → Technical → Discuss
+→ Messages**, the newest message on `librefleet.vehicle`:
+
+![The message record: Related Document ID ZH 468 202 highlighted, and a highlighted body reading To-Do done: Schedule maintenance, Original note: No completed service order in the last 180 days., Feedback: Service completed.](/screens/ch35-todo-done-message.jpg) Nothing in the wizard or the statusbar
 button knows the reminder exists; the automated action is what connects a business
 decision (this order is finished) to a completely different feature (retire a
 maintenance nudge) without either one importing the other.
@@ -415,9 +520,9 @@ $ python3 odoolings.py check ch35
 ch35 complete! On to the next chapter 🔧
 ```
 
-In the UI: open a vehicle that still has an open reminder (Settings > Technical >
-Automation Rules if you want to see the rule's own form) and confirm its Activities
-tab shows "Schedule maintenance", assigned to a workshop manager, not blank.
+In the UI: the clock icon's **View all activities** should list a "Schedule maintenance"
+for every vehicle that still has one, assigned to a workshop manager, not blank. Settings
+→ Technical → Automation Rules shows the rule's own form if you want to see it.
 
 ## Gotchas
 

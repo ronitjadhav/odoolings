@@ -281,7 +281,17 @@ Register it in the manifest, after the existing data files and before the views:
         ...
 ```
 
-Bump the manifest to `19.0.1.19.0` and upgrade:
+Bump the manifest to `19.0.1.19.0` and upgrade.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then **Fleet → Configuration → Service Types**:
+
+![The Service Types list: Brake inspection, Full service and Oil change, plus the highlighted new row Tire Rotation, Flat Fee 59.00, Default Duration 0.50](/screens/ch34-tire-rotation-shipped.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -300,6 +310,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
  Tire Rotation |       59
 (1 row)
 ```
+
+</Tab>
+</UiOrShell>
 
 Shipped, alongside your three hand-clicked ones from chapter 11, untouched.
 
@@ -324,7 +337,25 @@ wrote, bumping the fee, and add a second record in the same block:
         </record>
 ```
 
-Upgrade again, then check both:
+Upgrade again, then check both.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, and back to **Service Types**:
+
+![The Service Types list after the second upgrade: Tire Rotation still at 59.00 and the new Wheel Alignment at 45.00, both highlighted](/screens/ch34-noupdate-proof.jpg)
+
+The flag that protected it is visible too. With developer mode on, open **Settings →
+Technical → Sequences & Identifiers → External Identifiers**, search `service_type_` and
+open `librefleet.service_type_tire_rotation`:
+
+![The external identifier librefleet.service_type_tire_rotation: module librefleet, model librefleet.service.type, record Tire Rotation, and Non Updatable ticked, highlighted](/screens/ch34-external-id-noupdate.jpg)
+
+**Non Updatable** is `noupdate="1"`, stored per record.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -338,6 +369,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name, flat_fee from
  Wheel Alignment |       45
 (2 rows)
 ```
+
+</Tab>
+</UiOrShell>
 
 Tire Rotation's flat_fee is still 59. The upgrade did not touch it, exactly as the loader
 code in Concepts said it would not. Wheel Alignment, a brand-new xml id, was created
@@ -415,7 +449,23 @@ needs the partner to exist first, the order needs the vehicle):
 <Step>
 ### Try the obvious thing, watch it do nothing, find out why
 
-Upgrade your real tutorial database exactly like every other chapter so far:
+Upgrade your real tutorial database exactly like every other chapter so far, then look
+for Nora's car.
+
+<UiOrShell>
+<Tab>
+
+**Apps → LibreFleet ⋮ → Upgrade**, then **Fleet → Vehicles**:
+
+![The Vehicles list after the upgrade, still 1-5 / 5: ZH 468 202, BE 30 447, SHELL-001, CH22-AAA and CH22-BBB, and no AG 12 345](/screens/ch34-no-demo-vehicle.jpg)
+
+Nothing. Not an error, not a warning, just silently absent. The reason is on the module
+itself: with developer mode on, **Apps → LibreFleet ⋮ → Module Info → Technical Data**.
+
+![LibreFleet's Module Info on the Technical Data tab, with the Demo Data checkbox highlighted and empty, above the dependencies base, product and mail](/screens/ch34-module-demo-flag.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -444,7 +494,10 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select demo from ir_module
  f
 ```
 
-That one column is Odoo's per-module memory of whether demo was ever loaded. Chapter 8
+</Tab>
+</UiOrShell>
+
+That one flag (the **Demo Data** box, the `demo` column) is Odoo's per-module memory of whether demo was ever loaded. Chapter 8
 installed librefleet with plain `-i librefleet`, no demo flag, and back then the module
 had no `demo` key at all. So `demo` was set to `false`, and stayed there.
 
@@ -459,8 +512,19 @@ else:  # 'upgrade' or 'reinit'
 ```
 
 An upgrade checks `package.demo`, the value **already sitting in the database**, not
-whether your manifest now has demo files. Install time is the only moment that flag can
-flip from false to true. Adding demo files months later does not flip it retroactively.
+whether your manifest now has demo files. Adding demo files months later does not flip it
+retroactively, and no upgrade ever will.
+
+There is exactly one other switch, and it is a sledgehammer. With developer mode on,
+**Settings** shows a **Load demo data** link under **Developer Tools**:
+
+![The bottom of General Settings in developer mode: Developer Tools, with the Load demo data link highlighted under the developer mode links](/screens/ch34-load-demo-data.jpg)
+
+It calls `force_demo()` in `odoo/modules/loading.py`, which sets `demo` on **every**
+module and loads the demo data of everything installed, `base`, `mail` and `product`
+included. On a throwaway database it does make Nora appear. On your `tutorial` database it
+would bury your own records under core's sample partners and products, with no way back.
+Look, do not click.
 
 There is a second, version-specific reason install time itself needs an explicit ask.
 Check the actual flag rather than trusting an old habit:
@@ -484,8 +548,9 @@ one doesn't match your memory.
 <Step>
 ### See it load for real, in a database built to be thrown away
 
-The only way to install-with-demo is a database that has never installed
-librefleet before, so build a scratch one:
+The clean way to install-with-demo is a database that has never installed librefleet
+before, so build a scratch one. This one is a command-line job: it is a throwaway, and a
+few seconds of `-i --with-demo` beats clicking through the database manager.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial_demo_check -i librefleet --with-demo --stop-after-init
@@ -514,8 +579,12 @@ master-data service type from step 1. Four files, two formats, one namespace. Ev
 Once you have confirmed it, drop the scratch database. It did its job.
 
 ```console
-$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
+$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check with (force);"
 ```
+
+`with (force)` closes any connection the running Odoo server still holds on it, which it
+will after the check in Verify talks to it over XML-RPC. A plain `drop database` then fails
+with `database "tutorial_demo_check" is being accessed by other users`.
 
 </Step>
 
@@ -545,7 +614,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select data_type from info
  character varying
 ```
 
-Bump the manifest to `19.0.1.20.0`, upgrade, and look again:
+Bump the manifest to `19.0.1.20.0`, upgrade (**Apps → LibreFleet ⋮ → Upgrade**, or the
+`-u` command), and look again. Nothing changes on screen, which is the point: only Postgres
+can show you this one.
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
@@ -655,11 +726,30 @@ either way, so chapter 20's transcript still reads exactly as it did.
 <Step>
 ### Install French
 
-Install French. Pass the **iso_code**, `fr`, not the locale code `fr_FR`:
+<UiOrShell>
+<Tab>
+
+**Settings → General Settings → Languages → Add Languages**. Pick **French / Français**
+(not one of the regional variants) and click **Add**:
+
+![The Add Languages dialog with French / Français in the Languages field, highlighted, and Overwrite Existing Terms ticked](/screens/ch34-add-languages.jpg)
+
+The confirmation offers **Switch to French / Français & Close**. Click **Close** instead:
+the rest of this chapter reads its screens in English.
+
+</Tab>
+<Tab>
+
+Pass the **iso_code**, `fr`, not the locale code `fr_FR`:
 
 ```console
 $ docker compose exec odoo odoo i18n loadlang -c /etc/odoo/odoo.conf -d tutorial -l fr
 ```
+
+</Tab>
+</UiOrShell>
+
+Either way, the database now has two active languages:
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial -c "select code, iso_code from res_lang where active order by code;"
@@ -693,22 +783,47 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from res_count
 Now export your own module's terms as a template. The `.pot` is the untranslated master
 list a translator works from.
 
-First make the directory it goes in. Your module has no `i18n/` folder yet, and the
-command below writes into it with a shell redirect, which will not create a missing
-directory for you:
+It goes in a new `addons/librefleet/i18n/` folder. `i18n` is the conventional name and
+Odoo looks for translation files there by default, so it is not a name you get to choose.
+
+<UiOrShell>
+<Tab>
+
+**Settings → Translations → Export Translation**. Leave **Language** on *New Language
+(Empty translation template)*, **File Format** on *PO File* and **Export Type** on
+*Module*, and pick **LibreFleet** in **Apps To Export**:
+
+![The Export Translation dialog: Language New Language (Empty translation template), File Format PO File, Export Type Module, Apps To Export LibreFleet, all highlighted](/screens/ch34-export-translation.jpg)
+
+Click **Export**:
+
+![Export Complete, with the librefleet.pot download link highlighted](/screens/ch34-export-complete.jpg)
+
+Click **librefleet.pot** to download it, create the `i18n` folder inside your module, and
+save the file there as `addons/librefleet/i18n/librefleet.pot`. It is the same file, byte
+for byte, as the command in the other tab writes.
+
+</Tab>
+<Tab>
+
+First make the directory. The command below writes into it with a shell redirect, which
+will not create a missing directory for you:
 
 ```console
 $ mkdir -p addons/librefleet/i18n
 ```
 
 Skip that and the export fails with `no such file or directory`, pointing at the path
-rather than at the real problem. `i18n` is the conventional name and Odoo looks for
-translation files there by default, so it is not a name you get to choose.
-
-Now export:
+rather than at the real problem. Now export:
 
 ```console
 $ docker compose exec -T odoo odoo i18n export -c /etc/odoo/odoo.conf -d tutorial librefleet -l pot -o - > addons/librefleet/i18n/librefleet.pot
+```
+
+</Tab>
+</UiOrShell>
+
+```console
 $ wc -l addons/librefleet/i18n/librefleet.pot
 ```
 
@@ -781,11 +896,13 @@ msgstr ""
 msgid "Tire Rotation"
 msgstr "Rotation des pneus"
 
+#. module: librefleet
 #. odoo-python
 #: code:addons/librefleet/wizards/service_order_approve.py:0
 msgid "Only an order that is in progress can be marked done."
 msgstr "Seul un ordre en cours peut être marqué comme terminé."
 
+#. module: librefleet
 #. odoo-python
 #: code:addons/librefleet/wizards/service_order_approve.py:0
 msgid ""
@@ -799,6 +916,13 @@ msgstr ""
 The gettext header (that first `msgid ""` block) is boilerplate every `.po` file carries.
 Write it once and never think about it again.
 
+Every entry starts with a `#. module: librefleet` line, the two code strings included.
+The `grep` in step 9 cut it off, so look at the `.pot` itself: it is the line above
+`#. odoo-python`. Odoo's reader refuses an entry without it. Leave it off and an upload
+through **Import Translation** fails with `'NoneType' object has no attribute 'groups'`.
+The command line only gets away with it because, given a path, it also reads the `.pot`
+sitting next to the file and borrows the comment from there.
+
 The third message is the one with the named placeholder, `%(margin).2f`, sitting untouched
 in both `msgid` and `msgstr`. The translator moves it wherever French phrasing wants it,
 but never renames or drops it, because Python fills it in by name at raise time, not by
@@ -809,6 +933,19 @@ position.
 <Step>
 ### Import it, and prove both halves landed
 
+<UiOrShell>
+<Tab>
+
+**Settings → Translations → Import Translation**. **Language Name** `French / Français`,
+**Code** `fr_FR`, **Upload your file** and pick `addons/librefleet/i18n/fr.po`:
+
+![The Import Translation dialog with Language Name French / Français, Code fr_FR and File fr.po, highlighted, and Overwrite Existing Terms ticked](/screens/ch34-import-translation.jpg)
+
+Click **Import**. The dialog closes without a word, which is success.
+
+</Tab>
+<Tab>
+
 One command reads the file back in:
 
 ```console
@@ -816,6 +953,9 @@ $ docker compose exec odoo odoo i18n import -c /etc/odoo/odoo.conf -d tutorial -
 ...
 INFO ? odoo.tools.translate: translations are loaded successfully
 ```
+
+</Tab>
+</UiOrShell>
 
 Now check both halves of the chapter's translation table separately, because they landed
 in two completely different places. First the **field value**, which went into the
@@ -831,11 +971,14 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select name from libreflee
  {"en_US": "Tire Rotation", "fr_FR": "Rotation des pneus"}
 ```
 
-The same row from the interface: open the service type list and click the small **EN**
-badge next to the name, and the translate dialog shows exactly what the column holds, one
-language per line.
+The same row from the interface: in **Fleet → Configuration → Service Types**, click into
+Tire Rotation's name. With two languages active, a small **EN** badge now sits at the end
+of the cell. Click it, and the translate dialog shows exactly what the column holds, one
+language per line:
 
-![The Translate: name dialog, English (US) reading Tire Rotation and French / Français reading Rotation des pneus, both editable in the same small form](/screens/ch34-translate-dialog.jpg)
+![The Translate: name dialog over the Service Types list, English (US) Tire Rotation and French / Français Rotation des pneus highlighted, with the EN badge visible on the Tire Rotation row behind it](/screens/ch34-translate-dialog.jpg)
+
+Close it with **Discard**, and **Discard** the list edit too.
 
 And now the **code string**, which went nowhere near Postgres: it translates when the
 wizard actually raises it, read from the in-memory catalog. Build the smallest thing that
@@ -907,7 +1050,7 @@ ch34-demo complete! On to the next chapter 🔧
 ```
 
 ```console
-$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check;"
+$ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_demo_check with (force);"
 ```
 
 ## Gotchas
@@ -926,7 +1069,9 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
 - **A plain `-u` will not add demo data to a database that never had it.**
   `ir_module_module.demo` is set once, at that module's first install, and an
   upgrade only reloads demo if that flag is already true. Adding demo files later
-  needs a fresh database with `--with-demo`, not an upgrade of an existing one.
+  needs a fresh database with `--with-demo`, not an upgrade of an existing one. Settings'
+  **Load demo data** link is the only other way, and it loads the demo data of *every*
+  installed module.
 - **Odoo 19 defaults to `--without-demo`.** If you expected demo data to just show
   up the way an older memory says it should, that default, not a bug in your
   files, is why it didn't.
@@ -983,7 +1128,7 @@ $ docker compose exec db psql -U odoo -d postgres -c "drop database tutorial_dem
         'a warning asking whether to enable demo data for this database, which you can accept interactively',
       ],
       answer: 1,
-      why: 'Read directly from odoo/modules/loading.py: the upgrade branch checks package.demo, the value already stored in the database from the module\'s first install, not whether the current manifest happens to declare a demo key. Since librefleet installed without --with-demo back in chapter 8, that flag is false and stays false through any later upgrade; only a fresh install with --with-demo can set it.',
+      why: 'Read directly from odoo/modules/loading.py: the upgrade branch checks package.demo, the value already stored in the database from the module\'s first install, not whether the current manifest happens to declare a demo key. Since librefleet installed without --with-demo back in chapter 8, that flag is false and stays false through any later upgrade. Only a fresh install with --with-demo sets it for one module; the Load demo data link in Settings sets it for every module at once.',
     },
     {
       q: 'Why does the demo service order use XML for one record instead of a third CSV file?',
