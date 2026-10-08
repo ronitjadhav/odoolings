@@ -199,6 +199,32 @@ environment specifically.
 <Step>
 ### Run a real backup, and look inside it
 
+<UiOrShell>
+<Tab>
+
+Open the database manager at `localhost:8069/web/database/manager` and click **Backup**
+on the `tutorial` row. Keep **zip** and **Include filestore**:
+
+![The Backup Database dialog for tutorial: a warning that the database manager is not protected with a generated master password, then Backup Format zip and Include filestore ticked, highlighted, and the Backup button highlighted](/screens/ch54-backup-dialog.jpg)
+
+That yellow box is the audit step's credentials finding, live. `odoo.conf` sets
+`admin_passwd = admin` in plain text, so the manager calls itself unprotected and offers
+a generated master password instead. Note it down: the next step needs it. Odoo tries to
+save it to its config file and cannot, because the compose file mounts `odoo.conf`
+read-only (the log says `ERROR: couldn't write the config file`). So the new password
+lasts until the next restart and your file stays as it is.
+
+Click **Backup**, and the browser downloads `tutorial_<date>_<time>.zip`. List what is
+inside it, on your own machine:
+
+```console
+$ python3 -c "import sys, zipfile; print(sorted({n.split('/')[0] for n in zipfile.ZipFile(sys.argv[1]).namelist()}))" ~/Downloads/tutorial_*.zip
+['dump.sql', 'filestore', 'manifest.json']
+```
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo db dump tutorial /tmp/backup.zip
 ```
@@ -211,12 +237,38 @@ $ docker compose exec odoo python3 -c "import zipfile; print(sorted({n.split('/'
 ['dump.sql', 'filestore', 'manifest.json']
 ```
 
+</Tab>
+</UiOrShell>
+
 All three, together, in one file. A `pg_dump` of the same database would give you
 the first one only.
 </Step>
 
 <Step>
 ### Neutralize a throwaway copy
+
+<UiOrShell>
+<Tab>
+
+Back in the database manager, click **Duplicate** on `tutorial`. Name the copy
+`tutorial_staging` and tick **Neutralize**, which duplicates and neutralizes in one go,
+then **Continue**. If the master password field is empty, type the one you noted:
+
+![The Duplicate Database dialog: New Name tutorial_staging and Neutralize ticked, highlighted, and the Continue button highlighted](/screens/ch54-duplicate-neutralize.jpg)
+
+Click `tutorial_staging` in the list and sign in as `admin`. A red banner across the top
+announces the neutralization before you open anything. With developer mode on,
+**Settings → Technical → System Parameters**, search `neutraliz`:
+
+![tutorial_staging under the red banner Database neutralized for testing: no emails sent, etc., with its name highlighted in the navbar and the System Parameters row database.is_neutralized = true highlighted](/screens/ch54-neutralized-staging.jpg)
+
+Then delete it, this was a disposable copy: **Delete** on the `tutorial_staging` row,
+master password, **Delete**:
+
+![The Delete Database dialog with Database tutorial_staging and the Delete button highlighted](/screens/ch54-delete-staging.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo db duplicate tutorial tutorial_staging
@@ -230,6 +282,9 @@ Then drop it, this was a disposable copy:
 ```console
 $ docker compose exec odoo odoo db drop tutorial_staging
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 </Steps>

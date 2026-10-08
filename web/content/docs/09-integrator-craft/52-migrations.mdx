@@ -210,11 +210,33 @@ unmodified, manifest version and all, and try installing it against your Odoo 19
 environment. The branch you will actually push gets built differently, in the replay
 step further down.
 
+<UiOrShell>
+<Tab>
+
+With developer mode on, **Apps → Update Apps List → Update**, remove the **Apps** facet,
+and search for the module. Its card has **Learn More** and nothing else: no
+**Activate**. Open it and the **Technical Data** tab says why. Here it is for
+`html_text`, the example from the Concepts section:
+
+![The Text from HTML field module (html_text), Technical Data tab, its Status highlighted: Uninstallable](/screens/ch52-uninstallable.jpg)
+
+The server log, from Update Apps List, has the reason in words:
+
+```text
+WARNING tutorial odoo.modules.module: The module html_text has an incompatible version, setting installable=False
+```
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
 ...
 WARNING tutorial odoo.modules.module: The module <module_name> has an incompatible version, setting installable=False
 ```
+
+</Tab>
+</UiOrShell>
 
 You'll see this exact warning, every time, for every unmigrated module. It's the
 starting gun, not a real failure.
@@ -227,9 +249,26 @@ starting gun, not a real failure.
 "version": "19.0.1.0.0",
 ```
 
+<UiOrShell>
+<Tab>
+
+Saving the manifest is enough for the server to notice (the log says `autoreload: python
+code updated`). **Update Apps List** again, search for the module, and the button is
+back:
+
+![The html_text card in Apps, highlighted, now with an Activate button next to Learn More](/screens/ch52-activate-after-bump.jpg)
+
+Click **Activate**.
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i <module_name> --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 
 If it installs clean, you may already be done, exactly `html_text`'s situation
 above. If it doesn't, the traceback names the exact deprecated call; check it

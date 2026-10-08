@@ -227,6 +227,22 @@ upgrade and confirm the index exists for real:
     "version": "19.0.1.30.0",     # was: 19.0.1.29.0
 ```
 
+<UiOrShell>
+<Tab>
+
+**Apps**, search `LibreFleet`, then **⋮ → Upgrade** on its card. With developer mode on,
+**Settings → Technical → Database Structure → Fields**, search **Model** for
+`librefleet.service.order` and **Field** for `_id`:
+
+![Fields of the service order models filtered on _id, with the Indexed column: customer_id and vehicle_id on Service Order highlighted, both with Indexed ticked](/screens/ch53-indexed-fields.jpg)
+
+`customer_id` is ticked now, next to `vehicle_id`, which always was. That column
+reports what the field *declares*. Whether Postgres actually built the index is a
+question only the database can answer, which is the shell tab's `\d`.
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 $ docker compose exec db psql -U odoo -d tutorial -c "\d librefleet_service_order"
@@ -235,6 +251,9 @@ Indexes:
     "librefleet_service_order__customer_id_index" btree (customer_id)
     "librefleet_service_order__vehicle_id_index" btree (vehicle_id)
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
