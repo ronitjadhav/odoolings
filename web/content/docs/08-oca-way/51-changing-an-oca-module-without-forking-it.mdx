@@ -219,13 +219,33 @@ from . import sale_order_line
 <Step>
 ### Install it and try to break the rule
 
+<UiOrShell>
+<Tab>
+
+With developer mode on: **Apps → Update Apps List → Update**, remove the **Apps** facet,
+search `sale_fixed_discount` and click **Activate** on your module, not on theirs:
+
+![Apps searched for sale_fixed_discount: Sale Fixed Discount, already installed, and Sale Fixed Discount Limit, highlighted, with its Activate button](/screens/ch51-activate-limit-module.jpg)
+
+Then repeat chapter 49's experiment with the number it let through. New quotation,
+add two **Cable Management Box** (100.00 each), scroll the line right to **Discount
+(Fixed)**, type `150`, and save:
+
+![A new quotation for Azure Interior behind a Validation Error dialog, its message highlighted: A fixed discount of 150.0 is larger than the unit price of 100.0, which would make the line negative. Behind it the highlighted totals still read an untaxed amount of -100.00](/screens/ch51-discount-limit-refused.jpg)
+
+The totals behind the dialog show the negative line the form computed, and the save
+refused to store it. **Close**, then leave with the ✕ next to the record name.
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
     -i sale_fixed_discount_limit --stop-after-init
 ```
 
 ```text
-INFO functional odoo.modules.loading: Loading module sale_fixed_discount_limit (128/128)
+INFO functional odoo.modules.loading: Loading module sale_fixed_discount_limit (129/129)
 INFO functional odoo.modules.loading: Modules loaded.
 ```
 
@@ -255,6 +275,9 @@ env.cr.rollback()
 discount_fixed = 25.00:  subtotal 150.00
 discount_fixed = 150.00: refused -> A fixed discount of 150.0 is larger than the unit price of 100.0, which would make the line negative.
 ```
+
+</Tab>
+</UiOrShell>
 
 The reasonable discount still works exactly as the OCA module intended, per unit and
 all. The one you did not want is refused, by your rule, in your module. **The OCA clone

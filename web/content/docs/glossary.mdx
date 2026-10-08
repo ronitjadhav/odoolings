@@ -44,7 +44,8 @@ deployments have a long comma-separated list. The server logs the resolved list 
 module I depend on is installed". Nobody asks for these; they arrive, which is how
 *bridge modules* ship. Two consequences worth knowing: installing one module can install
 others that were waiting for it, possibly from repositories you cloned for something
-else, and an `auto_install` module cannot be found by searching Apps (chapters 43, 50).
+else, and Apps hides them behind its default **Apps** facet, since bridges are not flagged
+as applications (chapter 50).
 
 **arch (view architecture)**: the XML document stored in an `ir.ui.view` record's
 `arch` field describing how to render a model (`<list>`, `<form>`, ...). Validated

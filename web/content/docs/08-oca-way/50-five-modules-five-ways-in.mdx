@@ -91,9 +91,8 @@ can declare:
 which means "install me automatically as soon as every module I depend on is
 installed". Nobody asks for these. They arrive.
 
-Chapter 43 mentioned the consequence in passing, that an `auto_install` module cannot be
-found by searching Apps. Here you get the other half: installing one module can install
-a *third* module, from a repository you cloned for something else entirely, because that
+The consequence that catches people out: installing one module can install a *third*
+module, from a repository you cloned for something else entirely, because that
 third module was waiting for exactly this combination. OCA calls these **bridge
 modules**, and they are how the "many small modules" convention keeps two features from
 having to know about each other.
@@ -142,17 +141,53 @@ $ docker compose exec db psql -U odoo -d functional \
 (1 row)
 ```
 
-No such column. Now install all four in one command, which is also a small lesson:
-`-i` takes a comma-separated list and resolves the whole graph once.
+No such column. Now install all four at once, which is also a small lesson: Odoo takes
+the whole list and resolves the dependency graph in one pass.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, **Apps → Update Apps List → Update** so Odoo sees the new
+repositories. Remove the **Apps** facet from the search (it shows applications only),
+switch to the list view, and search the four names one after the other: each one you
+confirm with Enter joins the same **Module** facet as an "or". Tick the four modules
+(leave **Audit Log Tests** alone) and click **Activate**:
+
+![The Apps list view searched for crm_lead_code or product_secondary_unit or auditlog or web_responsive: Audit Log, Web Responsive, Sequential Code for Leads / Opportunities and Product Secondary Unit ticked and highlighted, 4 selected, and the Activate button highlighted](/screens/ch50-activate-four-modules.jpg)
+
+The page reloads into the backend when the install is done.
+
+</Tab>
+<Tab>
+
+`-i` takes a comma-separated list:
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d functional \
     -i crm_lead_code,product_secondary_unit,auditlog,web_responsive --stop-after-init
 ```
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### crm_lead_code: the module that rewrote rows you already had
+
+<UiOrShell>
+<Tab>
+
+**CRM → Leads**, list view, and click the **Lead Number** header to sort by it. That
+column did not exist a minute ago, and every row has a number in it, from `LD0001` for
+the oldest lead:
+
+![CRM Leads list sorted by the new Lead Number column, highlighted: LD0001 Club Office Furnitures, LD0002 Design Software, LD0003 Pricing for 25 desks and on down, every row numbered](/screens/ch50-lead-numbers.jpg)
+
+The **Pipeline** list has the same column for opportunities, numbered from the same
+sequence.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d functional \
@@ -174,8 +209,11 @@ $ docker compose exec db psql -U odoo -d functional \
 (1 row)
 ```
 
-Stop and notice what happened. Forty-five leads that existed before the install now
-carry sequence numbers. **A data file cannot do that.** Chapter 34's data files create
+</Tab>
+</UiOrShell>
+
+Stop and notice what happened. All forty-five leads and opportunities that existed
+before the install now carry sequence numbers. **A data file cannot do that.** Chapter 34's data files create
 records; nothing in them reaches back and edits rows that were already there.
 
 The manifest says how:
@@ -233,20 +271,34 @@ install anything on a client database:
 
 First, ask which modules are installed that you never named:
 
+<UiOrShell>
+<Tab>
+
+**Apps**, list view, remove the **Apps** facet and search `secondary_unit`. Widen the
+**Technical Name** column by dragging its header edge if the names are cut off:
+
+![The Apps list searched for secondary_unit: Product Secondary Unit installed, Sale Order Secondary Unit installed and highlighted, Secondary unit in product matrix not installed, and Sale Stock Secondary Unit not installed and highlighted](/screens/ch50-secondary-unit-modules.jpg)
+
+</Tab>
+<Tab>
+
 ```console
 $ docker compose exec db psql -U odoo -d functional \
-    -c "select name, state, auto_install from ir_module_module where name like '%secondary_unit%';"
+    -c "select name, state, auto_install from ir_module_module where name like '%secondary_unit%' order by name;"
 ```
 
 ```text
                 name                |    state    | auto_install
 ------------------------------------+-------------+--------------
- sale_order_secondary_unit          | installed   | t
- sale_stock_secondary_unit          | uninstalled | t
  product_secondary_unit             | installed   | f
+ sale_order_secondary_unit          | installed   | t
  sale_product_matrix_secondary_unit | uninstalled | f
+ sale_stock_secondary_unit          | uninstalled | t
 (4 rows)
 ```
+
+</Tab>
+</UiOrShell>
 
 You asked for `product_secondary_unit`. You also got `sale_order_secondary_unit`, from
 `OCA/sale-workflow`, a repository you cloned in chapter 49 for something unrelated. Its
@@ -261,9 +313,21 @@ manifest explains itself in two lines:
 became true and Odoo installed it. That is the bridge-module pattern working exactly as
 designed.
 
-Then read the row below it, because the negative case teaches the rule better than the
-positive one. `sale_stock_secondary_unit` is also `auto_install: True` and it did *not*
-arrive:
+Then read the other highlighted row, because the negative case teaches the rule better
+than the positive one. `sale_stock_secondary_unit` is also `auto_install: True` and it
+did *not* arrive:
+
+<UiOrShell>
+<Tab>
+
+Open **Sale Stock Secondary Unit** from that list and go to its **Technical Data** tab:
+
+![The Sale Stock Secondary Unit module, Technical Data tab, status Not Installed, its two dependencies highlighted: sale_order_secondary_unit Installed and stock_secondary_unit Unknown](/screens/ch50-bridge-dependencies.jpg)
+
+**Unknown** means Odoo has never seen that module on its addons path.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec db psql -U odoo -d functional \
@@ -278,11 +342,42 @@ $ docker compose exec db psql -U odoo -d functional \
 (2 rows)
 ```
 
+</Tab>
+</UiOrShell>
+
 One of those two is installed and the other is not, because `stock_secondary_unit` lives
 in `OCA/stock-logistics-warehouse` and you have never cloned it. **`auto_install` fires
 only when every dependency is present**, so the chain stopped there.
 
-Now use the feature. It sells a product in a unit that is not its stock unit:
+Now use the feature. It sells a product in a unit that is not its stock unit: an engine
+oil stocked by the litre bottle and sold by the case of twelve.
+
+<UiOrShell>
+<Tab>
+
+Both modules hide their fields from anyone without the units-of-measure setting, which
+this database does not have yet. **Settings**, search `Units of Measure`, tick **Units of
+Measure & Packagings** under **Sales**, and **Save**:
+
+![Settings searched for Units of Measure: the Sales Product Catalog box Units of Measure & Packagings ticked and highlighted, and the Save button highlighted](/screens/ch50-uom-setting.jpg)
+
+**Sales → Products → Products → New**. Name it `Engine Oil 1L`, set **Sales Price** to
+`8.00`, and scroll down to the new **Secondary Unit of Measure** section. **Add a line**:
+**Name** `Case of 12`, **Secondary Unit of Measure** `Units`, and `12` in the factor
+column next to it. Save:
+
+![The Engine Oil 1L product form scrolled to the Secondary Unit of Measure section, its one line highlighted: active, Case of 12, Units, 12.00, Dependent](/screens/ch50-case-of-12.jpg)
+
+Now **Sales → Orders → Quotations → New**, any customer, and **Add a product** `Engine
+Oil 1L`. The order line has two new columns before **Quantity**. Pick `Case of 12` in
+**Second unit**, then type `3` in **Secondary Qty**, and click outside the line:
+
+![A new quotation with one line of Engine Oil 1L: 3.00 Case of 12 highlighted, and next to it, also highlighted, Quantity 36.00 Units at a unit price of 8.00](/screens/ch50-three-cases.jpg)
+
+That is all you need from the quotation: discard it with the ✕ next to its name.
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
@@ -303,9 +398,26 @@ print(f"3 x '{unit.name}' -> product_uom_qty {line.product_uom_qty:.0f} {line.pr
 3 x 'Case of 12' -> product_uom_qty 36 Units
 ```
 
-Order three cases, get thirty-six units, priced per unit. Note that you wrote
-`secondary_uom_qty` on the sale line, and the field is not defined by the module you
-installed:
+</Tab>
+</UiOrShell>
+
+Order three cases, get thirty-six units, priced per unit. Now look at the field you
+filled, `secondary_uom_qty` on the sale line, and ask which module defines it. It is not
+the one you installed:
+
+<UiOrShell>
+<Tab>
+
+**Settings → Technical → Database Structure → Fields**, search **Field** for
+`secondary_uom_qty`. Two rows: one on **Product Secondary Unit Mixin** (you meet it in a
+moment) and one on **Sales Order Line**. Open the second:
+
+![The secondary_uom_qty field on Sales Order Line, with Model: Sales Order Line and In Apps: sale_order_secondary_unit highlighted](/screens/ch50-field-owner.jpg)
+
+</Tab>
+<Tab>
+
+Still in the same shell:
 
 ```python
 f = env['ir.model.fields'].search([('model','=','sale.order.line'),('name','=','secondary_uom_qty')])
@@ -315,6 +427,9 @@ print(env['ir.model.data'].search([('model','=','ir.model.fields'),('res_id','='
 ```text
 sale_order_secondary_unit
 ```
+
+</Tab>
+</UiOrShell>
 
 The bridge owns it. `product_secondary_unit` owns the concept, the bridge owns its
 appearance on a sale order, and the split exists so a warehouse that never sells
@@ -351,7 +466,34 @@ including ones in other repositories: `purchase_order_secondary_unit` in
 ### auditlog: reaching a model without naming it
 
 `auditlog` records who changed which field, on any model you point it at. Nothing is
-audited until you create a rule:
+audited until you create a rule, so create one for sale orders, change one field on a
+draft quotation, and read what was recorded.
+
+<UiOrShell>
+<Tab>
+
+**Settings → Technical → Audit → Rules → New**. Describe it `Sale orders`, pick the
+**Sales Order** model, and leave the defaults: **Full log**, with creates, writes,
+deletes and exports logged. Then click **Confirm**:
+
+![A new audit rule named Sale orders, its Model field Sales Order highlighted, Type Full log, Log Creates, Writes, Deletes and Exports ticked, and the Confirm button highlighted](/screens/ch50-audit-rule.jpg)
+
+Now open any draft quotation (S00040 for Gemini Furniture here), go to its **Other
+Info** tab, type `PO-4471` in **Customer Reference**, and save. Then **Settings →
+Technical → Audit → Logs** has one entry. Open it:
+
+![The audit log entry for S00040: User Mitchell Admin and Method write highlighted, the HTTP context below it, and under Fields Updated one highlighted line: Customer Reference, client_order_ref, from empty to PO-4471](/screens/ch50-audit-log-entry.jpg)
+
+</Tab>
+<Tab>
+
+Open a fresh shell first. In the one from the last step, the draft order the search
+finds would be the one you just created, and saving it would drag its freshly computed
+totals into the log alongside the field you changed.
+
+```console
+$ docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d functional --no-http
+```
 
 ```python
 rule = env['auditlog.rule'].create({
@@ -371,13 +513,20 @@ model: sale.order   method: write   user: OdooBot
   client_order_ref: False -> 'PO-4471'
 ```
 
-One write, one log entry, with the field, both values and the user. Chapter 33's chatter
-tracking does something similar for fields you marked `tracking=True` on a model you
-own. This works on a model you do not own, for fields nobody marked, and it was switched
-on by creating a record rather than by changing code.
+Leave the shell without committing and the rule disappears with it. The rule created
+in the UI tab is the one that stays.
 
-`state: 'confirmed'` is the switch. A draft rule audits nothing, which is the first
-thing to check when a rule "does not work".
+</Tab>
+</UiOrShell>
+
+One write, one log entry, with the field, both values and the user. The interface adds
+the HTTP request the change came through, which a shell write does not have. Chapter
+33's chatter tracking does something similar for fields you marked `tracking=True` on a
+model you own. This works on a model you do not own, for fields nobody marked, and it was
+switched on by creating a record rather than by changing code.
+
+Confirming is the switch (`state: 'confirmed'` in the shell). A draft rule audits
+nothing, which is the first thing to check when a rule "does not work".
 
 Now the mechanism, and it is the reason this module is in the chapter:
 
@@ -394,10 +543,6 @@ Two lines, and no `_inherit` of `sale.order` anywhere in the file, because there
 not be: the module has no idea which model you will audit. It saves the original method
 on `.origin`, then replaces the attribute on the class. Every later `write()` on that
 model goes through auditlog's version, which logs and then calls the original.
-
-Leave the shell without committing and the rule disappears with it. If you want to keep
-auditing, create the rule in the interface instead: **Settings → Technical → Audit →
-Rules**, which is also where the resulting log entries are readable by a human.
 </Step>
 
 <Step>
@@ -435,7 +580,7 @@ Five bundles, twenty-one entries in `web.assets_backend` alone, and the JavaScri
 its work the way chapter 40 taught:
 
 ```console
-$ grep -n "patch\|NavBar\|WebClient" oca/web/web_responsive/static/src/components/apps_menu/apps_menu.esm.js | head -4
+$ grep -n "patch\|NavBar\|WebClient" oca/web/web_responsive/static/src/components/apps_menu/apps_menu.esm.js | head -3
 ```
 
 ```text
@@ -450,6 +595,10 @@ form layout are all different, with nothing in the database changed except an as
 bundle.
 
 ![The Odoo backend after installing web_responsive: the apps menu opens as a searchable grid inside the page rather than as a dropdown](/screens/ch50-web-responsive-apps-menu.jpg)
+
+Type into that search box and it finds menus, not only apps, across every app at once:
+
+![The web_responsive apps menu searched for quot, highlighted with its results: CRM / Sales / My Quotations, Sales / Orders / Quotations, Sales / Configuration / Sales Orders / Quotation Templates, and Purchase / Orders / Requests for Quotation](/screens/ch50-web-responsive-menu-search.jpg)
 
 That is worth knowing as a category. When a client says "the interface is wrong since
 the upgrade", an assets-only module is a strong suspect, and the first diagnostic is to
@@ -502,8 +651,9 @@ chapter that leaves a permanent mark on data you did not create.
   is present.** One bridge installed itself here and its sibling did not, purely because
   a repository was missing. Read `ir_module_module` after any install on a client
   database rather than assuming you got what you typed.
-- **An `auto_install` module cannot be found by searching Apps** (chapter 43's trap).
-  Search `ir_module_module` in psql, not the interface.
+- **Apps hides bridge modules by default.** Its **Apps** facet shows applications only,
+  and bridges are not flagged as applications. Remove the facet, or query
+  `ir_module_module`, before you conclude a module is not there.
 - **A draft `auditlog.rule` audits nothing.** The state field is the switch, and a rule
   created in a shell that never commits is not a rule at all.
 - **Init hooks run on your data, at install time, once.** Read them before installing

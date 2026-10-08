@@ -139,9 +139,11 @@ would leave you with two crons doing the same job.
 
 Odoo's XML `<delete>` tag is the textbook fix for exactly this, but it needs the record's
 model in the registry at data-load time, and `base.automation` isn't there any more once
-`librefleet` stops depending on `base_automation`. That is a real chicken-and-egg, and
-this chapter walks through it rather than around it: a one-time, explicit SQL cleanup, run
-once, safe to never think about again.
+`librefleet` stops depending on `base_automation`. That is a real chicken-and-egg. The way out is
+to clean up *after* the upgrade, when every installed model is loaded again: either through
+the Technical menus, which delete through the ORM and take each record's external ID with
+it, or with a one-time, explicit SQL cleanup. This chapter walks through both, rather than
+around the problem.
 
 ## Hands-on
 
@@ -279,11 +281,42 @@ from . import test_maintenance_reminder
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -u librefleet --stop-after-init
 ```
 
-This succeeds cleanly, no errors, no warnings, which is exactly the trap: the four
-old records are still sitting in the database (query them yourself, same as the
-Concepts section). Remove them once, explicitly, in dependency-safe order (the
-action referencing the automation goes first, then the automation, then the cron,
-then the action it delegated to):
+(**Apps → LibreFleet ⋮ → Upgrade** does the same.) This succeeds cleanly, no errors, no
+warnings, which is exactly the trap: the four old records are still sitting in the
+database. Remove them once, explicitly.
+
+<UiOrShell>
+<Tab>
+
+With developer mode on, open **Settings → Technical → Sequences & Identifiers → External
+Identifiers** and search `maintenance_reminder`:
+
+![External Identifiers searched for maintenance_reminder: the four librefleet. rows highlighted, automation_clear_maintenance_reminder (base.automation 1), action_clear_maintenance_reminder (ir.actions.server 209), action_send_maintenance_reminders (ir.actions.server 208) and cron_send_maintenance_reminders (ir.cron 16), under the module record of the new librefleet_maintenance_reminder](/screens/ch46-leftover-xmlids.jpg)
+
+`base_automation` is still installed (nothing uninstalled it, `librefleet` merely stopped
+depending on it), so every one of these models is in the registry and the ordinary
+delete works. In this order, each time through the list view's **Actions → Delete** or
+the form's gear menu, confirming the "Bye-bye, record!" dialog:
+
+1. **Technical → Automation → Automation Rules**: *Clear the maintenance reminder when a
+   service order is done*. Its server action goes with it.
+2. **Technical → Automation → Scheduled Actions**: *LibreFleet: maintenance reminders*.
+3. **Technical → Actions → Server Actions**: *LibreFleet: maintenance reminders* (the one
+   the cron ran; it survives the cron).
+
+Back in External Identifiers, one row is left: `librefleet.action_clear_maintenance_reminder`.
+Its server action went in step 1 through a database cascade, which bypasses the ORM, so
+nothing removed its external ID. Its display name is now just its own name, because there
+is no record behind it any more, and opening its form fails for the same reason. Tick it
+in the list and use **Actions → Delete** instead:
+
+![External Identifiers searched again for maintenance_reminder: only base.module_librefleet_maintenance_reminder is left](/screens/ch46-xmlids-cleaned.jpg)
+
+</Tab>
+<Tab>
+
+In dependency-safe order (the action referencing the automation goes first, then the
+automation, then the cron, then the action it delegated to):
 
 ```console
 $ docker compose exec db psql -U odoo -d tutorial
@@ -320,10 +353,29 @@ Your four numbers will differ from these, they depend on install order.
 One-time surgery, not something you automate for a tutorial of this size, real
 teams reach for exactly this on a live database when a migration script would be
 overkill.
+
+</Tab>
+</UiOrShell>
 </Step>
 
 <Step>
 ### Install the new module, and prove there's exactly one of everything
+
+<UiOrShell>
+<Tab>
+
+In **Apps**, search `Maintenance Reminders`. Nothing comes back until you remove the
+**Apps** facet from the search bar: that filter only shows applications, and this module
+is not one.
+
+![The Apps screen with only the Module facet Maintenance Reminders left, showing the LibreFleet Maintenance Reminders card (librefleet_maintenance_reminder), highlighted, with its Activate button](/screens/ch46-activate-new-module.jpg)
+
+**Activate**, then back to **Technical → Automation → Automation Rules**:
+
+![Automation Rules: a single rule, Clear the maintenance reminder when a service order is done, On create and edit, Service Order, highlighted along with the 1-1 / 1 pager](/screens/ch46-one-automation.jpg)
+
+</Tab>
+<Tab>
 
 ```console
 $ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d tutorial -i librefleet_maintenance_reminder --stop-after-init
@@ -335,6 +387,9 @@ $ docker compose exec db psql -U odoo -d tutorial -c "select count(*) from base_
 -------
      1
 ```
+
+</Tab>
+</UiOrShell>
 
 One automation, not two. The feature moved, it didn't duplicate.
 </Step>
@@ -444,6 +499,10 @@ independently-versioned module.
   `librefleet_maintenance_reminder` itself depends on it.
 - **Delete linked records in dependency order.** The record being referenced goes
   after the record referencing it, or you'll hit a foreign-key error mid-cleanup.
+- **A database cascade leaves the external ID behind.** Deleting a record through the UI
+  removes its `ir_model_data` row, but a record the database deletes for you (a server
+  action owned by an automation rule) keeps its row, pointing at nothing. Its form will not
+  even open; delete it from the External Identifiers list.
 
 ## Quick check
 
