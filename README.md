@@ -23,6 +23,9 @@ No signup, no account. Progress and quiz scores live in your browser only.
   [rustlings](https://github.com/rust-lang/rustlings)-style CLI, inspects your actually
   running Odoo over XML-RPC after every hands-on section and tells you exactly what's
   missing, with a hint, never the answer.
+- **Start at any chapter.** `odoolings start chNN` builds the database a chapter begins
+  with, replaying and checking every earlier chapter, so you can skip straight to the
+  part you need.
 - **One real app, cover to cover.** Every chapter extends the same capstone,
   **LibreFleet** (a vehicle-workshop management app), so relations, security, and
   business logic all click together instead of forty disconnected snippets.

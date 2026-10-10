@@ -588,8 +588,8 @@ Five tests, green. `--with-demo` matters: the tests build a tax, and a tax needs
 group, which arrives with demo data. Chapter 4's gotcha in reverse, and a reminder that
 `odoo -i` gives you no demo data unless you ask.
 
-Keep `oca_lab` around. Chapter 50 installs four more modules and it is the right place
-to run their tests too.
+Keep `oca_lab` around if you like: it is a good place to run any OCA module's tests
+without touching `functional`. Nothing later in the book depends on it.
 </Step>
 
 </Steps>
@@ -693,7 +693,8 @@ Core's percentage, and the OCA module's amount, side by side in one table.
 
 1. ⭐ Install `product_secondary_unit` from `OCA/product-attribute` into `functional`,
    by yourself, start to finish. Its `depends` list is one line long, so the only real
-   work is the addons-path entry. Chapter 50 assumes it is there.
+   work is the addons-path entry. Chapter 50 installs it again from the same clone, so
+   this is a head start, not a requirement.
 2. ⭐⭐ Take any module from chapter 47's table of seven and resolve its whole
    dependency chain on paper before installing anything: every name in every `depends`
    list, until each one is either core or a specific OCA repository. Then install it and
