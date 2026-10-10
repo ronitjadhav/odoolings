@@ -2,6 +2,7 @@ import Link from 'next/link';
 import {
   ArrowRight,
   BookOpenCheck,
+  Boxes,
   Container,
   Flame,
   GitPullRequest,
@@ -12,7 +13,7 @@ import { Card, CardGrid, type Tone } from '@/components/card';
 import { HeroCta } from '@/components/hero-cta';
 import { JsonLd } from '@/components/json-ld';
 import { OdoolingsWordmark } from '@/components/odoolings-wordmark';
-import { chapterIdFromUrl } from '@/lib/chapter-id';
+import { chapterIdFromUrl, isJourneyChapter } from '@/lib/chapter-id';
 import { authorId, courseId, courseName, isIndexableDocsPage } from '@/lib/seo';
 import { appDescription, appName, canonicalUrl } from '@/lib/shared';
 import { source } from '@/lib/source';
@@ -44,6 +45,17 @@ const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; 
   },
 ];
 
+const DEEP_DIVES: { icon: typeof Wrench; name: string; eyebrow: string; blurb: string; tone: Tone; href: string }[] = [
+  {
+    icon: Boxes,
+    name: 'Inventory',
+    eyebrow: 'Deep dive · 15 chapters',
+    blurb: 'Warehouses, locations, transfers, routes, replenishment, lots, packages, valuation, and the code underneath. From the first shelf to a real project.',
+    tone: 'sage',
+    href: '/docs/10-deep-dive-inventory/inv01-the-warehouse-map',
+  },
+];
+
 const FEATURES: { icon: typeof Terminal; title: string; body: string }[] = [
   {
     icon: Terminal,
@@ -66,7 +78,7 @@ const CHAPTERS = source
   .getPages()
   .filter(isIndexableDocsPage)
   .map((p) => ({ id: chapterIdFromUrl(p.url), url: p.url, title: p.data.title }))
-  .filter((c) => c.id !== null)
+  .filter((c) => c.id !== null && isJourneyChapter(c.id))
   .sort((a, b) => a.id!.localeCompare(b.id!)) as { id: string; url: string; title: string }[];
 
 const STRUCTURED_DATA = {
@@ -225,6 +237,37 @@ export default function HomePage() {
             <ArrowRight className="size-4 transition-transform duration-300 ease-(--ease-out-soft) group-hover:translate-x-0.5" />
           </Link>
         </div>
+      </section>
+
+      {/* deep dives */}
+      <section className="rounded-(--radius-card) bg-fd-card px-6 py-16 md:px-12">
+        <p className="eyebrow text-fd-muted-foreground">Deep dives</p>
+        <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">
+          One domain, all the way down.
+        </h2>
+        <p className="mt-4 max-w-2xl text-pretty text-fd-muted-foreground">
+          The journey gives every topic one pass. A deep dive takes one domain from zero to
+          professional, every setting and every option, in the simplest words we have. Start
+          one directly when a project needs it: each has its own database and{' '}
+          <code>odoolings start</code> builds it for you.
+        </p>
+        <CardGrid cols={3} className="mt-10">
+          {DEEP_DIVES.map((d) => (
+            <Card
+              key={d.name}
+              tone={d.tone}
+              eyebrow={d.eyebrow}
+              title={d.name}
+              icon={<d.icon className="size-4" />}
+              href={d.href}
+            >
+              {d.blurb}
+              <span className="mt-3 flex items-center gap-1 text-xs font-medium text-fd-primary">
+                Start the deep dive <ArrowRight className="size-3" />
+              </span>
+            </Card>
+          ))}
+        </CardGrid>
       </section>
     </div>
   );

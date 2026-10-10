@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { Flame } from 'lucide-react';
 import { recordVisit, streak, useProgress } from '@/lib/progress';
+import { isJourneyChapter } from '@/lib/chapter-id';
 import { TOTAL_CHAPTERS } from '@/lib/shared';
 
 export function ProgressPill() {
@@ -10,7 +11,8 @@ export function ProgressPill() {
   useEffect(recordVisit, []);
   if (!progress) return null;
 
-  const done = Object.keys(progress.done).length;
+  // deep-dive chapters have their own ids and their own count; the pill is the journey's
+  const done = Object.keys(progress.done).filter(isJourneyChapter).length;
   const s = streak(progress.days);
   const pct = Math.round((done / TOTAL_CHAPTERS) * 100);
 

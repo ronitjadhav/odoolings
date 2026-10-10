@@ -1,0 +1,717 @@
+---
+title: "Inventory 1. The Warehouse Map"
+description: Build a fresh warehouse database, learn the five things every stock question comes back to (products, locations, the warehouse, operation types, quants), and receive your first delivery.
+tier: foundations
+---
+
+**Goal:** know what Odoo stores when it "has stock", where it stores it, and how a
+quantity appears, by building LibreFleet's parts depot from nothing. · **Time:** ~2 h ·
+**Checkpoint:** none, this deep dive writes no module until its code chapter. It builds a
+database called `warehouse`.
+
+## Why this matters
+
+Every inventory question a client will ever ask you is one of these five:
+
+- *Do we have it?* (a product, and whether Odoo counts it at all)
+- *Where is it?* (a location)
+- *Which site?* (a warehouse)
+- *How did it get here?* (an operation type, and a transfer)
+- *How many, exactly, right now?* (a quant)
+
+This chapter teaches those five words with real records in a real database. Nothing
+else in Inventory makes sense before them, and once you have them, every later chapter
+is "the same five things, arranged differently". Routes move quants between locations.
+Replenishment watches quants and creates transfers. Lots and packages are extra labels on
+quants. Valuation puts a price on quants.
+
+Chapter 25 of the journey touched this ground in one pass, inside a database full of
+demo data. Here we go slowly, in an empty database, so you can see every record you
+create and nothing you did not.
+
+<Callout type="info" title="Starting here?">
+  This chapter needs only chapter 5's environment: your copy of the starter running with
+  `docker compose up -d`. It builds its own database, so there is nothing to catch up on.
+  The box at the top of the page has the one download you need.
+</Callout>
+
+## Concepts
+
+### Odoo does not store "stock". It stores quants
+
+A **quant** is one row that says: *this product, in this location, this many*. That is
+all stock is in Odoo: a table of quants. Twenty brake pad sets on the depot shelf is one
+quant. Three of the same part in the service van is another quant. The same product can
+have as many quants as the places it sits in.
+
+<Mermaid
+  label="A quant is the meeting point of one product and one location, carrying a quantity. Every stock report is a sum over quants."
+  chart={`flowchart LR
+    P["Product<br/>Brake Pad Set"] --> Q["Quant<br/>Brake Pad Set, LFD/Stock, 20"]
+    L["Location<br/>LFD/Stock"] --> Q
+    Q --> R["Reports<br/>On Hand, Forecast, Locations"]`}
+/>
+
+You never type a quant by hand. Quants change in exactly one way: a **transfer** is
+validated, and its moves add to the quant at the destination and take away from the
+quant at the source. Keep that sentence; it is the whole mechanism, and the next chapter
+is about it.
+
+### Which products Odoo counts
+
+Not every product has quants. Three settings on the product decide it, and they are all
+on the product's first tab:
+
+| Setting | What it means in plain words | Example in this chapter |
+|---|---|---|
+| **Product Type: Goods** | a physical thing | brake pads, oil, a tablet, rags |
+| **Product Type: Service** | time or work, nothing to put on a shelf | an hour of labour |
+| **Track Inventory** (only for Goods) | "count this one" | ticked for pads, oil and the tablet; unticked for rags |
+
+A Goods product with Track Inventory **off** is still bought and received, but Odoo
+does not keep a quant for it. It is used up and forgotten. Shop rags, screws, cleaning
+spray: things nobody wants to count. In the database the box is the field
+`is_storable`, which is why developers call such a product "storable".
+
+Two more product fields belong to Inventory and sit on the same tab: **Unit** (the
+"per Units" next to the prices) and, on the **Inventory** tab, a **Responsible** user,
+**Weight** and **Volume**, and a **Customer Lead Time**. Tracking by lot or serial
+number is also a product setting, but it is switched off in a fresh database; the
+traceability chapter of this deep dive switches it on.
+
+### Locations: a tree with seven kinds of branch
+
+A **location** is a place stock can be. Locations form a tree: `LFD` contains
+`LFD/Stock`, which contains `LFD/Stock/Shelf A`. The full path is the location's
+**complete name**, and Odoo always shows it, so you can tell two "Shelf A" apart.
+
+Each location has a **Location Type** (the field is called `usage`), and the type is
+what decides how Odoo treats it:
+
+| Location Type | What it is for | In the warehouse database |
+|---|---|---|
+| **Internal** | a real place inside your building, where quants live | `LFD/Stock`, your shelves |
+| **Virtual** | a folder that groups other locations, holds nothing itself | `LFD`, the warehouse's top node |
+| **Vendor** | where goods come *from* when you receive them | `Vendors` |
+| **Customer** | where goods go *to* when you deliver | `Customers` |
+| **Inventory Loss** | the other side of a count correction or a scrap | `Inventory adjustment` |
+| **Production** | the other side of manufacturing: components go in, products come out | `Production` |
+| **Transit** | goods on the road between two warehouses or two companies | `Inter-warehouse transit` (archived until you need it) |
+
+Vendor, Customer, Inventory Loss, Production and Transit are often called **virtual
+locations** in conversation, because nothing of yours is physically there. Odoo still
+keeps quants in them, and that is the trick behind the whole system: when you receive
+20 brake pads from a vendor, `Vendors` goes to **minus 20** and `LFD/Stock` goes to
+**plus 20**. Stock never appears from nowhere; it always moves from one location to
+another, and the sum over all locations stays zero. You will see the minus twenty on
+screen in this chapter.
+
+### A warehouse is a bundle
+
+A **warehouse** is one site: a building, a yard, a van. Creating or renaming one does a
+lot for you. Odoo generates:
+
+- a view location named after the warehouse's **Short Name** (`LFD`), with `LFD/Stock`
+  inside it, plus four more locations that stay archived until a multi-step setting
+  needs them (`Input`, `Quality Control`, `Output`, `Packing Zone`);
+- one **operation type** per door: Receipts, Delivery Orders, and Internal Transfers;
+- a numbering sequence per operation type, prefixed with the Short Name: `LFD/IN/`,
+  `LFD/OUT/`, `LFD/INT/`;
+- the routes that connect them (the routes chapter of this deep dive opens that box).
+
+The Short Name is at most five characters and it is everywhere: in every location path
+and every transfer reference. Choose it once, before anything is received.
+
+### Operation types: the doors of the warehouse
+
+An **operation type** is a kind of transfer, with its own numbering and its own default
+"from" and "to". A fresh warehouse has three:
+
+| Operation type | Type of Operation (`code`) | From | To | Prefix |
+|---|---|---|---|---|
+| Receipts | Receipt (`incoming`) | Vendors | LFD/Stock | `LFD/IN/` |
+| Delivery Orders | Delivery (`outgoing`) | LFD/Stock | Customers | `LFD/OUT/` |
+| Internal Transfers | Internal Transfer (`internal`) | LFD/Stock | LFD/Stock | `LFD/INT/` |
+
+The Inventory **Overview** is simply one card per operation type, with a button to open
+its transfers. Later chapters add more doors: Pick, Pack, Storage, Manufacturing,
+Dropship. They are all the same idea: a named kind of transfer with defaults.
+
+### Units, and why a "Pack of 6" is also a unit
+
+Every quantity has a **unit**. Brake pads are counted in Units, oil could be in litres,
+labour in hours. Odoo 19 keeps one list for all of them, **Units & Packagings**, and the
+list says how units relate: `Pack of 6` contains 6 Units, `L` contains 1,000 ml, `Days`
+contains 8 Hours. A packaging (the box the vendor ships) is just a unit that contains
+some other unit, so receiving 2 packs of 6 and receiving 12 units put the same quant on
+the shelf. This chapter only looks at the list; the packages chapter of this deep dive
+puts packagings on a product and on a transfer line.
+
+<Callout type="info" title="Official docs">
+  [Inventory: Locations](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/use_locations.html)
+  and [Warehouses](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/warehouses.html)
+  cover the same ground from the user's side. Read them after this chapter, not instead
+  of it: they assume the vocabulary this chapter builds.
+</Callout>
+
+## Hands-on
+
+Everything happens in a new database called `warehouse`. Your `tutorial` and
+`functional` databases are not touched. The story is LibreFleet's parts depot: the
+workshop you built in the journey needs somewhere to keep brake pads and oil.
+
+<Steps>
+
+<Step>
+### Create the database and install Inventory
+
+<UiOrShell>
+<Tab>
+
+Open the database manager at
+[http://localhost:8069/web/database/manager](http://localhost:8069/web/database/manager)
+and click **Create Database**. Fill in:
+
+- **Database Name:** `warehouse`
+- **Email:** `admin`
+- **Password:** `admin`
+- **Demo Data:** leave it **unticked**
+
+Leave the master password Odoo proposes as it is (chapter 21 explains why it cannot
+save it). Then **Continue**:
+
+![The Create Database dialog with Database Name warehouse, Email admin and the masked Password highlighted, Demo Data unticked and highlighted, and the Continue button highlighted](/screens/inv01-create-database.jpg)
+
+No demo data this time, on purpose. Chapter 21's database came with transfers you did
+not make. This one starts empty, so the first receipt you validate is the first receipt
+in the database, and every number you see is yours.
+
+About ten seconds later you land in the new database on **Apps**, already signed in.
+Find **Inventory** and click **Activate**:
+
+![The Apps screen with the Inventory card highlighted: Manage your stock and logistics activities, with its Activate button](/screens/inv01-activate-inventory.jpg)
+
+The page reloads when the install is done. Open the **Inventory** app from the menu.
+
+</Tab>
+<Tab>
+
+One command creates the database and installs the module, which is called `stock`:
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d warehouse -i stock --stop-after-init
+```
+
+```text
+INFO warehouse odoo.modules.loading: loading 40 modules...
+INFO warehouse odoo.modules.loading: Modules loaded.
+```
+
+Forty modules for one app: `stock` pulls in `product`, `uom`, `barcodes` and the base
+modules they need. No `--with-demo`, so the database starts empty.
+
+</Tab>
+</UiOrShell>
+
+The **Inventory Overview** is the app's home page. Two cards, one per door, and both
+empty:
+
+![The Inventory Overview with its two cards highlighted, Receipts and Delivery Orders, each with an Open button and an empty graph](/screens/inv01-overview-two-operation-types.jpg)
+</Step>
+
+<Step>
+### Switch on locations and units
+
+Out of the box, a warehouse is one undivided room. Two settings open it up.
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**. Tick **Storage Locations** (under Warehouse)
+and **Units of Measure & Packagings** (under Products), then **Save**:
+
+![The Inventory settings with Units of Measure & Packagings ticked and highlighted, Storage Locations ticked and highlighted, and the Save button highlighted](/screens/inv01-settings-locations-uom.jpg)
+
+**Storage Locations** adds the Locations menu and lets you put shelves inside the stock
+location. **Units of Measure & Packagings** shows the unit on products and transfer
+lines, so "20 Units" is a choice rather than an assumption.
+
+</Tab>
+<Tab>
+
+Settings are a form that writes to groups. In a shell, create the settings record and
+run it:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["res.config.settings"].create({"group_stock_multi_locations": True, "group_uom": True}).execute()
+>>> env.user.has_group("stock.group_stock_multi_locations"), env.user.has_group("uom.group_uom")
+(True, True)
+```
+
+Each setting box is a group your user joins. That is why a setting can hide a whole
+menu for everyone who does not have it.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Name the warehouse
+
+Odoo created a warehouse called **My Company** with the Short Name `WH`. Make it ours.
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Warehouses**, open **My Company**, and set:
+
+- **Warehouse:** `LibreFleet Depot`
+- **Short Name:** `LFD`
+
+Save (the cloud icon next to the record name):
+
+![The warehouse form with Warehouse set to LibreFleet Depot and Short Name set to LFD, both highlighted, and the save icon highlighted](/screens/inv01-rename-warehouse.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> wh.name, wh.code, wh.lot_stock_id.complete_name
+('My Company', 'WH', 'WH/Stock')
+>>> wh.write({"name": "LibreFleet Depot", "code": "LFD"})
+>>> wh.name, wh.code, wh.lot_stock_id.complete_name, wh.in_type_id.sequence_id.prefix
+('LibreFleet Depot', 'LFD', 'LFD/Stock', 'LFD/IN/')
+```
+
+</Tab>
+</UiOrShell>
+
+Watch what one save did. The stock location is now `LFD/Stock`, and the receipt
+numbers will start with `LFD/IN/`. The Short Name is not a label: Odoo renames the
+locations and the sequences under the warehouse when it changes.
+</Step>
+
+<Step>
+### Walk the location tree
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Locations**. The list opens filtered on **Internal** and shows one
+row, `LFD/Stock`. Remove the **Internal** filter to see every kind:
+
+![The Locations list with its Location Type column highlighted: Customers is Customer, Inventory adjustment is Inventory Loss, LFD is Virtual, LFD/Stock is Internal, Production is Production, Vendors is Vendor](/screens/inv01-location-types.jpg)
+
+Six locations, five types, and only one of them is a real place. That is the whole map
+of a fresh warehouse. Four more exist but are archived (Input, Quality Control, Output,
+Packing Zone), waiting for the day you switch on multi-step routes; so are two transit
+locations.
+
+</Tab>
+<Tab>
+
+Archived records are hidden from a normal search, so ask for them explicitly:
+
+```python
+>>> for loc in env["stock.location"].with_context(active_test=False).search([], order="id"):
+...     print(f"{loc.id:>3} {loc.complete_name:<24} {loc.usage:<10} {'active' if loc.active else 'archived'}")
+...
+  1 Vendors                  supplier   active
+  2 Customers                customer   active
+  3 Inter-company transit    transit    archived
+  4 LFD                      view       active
+  5 LFD/Stock                internal   active
+  6 LFD/Input                internal   archived
+  7 LFD/Quality Control      internal   archived
+  8 LFD/Output               internal   archived
+  9 LFD/Packing Zone         internal   archived
+ 10 Inter-warehouse transit  transit    archived
+ 11 Inventory adjustment     inventory  active
+ 12 Production               production active
+```
+
+Twelve rows, seven `usage` values. The archived ones already carry the `LFD` prefix:
+the rename reached them too.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Add two shelves
+
+Shelves are Internal locations inside `LFD/Stock`.
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Locations → New**:
+
+- **Location Name:** `Shelf A`
+- **Parent Location:** `LFD/Stock`
+- **Location Type:** Internal (the default)
+
+![The new location form with Location Name Shelf A and Parent Location LFD/Stock highlighted together, and the Location Type Internal highlighted](/screens/inv01-new-location-shelf-a.jpg)
+
+Save, then **New** again for `Shelf B` with the same parent. The form has more on it
+(a storage category, a counting frequency, a removal strategy): each gets its own
+chapter in this deep dive. Leave them empty today.
+
+</Tab>
+<Tab>
+
+```python
+>>> stock = wh.lot_stock_id
+>>> shelves = env["stock.location"].create([
+...     {"name": "Shelf A", "location_id": stock.id, "usage": "internal"},
+...     {"name": "Shelf B", "location_id": stock.id, "usage": "internal"},
+... ])
+>>> shelves.mapped("complete_name")
+['LFD/Stock/Shelf A', 'LFD/Stock/Shelf B']
+```
+
+The complete name is computed from the parent chain. Nobody types `LFD/Stock/` by hand.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read an operation type
+
+**Configuration → Operations Types** now lists three: Receipts, Internal Transfers (it
+appeared with the Storage Locations setting) and Delivery Orders. Open **Receipts**:
+
+![The Receipts operation type form, with Type of Operation Receipt and Sequence Prefix IN highlighted together, and under Locations the Source Location Vendors and Destination Location LFD/Stock highlighted together](/screens/inv01-operation-type-receipts.jpg)
+
+Read it as a sentence: *a Receipt takes goods from Vendors to LFD/Stock and numbers
+them `IN`*. The warehouse adds its Short Name in front, which is the `LFD/IN/` you saw in
+the shell. Two more fields matter later: **Returns Type** says which operation type a
+return of this receipt uses (Delivery Orders, the mirror image), and **Create Backorder**
+says what happens when a receipt arrives short. The next chapter is about both.
+</Step>
+
+<Step>
+### Create the five products
+
+One of each kind, so the differences show up on the shelf.
+
+<UiOrShell>
+<Tab>
+
+**Products → Products → New**. The first one:
+
+- **Product:** `Brake Pad Set`
+- **Product Type:** Goods
+- **Track Inventory:** ticked (it already is, when you create a product from Inventory)
+
+![The new product form for Brake Pad Set with the Product Type Goods and the ticked Track Inventory box highlighted together](/screens/inv01-product-track-inventory.jpg)
+
+Save, then create `Engine Oil 5W-30 1L` and `Diagnostic Tablet` the same way. Two more
+are different on purpose:
+
+- **Product:** `Shop Rags`, Goods, and **untick Track Inventory**. We buy rags and use
+  them up; nobody will ever count them.
+
+![The new product form for Shop Rags with the unticked Track Inventory box highlighted](/screens/inv01-product-not-tracked.jpg)
+
+- **Product:** `Labour Hour`, **Product Type: Service**. The Track Inventory box
+  disappears, because a service has nothing to put on a shelf.
+
+![The new product form for Labour Hour with Product Type set to Service, highlighted, and no Track Inventory box](/screens/inv01-product-service.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> Product = env["product.template"]
+>>> Product.create([
+...     {"name": "Brake Pad Set", "type": "consu", "is_storable": True},
+...     {"name": "Engine Oil 5W-30 1L", "type": "consu", "is_storable": True},
+...     {"name": "Diagnostic Tablet", "type": "consu", "is_storable": True},
+...     {"name": "Shop Rags", "type": "consu", "is_storable": False},
+...     {"name": "Labour Hour", "type": "service"},
+... ])
+>>> for t in Product.search([], order="id"):
+...     print(f"{t.name:<22} {t.type:<8} storable={t.is_storable}")
+...
+Brake Pad Set          consu    storable=True
+Engine Oil 5W-30 1L    consu    storable=True
+Diagnostic Tablet      consu    storable=True
+Shop Rags              consu    storable=False
+Labour Hour            service  storable=False
+```
+
+"Goods" is `consu` in the database, a name left over from older versions where it meant
+consumable. In Odoo 19 there are only two product types, `consu` and `service`, and the
+`is_storable` box is what used to be a third type.
+
+</Tab>
+</UiOrShell>
+
+While you are in Configuration, open **Units & Packagings** once:
+
+![The Units & Packagings list, with the rows Pack of 6, containing 6 Units, and L, containing 1,000 ml, highlighted](/screens/inv01-units-and-packagings.jpg)
+
+One list, fourteen rows, and every row is "a unit that contains some other unit". A
+packaging and a litre are the same kind of thing to Odoo.
+</Step>
+
+<Step>
+### Receive the first delivery
+
+Nothing is on the shelf yet. The only way to change that is a transfer.
+
+<UiOrShell>
+<Tab>
+
+**Operations → Transfers → Receipts → New**:
+
+- **Receive From:** type `Brembo Parts` and pick **Create "Brembo Parts"**
+- **Add a Product**, four times: `Brake Pad Set` demand `20`, `Engine Oil 5W-30 1L`
+  demand `12`, `Diagnostic Tablet` demand `1`, `Shop Rags` demand `50`
+
+Operation Type and Destination Location filled themselves in from the Receipts
+operation type you read a moment ago. Then **Validate**:
+
+![A new receipt with Receive From Brembo Parts, Operation Type LibreFleet Depot: Receipts and Destination Location LFD/Stock highlighted together, the four product lines highlighted, and the Validate button highlighted](/screens/inv01-first-receipt.jpg)
+
+The receipt gets its number, `LFD/IN/00001`, and jumps to **Done**. The **Quantity**
+column, what actually arrived, now equals the **Demand** column, what was expected:
+
+![The receipt LFD/IN/00001 with its reference highlighted, the status bar on Done highlighted, and the Quantity column highlighted, showing 20, 12, 1 and 50](/screens/inv01-receipt-done.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> brembo = env["res.partner"].create({"name": "Brembo Parts"})
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": brembo.id,
+...     "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": variant(n).id, "product_uom_qty": qty})
+...                  for n, qty in [("Brake Pad Set", 20), ("Engine Oil 5W-30 1L", 12),
+...                                 ("Diagnostic Tablet", 1), ("Shop Rags", 50)]],
+... })
+>>> receipt.name, receipt.state, receipt.location_id.complete_name, "->", receipt.location_dest_id.complete_name
+('LFD/IN/00001', 'draft', 'Vendors', '->', 'LFD/Stock')
+>>> receipt.button_validate()
+>>> receipt.name, receipt.state
+('LFD/IN/00001', 'done')
+>>> env.cr.commit()
+```
+
+A transfer is a `stock.picking`; each line on it is a `stock.move`. Both locations came
+from the operation type, and `product_uom_qty` is the Demand column. The move has no
+`name` field in 19, so you do not pass one. Commit before leaving the shell, or the
+receipt disappears with the session.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read what is on the shelf
+
+<UiOrShell>
+<Tab>
+
+**Reporting → Stock** is the answer to "do we have it":
+
+![The Stock report with the On Hand and Free to Use columns highlighted: Brake Pad Set 20, Diagnostic Tablet 1, Engine Oil 5W-30 1L 12](/screens/inv01-stock-report.jpg)
+
+Three rows, not five. Labour Hour is a service and Shop Rags is not tracked, so neither
+has anything to report. The 50 rags were received and are already forgotten, exactly as
+the unticked box promised.
+
+**Reporting → Locations** is the answer to "where": one row per quant. It opens
+filtered on **Internal Locations**:
+
+![The Locations report filtered on Internal Locations, its three rows highlighted: LFD/Stock holds 20 Brake Pad Set, 12 Engine Oil 5W-30 1L and 1 Diagnostic Tablet](/screens/inv01-quants-internal.jpg)
+
+Now remove that filter:
+
+![The same report without the filter, six rows, with the three Vendors rows highlighted: minus 20 Brake Pad Set, minus 12 Engine Oil 5W-30 1L and minus 1 Diagnostic Tablet](/screens/inv01-quants-vendors-negative.jpg)
+
+There is the other half of every receipt. `Vendors` is at minus 20, minus 12 and minus
+1, and the total at the bottom is 0.00. Stock did not appear; it moved from the vendor
+location to yours.
+
+</Tab>
+<Tab>
+
+```python
+>>> for q in env["stock.quant"].search([], order="id"):
+...     print(f"{q.location_id.complete_name:<12} {q.product_id.display_name:<22} {q.quantity:>8.2f}")
+...
+Vendors      Brake Pad Set            -20.00
+LFD/Stock    Brake Pad Set             20.00
+Vendors      Engine Oil 5W-30 1L      -12.00
+LFD/Stock    Engine Oil 5W-30 1L       12.00
+Vendors      Diagnostic Tablet         -1.00
+LFD/Stock    Diagnostic Tablet          1.00
+>>> pads = variant("Brake Pad Set")
+>>> pads.qty_available, pads.with_context(location=shelves[0].id).qty_available
+(20.0, 0.0)
+>>> variant("Shop Rags").is_storable, variant("Shop Rags").qty_available
+(False, 0.0)
+```
+
+`qty_available` ("On Hand") is a computed field that sums quants, and it listens to the
+context: ask it about Shelf A and it answers 0, because the receipt put everything in
+`LFD/Stock` itself, not on a shelf. Putting goods on the right shelf automatically is
+what putaway rules do, in their own chapter. And Shop Rags has no quant at all, so its
+on-hand quantity is 0 even though 50 just arrived.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv01 --db warehouse
+```
+
+```text
+✔ the Inventory app is installed
+✔ Storage Locations is switched on
+✔ the depot is called LibreFleet Depot with Short Name LFD
+✔ Shelf A and Shelf B are Internal locations under LFD/Stock
+✔ the five products have the right kinds
+✔ a receipt with four lines is done
+✔ the quants hold 20, 12 and 1 in LFD/Stock, and nothing for Shop Rags
+
+inv01 complete! On to the next chapter 🔧
+```
+
+The last check is the one to remember: it asserts that Shop Rags has **no** quant. A
+product you decided not to count must leave no trace, and that is as much a part of the
+map as the three that do.
+
+One proof straight from the database:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id order by q.id;"
+```
+
+```text
+ location  |       product       | quantity
+-----------+---------------------+----------
+ Vendors   | Brake Pad Set       |   -20.00
+ LFD/Stock | Brake Pad Set       |    20.00
+ Vendors   | Engine Oil 5W-30 1L |   -12.00
+ LFD/Stock | Engine Oil 5W-30 1L |    12.00
+ Vendors   | Diagnostic Tablet   |    -1.00
+ LFD/Stock | Diagnostic Tablet   |     1.00
+(6 rows)
+```
+
+Six rows in `stock_quant`. That table *is* your inventory.
+
+## Gotchas
+
+- **The Short Name is forever, in practice.** It is baked into every location path and
+  every transfer number. Renaming it later renames the locations, but the old numbers
+  (`WH/IN/00001`) stay on the documents already done. Name the warehouse before the
+  first receipt.
+- **Track Inventory off means no quant, not quantity zero.** The Stock report simply has
+  no row for the product, which surprises people who expected to see 0. If a client
+  cannot find a product in stock reports, check the box first.
+- **Vendors and Customers are negative on purpose.** A report over *all* locations sums
+  to zero. "Internal Locations" is the filter that gives the number people usually mean.
+- **The first Receipts list is filtered on Ready.** A draft or a done receipt is hidden
+  behind that filter. Remove the facet before you conclude a transfer vanished.
+- **A new product from Inventory's Products menu has Track Inventory ticked already.**
+  That menu's action sets the default; the field itself defaults to off, so the same form
+  opened from another app's Products menu starts unticked. Which menu you create a
+  product from changes a default that decides whether it is ever counted.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You receive 20 brake pad sets from a vendor into LFD/Stock. How many quants change?',
+      options: [
+        'One: the quant in LFD/Stock gains 20',
+        'Two: LFD/Stock gains 20 and Vendors loses 20',
+        'Three: Vendors, the receipt itself, and LFD/Stock each get a row',
+      ],
+      answer: 1,
+      why: 'Stock always moves from one location to another, and vendor locations keep quants too. That is why the Locations report without its filter shows Vendors at minus 20 and a grand total of zero.',
+    },
+    {
+      q: 'Shop Rags is a Goods product with Track Inventory off. You receive 50. What does the Stock report show for it?',
+      options: [
+        'A row with On Hand 50',
+        'A row with On Hand 0, since untracked goods count as consumed on arrival',
+        'No row at all',
+      ],
+      answer: 2,
+      why: 'Track Inventory off means Odoo keeps no quant for the product. Without a quant there is nothing to report, not even a zero. The receipt itself is still done and still lists the 50.',
+    },
+    {
+      q: 'What does changing a warehouse Short Name from WH to LFD rename?',
+      options: [
+        'Only the warehouse record; locations and sequences keep their names',
+        'The locations under the warehouse and the prefixes of its sequences',
+        'Every transfer already done, so LFD/IN/00001 replaces WH/IN/00001 on old documents',
+      ],
+      answer: 1,
+      why: 'The Short Name is used to build the location paths and the sequence prefixes, so Odoo renames those when it changes. Documents already validated keep the number they got.',
+    },
+    {
+      q: 'Which location type is the one where your own goods physically sit?',
+      options: ['Virtual', 'Internal', 'Transit'],
+      answer: 1,
+      why: 'Internal is a real place in your building. Virtual is a grouping node that holds nothing itself; Transit is for goods on the road between two sites.',
+    },
+    {
+      q: 'In Odoo 19, how is a packaging such as a Pack of 6 stored?',
+      options: [
+        'As a unit in the Units & Packagings list that contains 6 Units',
+        'As a separate packaging record attached to one product',
+        'As a product variant whose quantity is six times the base variant',
+      ],
+      answer: 0,
+      why: 'Odoo 19 merged packagings into units of measure: one list, where each row says what it contains. Older versions had a separate packaging model; that is the version difference to remember when reading older guides.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a third shelf, `Shelf C`, and archive it. Then find it again from the Locations
+   list, and from the shell with `active_test=False`. Say in one sentence what archiving
+   a location does and does not do.
+2. ⭐⭐ Create a second receipt from Brembo Parts for 10 more brake pad sets and validate
+   it. Before you look, predict the three numbers: the quant in `LFD/Stock`, the quant in
+   `Vendors`, and the total of the Locations report with no filter. Then check all three.
+3. ⭐⭐ Open **Reporting → Stock**, click **Locations** on the Brake Pad Set row, and
+   explain where that button took you and what filter it applied. Then do the same with
+   **History**: what model is that list showing?
+4. ⭐⭐⭐ Break-it lab. Tick Track Inventory on Shop Rags *after* the receipt is done.
+   Look at the Stock report. Explain why the 50 you received do not appear, and work out
+   what you would have to do to make Odoo count them from now on (the counting chapter of
+   this deep dive has the tool; try to name it first).
+
+## Further reading
+
+- <Icon name="docs" /> [Inventory management: locations (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/use_locations.html):
+  the user-side guide to the location tree and location types.
+- <Icon name="docs" /> [Warehouses (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/warehouses.html):
+  creating and configuring a warehouse, including the Short Name.
+- <Icon name="docs" /> [Product type (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/type.html):
+  Goods, Service and the Track Inventory box, from the official side.
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  the quant model itself; skim the field list at the top to see that it really is just product, location, quantity and a few labels.

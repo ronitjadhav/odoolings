@@ -342,6 +342,13 @@ pipeline grouped by stage). One of the standard view types you'll build in chapt
 **list view**: the rows-and-columns view type (`<list>` arch; `<tree>` before
 Odoo 17, removed in 19). Each `<field>` in the arch is a column.
 
+**location (`stock.location`)**: a place stock can be. Locations form a tree (`LFD` holds
+`LFD/Stock`, which holds `LFD/Stock/Shelf A`), and the full path is the location's
+*complete name*. The *Location Type* (`usage`) decides how Odoo treats it: Internal is a
+real place where your quants live; Virtual groups other locations; Vendor, Customer,
+Inventory Loss, Production and Transit are the "other side" of receipts, deliveries,
+counts, manufacturing and inter-site moves. The Inventory deep dive opens with them.
+
 **lock date**: a `res.company` date field (`fiscalyear_lock_date`, `tax_lock_date`,
 `sale_lock_date`, `purchase_lock_date`, `hard_lock_date`) that blocks editing any
 move dated on or before it. Each guards a different slice (sales, purchases,
@@ -457,6 +464,11 @@ RPC, so it is a typing assistant, not a business rule.
 **one2many**: the mirror of a many2one, declared with the comodel and the inverse
 field name. Stored nowhere: it is a live query over the comodel's many2one, which
 is why it cannot exist without one.
+
+**operation type (`stock.picking.type`)**: a kind of transfer with its own numbering and
+its own default source and destination: Receipts (Vendors to Stock, `IN`), Delivery
+Orders (Stock to Customers, `OUT`), Internal Transfers (`INT`), and later Pick, Pack,
+Manufacturing, Dropship. The Inventory Overview is one card per operation type.
 
 **ORM**: Odoo's object-relational mapper, the layer that turns Python model classes
 into PostgreSQL tables and back.
@@ -589,6 +601,12 @@ every other stock transfer, applied to a transformation rather than a delivery
 
 **PSC**: Project Steering Committee, the maintainers governing one OCA repository.
 
+**quant (`stock.quant`)**: one row saying *this product, in this location, this many*
+(plus optional labels: lot, package, owner). The quant table is what Odoo means by
+"stock": every On Hand figure is a sum over quants, and quants only change when a
+transfer is validated. Vendor and customer locations keep quants too, which is why a
+receipt leaves `Vendors` at a negative quantity (Inventory deep dive, chapter 1).
+
 **QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
 pages) and client-side (OWL component templates).
 
@@ -711,6 +729,11 @@ dragged in the same block (chapter 42).
 header. With the clickable option users can change stage by clicking; it enforces no
 workflow rules by itself.
 
+**stock move (`stock.move`)**: one line of a transfer: a product, a quantity, a source
+location and a destination location. Validating the transfer turns each move into quant
+changes at both ends. `product_uom_qty` is the Demand column (what was planned),
+`quantity` is what was actually moved. In Odoo 19 a move has no `name` field.
+
 **sudo()**: derives a recordset with the superuser bit (`env.su`) on: access rights
 and record rules stop applying, while `env.user` stays unchanged. Bypasses spread to
 records reached through the sudo'd set, so scope it to the smallest operation.
@@ -790,6 +813,12 @@ its message to the user (chapter 14).
 **view priority**: the tie-breaker among primary views: lowest number wins the
 default slot (base views sit at 16). Views with high priorities are only shown when
 an action requests them via `view_id`.
+
+**warehouse (`stock.warehouse`)**: one site (a building, a yard, a van). Creating or
+renaming one generates its locations, operation types, numbering sequences and routes.
+Its *Short Name* (`code`, five characters at most) is the prefix of every location path
+and transfer number under it (`LFD/Stock`, `LFD/IN/00001`), so choose it before the first
+receipt.
 
 **Weblate**: the OCA's translation platform. Contributors translate strings there,
 never by editing a module's `.po` files directly in a PR; edits made straight to

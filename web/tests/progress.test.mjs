@@ -38,6 +38,9 @@ assert.equal(chapterIdFromUrl('/docs/02-first-module/'), null);
 
 // non-chapter pages inside a part
 assert.equal(chapterIdFromUrl('/docs/02-first-module/boss2-garage-inventory'), null);
+// deep-dive tracks keep their own ids, so a track can grow without renumbering
+assert.equal(chapterIdFromUrl('/docs/10-deep-dive-inventory/inv01-the-warehouse-map'), 'inv01');
+assert.equal(chapterIdFromUrl('/docs/10-deep-dive-inventory/inv-boss-two-warehouses'), null);
 assert.equal(chapterIdFromUrl('/docs/glossary'), null);
 assert.equal(chapterIdFromUrl('/docs'), null);
 assert.equal(chapterIdFromUrl('/'), null);
