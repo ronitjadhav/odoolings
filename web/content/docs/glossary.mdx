@@ -78,6 +78,11 @@ system's protocol. Per the connector docs it "has a common interface to speak wi
 backend" and "translates the basic orders (search, read, write)" into that system's API.
 One adapter per backend, all answering the same method names (appendix on components).
 
+**backorder**: the transfer Odoo creates for the part of a demand that was not shipped
+or received when a transfer is validated short. Its `backorder_id` points at the
+original; the original's demand is rewritten to what actually moved. Whether Odoo asks,
+always creates one or never does is the operation type's **Create Backorder** setting.
+
 **bridge module**: a small module whose only job is to connect two other modules that
 do not know about each other, depending on both and holding just the glue. Usually
 `auto_install`, so it appears by itself once both sides are installed;
@@ -418,6 +423,11 @@ becomes the Postgres constraint name; it replaces the pre-19 `_sql_constraints` 
 views, data, or code to an Odoo database. An *app* is just a module with
 `'application': True`.
 
+**move line (`stock.move.line`)**: the layer under a stock move that says *which exact
+stock*: the source location, the lot or serial, the package, and a `quantity`. Reserving
+creates them, Validate turns them into quant changes, and **Moves History** lists the
+done ones. The **Details** button on a transfer line opens them.
+
 **namespacing (field prefixes)**: naming fields you add to a model you do not own after
 your module (`librefleet_is_part`), so they cannot collide with core's or with another
 module extending the same model. Nothing enforces it, which is why the collision only
@@ -664,6 +674,17 @@ product at one location. Creating one is a promise, not an action: it does nothi
 a scheduled action checks whether forecast has fallen below the minimum (chapter 25,
 chapter 35).
 
+**reservation (stock)**: a promise written on a quant: `reserved_quantity` goes up, the
+move gets its move lines and turns Available, and **Free to Use** (`free_qty`) shrinks,
+while On Hand does not change. When it happens is the operation type's **Reservation
+Method**: At Confirmation, Manually (Check Availability) or Before scheduled date.
+Unreserve gives the promise back.
+
+**return (stock)**: a transfer in the opposite direction, created from a done transfer's
+Return button through the `stock.return.picking` wizard. It uses the operation type named
+as **Returns Type** on the original's type, carries *Return of ...* as its source
+document, and each move points at the move it undoes (`origin_returned_move_id`).
+
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
 them.
@@ -695,6 +716,12 @@ pull request, so reviewers can click through changes.
 filter of the same `name` when the view loads. Nothing validates the match; a typo
 fails silently.
 
+**scrap (`stock.scrap`)**: taking a quantity of a product out of a location into an
+Inventory Loss location, with optional reason tags and a **Replenish Quantities** box that
+asks the replenishment rules to reorder it. Not a transfer, but it creates an ordinary
+`stock.move`. Odoo 19 has no dedicated Scrap location; the scrap goes to the company's
+first `usage = inventory` location, `Inventory adjustment` in a fresh database.
+
 **Selection field**: a field storing one key from a closed list of
 `(key, "Label")` pairs, a `varchar` in Postgres. LibreFleet's order `stage` is one;
 chapter 17 dresses it as a statusbar.
@@ -711,6 +738,11 @@ names for whatever it runs against: `records` is only populated when the action 
 bound to a selection, so a server action meant to work both from a menu and from a
 cron (which passes no selection) needs a fallback, `records or model.search([])`.
 Also what a cron and an automated action both are underneath (chapter 35).
+
+**shipping policy (`move_type`)**: on a transfer's Additional Info tab. **As soon as
+possible** (`direct`) makes the transfer Ready when at least one move has stock reserved;
+**When all products are ready** (`one`) waits until every move is fully reserved. The
+same partially reserved transfer is Ready under the first and Waiting under the second.
 
 **singleton**: a recordset holding exactly one record. Scalar fields can only be read
 on singletons; violating that raises `Expected singleton`. `self.ensure_one()` asserts
