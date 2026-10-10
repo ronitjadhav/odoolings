@@ -18,6 +18,7 @@ import { authorId, courseId, courseName, isIndexableDocsPage } from '@/lib/seo';
 import { appName, basePath, canonicalUrl, gitConfig } from '@/lib/shared';
 import { MarkComplete } from '@/components/mark-complete';
 import { JumpIn } from '@/components/jump-in';
+import { GoDeeper } from '@/components/go-deeper';
 
 export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   const params = await props.params;
@@ -123,6 +124,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
             })}
           />
         </DocsBody>
+        {chapterId && !isTrack ? <GoDeeper chapter={chapterId} /> : null}
         <MarkComplete />
       </DocsPage>
     </>
