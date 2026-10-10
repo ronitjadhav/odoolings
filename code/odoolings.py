@@ -2720,6 +2720,73 @@ def rounding_method_is_back_to_round_per_tax(env):
         "chapter." % method)
 
 
+# ---------------------------------------------------- inv01 checks --
+# Inventory deep dive, chapter 1: the warehouse map. Database "warehouse".
+
+def inventory_app_installed(env):
+    rows = env.call("ir.module.module", "search_read", [("name", "=", "stock")], fields=["state"])
+    assert rows and rows[0]["state"] == "installed", "the Inventory app (module 'stock') is not installed"
+
+
+def storage_locations_are_on(env):
+    assert env.call("res.users", "has_group", [env.uid], "stock.group_stock_multi_locations"), (
+        "the Storage Locations setting is off; Inventory > Configuration > Settings > Storage Locations")
+
+
+def depot_warehouse_exists(env):
+    rows = env.call("stock.warehouse", "search_read", [("code", "=", "LFD")], fields=["name", "lot_stock_id"])
+    assert rows, "no warehouse with Short Name LFD; rename the default warehouse (Configuration > Warehouses)"
+    assert rows[0]["name"] == "LibreFleet Depot", "the LFD warehouse is named %r, expected 'LibreFleet Depot'" % rows[0]["name"]
+    assert rows[0]["lot_stock_id"][1] == "LFD/Stock", (
+        "the warehouse's stock location is %r, expected LFD/Stock: the Short Name renames every location under it"
+        % rows[0]["lot_stock_id"][1])
+
+
+def two_shelves_under_stock(env):
+    rows = env.call("stock.location", "search_read",
+                    [("complete_name", "in", ["LFD/Stock/Shelf A", "LFD/Stock/Shelf B"])], fields=["usage"])
+    assert len(rows) == 2, "expected both LFD/Stock/Shelf A and LFD/Stock/Shelf B; found %d" % len(rows)
+    assert all(r["usage"] == "internal" for r in rows), "a shelf is not an Internal location"
+
+
+def products_of_each_kind(env):
+    rows = env.call("product.template", "search_read",
+                    [("name", "in", ["Brake Pad Set", "Engine Oil 5W-30 1L", "Diagnostic Tablet", "Shop Rags", "Labour Hour"])],
+                    fields=["name", "type", "is_storable"])
+    found = {r["name"]: r for r in rows}
+    missing = [n for n in ("Brake Pad Set", "Engine Oil 5W-30 1L", "Diagnostic Tablet", "Shop Rags", "Labour Hour") if n not in found]
+    assert not missing, "products missing: %s" % ", ".join(missing)
+    for name in ("Brake Pad Set", "Engine Oil 5W-30 1L", "Diagnostic Tablet"):
+        assert found[name]["type"] == "consu" and found[name]["is_storable"], (
+            "%s must be Goods with Track Inventory ticked" % name)
+    assert found["Shop Rags"]["type"] == "consu" and not found["Shop Rags"]["is_storable"], (
+        "Shop Rags must be Goods with Track Inventory unticked: it is used up, never counted")
+    assert found["Labour Hour"]["type"] == "service", "Labour Hour must be a Service"
+
+
+def first_receipt_is_done(env):
+    rows = env.call("stock.picking", "search_read",
+                    [("picking_type_id.code", "=", "incoming"), ("state", "=", "done")],
+                    fields=["name", "move_ids"])
+    assert rows, "no validated receipt yet; Inventory > Operations > Receipts > New, four lines, Validate"
+    assert any(len(r["move_ids"]) >= 4 for r in rows), (
+        "a receipt is done but none has four lines; the chapter receives all four goods at once")
+
+
+def quants_say_what_is_on_the_shelf(env):
+    stock = env.call("stock.location", "search", [("complete_name", "=", "LFD/Stock")])
+    assert stock, "no LFD/Stock location"
+    rows = env.call("stock.quant", "search_read", [("location_id", "=", stock[0])],
+                    fields=["product_id", "quantity"])
+    have = {r["product_id"][1]: r["quantity"] for r in rows}
+    assert have.get("Brake Pad Set") == 20.0, "LFD/Stock should hold 20 Brake Pad Set, it holds %s" % have.get("Brake Pad Set")
+    assert have.get("Engine Oil 5W-30 1L") == 12.0, "LFD/Stock should hold 12 Engine Oil 5W-30 1L"
+    assert have.get("Diagnostic Tablet") == 1.0, "LFD/Stock should hold 1 Diagnostic Tablet"
+    assert "Shop Rags" not in have, (
+        "Shop Rags has a quant, so it is tracked: untick Track Inventory on it (a product that is "
+        "not tracked is received and then forgotten, by design)")
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -3424,6 +3491,28 @@ CHAPTERS = {
          "XML ids menu_garage_root and action_garage_inventory_item, view_mode "
          "'list,form', plus a <list> and a <form> view. Chapter 11 has the shape."),
     ],
+    "inv01": [
+        ("the Inventory app is installed", inventory_app_installed,
+         "Apps > Inventory > Activate (the module is called stock)."),
+        ("Storage Locations is switched on", storage_locations_are_on,
+         "Inventory > Configuration > Settings, tick Storage Locations, Save. Without it a "
+         "warehouse is one undivided room and the Locations menu does not exist."),
+        ("the depot is called LibreFleet Depot with Short Name LFD", depot_warehouse_exists,
+         "Configuration > Warehouses, open the default warehouse, set Warehouse to "
+         "LibreFleet Depot and Short Name to LFD. Saving renames LFD/Stock and the sequences."),
+        ("Shelf A and Shelf B are Internal locations under LFD/Stock", two_shelves_under_stock,
+         "Configuration > Locations > New: name Shelf A, Parent Location LFD/Stock, type Internal."),
+        ("the five products have the right kinds", products_of_each_kind,
+         "Three storable goods, one goods product without Track Inventory (Shop Rags), one "
+         "Service (Labour Hour). The type and the Track Inventory box are on the General "
+         "Information tab."),
+        ("a receipt with four lines is done", first_receipt_is_done,
+         "Receipts > New, Receive From Brembo Parts, four lines, Validate. A validated "
+         "receipt is the only way quantities appear in this chapter."),
+        ("the quants hold 20, 12 and 1 in LFD/Stock, and nothing for Shop Rags", quants_say_what_is_on_the_shelf,
+         "Reporting > Locations shows one row per quant. A product with Track Inventory off "
+         "never gets a quant, which is why Shop Rags is missing there."),
+    ],
 }
 
 
@@ -3626,12 +3715,14 @@ def cmd_diff(env):
 # its checks, exactly as a reader going chapter by chapter would have.
 
 ORDER = (["ch%02d" % n for n in range(1, 16)] + ["boss2"]
-         + ["ch%02d" % n for n in range(16, 56)])
+         + ["ch%02d" % n for n in range(16, 56)]
+         + ["inv%02d" % n for n in range(1, 16)] + ["inv-boss"])
 TUTORIAL = (["ch05", "ch06"] + ["ch%02d" % n for n in range(8, 16)] + ["boss2"]
             + ["ch%02d" % n for n in range(16, 21)] + ["ch%02d" % n for n in range(31, 42)]
             + ["ch44", "ch46", "ch52", "ch53", "ch54"])
 FUNCTIONAL = ["ch%02d" % n for n in range(21, 31)] + ["ch42", "ch49", "ch50", "ch51", "ch53"]
-SELF_BUILT = {"ch04": "tour", "ch05": "tutorial", "ch21": "functional"}
+WAREHOUSE = ["inv%02d" % n for n in range(1, 16)] + ["inv-boss"]  # the Inventory deep dive
+SELF_BUILT = {"ch04": "tour", "ch05": "tutorial", "ch21": "functional", "inv01": "warehouse"}
 # boss2 builds a module of its own that no later chapter uses
 NOT_REPLAYED = {"boss2"}
 # where start fetches checkpoints; override to test checkpoints that are not on main yet
@@ -4135,6 +4226,33 @@ def seed_ch49(env):
     _settings(env, group_discount_per_so_line=True)
 
 
+# Inventory deep dive, database "warehouse" (no demo data).
+
+def seed_inv01(env):
+    _install(env, ["stock"])
+    _settings(env, group_stock_multi_locations=True, group_uom=True)
+    depot = _id(env, "stock.warehouse", [])
+    env.call("stock.warehouse", "write", [depot], {"name": "LibreFleet Depot", "code": "LFD"})
+    stock = _id(env, "stock.location", [("complete_name", "=", "LFD/Stock")])
+    env.call("stock.location", "create", [{"name": "Shelf A", "location_id": stock, "usage": "internal"},
+                                          {"name": "Shelf B", "location_id": stock, "usage": "internal"}])
+    goods = [{"name": n, "type": "consu", "is_storable": True}
+             for n in ("Brake Pad Set", "Engine Oil 5W-30 1L", "Diagnostic Tablet")]
+    goods += [{"name": "Shop Rags", "type": "consu", "is_storable": False},
+              {"name": "Labour Hour", "type": "service"}]
+    env.call("product.template", "create", goods)
+    vendor = env.call("res.partner", "create", {"name": "Brembo Parts"})
+    receipts = _id(env, "stock.picking.type", [("code", "=", "incoming"), ("warehouse_id", "=", depot)])
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    picking = env.call("stock.picking", "create", {
+        "partner_id": vendor, "picking_type_id": receipts,
+        "move_ids": [(0, 0, {"product_id": variant(n), "product_uom_qty": qty})
+                     for n, qty in (("Brake Pad Set", 20), ("Engine Oil 5W-30 1L", 12),
+                                    ("Diagnostic Tablet", 1), ("Shop Rags", 50))],
+    })
+    _validate(env, [picking])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4143,6 +4261,7 @@ SEEDS = {
     "ch21": seed_ch21, "ch22": seed_ch22, "ch23": seed_ch23, "ch24": seed_ch24,
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
+    "inv01": seed_inv01,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
@@ -4157,7 +4276,7 @@ def _installs(chapter, target, db):
 
 
 def _replay(target, db):
-    track = TUTORIAL if db == "tutorial" else FUNCTIONAL
+    track = {"tutorial": TUTORIAL, "functional": FUNCTIONAL, "warehouse": WAREHOUSE}[db]
     chapters = [c for c in ORDER[:ORDER.index(target)] if c in track and c not in NOT_REPLAYED]
     if target == "ch53" and db == "functional":
         # ponytail: ch53 only reads Part 4-5 invoices; skipping ch49-51 spares the OCA clones
@@ -4331,7 +4450,7 @@ def _run_checks(env, chapter):
 def _build(a, ws, target, db):
     replay = _replay(target, db)
     modules = [m for c in replay for m in _installs(c, target, db)]
-    demo = db == "functional"
+    demo = db == "functional"  # tutorial and warehouse are built without demo data
     print("\ncreating %r%s ..." % (db, " with demo data" if demo else ""))
     _master(a, ws, "create_database", db, demo, "en_US", a.password, a.user)
     env = Env(a.url, db, a.user, a.password)
@@ -4385,13 +4504,14 @@ def cmd_start(a):
     sys.stdout.reconfigure(line_buffering=True)
     target = a.chapter
     if target not in ORDER:
-        print("Unknown chapter %r. Use the number on the page, e.g. ch22 or boss2." % target)
+        print("Unknown chapter %r. Use the id on the page, e.g. ch22, boss2 or inv01." % target)
         return 2
     if target in SELF_BUILT:
         print("Chapter %s creates the %r database itself: start it from the top."
               % (target, SELF_BUILT[target]))
         return 0
-    targets = [db for db, track in (("tutorial", TUTORIAL), ("functional", FUNCTIONAL)) if target in track]
+    targets = [db for db, track in (("tutorial", TUTORIAL), ("functional", FUNCTIONAL), ("warehouse", WAREHOUSE))
+               if target in track]
     ws = _workspace()
     plan, stamp = [], time.strftime("%Y%m%d-%H%M%S")
 
@@ -4437,9 +4557,12 @@ def cmd_start(a):
         return 1
     backups = {}
     for db in targets:
-        replay = [int(c[2:]) for c in _replay(target, db) if c.startswith("ch")]
-        span = ("chapter %d" % replay[0] if len(replay) == 1
-                else "chapters %d to %d" % (replay[0], replay[-1])) if replay else ""
+        replay = _replay(target, db)
+        if replay and all(c.startswith("ch") for c in replay):
+            first, last = int(replay[0][2:]), int(replay[-1][2:])
+            span = "chapter %d" % first if first == last else "chapters %d to %d" % (first, last)
+        else:
+            span = replay[0] if len(replay) == 1 else "%s to %s" % (replay[0], replay[-1]) if replay else ""
         what = ("build %r by replaying %s and checking each (%s)"
                 % (db, span, "a few minutes" if db == "functional" else "a minute or two")
                 if replay else "create an empty %r" % db)

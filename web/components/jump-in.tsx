@@ -6,7 +6,7 @@ import { Icon } from './icon';
 // Chapters with nothing to rebuild: reading only, setup itself, or work outside Odoo.
 const NO_SETUP = new Set(['01', '02', '03', '04', '05', '07', '43', '45', '47', '48', '55']);
 // Chapters that create their database themselves: the reader only needs chapter 5.
-const BUILDS_ITS_OWN = new Set(['21']);
+const BUILDS_ITS_OWN = new Set(['21', 'inv01']);
 
 const FETCH = 'curl -O https://raw.githubusercontent.com/ronitjadhav/odoolings/main/code/odoolings.py';
 const SETUP = '/docs/01-environment/05-dev-setup-with-docker-compose';
@@ -46,8 +46,14 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 export function JumpIn({ chapter }: { chapter: string }) {
   if (NO_SETUP.has(chapter)) return null;
   const isNumber = /^\d+$/.test(chapter);
+  const track = chapter.match(/^([a-z]+)(\d+)$/); // "inv01": a deep-dive chapter
   const name = isNumber ? `ch${chapter}` : chapter;
   const ownDb = BUILDS_ITS_OWN.has(chapter);
+  const heading = isNumber
+    ? `Starting at chapter ${Number(chapter)}?`
+    : track
+      ? `Starting the deep dive at chapter ${Number(track[2])}?`
+      : 'Starting with this boss level?';
 
   return (
     <details className="group my-6 rounded-2xl border bg-fd-card text-sm transition-colors hover:border-fd-primary/30 open:border-fd-primary/30">
@@ -56,9 +62,7 @@ export function JumpIn({ chapter }: { chapter: string }) {
           <Icon name="rocket" size={18} weight="fill" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-semibold text-fd-foreground">
-            {isNumber ? `Starting at chapter ${Number(chapter)}?` : 'Starting with this boss level?'}
-          </span>
+          <span className="block font-semibold text-fd-foreground">{heading}</span>
           <span className="block text-xs text-fd-muted-foreground">
             {ownDb
               ? 'Only the environment from chapter 5 is needed.'

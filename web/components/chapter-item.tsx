@@ -38,7 +38,8 @@ export function ChapterItem({ item }: { item: PageTree.Item }) {
 
   const url = String(item.url);
   const name = String(item.name);
-  const numbered = name.match(/^(\d+)\.\s*(.+)$/);
+  // "12. Title" on the journey, "Inventory 1. Title" on a deep-dive track
+  const numbered = name.match(/^(?:[A-Z][a-z]+ )?(\d+)\.\s*(.+)$/);
   const chapter = chapterIdFromUrl(url);
   const done = !!(chapter && progress?.done[chapter]);
 

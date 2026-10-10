@@ -12,11 +12,13 @@ import { JsonLd } from '@/components/json-ld';
 import { getMDXComponents } from '@/components/mdx';
 import type { Metadata } from 'next';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
-import { chapterIdFromUrl } from '@/lib/chapter-id';
+import { chapterIdFromUrl, isJourneyChapter, tierFromUrl } from '@/lib/chapter-id';
+import { TierBadge } from '@/components/tier-badge';
 import { authorId, courseId, courseName, isIndexableDocsPage } from '@/lib/seo';
 import { appName, basePath, canonicalUrl, gitConfig } from '@/lib/shared';
 import { MarkComplete } from '@/components/mark-complete';
 import { JumpIn } from '@/components/jump-in';
+import { GoDeeper } from '@/components/go-deeper';
 
 export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   const params = await props.params;
@@ -62,6 +64,9 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
 
   const chapterId = chapterIdFromUrl(page.url);
   const jumpId = chapterId ?? (/\/boss2-[^/]*$/.test(page.url) ? 'boss2' : null);
+  const isTrack = chapterId !== null && !isJourneyChapter(chapterId);
+  // a deep-dive chapter declares its tier; a journey chapter gets it from its Part
+  const tier = page.data.tier ?? (chapterId && !isTrack ? tierFromUrl(page.url) : null);
   if (chapterId !== null) {
     structuredGraph.push({
       '@type': 'LearningResource',
@@ -69,7 +74,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
       url: pageUrl,
       name: page.data.title,
       description: page.data.description,
-      position: Number(chapterId),
+      ...(isJourneyChapter(chapterId) ? { position: Number(chapterId) } : {}),
       inLanguage: 'en',
       isAccessibleForFree: true,
       learningResourceType: 'Lesson',
@@ -101,6 +106,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
       {structuredData ? <JsonLd data={structuredData} /> : null}
       <DocsPage toc={page.data.toc} full={page.data.full}>
         <DocsTitle>{page.data.title}</DocsTitle>
+        {tier ? <TierBadge tier={tier} track={isTrack ? 'Deep dive: Inventory' : undefined} /> : null}
         <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
         <div className="flex flex-row gap-2 items-center border-b pb-6">
           <MarkdownCopyButton markdownUrl={markdownUrl} />
@@ -118,6 +124,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
             })}
           />
         </DocsBody>
+        {chapterId && !isTrack ? <GoDeeper chapter={chapterId} /> : null}
         <MarkComplete />
       </DocsPage>
     </>
