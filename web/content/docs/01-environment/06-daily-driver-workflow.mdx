@@ -464,11 +464,11 @@ Now the other direction, a breakpoint in code you wrote. Paste this into the sam
 >>> owner_count(env)
 > <console>(4)owner_count()
 (Pdb) p len(partners)
-6
+3
 (Pdb) p partners[:3].mapped("name")
-['Ada Lovelace', 'Administrator', 'Anna Keller']
+['Ada Lovelace', 'Administrator', 'My Company']
 (Pdb) c
-6
+3
 ```
 
 One habit to build now: when you are done debugging, delete the `breakpoint()` line.

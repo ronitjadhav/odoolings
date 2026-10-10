@@ -12,8 +12,13 @@ Stdlib only, nothing to install. Defaults match the tutorial's Docker env
 (http://localhost:8069, database "tutorial", admin/admin).
 """
 import argparse
+import ast
 import json
+import os
+import shutil
+import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -3614,6 +3619,917 @@ def cmd_diff(env):
     return 0
 
 
+# ------------------------------------------------------- start (jump in) --
+# `start chNN` builds the database chapter NN begins with, for a reader who skipped
+# the chapters before it. It replays every earlier chapter of that database in order:
+# install what the chapter installed, redo its hand-made work (its seed), then run
+# its checks, exactly as a reader going chapter by chapter would have.
+
+ORDER = (["ch%02d" % n for n in range(1, 16)] + ["boss2"]
+         + ["ch%02d" % n for n in range(16, 56)])
+TUTORIAL = (["ch05", "ch06"] + ["ch%02d" % n for n in range(8, 16)] + ["boss2"]
+            + ["ch%02d" % n for n in range(16, 21)] + ["ch%02d" % n for n in range(31, 42)]
+            + ["ch44", "ch46", "ch52", "ch53", "ch54"])
+FUNCTIONAL = ["ch%02d" % n for n in range(21, 31)] + ["ch42", "ch49", "ch50", "ch51", "ch53"]
+SELF_BUILT = {"ch04": "tour", "ch05": "tutorial", "ch21": "functional"}
+# boss2 builds a module of its own that no later chapter uses
+NOT_REPLAYED = {"boss2"}
+# where start fetches checkpoints; override to test checkpoints that are not on main yet
+FETCH_URL = os.environ.get("ODOOLINGS_FETCH_URL", "https://github.com/ronitjadhav/odoolings/archive/main.tar.gz")
+CHECKPOINT_PREFIX = "odoolings-main/code/checkpoints/"
+PRE_COMMIT_FILES = (".pre-commit-config.yaml", ".ruff.toml", ".pylintrc")
+NEEDS_PRE_COMMIT = {"ch45", "ch46", "ch51", "ch52"}
+NEEDS_GH = {"ch45", "ch47", "ch48", "ch51", "ch52"}
+GH_NOTE = ("This chapter uses the GitHub CLI: install `gh` (https://cli.github.com) and sign "
+           "in once with `gh auth login`.")
+PRE_COMMIT_NOTE = "This chapter runs pre-commit: install it once with `pip install pre-commit`."
+
+# The module versions each code/checkpoints/chNN ships.
+CHECKPOINTS = {
+    "ch08": {"librefleet": "19.0.1.0.0"}, "ch09": {"librefleet": "19.0.1.1.0"},
+    "ch10": {"librefleet": "19.0.1.2.0"}, "ch11": {"librefleet": "19.0.1.3.0"},
+    "ch12": {"librefleet": "19.0.1.4.0"}, "ch13": {"librefleet": "19.0.1.5.0"},
+    "ch14": {"librefleet": "19.0.1.7.0"}, "ch15": {"librefleet": "19.0.1.8.0"},
+    "ch16": {"librefleet": "19.0.1.9.0"}, "ch17": {"librefleet": "19.0.1.10.0"},
+    "ch18": {"librefleet": "19.0.1.11.0"}, "ch19": {"librefleet": "19.0.1.13.0"},
+    "ch20": {"librefleet": "19.0.1.15.0"}, "ch31": {"librefleet": "19.0.1.16.0"},
+    "ch32": {"librefleet": "19.0.1.17.0"}, "ch33": {"librefleet": "19.0.1.18.0"},
+    "ch34": {"librefleet": "19.0.1.20.0"}, "ch35": {"librefleet": "19.0.1.21.0"},
+    "ch36": {"librefleet": "19.0.1.22.0"}, "ch37": {"librefleet": "19.0.1.23.0"},
+    "ch38": {"librefleet": "19.0.1.24.0"}, "ch39": {"librefleet": "19.0.1.25.0"},
+    "ch40": {"librefleet": "19.0.1.26.0"}, "ch41": {"librefleet": "19.0.1.27.0"},
+    "ch44": {"librefleet": "19.0.1.28.0"},
+    "ch46": {"librefleet": "19.0.1.29.0", "librefleet_maintenance_reminder": "19.0.1.0.0"},
+    "ch51": {"sale_fixed_discount_limit": "19.0.1.0.0"},
+    "ch53": {"librefleet": "19.0.1.30.0", "librefleet_maintenance_reminder": "19.0.1.0.0"},
+}
+TUTORIAL_CODE = ("librefleet", "librefleet_maintenance_reminder")
+
+# What each functional chapter installs, in the order the chapters install it.
+INSTALLS = {
+    "ch21": ["sale_management", "purchase", "stock", "mrp", "crm"],
+    "ch42": ["website_sale", "point_of_sale"],
+    "ch49": ["sale_fixed_discount"],
+    "ch50": ["crm_lead_code", "product_secondary_unit", "auditlog", "web_responsive"],
+    "ch51": ["sale_fixed_discount_limit"],
+}
+OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
+    "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
+    "crm_lead_code": ["crm"], "product_secondary_unit": ["product-attribute"],
+    "auditlog": ["server-tools"], "web_responsive": ["web"],
+}
+
+
+def _code_for(target):
+    """{module: (version, checkpoint)} of the newest checkpoint before `target`."""
+    code = {}
+    for ch in ORDER[:ORDER.index(target)]:
+        for module, version in CHECKPOINTS.get(ch, {}).items():
+            code[module] = (version, ch)
+    return code
+
+
+def _call(env, model, method, *args, **kw):
+    """env.call for methods that may return None, which XML-RPC cannot carry."""
+    try:
+        return env.call(model, method, *args, **kw)
+    except xmlrpc.client.Fault as e:
+        if "cannot marshal None" not in e.faultString:
+            raise
+
+
+def _id(env, model, domain, **kw):
+    ids = env.call(model, "search", domain, limit=1, **kw)
+    assert ids, "no %s matches %r" % (model, domain)
+    return ids[0]
+
+
+def _xmlid(env, xmlid):
+    return env.call("ir.model.data", "check_object_reference", *xmlid.split("."))[1]
+
+
+def _vehicle(env, plate):
+    return _id(env, "librefleet.vehicle", [("license_plate", "=", plate)])
+
+
+def _order(env, reference):
+    return _id(env, "librefleet.service.order", [("reference", "=", reference)])
+
+
+def _service_type(env, name):
+    return _id(env, "librefleet.service.type", [("name", "=", name)])
+
+
+def _run_cron(env, cron):
+    """Run a scheduled action now, waiting if the scheduler is already running it."""
+    for attempt in range(60):
+        try:
+            return _call(env, "ir.cron", "method_direct_trigger", [cron])
+        except xmlrpc.client.Fault as e:
+            if "already executing" not in e.faultString or attempt == 59:
+                raise
+            time.sleep(2)
+
+
+def seed_ch06(env):
+    env.call("res.partner", "create", {"name": "Ada Lovelace"})
+
+
+def seed_ch09(env):
+    vehicles = [
+        {"license_plate": "ZH 468 202", "model_name": "Fiat Ducato", "year": 2021,
+         "mileage_km": 84250.0},
+        {"license_plate": "BE 30 447", "model_name": "VW Crafter", "year": 2019,
+         "mileage_km": 143800.0},
+    ]
+    try:
+        env.call("librefleet.vehicle", "create", vehicles)
+    except xmlrpc.client.Fault as e:
+        if "not allowed" not in e.faultString:
+            raise
+        # chapter 9's code has no access rules yet (chapter 10 adds them), and the
+        # chapter creates these in a superuser shell: lend admin a rule for the seed
+        acl = env.call("ir.model.access", "create", {
+            "name": "odoolings start", "model_id": _id(env, "ir.model", [("model", "=", "librefleet.vehicle")]),
+            "group_id": _xmlid(env, "base.group_system"),
+            "perm_read": True, "perm_write": True, "perm_create": True, "perm_unlink": True,
+        })
+        # create() clears the access cache before its own check refills it, stale; write() clears it again
+        env.call("ir.model.access", "write", [acl], {"active": True})
+        env.call("librefleet.vehicle", "create", vehicles)
+        env.call("ir.model.access", "unlink", [acl])
+
+
+def seed_ch10(env):
+    env.call("res.users", "create", {
+        "name": "Tina Technician", "login": "tina", "password": "technician",
+        "group_ids": [(4, _xmlid(env, "librefleet.group_librefleet_user"))],
+    })
+    env.call("librefleet.vehicle", "write", [_vehicle(env, "ZH 468 202")], {"mileage_km": 84900.0})
+
+
+def seed_ch11(env):
+    env.call("librefleet.service.type", "create", [
+        {"name": "Oil change", "flat_fee": 89.0, "default_duration_h": 1.0},
+        {"name": "Brake inspection", "flat_fee": 120.0, "default_duration_h": 1.5},
+        {"name": "Full service", "flat_fee": 349.0, "default_duration_h": 4.0},
+    ])
+
+
+def seed_ch12(env):
+    anna, beat = env.call("res.partner", "create", [{"name": "Anna Keller"}, {"name": "Beat Muster"}])
+    env.call("librefleet.vehicle", "write", [_vehicle(env, "ZH 468 202")], {"owner_id": anna})
+    env.call("librefleet.vehicle", "write", [_vehicle(env, "BE 30 447")], {"owner_id": beat})
+    oil_filter, oil, _pads = env.call("librefleet.part", "create", [
+        {"name": "Oil filter", "code": "OF-102", "standard_cost": 12.0, "list_price": 24.5},
+        {"name": "Engine oil 5W30 (1l)", "code": "OIL-5W30", "standard_cost": 9.5, "list_price": 18.9},
+        {"name": "Brake pads, front", "code": "BP-201", "standard_cost": 35.0, "list_price": 79.0},
+    ])
+    env.call("librefleet.service.order", "create", {
+        "vehicle_id": _vehicle(env, "ZH 468 202"),
+        "service_type_id": _service_type(env, "Oil change"),
+        "technician_ids": [(4, _id(env, "res.users", [("login", "=", "tina")]))],
+        "scheduled_start": "2026-07-16 08:00:00", "scheduled_end": "2026-07-16 09:00:00",
+        "line_ids": [(0, 0, {"part_id": oil_filter, "qty": 1, "price_unit": 24.5}),
+                     (0, 0, {"part_id": oil, "qty": 4, "price_unit": 18.9})],
+    })
+    env.call("librefleet.service.order", "create", {
+        "vehicle_id": _vehicle(env, "BE 30 447"),
+        "service_type_id": _service_type(env, "Brake inspection"),
+        "scheduled_start": "2026-07-17 09:00:00", "scheduled_end": "2026-07-17 10:30:00",
+    })
+
+
+def seed_ch15(env):
+    ids = env.call("librefleet.vehicle", "create", [
+        {"license_plate": "SHELL-001", "model_name": "Toyota Hilux", "year": 2021},
+        {"license_plate": "SHELL-002", "model_name": "VW Caddy", "year": 2019},
+        {"license_plate": "SHELL-003", "model_name": "Ford Transit", "year": 2015},
+    ])
+    env.call("librefleet.vehicle", "write", ids, {"notes": "Checked in bulk from the shell"})
+    env.call("librefleet.vehicle", "write", [ids[1]], {"active": False})
+    env.call("librefleet.vehicle", "unlink", [ids[2]])
+
+
+def seed_ch32(env):
+    marta = env.call("res.partner", "create", {"name": "Marta Ferreira"})
+    env.call("librefleet.vehicle", "create", [{"license_plate": "CH22-AAA", "owner_id": marta},
+                                              {"license_plate": "CH22-BBB", "owner_id": marta}])
+
+
+def seed_ch33(env):
+    model = "librefleet.service.order"
+    env.call("res.users", "write", [env.uid], {"email": "admin@example.com"})
+    order = _order(env, "SO/2026/0002")
+    env.call(model, "write", [order], {"stage": "confirmed"})
+    env.call(model, "message_post", [order], body="Customer called: OK to keep the vehicle overnight.")
+    customer = env.call(model, "read", [order], ["customer_id"])[0]["customer_id"][0]
+    _call(env, model, "message_subscribe", [order], partner_ids=[customer])
+    env.call("mail.activity", "create", {
+        "res_model_id": _id(env, "ir.model", [("model", "=", model)]), "res_id": order,
+        "activity_type_id": _xmlid(env, "mail.mail_activity_data_call"),
+        "summary": "Call about pickup time", "user_id": env.uid,
+    })
+
+
+def seed_ch34(env):
+    french = env.call("res.lang", "search", [("code", "=", "fr_FR")], context={"active_test": False})
+    wizard = env.call("base.language.install", "create", {"lang_ids": [(6, 0, french)], "overwrite": True})
+    _call(env, "base.language.install", "lang_install", [wizard])
+
+
+def seed_ch35(env):
+    model = "librefleet.service.order"
+    _run_cron(env, _id(env, "ir.cron", [("code", "like", "action_send_maintenance_reminders")]))
+    order = _order(env, "SO/2026/0001")
+    env.call(model, "write", [order], {"stage": "confirmed"})
+    env.call(model, "write", [order], {"stage": "in_progress"})
+    wizard = env.call("librefleet.service.order.approve.wizard", "create", {"order_id": order})
+    _call(env, "librefleet.service.order.approve.wizard", "action_confirm", [wizard])
+
+
+def seed_ch39(env):
+    env.call("librefleet.service.order", "create", {
+        "vehicle_id": _vehicle(env, "SHELL-001"),
+        "service_type_id": _service_type(env, "Brake inspection"),
+        "scheduled_start": "2026-12-01 09:00:00", "scheduled_end": "2026-12-01 10:00:00",
+    })
+
+
+def seed_ch40(env):
+    order = _id(env, "librefleet.service.order", [("vehicle_id.license_plate", "=", "SHELL-001"),
+                                                  ("scheduled_start", "=", "2026-12-01 09:00:00")])
+    env.call("librefleet.service.order.line", "create", {
+        "order_id": order, "part_id": _id(env, "librefleet.part", [("code", "=", "BP-201")]),
+        "qty": 15, "price_unit": 1.0,
+    })
+
+
+def seed_ch41(env):
+    model = "librefleet.service.order"
+    tina = _id(env, "res.users", [("login", "=", "tina")])
+    env.call(model, "write", [_order(env, "SO/2026/0002")], {"technician_ids": [(6, 0, [tina])]})
+    env.call(model, "create", {
+        "vehicle_id": _vehicle(env, "ZH 468 202"), "service_type_id": _service_type(env, "Full service"),
+        "scheduled_start": "2026-09-10 08:00:00", "scheduled_end": "2026-09-10 12:00:00",
+        "stage": "confirmed", "technician_ids": [(6, 0, [tina, env.uid])],
+    })
+    env.call(model, "create", {
+        "vehicle_id": _vehicle(env, "SHELL-001"), "service_type_id": _service_type(env, "Tire Rotation"),
+        "scheduled_start": "2026-09-11 09:00:00", "scheduled_end": "2026-09-11 10:00:00",
+        "stage": "in_progress", "technician_ids": [(6, 0, [env.uid])],
+    })
+
+
+# Functional track, Parts 4 and 5: each seed redoes what the chapter clicks, in order.
+
+def _install(env, names):
+    ids = env.call("ir.module.module", "search", [("name", "in", names)])
+    for attempt in range(60):
+        try:
+            return _call(env, "ir.module.module", "button_immediate_install", ids)
+        except xmlrpc.client.Fault as e:
+            # a running scheduled action blocks module operations for a few seconds
+            if "processing a scheduled action" not in e.faultString or attempt == 59:
+                raise
+            time.sleep(2)
+
+
+def _settings(env, **values):
+    wizard = env.call("res.config.settings", "create", values)
+    _call(env, "res.config.settings", "execute", [wizard])
+
+
+def _partner(env, name):
+    return _id(env, "res.partner", [("name", "=", name), ("is_company", "=", True)])
+
+
+def _account(env, code):
+    return _id(env, "account.account", [("code", "=", code)])
+
+
+def _brake_pads(env):
+    """(template, Front variant, Rear variant): Front was created first."""
+    tmpl = _id(env, "product.template", [("name", "=", "Brake Pad Set")])
+    front, rear = env.call("product.product", "search", [("product_tmpl_id", "=", tmpl)], order="id")
+    return tmpl, front, rear
+
+
+def _first_brake_order(env):
+    """Chapter 22's order: the oldest confirmed order with Brake Pads on it."""
+    _, front, _ = _brake_pads(env)
+    return _id(env, "sale.order", [("state", "=", "sale"), ("order_line.product_id", "=", front)], order="id")
+
+
+def _validate(env, pickings):
+    _call(env, "stock.picking", "button_validate", pickings, context={"skip_sms": True})
+
+
+def _purchase(env, vendor, product, qty, price):
+    po = env.call("purchase.order", "create", {
+        "partner_id": _partner(env, vendor),
+        "order_line": [(0, 0, {"product_id": product, "product_qty": qty, "price_unit": price})],
+    })
+    _call(env, "purchase.order", "button_confirm", [po])
+    _validate(env, env.call("purchase.order", "read", [po], ["picking_ids"])[0]["picking_ids"])
+    return po
+
+
+def seed_ch21(env):
+    axle = env.call("product.attribute", "create", {
+        "name": "Axle", "create_variant": "always",
+        "value_ids": [(0, 0, {"name": "Front"}), (0, 0, {"name": "Rear"})],
+    })
+    values = env.call("product.attribute.value", "search", [("attribute_id", "=", axle)], order="id")
+    env.call("product.template", "create", {
+        "name": "Brake Pad Set", "type": "consu", "is_storable": True, "list_price": 79.0,
+        "categ_id": False,
+        "attribute_line_ids": [(0, 0, {"attribute_id": axle, "value_ids": [(6, 0, values)]})],
+    })
+    # the scheduler fires about a minute after the install, making P00012 from a demo
+    # reordering rule: run it now so the readers' purchase orders keep their numbers
+    _run_cron(env, _xmlid(env, "stock.ir_cron_scheduler_action"))
+
+
+def seed_ch22(env):
+    _settings(env, group_use_lead=True)
+    acme = _partner(env, "Acme Corporation")
+    lead = env.call("crm.lead", "create", {"name": "Fleet brake refresh",
+                                           "partner_name": "Acme Corporation", "type": "lead"})
+    context = {"active_model": "crm.lead", "active_id": lead, "active_ids": [lead]}
+    wizard = env.call("crm.lead2opportunity.partner", "create", {
+        "lead_id": lead, "name": "convert", "action": "exist", "partner_id": acme}, context=context)
+    _call(env, "crm.lead2opportunity.partner", "action_apply", [wizard], context=context)
+    _, front, _ = _brake_pads(env)
+    order = env.call("sale.order", "create", {
+        "partner_id": acme, "opportunity_id": lead,
+        "order_line": [(0, 0, {"product_id": front, "product_uom_qty": 4})],
+    })
+    _call(env, "sale.order", "action_confirm", [order])
+
+
+def seed_ch23(env):
+    _settings(env, group_product_pricelist=True)
+    company = env.call("res.users", "read", [env.uid], ["company_id"])[0]["company_id"][0]
+    pricelist = _id(env, "product.pricelist", [("company_id", "=", company)])
+    tmpl, front, _ = _brake_pads(env)
+    env.call("product.pricelist.item", "create", [
+        {"pricelist_id": pricelist, "applied_on": "3_global",
+         "compute_price": "percentage", "percent_price": 10.0},
+        {"pricelist_id": pricelist, "applied_on": "0_product_variant", "product_tmpl_id": tmpl,
+         "product_id": front, "compute_price": "fixed", "fixed_price": 60.0},
+    ])
+    quotation = {"partner_id": _partner(env, "Azure Interior"), "pricelist_id": pricelist,
+                 "order_line": [(0, 0, {"product_id": front, "product_uom_qty": 2})]}
+    order = env.call("sale.order", "create", quotation)
+    _install(env, ["sale_loyalty"])
+    coupon = env.call("sale.loyalty.coupon.wizard", "create", {"order_id": order, "coupon_code": "10pc"})
+    action = env.call("sale.loyalty.coupon.wizard", "action_apply", [coupon])
+    reward = env.call("sale.loyalty.reward.wizard", "create", {
+        "order_id": order, "selected_reward_id": action["context"]["default_reward_ids"][0]},
+        context={"active_id": order})
+    _call(env, "sale.loyalty.reward.wizard", "action_apply", [reward])
+    env.call("sale.order", "create", quotation)
+
+
+def seed_ch24(env):
+    _, front, _ = _brake_pads(env)
+    po = _purchase(env, "Gemini Furniture", front, 10, 42.0)
+    _call(env, "purchase.order", "action_create_invoice", [po])
+    bills = env.call("purchase.order", "read", [po], ["invoice_ids"])[0]["invoice_ids"]
+    env.call("account.move", "write", bills, {"invoice_date": time.strftime("%Y-%m-%d")})
+    _call(env, "account.move", "action_post", bills)
+
+
+def seed_ch25(env):
+    _settings(env, group_stock_multi_locations=True, group_stock_adv_location=True)
+    warehouse = _id(env, "stock.warehouse", [])
+    env.call("stock.warehouse", "write", [warehouse], {"reception_steps": "two_steps"})
+    _, front, _ = _brake_pads(env)
+    _purchase(env, "Gemini Furniture", front, 5, 42.0)
+    storage = env.call("stock.picking", "search", [("picking_type_id.code", "=", "internal"),
+                                                   ("state", "=", "assigned"),
+                                                   ("product_id", "=", front)])
+    _validate(env, storage)
+    _call(env, "stock.warehouse.orderpoint", "action_open_orderpoints")
+    env.call("stock.warehouse.orderpoint", "create", {
+        "product_id": front, "product_min_qty": 5, "product_max_qty": 15, "trigger": "auto"})
+    env.call("stock.warehouse", "write", [warehouse], {"reception_steps": "one_step"})
+
+
+def seed_ch26(env):
+    components = env.call("product.template", "create", [
+        {"name": "Friction Material", "type": "consu", "is_storable": True, "standard_price": 8.0},
+        {"name": "Backing Plate", "type": "consu", "is_storable": True, "standard_price": 5.0},
+    ])
+    friction, plate = [env.call("product.product", "search", [("product_tmpl_id", "=", t)])[0]
+                       for t in components]
+    warehouse = _id(env, "stock.warehouse", [])
+    stock = env.call("stock.warehouse", "read", [warehouse], ["lot_stock_id"])[0]["lot_stock_id"][0]
+    counting = {"inventory_mode": True}
+    quants = env.call("stock.quant", "create", [
+        {"product_id": p, "location_id": stock, "inventory_quantity": 20} for p in (friction, plate)],
+        context=counting)
+    _call(env, "stock.quant", "action_apply_inventory", quants, context=counting)
+    tmpl, front, _ = _brake_pads(env)
+    env.call("mrp.bom", "create", {
+        "product_tmpl_id": tmpl, "product_qty": 1, "type": "normal",
+        "bom_line_ids": [(0, 0, {"product_id": friction, "product_qty": 0.5}),
+                         (0, 0, {"product_id": plate, "product_qty": 1.0})],
+        "operation_ids": [(0, 0, {"name": "Bond friction material",
+                                  "workcenter_id": _id(env, "mrp.workcenter", [("name", "=", "Assembly 1")])})],
+    })
+    production = env.call("mrp.production", "create", {"product_id": front, "product_qty": 4})
+    _call(env, "mrp.production", "action_confirm", [production])
+    _call(env, "mrp.production", "button_mark_done", [production])
+
+
+def seed_ch27(env):
+    env.call("res.users", "write", [env.uid],
+             {"group_ids": [(4, _xmlid(env, "account.group_account_readonly"))]})
+    entry = env.call("account.move", "create", {
+        "journal_id": _id(env, "account.journal", [("code", "=", "MISC")]), "move_type": "entry",
+        "line_ids": [(0, 0, {"account_id": _account(env, "611000"), "name": "Workshop tool cabinet", "debit": 250.0}),
+                     (0, 0, {"account_id": _account(env, "101401"), "name": "Paid from bank", "credit": 250.0})],
+    })
+    _call(env, "account.move", "action_post", [entry])
+
+
+def seed_ch28(env):
+    order = _first_brake_order(env)
+    context = {"active_model": "sale.order", "active_ids": [order], "active_id": order}
+    wizard = env.call("sale.advance.payment.inv", "create", {"advance_payment_method": "delivered"}, context=context)
+    _call(env, "sale.advance.payment.inv", "create_invoices", [wizard], context=context)
+    invoices = env.call("sale.order", "read", [order], ["invoice_ids"])[0]["invoice_ids"]
+    _call(env, "account.move", "action_post", invoices)
+    context = {"active_model": "account.move", "active_ids": invoices}
+    for values in ({"amount": 200.0}, {}):  # 200.00 first, then the default: what is left
+        register = env.call("account.payment.register", "create", values, context=context)
+        _call(env, "account.payment.register", "action_create_payments", [register], context=context)
+
+
+def _sale_tax(env, name, distribution, **values):
+    """A 15% sale tax; distribution is [(repartition_type, factor, account)] for invoices and refunds."""
+    lines = [(0, 0, {"document_type": doc, "repartition_type": kind, "factor_percent": factor,
+                     "account_id": account})
+             for doc in ("invoice", "refund") for kind, factor, account in distribution]
+    return env.call("account.tax", "create", dict(
+        name=name, amount_type="percent", amount=15.0, type_tax_use="sale",
+        tax_group_id=_id(env, "account.tax.group", [("name", "=", "Tax 15%")]),
+        country_id=_id(env, "res.country", [("code", "=", "US")]), repartition_line_ids=lines, **values))
+
+
+def seed_ch29(env):
+    acme = _partner(env, "Acme Corporation")
+    _, front, _ = _brake_pads(env)
+
+    def invoice(lines):
+        move = env.call("account.move", "create", {
+            "move_type": "out_invoice", "partner_id": acme,
+            "invoice_line_ids": [(0, 0, {"product_id": front, "quantity": 1, "price_unit": price,
+                                         "tax_ids": [(6, 0, [tax])]}) for price, tax in lines],
+        })
+        _call(env, "account.move", "action_post", [move])
+
+    state_tax = _account(env, "251000")
+    city_tax = env.call("account.account", "create", {
+        "code": "251100", "name": "City Tax Received", "account_type": "liability_current"})
+    split = _sale_tax(env, "15% Split (State 9 / City 6)",
+                      [("base", 100.0, False), ("tax", 60.0, state_tax), ("tax", 40.0, city_tax)])
+    invoice([(200.0, split)])
+    included = _sale_tax(env, "15% (Tax Included)", [("base", 100.0, False), ("tax", 100.0, False)],
+                         price_include_override="tax_included")
+    invoice([(115.0, included), (100.0, included)])
+    tax_lines = env.call("account.tax.repartition.line", "search",
+                         [("tax_id", "=", included), ("repartition_type", "=", "tax")])
+    env.call("account.tax.repartition.line", "write", tax_lines, {"account_id": state_tax})
+    invoice([(115.0, included), (100.0, included)])
+
+    nordwerk = env.call("res.partner", "create", {
+        "name": "Nordwerk Fahrzeugtechnik GmbH", "is_company": True, "city": "Bremen", "zip": "28195",
+        "country_id": _id(env, "res.country", [("code", "=", "DE")])})
+    env.call("sale.order", "create", {"partner_id": nordwerk,
+                                      "order_line": [(0, 0, {"product_id": front, "product_uom_qty": 4})]})
+    company = env.call("res.users", "read", [env.uid], ["company_id"])[0]["company_id"][0]
+    rounding = {"partner_id": acme, "order_line": [
+        (0, 0, {"product_id": front, "product_uom_qty": 1, "price_unit": 10.10}) for _ in range(3)]}
+    env.call("sale.order", "create", rounding)
+    env.call("res.company", "write", [company], {"tax_calculation_rounding_method": "round_per_line"})
+    env.call("sale.order", "create", rounding)
+    env.call("res.company", "write", [company], {"tax_calculation_rounding_method": "round_globally"})
+
+
+def seed_ch30(env):
+    tmpl, _, _ = _brake_pads(env)
+    goods = _id(env, "product.category", [("name", "=", "Goods")])
+    env.call("product.template", "write", [tmpl], {"categ_id": goods})
+    env.call("product.category", "write", [goods],
+             {"property_cost_method": "average", "property_valuation": "real_time"})
+    customers = _id(env, "stock.location", [("usage", "=", "customer")])
+    env.call("stock.location", "write", [customers], {"valuation_account_id": _account(env, "500000")})
+    delivery = env.call("sale.order", "read", [_first_brake_order(env)], ["picking_ids"])[0]["picking_ids"]
+    _validate(env, delivery)
+
+
+def seed_ch49(env):
+    _settings(env, group_discount_per_so_line=True)
+
+
+SEEDS = {
+    "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
+    "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
+    "ch34": seed_ch34, "ch35": seed_ch35, "ch39": seed_ch39, "ch40": seed_ch40,
+    "ch41": seed_ch41,
+    "ch21": seed_ch21, "ch22": seed_ch22, "ch23": seed_ch23, "ch24": seed_ch24,
+    "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
+    "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
+}
+# ponytail: ch42's website order and POS session are not redone; no later chapter reads
+# them, so only its installs are replayed and its own checks are skipped
+CHECKS_NOT_REPLAYED = {"ch42"}
+
+
+def _installs(chapter, target, db):
+    if db == "tutorial":
+        # all code goes in where chapter 8 first installs LibreFleet
+        return [m for m in _code_for(target) if m in TUTORIAL_CODE] if chapter == "ch08" else []
+    return INSTALLS.get(chapter, [])
+
+
+def _replay(target, db):
+    track = TUTORIAL if db == "tutorial" else FUNCTIONAL
+    chapters = [c for c in ORDER[:ORDER.index(target)] if c in track and c not in NOT_REPLAYED]
+    if target == "ch53" and db == "functional":
+        # ponytail: ch53 only reads Part 4-5 invoices; skipping ch49-51 spares the OCA clones
+        chapters = [c for c in chapters if c <= "ch42"]
+    return chapters
+
+
+def _workspace():
+    """The reader's workspace when start runs from it: the starter's compose file next to addons/."""
+    here = os.getcwd()
+    if os.path.isfile(os.path.join(here, "docker-compose.yml")) and os.path.isdir(os.path.join(here, "addons")):
+        return here
+    return None
+
+
+def _local_version(ws, module):
+    try:
+        with open(os.path.join(ws, "addons", module, "__manifest__.py")) as f:
+            return ast.literal_eval(f.read()).get("version")
+    except (OSError, ValueError, SyntaxError):
+        return None
+
+
+def _fetch(prefixes):
+    """Download this repository once; {path under code/checkpoints/: bytes} for the prefixes."""
+    wanted = tuple(CHECKPOINT_PREFIX + p for p in prefixes)
+    files = {}
+    with urllib.request.urlopen(FETCH_URL) as resp, tarfile.open(fileobj=resp, mode="r|gz") as tar:
+        for member in tar:
+            if member.isfile() and member.name.startswith(wanted) and ".." not in member.name.split("/"):
+                files[member.name[len(CHECKPOINT_PREFIX):]] = tar.extractfile(member).read()
+    return files
+
+
+def _write_tree(files, prefix, dest):
+    for name, data in files.items():
+        if name.startswith(prefix):
+            path = os.path.join(dest, *name[len(prefix):].split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+
+
+def _oca_needs(ws, repos):
+    """(repos to clone, addons_path entries to add, whether the ./oca mount is missing)."""
+    with open(os.path.join(ws, "odoo.conf")) as f:
+        conf = f.read()
+    with open(os.path.join(ws, "docker-compose.yml")) as f:
+        compose = f.read()
+    clone = [r for r in repos if not os.path.isdir(os.path.join(ws, "oca", r))]
+    paths = [r for r in repos if "/mnt/oca/" + r not in conf]
+    return clone, paths, "./oca:/mnt/oca" not in compose
+
+
+def _oca_setup(ws, clone, paths, mount):
+    """What chapter 49 does by hand: clone, mount ./oca, add each repository to addons_path."""
+    for repo in clone:
+        subprocess.run(["git", "clone", "--depth", "1", "-b", "19.0",
+                        "https://github.com/OCA/%s.git" % repo, os.path.join("oca", repo)],
+                       cwd=ws, check=True)
+    if paths:
+        conf_path = os.path.join(ws, "odoo.conf")
+        with open(conf_path) as f:
+            lines = f.read().split("\n")
+        for i, line in enumerate(lines):
+            if line.replace(" ", "").startswith("addons_path="):
+                lines[i] = line.rstrip() + "".join(",/mnt/oca/" + r for r in paths)
+        with open(conf_path, "w") as f:
+            f.write("\n".join(lines))
+    if mount:
+        compose_path = os.path.join(ws, "docker-compose.yml")
+        with open(compose_path) as f:
+            compose = f.read()
+        anchor = "- ./addons:/mnt/extra-addons"
+        line = next(l for l in compose.split("\n") if anchor in l)
+        with open(compose_path, "w") as f:
+            f.write(compose.replace(line, line + "\n" + line.replace(anchor, "- ./oca:/mnt/oca"), 1))
+    ignore = os.path.join(ws, ".gitignore")
+    current = open(ignore).read() if os.path.exists(ignore) else ""
+    if "oca/" not in current.split("\n"):
+        with open(ignore, "a") as f:
+            f.write(("" if current.endswith("\n") or not current else "\n") + "oca/\n")
+
+
+def _restart_odoo(a, ws, recreate):
+    """Restart the reader's Odoo (recreate it after a compose change) and wait until it answers."""
+    if recreate:
+        subprocess.run(["docker", "compose", "up", "-d"], cwd=ws, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["docker", "compose", "restart", "odoo"], cwd=ws, check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    common = xmlrpc.client.ServerProxy(a.url + "/xmlrpc/2/common")
+    for _ in range(120):
+        try:
+            common.version()
+            return
+        except (OSError, xmlrpc.client.Error):
+            time.sleep(1)
+    raise RuntimeError("Odoo did not answer within two minutes of the restart")
+
+
+class MasterPasswordRefused(Exception):
+    pass
+
+
+def _master(a, ws, op, *args):
+    """A database-manager call. A reader who created a database in the browser left the
+    master password the manager generated in memory, so on a refusal restart Odoo once
+    (back to odoo.conf's) and retry."""
+    dbs = xmlrpc.client.ServerProxy(a.url + "/xmlrpc/2/db")
+    for attempt in (1, 2):
+        try:
+            return getattr(dbs, op)(a.master_password, *args)
+        except xmlrpc.client.Fault as e:
+            if e.faultCode != 3 and "Access Denied" not in e.faultString:
+                raise
+            if attempt == 2 or not ws:
+                raise MasterPasswordRefused()
+            print("the master password was refused, probably the one the database manager "
+                  "generated for you: restarting Odoo, which puts odoo.conf's back ...")
+            _restart_odoo(a, ws, recreate=False)
+
+
+def _missing_code(env, modules, target):
+    """Instructions for every module the server cannot see at the version needed."""
+    rows = env.call("ir.module.module", "search_read", [("name", "in", modules)],
+                    fields=["name", "installed_version", "state"])
+    found = {r["name"]: r for r in rows}
+    code = _code_for(target)
+    fixes, repos = [], []
+    for module in modules:
+        row = found.get(module)
+        if module in code:
+            version, checkpoint = code[module]
+            if not row or row["installed_version"] != version or row["state"] == "uninstallable":
+                have = row["installed_version"] if row else "nothing"
+                fixes.append((
+                    "%s %s from code/checkpoints/%s (the server sees %s):\n"
+                    "    mkdir -p .checkpoints && curl -sL %s \\\n"
+                    "      | tar -xz -C .checkpoints --strip-components=3 'odoolings-main/code/checkpoints/%s'\n"
+                    "    rm -rf addons/%s && cp -r .checkpoints/%s/%s addons/"
+                    % (module, version, checkpoint, have, FETCH_URL, checkpoint, module, checkpoint, module)))
+        elif not row or row["state"] == "uninstallable":
+            if module in OCA_REPOS:
+                repos += [r for r in OCA_REPOS[module] if r not in repos]
+            else:
+                fixes.append("%s: the server cannot find this module" % module)
+    if repos:
+        fixes.append(
+            "the OCA repositories %s, as chapter 49 sets them up:\n%s\n"
+            "    then mount them, under the odoo service's volumes in docker-compose.yml:\n"
+            "      - ./oca:/mnt/oca\n"
+            "    and append each one to addons_path in odoo.conf: %s"
+            % (", ".join(repos),
+               "\n".join("    git clone --depth 1 -b 19.0 https://github.com/OCA/%s.git oca/%s" % (r, r)
+                         for r in repos),
+               ",".join("/mnt/oca/" + r for r in repos)))
+    return fixes
+
+
+def _run_checks(env, chapter):
+    for desc, fn, hint in CHAPTERS[chapter]:
+        try:
+            fn(env)
+        except Exception as e:
+            msg = e.faultString.strip().splitlines()[-1] if isinstance(e, xmlrpc.client.Fault) else e
+            return "%s: %s" % (desc, msg)
+    return None
+
+
+def _build(a, ws, target, db):
+    replay = _replay(target, db)
+    modules = [m for c in replay for m in _installs(c, target, db)]
+    demo = db == "functional"
+    print("\ncreating %r%s ..." % (db, " with demo data" if demo else ""))
+    _master(a, ws, "create_database", db, demo, "en_US", a.password, a.user)
+    env = Env(a.url, db, a.user, a.password)
+    _call(env, "ir.module.module", "update_list")
+    fixes = _missing_code(env, modules, target)
+    if fixes:
+        _master(a, ws, "drop", db)
+        print("\nOdoo cannot see the code chapter %s starts from. Run start from your workspace "
+              "folder (the one with docker-compose.yml) and it sets this up itself, or do it by "
+              "hand, then run start again:\n" % target)
+        for fix in fixes:
+            print("  - " + fix)
+        print("  - then restart Odoo: it reads addons_path, and leaves out any folder that "
+              "holds no module yet, only when it starts:\n    docker compose up -d && docker compose restart odoo")
+        return 1
+    for chapter in replay:
+        steps = []
+        mods = _installs(chapter, target, db)
+        if mods:
+            print("  %s  installing %s ..." % (chapter, ", ".join(mods)))
+            _install(env, mods)
+            steps.append("installed " + ", ".join(mods))
+        if chapter in SEEDS:
+            SEEDS[chapter](env)
+            steps.append("redid its hands-on")
+        if chapter in CHAPTERS and chapter not in CHECKS_NOT_REPLAYED:
+            failure = _run_checks(env, chapter)
+            if failure:
+                print("✘ %s  %s" % (chapter, "; ".join(steps)))
+                print("    check failed: %s" % failure)
+                print("    This is a bug in odoolings, not in your work: please report it.")
+                return 1
+            steps.append("%d checks pass" % len(CHAPTERS[chapter]))
+        if steps:
+            print("✔ %s  %s" % (chapter, "; ".join(steps)))
+    return 0
+
+
+def _confirm(a, lines):
+    """Show what start will do; ask only when it moves, renames or edits something you have."""
+    print("\nThis will:\n" + "\n".join("  - " + line for line, _ in lines))
+    if a.yes or not any(asks for _, asks in lines):
+        return True
+    if not sys.stdin.isatty():
+        print("\nRun it again with --yes to go ahead.")
+        return False
+    return input("\nGo ahead? [Y/n] ").strip().lower() in ("", "y", "yes")
+
+
+def cmd_start(a):
+    sys.stdout.reconfigure(line_buffering=True)
+    target = a.chapter
+    if target not in ORDER:
+        print("Unknown chapter %r. Use the number on the page, e.g. ch22 or boss2." % target)
+        return 2
+    if target in SELF_BUILT:
+        print("Chapter %s creates the %r database itself: start it from the top."
+              % (target, SELF_BUILT[target]))
+        return 0
+    targets = [db for db, track in (("tutorial", TUTORIAL), ("functional", FUNCTIONAL)) if target in track]
+    ws = _workspace()
+    plan, stamp = [], time.strftime("%Y%m%d-%H%M%S")
+
+    code = {m: vc for m, vc in _code_for(target).items() if m in TUTORIAL_CODE}
+    fetch = []  # (module, version, checkpoint)
+    if ws and "tutorial" in targets and "ch08" in _replay(target, "tutorial"):
+        for module, (version, checkpoint) in sorted(code.items()):
+            have = _local_version(ws, module)
+            if have != version:
+                fetch.append((module, version, checkpoint))
+                plan.append(("put %s %s (code/checkpoints/%s) in addons/%s%s"
+                             % (module, version, checkpoint, module,
+                                ";\n    your copy (%s) moves to .checkpoints/replaced/%s-%s"
+                                % (have or "unreadable", module, stamp)
+                                if os.path.isdir(os.path.join(ws, "addons", module)) else ""),
+                             os.path.isdir(os.path.join(ws, "addons", module))))
+    configs = []
+    if target in NEEDS_PRE_COMMIT:
+        configs = [f for f in PRE_COMMIT_FILES if not (ws and os.path.exists(os.path.join(ws, f)))]
+        if ws and configs:
+            plan.append(("add chapter 44's %s to your workspace" % ", ".join(configs), False))
+    repos = []
+    if "functional" in targets:
+        for chapter in _replay(target, "functional"):
+            for module in INSTALLS.get(chapter, []):
+                repos += [r for r in OCA_REPOS.get(module, []) if r not in repos]
+    clone, paths, mount = _oca_needs(ws, repos) if ws and repos else ([], [], False)
+    if clone:
+        plan.append(("clone OCA/%s into oca/" % ", OCA/".join(clone), False))
+    if paths or mount:
+        plan.append(("edit %s the way chapter 49 does, so Odoo sees oca/"
+                     % " and ".join(n for n, need in (("docker-compose.yml", mount), ("odoo.conf", paths)) if need),
+                     True))
+    restart = bool(fetch or clone or paths or mount)
+    if restart:
+        plan.append(("restart Odoo so it sees the new code", False))
+
+    try:
+        existing = xmlrpc.client.ServerProxy(a.url + "/xmlrpc/2/db").list() if targets else []
+    except OSError:
+        print("Odoo is not answering at %s. Start it from your workspace folder with "
+              "`docker compose up -d`, then run start again." % a.url)
+        return 1
+    backups = {}
+    for db in targets:
+        replay = [int(c[2:]) for c in _replay(target, db) if c.startswith("ch")]
+        span = ("chapter %d" % replay[0] if len(replay) == 1
+                else "chapters %d to %d" % (replay[0], replay[-1])) if replay else ""
+        what = ("build %r by replaying %s and checking each (%s)"
+                % (db, span, "a few minutes" if db == "functional" else "a minute or two")
+                if replay else "create an empty %r" % db)
+        if db in existing:
+            if a.reset:
+                plan.append(("drop your current %r for good (--reset), then %s" % (db, what), True))
+            else:
+                backups[db] = "%s_before_%s" % (db, target)
+                if backups[db] in existing:
+                    backups[db] += "_" + stamp.replace("-", "_")
+                plan.append(("keep your current %r as %r, then %s" % (db, backups[db], what), True))
+        else:
+            plan.append((what, False))
+
+    if targets:
+        print("Chapter %s starts from %s, as the chapters before it leave %s."
+              % (target, " and ".join(repr(db) for db in targets), "them" if len(targets) > 1 else "it"))
+    else:
+        print("Chapter %s needs no database." % target)
+    if not ws and (code and "tutorial" in targets and "ch08" in _replay(target, "tutorial") or repos):
+        print("\nRun start from your workspace folder, the one with docker-compose.yml and "
+              "addons/: it sets up the %s chapter %s builds on from there."
+              % ("LibreFleet code" if not repos else "OCA repositories", target))
+        return 1
+    if plan and not _confirm(a, plan):
+        return 1
+
+    if fetch or (ws and configs):
+        print("\nfetching checkpoints ...")
+        files = _fetch(["%s/%s/" % (cp, m) for m, _, cp in fetch] + ["ch44/" + f for f in configs if ws])
+        for module, version, checkpoint in fetch:
+            dest = os.path.join(ws, "addons", module)
+            if os.path.isdir(dest):
+                keep = os.path.join(ws, ".checkpoints", "replaced", "%s-%s" % (module, stamp))
+                os.makedirs(os.path.dirname(keep), exist_ok=True)
+                shutil.move(dest, keep)
+            _write_tree(files, "%s/%s/" % (checkpoint, module), dest)
+        for name in configs if ws else []:
+            if "ch44/" + name in files:
+                with open(os.path.join(ws, name), "wb") as f:
+                    f.write(files["ch44/" + name])
+    if clone or paths or mount:
+        print("\nsetting up the OCA repositories ...")
+        _oca_setup(ws, clone, paths, mount)
+    if restart:
+        print("restarting Odoo ...")
+        try:
+            _restart_odoo(a, ws, recreate=mount)
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as e:
+            print("Could not restart Odoo (%s). Run `docker compose up -d && docker compose "
+                  "restart odoo` yourself, then start again: the code is already in place." % e)
+            return 1
+
+    try:
+        for db in targets:
+            if db in existing:
+                if a.reset:
+                    _master(a, ws, "drop", db)
+                else:
+                    _master(a, ws, "rename", db, backups[db])
+            rc = _build(a, ws, target, db)
+            if rc:
+                return rc
+    except MasterPasswordRefused:
+        print("\nThe master password was refused. The starter's is 'admin'; if you changed it "
+              "in odoo.conf, pass --master-password. One the database manager generated for "
+              "you lasts only until the next restart: `docker compose restart odoo`, then "
+              "run start again.")
+        return 1
+
+    if targets:
+        print("\nReady for chapter %s. Log in at %s as %s / %s." % (target, a.url, a.user, a.password))
+    else:
+        print("\nNothing else to set up: this chapter needs no database.")
+    for db, backup in backups.items():
+        print("Your previous %r is kept as %r (drop it in the database manager when you no "
+              "longer need it)." % (db, backup))
+    if configs and not ws:
+        print("\nThis chapter runs chapter 44's pre-commit stack. Put its three config files at "
+              "your workspace root:\n    mkdir -p .checkpoints && curl -sL %s \\\n"
+              "      | tar -xz -C .checkpoints --strip-components=3 'odoolings-main/code/checkpoints/ch44'\n"
+              "    cp .checkpoints/ch44/.pre-commit-config.yaml .checkpoints/ch44/.ruff.toml "
+              ".checkpoints/ch44/.pylintrc ." % FETCH_URL)
+    if target in NEEDS_PRE_COMMIT:
+        print("\n" + PRE_COMMIT_NOTE)
+    if target in NEEDS_GH:
+        print("\n" + GH_NOTE)
+    return 0
+
+
 def cmd_check(env, chapter):
     checks = CHAPTERS.get(chapter)
     if checks is None:
@@ -3636,14 +4552,22 @@ def cmd_check(env, chapter):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="odoolings", description=__doc__.split("\n")[0])
-    p.add_argument("command", choices=["check", "list", "snapshot", "diff"])
+    p.add_argument("command", choices=["check", "list", "snapshot", "diff", "start"])
     p.add_argument("chapter", nargs="?", help="e.g. ch05 (not needed by snapshot/diff)")
     p.add_argument("--url", default="http://localhost:8069")
     p.add_argument("--db", default="tutorial")
     p.add_argument("--user", default="admin")
     p.add_argument("--password", default="admin")
+    p.add_argument("--master-password", default="admin", help="start: odoo.conf's admin_passwd")
+    p.add_argument("--reset", action="store_true",
+                   help="start: drop an existing database instead of keeping it as a backup")
+    p.add_argument("--yes", "-y", action="store_true", help="start: do not ask before going ahead")
     a = p.parse_args(argv)
 
+    if a.command == "start":
+        if not a.chapter:
+            p.error("start needs a chapter, e.g.: odoolings.py start ch22")
+        return cmd_start(a)
     if a.command == "list":
         for ch in sorted(CHAPTERS):
             print("%s  (%d checks)" % (ch, len(CHAPTERS[ch])))

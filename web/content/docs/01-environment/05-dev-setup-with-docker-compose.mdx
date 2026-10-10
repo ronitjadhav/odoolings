@@ -339,6 +339,12 @@ latest version.
 The checker talks to your running Odoo over XML-RPC and never reads your files. That is
 why it does not care where it sits or where your code lives.
 
+It also lets you skip around. Run from this folder, `python3 odoolings.py start ch22`
+sets up the state chapter 22 begins with: it fetches the code that chapter builds on,
+creates the database, and redoes the earlier chapters' hands-on work, checking each one
+as it goes. It shows its plan and asks before replacing anything you have. Every chapter
+that needs this has a **Starting at chapter …?** box at the top with the exact command.
+
 ## Gotchas
 
 - **`down -v` is the only destructive command in your daily set.** `stop`, `down`,
