@@ -1,16 +1,20 @@
 {
   "pages": [
     "index",
+    "---Tier 1 · Foundations---",
     "00-orientation",
     "01-environment",
     "02-first-module",
     "03-views-ux",
+    "---Tier 2 · Professional---",
     "04-odoo-business",
     "05-accounting-core",
     "06-business-logic",
     "07-frontend-owl",
+    "---Tier 3 · Expert / Integrator---",
     "08-oca-way",
     "09-integrator-craft",
+    "---",
     "appendix-components",
     "glossary",
     "roadmap"

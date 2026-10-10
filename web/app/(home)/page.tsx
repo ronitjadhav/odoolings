@@ -17,10 +17,11 @@ import { authorId, courseId, courseName, isIndexableDocsPage } from '@/lib/seo';
 import { appDescription, appName, canonicalUrl } from '@/lib/shared';
 import { source } from '@/lib/source';
 
-const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; tone: Tone }[] = [
+const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; tone: Tone; href: string }[] = [
   {
     icon: Wrench,
     name: 'Foundations',
+    href: '/docs/00-orientation/01-what-odoo-is',
     parts: 'Parts 0–3 · ch 1–20',
     blurb: 'Environment, ORM, views, security. Build and ship a clean custom module.',
     tone: 'sage',
@@ -28,6 +29,7 @@ const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; 
   {
     icon: BookOpenCheck,
     name: 'Professional',
+    href: '/docs/04-odoo-business/21-the-business-spine',
     parts: 'Parts 4–7 · ch 21–42',
     blurb: 'Extend core apps safely, write tests, build OWL UI, debug anything.',
     tone: 'sky',
@@ -35,6 +37,7 @@ const TIERS: { icon: typeof Wrench; name: string; parts: string; blurb: string; 
   {
     icon: GitPullRequest,
     name: 'Expert / Integrator',
+    href: '/docs/08-oca-way/43-oca-safari',
     parts: 'Parts 8–9 · ch 43–55',
     blurb: 'Work the OCA way: contributions, migrations, performance, deployments.',
     tone: 'violet',
@@ -201,11 +204,15 @@ export default function HomePage() {
               eyebrow={`Tier ${i + 1}`}
               title={t.name}
               icon={<t.icon className="size-4" />}
+              href={t.href}
             >
               <span className="mb-2 block text-xs font-medium text-fd-foreground/60">
                 {t.parts}
               </span>
               {t.blurb}
+              <span className="mt-3 flex items-center gap-1 text-xs font-medium text-fd-primary">
+                Start this tier <ArrowRight className="size-3" />
+              </span>
             </Card>
           ))}
         </CardGrid>
