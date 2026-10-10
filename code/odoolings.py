@@ -2787,6 +2787,93 @@ def quants_say_what_is_on_the_shelf(env):
         "not tracked is received and then forgotten, by design)")
 
 
+def _moves_of(env, pickings, **domain):
+    return env.call("stock.move", "search_read", [("picking_id", "in", pickings)] + list(domain.items()),
+                    fields=["product_id", "product_uom_qty", "quantity", "state"])
+
+
+def delivery_to_garage_nord_is_done(env):
+    rows = env.call("stock.picking", "search_read",
+                    [("picking_type_id.code", "=", "outgoing"), ("state", "=", "done"),
+                     ("partner_id.name", "=", "Garage Nord")], fields=["name"])
+    assert rows, ("no done delivery to Garage Nord yet; Operations > Transfers > Deliveries > New, "
+                  "Delivery Address Garage Nord, Brake Pad Set 8 and Engine Oil 5W-30 1L 2, Mark as Todo, Validate")
+    got = {(m["product_id"][1], m["quantity"]) for m in _moves_of(env, [r["id"] for r in rows])}
+    assert ("Brake Pad Set", 8.0) in got and ("Engine Oil 5W-30 1L", 2.0) in got, (
+        "a delivery to Garage Nord is done, but not one with 8 Brake Pad Set and 2 Engine Oil 5W-30 1L")
+
+
+def backorder_was_created_then_delivered(env):
+    rows = env.call("stock.picking", "search_read",
+                    [("backorder_id", "!=", False), ("picking_type_id.code", "=", "outgoing")],
+                    fields=["name", "state"])
+    assert rows, ("no backorder yet; deliver 15 Brake Pad Set while only 12 are free, Validate, and "
+                  "answer Create Backorder")
+    done = [r["id"] for r in rows if r["state"] == "done"]
+    assert done, ("the backorder exists but is not done; receive 10 Brake Pad Set from Brembo Parts, "
+                  "then Validate the backorder once it turns Ready by itself")
+    assert any(m["product_uom_qty"] == 3.0 for m in _moves_of(env, done)), (
+        "the done backorder should carry the 3 Brake Pad Set that were missing")
+
+
+def ten_more_pads_were_received(env):
+    moves = env.call("stock.move", "search_read",
+                     [("picking_id.picking_type_id.code", "=", "incoming"), ("state", "=", "done"),
+                      ("product_id.name", "=", "Brake Pad Set"), ("product_uom_qty", "=", 10)],
+                     fields=["reference"])
+    assert moves, ("no done receipt of 10 Brake Pad Set; Operations > Transfers > Receipts > New, "
+                   "Receive From Brembo Parts, Brake Pad Set 10, Validate")
+
+
+def two_pads_came_back(env):
+    rows = env.call("stock.picking", "search_read", [("return_id", "!=", False), ("state", "=", "done")],
+                    fields=["name"])
+    assert rows, ("no done return yet; open the done delivery LFD/OUT/00001, click Return, set Brake Pad "
+                  "Set to 2, delete the oil line, click Return, then Validate the receipt it opens")
+    got = {(m["product_id"][1], m["quantity"]) for m in _moves_of(env, [r["id"] for r in rows])}
+    assert ("Brake Pad Set", 2.0) in got, "a return is done, but not one bringing back 2 Brake Pad Set"
+
+
+def one_bottle_was_scrapped(env):
+    rows = env.call("stock.scrap", "search_read", [("state", "=", "done")], fields=["product_id", "scrap_qty"])
+    assert rows, "no validated scrap; Operations > Adjustments > Scrap > New, Engine Oil 5W-30 1L, quantity 1, Validate"
+    assert any(r["product_id"][1] == "Engine Oil 5W-30 1L" and r["scrap_qty"] == 1.0 for r in rows), (
+        "a scrap is done, but not for 1 Engine Oil 5W-30 1L")
+
+
+def tablet_delivery_was_cancelled(env):
+    rows = env.call("stock.picking", "search_read",
+                    [("state", "=", "cancel"), ("picking_type_id.code", "=", "outgoing")], fields=["name"])
+    assert rows, ("no cancelled delivery; with Delivery Orders set to reserve Manually, create a delivery "
+                  "of 1 Diagnostic Tablet, Mark as Todo, Check Availability, then Cancel")
+    assert any(m["product_id"][1] == "Diagnostic Tablet" for m in _moves_of(env, [r["id"] for r in rows])), (
+        "a delivery is cancelled, but not the one for the Diagnostic Tablet")
+
+
+def deliveries_reserve_at_confirmation_again(env):
+    rows = env.call("stock.picking.type", "search_read",
+                    [("code", "=", "outgoing"), ("warehouse_id", "!=", False)], fields=["reservation_method"])
+    assert rows and all(r["reservation_method"] == "at_confirm" for r in rows), (
+        "Delivery Orders still reserve Manually; Configuration > Operations Types > Delivery Orders, "
+        "set Reservation Method back to At Confirmation so the next chapters behave as described")
+
+
+def shelf_holds_nine_nine_and_one(env):
+    stock = env.call("stock.location", "search", [("complete_name", "=", "LFD/Stock")])
+    assert stock, "no LFD/Stock location"
+    rows = env.call("stock.quant", "search_read", [("location_id", "=", stock[0])],
+                    fields=["product_id", "quantity", "reserved_quantity"])
+    have = {r["product_id"][1]: r["quantity"] for r in rows}
+    assert have.get("Brake Pad Set") == 9.0, (
+        "LFD/Stock should hold 9 Brake Pad Set (20 - 8 - 12 + 10 - 3 + 2), it holds %s" % have.get("Brake Pad Set"))
+    assert have.get("Engine Oil 5W-30 1L") == 9.0, (
+        "LFD/Stock should hold 9 Engine Oil 5W-30 1L (12 - 2 - 1 scrapped), it holds %s" % have.get("Engine Oil 5W-30 1L"))
+    assert have.get("Diagnostic Tablet") == 1.0, "the cancelled delivery must leave the Diagnostic Tablet on the shelf"
+    assert all(r["reserved_quantity"] == 0 for r in rows), (
+        "something is still reserved in LFD/Stock; a cancelled or done transfer holds no reservation, "
+        "so a transfer is still open: find it under Operations > Transfers")
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -3512,6 +3599,32 @@ CHAPTERS = {
         ("the quants hold 20, 12 and 1 in LFD/Stock, and nothing for Shop Rags", quants_say_what_is_on_the_shelf,
          "Reporting > Locations shows one row per quant. A product with Track Inventory off "
          "never gets a quant, which is why Shop Rags is missing there."),
+    ],
+    "inv02": [
+        ("a delivery of 8 pads and 2 oil to Garage Nord is done", delivery_to_garage_nord_is_done,
+         "Deliveries > New, Delivery Address Garage Nord, two lines, Mark as Todo, then Validate. "
+         "Mark as Todo confirms and reserves; Validate is what moves the quants."),
+        ("a short delivery left a backorder, and the backorder is done", backorder_was_created_then_delivered,
+         "Deliver 15 pads with 12 free: Validate asks Create Backorder? Answer Create Backorder. "
+         "The remainder is a new transfer, Waiting until stock arrives."),
+        ("a second receipt brought 10 pads", ten_more_pads_were_received,
+         "Receipts > New, Receive From Brembo Parts, Brake Pad Set 10, Validate. A receipt has "
+         "nothing to reserve, so it goes straight to Done."),
+        ("two pads came back through a return", two_pads_came_back,
+         "On the done delivery, Return opens a wizard with every line at 0. Type 2 on the pads, "
+         "delete the oil line, Return, then Validate the receipt it creates."),
+        ("one bottle of oil was scrapped", one_bottle_was_scrapped,
+         "Operations > Adjustments > Scrap > New: product, quantity 1, Validate. The bottle moves "
+         "to the Inventory adjustment location; Odoo 19 has no separate Scrap location."),
+        ("a delivery of the tablet was reserved by hand, then cancelled", tablet_delivery_was_cancelled,
+         "Set Delivery Orders to reserve Manually, create the delivery, Mark as Todo (it waits), "
+         "Check Availability (it is ready), Cancel and confirm."),
+        ("Delivery Orders reserve At Confirmation again", deliveries_reserve_at_confirmation_again,
+         "Configuration > Operations Types > Delivery Orders > Reservation Method. Later chapters "
+         "assume the default."),
+        ("the shelf holds 9 pads, 9 oil and 1 tablet, nothing reserved", shelf_holds_nine_nine_and_one,
+         "Reporting > Stock. Every number here is the sum of the transfers above; if one is off, "
+         "Reporting > Moves History lists every done move line in order."),
     ],
 }
 
@@ -4253,6 +4366,46 @@ def seed_inv01(env):
     _validate(env, [picking])
 
 
+def seed_inv02(env):
+    depot = env.call("stock.warehouse", "read", [_id(env, "stock.warehouse", [])],
+                     ["out_type_id", "in_type_id", "lot_stock_id"])[0]
+    out_type, in_type, stock = depot["out_type_id"][0], depot["in_type_id"][0], depot["lot_stock_id"][0]
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    pads, oil, tablet = variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L"), variant("Diagnostic Tablet")
+    garage = env.call("res.partner", "create", {"name": "Garage Nord"})
+    brembo = _id(env, "res.partner", [("name", "=", "Brembo Parts")])
+
+    def picking(partner, kind, lines):
+        return env.call("stock.picking", "create", {
+            "partner_id": partner, "picking_type_id": kind,
+            "move_ids": [(0, 0, {"product_id": p, "product_uom_qty": q}) for p, q in lines]})
+
+    out1 = picking(garage, out_type, [(pads, 8), (oil, 2)])
+    _call(env, "stock.picking", "action_confirm", [out1])
+    _validate(env, [out1])
+    out2 = picking(garage, out_type, [(pads, 15)])  # only 12 free: validated short, backorder for 3
+    _call(env, "stock.picking", "action_confirm", [out2])
+    _call(env, "stock.picking", "button_validate", [out2], context={"skip_backorder": True, "skip_sms": True})
+    _validate(env, [picking(brembo, in_type, [(pads, 10)])])  # the receipt reserves the backorder by itself
+    _validate(env, [_id(env, "stock.picking", [("backorder_id", "=", out2)])])
+    wizard = env.call("stock.return.picking", "create", {"picking_id": out1})
+    for line in env.call("stock.return.picking.line", "search_read", [("wizard_id", "=", wizard)], fields=["product_id"]):
+        if line["product_id"][0] == pads:
+            env.call("stock.return.picking.line", "write", [line["id"]], {"quantity": 2})
+        else:
+            env.call("stock.return.picking.line", "unlink", [line["id"]])
+    _validate(env, [env.call("stock.return.picking", "action_create_returns", [wizard])["res_id"]])
+    scrap = env.call("stock.scrap", "create", {"product_id": oil, "scrap_qty": 1, "location_id": stock,
+                                                 "scrap_reason_tag_ids": [(0, 0, {"name": "Leaked"})]})
+    _call(env, "stock.scrap", "action_validate", [scrap])
+    env.call("stock.picking.type", "write", [out_type], {"reservation_method": "manual"})
+    out4 = picking(garage, out_type, [(tablet, 1)])
+    _call(env, "stock.picking", "action_confirm", [out4])
+    _call(env, "stock.picking", "action_assign", [out4])
+    _call(env, "stock.picking", "action_cancel", [out4])
+    env.call("stock.picking.type", "write", [out_type], {"reservation_method": "at_confirm"})
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4261,7 +4414,7 @@ SEEDS = {
     "ch21": seed_ch21, "ch22": seed_ch22, "ch23": seed_ch23, "ch24": seed_ch24,
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
-    "inv01": seed_inv01,
+    "inv01": seed_inv01, "inv02": seed_inv02,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped

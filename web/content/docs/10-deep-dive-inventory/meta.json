@@ -1,6 +1,7 @@
 {
   "title": "Deep Dive: Inventory",
   "pages": [
-    "inv01-the-warehouse-map"
+    "inv01-the-warehouse-map",
+    "inv02-a-transfers-life"
   ]
 }

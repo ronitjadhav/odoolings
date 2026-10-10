@@ -1,0 +1,870 @@
+---
+title: "Inventory 2. A Transfer's Life"
+description: Follow one delivery from Draft to Done, then leave the happy path on purpose, with short stock and a backorder, a return, a scrap, a hand-made reservation and a cancel, and read what each one did to the shelf.
+tier: foundations
+---
+
+**Goal:** be able to look at any transfer, say which state it is in and why, and predict
+what Validate, Check Availability, Return, Scrap and Cancel will do to the quants before
+you click. · **Time:** ~2.5 h · **Checkpoint:** none, this chapter writes no module. It
+continues the `warehouse` database from the previous chapter.
+
+## Why this matters
+
+The last chapter ended on one sentence: quants change in exactly one way, a transfer is
+validated. This chapter is that sentence, slowly, with every button pressed at least once.
+
+Real warehouses are not the happy path. The vendor sends 10 of the 15 you ordered. A
+customer brings two brake pad sets back. A bottle leaks on the shelf. Someone creates a
+delivery and then the customer cancels. Each of those is a transfer in a state you have to
+recognise, and each has a button whose effect on the shelf you have to be able to predict.
+When a client says "the system says we have none but there are twelve on the shelf", the
+answer is almost always a reservation, and reservations are what this chapter is about.
+
+Chapter 22 and chapter 24 of the journey validated deliveries and receipts in passing.
+Here you will watch the states change one at a time, in a database where you know every
+number, so nothing is magic.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds the `warehouse` database to the end of the
+  previous chapter with one command. You only need chapter 5's environment. If you did
+  the previous chapter yourself, just carry on in the same database.
+</Callout>
+
+## Concepts
+
+### Three layers: the transfer, its moves, their move lines
+
+A **transfer** (`stock.picking`) is the document: a number like `LFD/OUT/00001`, a
+partner, an operation type, a scheduled date, a state. It carries **moves**
+(`stock.move`), one per product line: *8 brake pad sets, from LFD/Stock to Customers*.
+A move says what should happen. When Odoo reserves stock for it, it writes **move
+lines** (`stock.move.line`) underneath: *8 brake pad sets, taken from LFD/Stock*. If the
+pads sat on two shelves, the move would have two move lines, one per shelf. Lots,
+serial numbers and packages also live on the move line, which is why the move line
+exists at all: it is the layer that says *which exact stock*.
+
+<Mermaid
+  label="A transfer holds moves, one per product; a move holds move lines, one per exact source of stock; validating writes the quants at both ends."
+  chart={`flowchart TD
+    P["Transfer LFD/OUT/00001<br/>Garage Nord, Delivery Orders, Ready"]
+    P --> M1["Move: Brake Pad Set<br/>demand 8, LFD/Stock to Customers"]
+    P --> M2["Move: Engine Oil<br/>demand 2, LFD/Stock to Customers"]
+    M1 --> L1["Move line<br/>8 from LFD/Stock"]
+    M2 --> L2["Move line<br/>2 from LFD/Stock"]
+    L1 -. Validate .-> Q1["Quant LFD/Stock, pads: 20 to 12<br/>Quant Customers, pads: 0 to 8"]`}
+/>
+
+On the transfer form you see the first two layers as columns, and the third behind a
+button:
+
+| On screen | Field | Plain words |
+|---|---|---|
+| **Demand** | `product_uom_qty` on the move | what the document asks for |
+| **Quantity** | `quantity` on the move | what is reserved now, and after Validate, what actually moved |
+| **Details** | the move lines | where exactly it comes from, which lot, which package |
+| the **Picked** box (in Details) | `picked` | a checkbox for the warehouse worker; Odoo ticks it for you when you validate |
+
+Keep *Demand* and *Quantity* apart in your head. Demand is a wish. Quantity is a fact,
+first about reservation, then about the real movement. Every surprise in this chapter is
+the gap between the two.
+
+### The states, in the order you meet them
+
+A transfer has six states, and a move has seven. You never set either by hand: the
+transfer's state is computed from its moves, and the moves change state when you press
+a button.
+
+| Transfer shows | Stored as | Meaning | Buttons you see |
+|---|---|---|---|
+| **Draft** | `draft` | typed in, not promised to anyone | Mark as Todo, Validate, Cancel |
+| **Waiting Another Operation** | `waiting` | a transfer before this one in a chain is not done (routes chapter) | Cancel |
+| **Waiting** | `confirmed` | confirmed, but no stock could be reserved | Check Availability, Validate, Cancel |
+| **Ready** | `assigned` | stock is reserved, go and pick it | Validate, Print, Cancel |
+| **Done** | `done` | the quants have moved; locked | Print, Return |
+| **Cancelled** | `cancel` | nothing happened, nothing will | none |
+
+| Move shows | Stored as | Meaning |
+|---|---|---|
+| **New** | `draft` | belongs to a Draft transfer |
+| **Waiting Another Move** | `waiting` | waits for a move upstream |
+| **Waiting** | `confirmed` | nothing reserved yet |
+| **Partially Available** | `partially_available` | some of the demand is reserved |
+| **Available** | `assigned` | all of the demand is reserved |
+| **Done** | `done` | moved |
+| **Cancelled** | `cancel` | dropped |
+
+<Mermaid
+  label="A transfer goes Draft, then Waiting or Ready depending on whether stock can be reserved, then Done; Cancel is possible until it is done."
+  chart={`stateDiagram-v2
+    [*] --> Draft
+    Draft --> Waiting: Mark as Todo, nothing free
+    Draft --> Ready: Mark as Todo, stock free
+    Waiting --> Ready: Check Availability, or stock arrives
+    Ready --> Waiting: Unreserve
+    Ready --> Done: Validate
+    Waiting --> Done: Validate (type the quantities)
+    Draft --> Cancelled: Cancel
+    Waiting --> Cancelled: Cancel
+    Ready --> Cancelled: Cancel`}
+/>
+
+How the transfer's state follows the moves depends on one setting on the transfer, the
+**Shipping Policy** (`move_type`, on the Additional Info tab). **As soon as possible**
+(the default) says the transfer is Ready when *at least one* move has something
+reserved. **When all products are ready** says it is Ready only when *every* move is
+fully reserved. The same transfer with 12 of 15 pads reserved is Ready under the first
+policy and Waiting under the second.
+
+### Reservation is a promise written on the quant
+
+When Odoo **reserves** stock for a move, it does two things: it creates the move lines,
+and it adds the amount to `reserved_quantity` on the quant it took them from. The quant's
+`quantity` does not change; the pads are still on the shelf. But **Free to Use**
+(`free_qty`, the Stock report's second column) is quantity minus reserved, so the next
+transfer that comes along sees fewer pads to take.
+
+Three things decide *when* a transfer reserves. They are on the operation type, as
+**Reservation Method**:
+
+| Reservation Method | Stored as | When the transfer reserves |
+|---|---|---|
+| **At Confirmation** (default) | `at_confirm` | the moment you click Mark as Todo |
+| **Manually** | `manual` | only when someone clicks Check Availability |
+| **Before scheduled date** | `by_date` | automatically, N days before the Scheduled Date (`reservation_days_before`), with a second N for starred, urgent transfers |
+
+Two more rules, and they explain most "but it says Waiting" tickets:
+
+- **A receipt never waits.** Its source is the Vendor location, and Odoo does not
+  reserve from vendor or customer locations, there is nothing to promise. A receipt's
+  status bar goes Draft, Ready, Done. The Waiting step is simply not there.
+- **Stock arriving wakes transfers up.** When a receipt is validated, Odoo looks for
+  Waiting or Partially Available moves of the same product at that location and reserves
+  for them, oldest first. You will watch a backorder turn Ready without anyone touching
+  it. (Developers: `stock.move._trigger_assign`; the system parameter
+  `stock.picking_no_auto_reserve` switches it off.)
+
+**Check Availability** reserves now. **Unreserve** (in the gear menu at the top of the
+form) gives the promise back: move lines deleted, `reserved_quantity` down, state back to
+Waiting. Neither touches `quantity` on the quant.
+
+### Backorders: what happens to the rest
+
+You validate a transfer with 15 demanded and 12 reserved. Odoo asks **Create
+Backorder?** with three answers:
+
+- **Create Backorder**: this transfer is done with 12, and a new transfer, a
+  **backorder**, is created for the missing 3, Waiting until stock comes. Its form shows
+  **Back Order of** pointing at the original (`backorder_id`).
+- **No Backorder**: this transfer is done with 12 and the missing 3 are forgotten. The
+  demand on the done transfer is rewritten to 12, and the chatter says so.
+- **Discard**: nothing happens.
+
+Whether Odoo asks is itself a setting on the operation type, **Create Backorder**:
+**Ask** (the default, the wizard), **Always** (no question, backorder every time) or
+**Never** (no question, never a backorder). A receipt behaves the same way when the
+vendor ships short.
+
+### Returns: a transfer in the mirror
+
+A done transfer has a **Return** button. It opens a wizard listing the transfer's
+products, **every quantity at 0**, so you type what actually comes back. **Return**
+creates a new transfer in the opposite direction, using the operation type named as
+**Returns Type** on the original's operation type: a delivery returns through
+Receipts, a receipt returns through Delivery Orders. The new transfer's **Source
+Document** reads *Return of LFD/OUT/00001*, and each of its moves remembers the move it
+undoes (`origin_returned_move_id`). **Return All** fills every quantity for you.
+**Return for Exchange** returns and at the same time creates a fresh outgoing transfer
+for replacements. A return is a normal transfer: it is Ready, you validate it, the
+quants move. You can even return a return.
+
+### Scrap: stock that leaves without a customer
+
+A **scrap** (`stock.scrap`) takes a quantity of a product out of a location and moves it
+to an **Inventory Loss** location. The form has a **Replenish Quantities** box
+(`should_replenish`): tick it and Odoo asks the replenishment rules to order the same
+quantity again (the replenishment chapter). **Scrap Reason** is a list of tags you
+create as you go, so a report can say how much leaked versus how much expired. Scrap
+more than there is and Odoo warns you before it lets you.
+
+<Callout type="info" title="On Odoo 18 this differs">
+  Odoo 18 ships a dedicated `Virtual Locations/Scrap` location, flagged *Is a Scrap
+  Location*. Odoo 19 removed the flag and the location: a scrap's **Scrap Location** is
+  any Inventory Loss location (`usage = inventory`), and a fresh database has exactly one,
+  `Inventory adjustment`, shared with stock counts. And the grouping field on a transfer's
+  Additional Info tab is a `stock.reference` in 19, where 18 had a *Procurement Group*.
+</Callout>
+
+### Cancel, and the smaller buttons
+
+**Cancel** asks you to confirm, then sets the transfer and its moves to Cancelled. A
+cancelled move keeps its Demand on screen as a record of what was asked, but its
+Quantity is 0 and any reservation is released. Rules in the routes chapter decide
+whether cancelling one transfer in a chain cancels the next (`propagate_cancel`).
+
+The gear menu on a transfer form holds the rest: **Unreserve**, **Lock/Unlock** (a done
+transfer is locked; unlocking lets a manager correct quantities after the fact, which
+also rewrites quants, so it is a last resort), **Scrap** (a scrap pre-filled from this
+transfer) and **Split** (move some lines to a new transfer). The star next to the
+reference is **priority**: a starred transfer sorts first and, with *Before scheduled
+date*, reserves earlier.
+
+### Email, text message, signature, printing
+
+Three settings under **Inventory → Configuration → Settings → Shipping** change what
+Validate does on a delivery. **Email Confirmation** mails the customer when the delivery
+is done. **Text Confirmation** does the same by SMS, and it is **ticked on a fresh
+database**; untick it on a project with no SMS credits. **Signature** asks for a
+signature on the delivery slip. On the operation type, the **Hardware** tab lists what to
+**Print on Validation**: the delivery slip, the return slip, product labels. Each is
+off by default, and ticking one shows the label format to use.
+
+## Hands-on
+
+Same database, `warehouse`, as the previous chapter. The story: Garage Nord, a workshop
+down the road, buys brake pads and oil from the depot. Keep a running count in your head.
+The shelf starts at 20 brake pad sets, 12 bottles of oil, 1 tablet.
+
+<Steps>
+
+<Step>
+### Deliver eight brake pad sets
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Operations → Transfers → Deliveries → New**:
+
+- **Delivery Address:** type `Garage Nord` and pick **Create "Garage Nord"**
+- **Add a Product:** `Brake Pad Set`, Demand `8`
+- **Add a Product:** `Engine Oil 5W-30 1L`, Demand `2`
+
+Do not validate yet. Look at the form first:
+
+![A new delivery in Draft with Delivery Address Garage Nord highlighted, the two product lines highlighted, each with a green Available badge, and the Mark as Todo button highlighted](/screens/inv02-delivery-draft.jpg)
+
+The status bar sits on **Draft**. There is a **Demand** column but no **Quantity**
+column yet: nothing is promised. The green **Available** badge on each line is a
+forecast, "there is enough", not a reservation.
+
+Click **Mark as Todo**:
+
+![The delivery LFD/OUT/00001 now Ready, with the status bar highlighted on Ready, the Product Availability field showing Available highlighted, the Quantity column showing 8 and 2 highlighted, and the Validate button highlighted](/screens/inv02-delivery-ready.jpg)
+
+Three things happened at once. The transfer got its number, `LFD/OUT/00001`. It jumped
+to **Ready**, because Delivery Orders reserve **At Confirmation**. And a **Quantity**
+column appeared, equal to Demand: 8 and 2 are reserved. Click **Details** on the brake
+pad line:
+
+![The Detailed Operations dialog for Brake Pad Set, with Demand 8 Units highlighted and the single move line, Pick From LFD/Stock, quantity 8, highlighted](/screens/inv02-delivery-details.jpg)
+
+That one row is the move line: 8 units, taken from `LFD/Stock`. If the pads sat on two
+shelves you would see two rows. **Discard** the dialog, then **Validate**:
+
+![The delivery LFD/OUT/00001 Done, with the status bar highlighted on Done, the Effective Date highlighted, the Return button highlighted, and the three chatter entries highlighted: Transfer created, Draft to Ready, Ready to Done](/screens/inv02-delivery-done.jpg)
+
+**Done**, an **Effective Date** (when it really happened, next to the Scheduled Date
+of when it was meant to), and a **Return** button where Validate was. The chatter kept
+every state change. The shelf is now at 12 pads and 10 bottles.
+
+</Tab>
+<Tab>
+
+One shell session carries the whole chapter; commit at the end of the last step.
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> pads, oil, tablet = variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L"), variant("Diagnostic Tablet")
+>>> garage = env["res.partner"].create({"name": "Garage Nord"})
+>>> out1 = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": wh.out_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": pads.id, "product_uom_qty": 8}),
+...                  (0, 0, {"product_id": oil.id, "product_uom_qty": 2})],
+... })
+>>> out1.name, out1.state, out1.move_ids.mapped("state"), out1.move_ids.mapped("quantity")
+('LFD/OUT/00001', 'draft', ['draft', 'draft'], [0.0, 0.0])
+>>> out1.action_confirm()
+True
+>>> out1.state, out1.move_ids.mapped("state"), out1.move_ids.mapped("quantity")
+('assigned', ['assigned', 'assigned'], [8.0, 2.0])
+>>> pads.qty_available, pads.free_qty
+(20.0, 12.0)
+>>> line = out1.move_ids[0].move_line_ids
+>>> line.location_id.complete_name, line.location_dest_id.complete_name, line.quantity, line.picked
+('LFD/Stock', 'Customers', 8.0, False)
+>>> out1.button_validate()
+True
+>>> out1.state, out1.move_ids.mapped("picked"), pads.qty_available, oil.qty_available
+('done', [True, True], 12.0, 10.0)
+```
+
+`action_confirm` is Mark as Todo: moves go `draft` to `assigned` and `quantity` fills
+in, because the operation type reserves at confirmation. Between confirm and validate,
+`qty_available` is still 20 while `free_qty` is 12: the pads are on the shelf, but
+promised. `button_validate` is Validate; it also ticks `picked` for you.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Deliver more than you have
+
+Garage Nord now wants 15 brake pad sets. You have 12.
+
+<UiOrShell>
+<Tab>
+
+**Deliveries → New**, Delivery Address `Garage Nord`, one line `Brake Pad Set`, Demand
+`15`. In Draft the badge still says **Available**: the forecast looks at everything that
+will ever come in, and it has not been told otherwise. Click **Mark as Todo**:
+
+![The delivery LFD/OUT/00002 in Ready, with the status bar highlighted on Ready, the Product Availability field highlighted, the Check Availability button highlighted, and on the single line the red Not Available badge, the Demand 15 and the Quantity 12 highlighted](/screens/inv02-partial-ready.jpg)
+
+Read the line: Demand **15**, Quantity **12**, badge **Not Available**. The move is
+*partially available*: Odoo reserved every free pad and could not find three more. Yet
+the transfer is **Ready**, because the shipping policy is *As soon as possible* and
+something is reserved. **Check Availability** is back, for when more pads appear.
+
+Validate anyway, as a real warehouse would, to ship what it has:
+
+![The Create Backorder dialog, saying you have processed less products than the initial demand, with the Create Backorder and No Backorder buttons highlighted](/screens/inv02-backorder-wizard.jpg)
+
+Click **Create Backorder**:
+
+![The delivery LFD/OUT/00002 Done with Demand 12 and Quantity 12 highlighted, and two chatter entries highlighted: the backorder LFD/OUT/00003 has been created, and the initial demand has been updated from 15 to 12](/screens/inv02-partial-done.jpg)
+
+The demand on this transfer was rewritten to 12 so that the document matches what left,
+and the chatter says exactly that. Click the **LFD/OUT/00003** link in the chatter:
+
+![The backorder LFD/OUT/00003 in Waiting, with the status bar highlighted on Waiting, the Back Order of field pointing at LFD/OUT/00002 highlighted, Demand 3 and Quantity 0 highlighted, and the Check Availability button highlighted](/screens/inv02-backorder-waiting.jpg)
+
+Three pads, **Waiting**, Quantity 0, **Back Order of** `LFD/OUT/00002`. The shelf is at 0
+pads.
+
+</Tab>
+<Tab>
+
+```python
+>>> out2 = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": wh.out_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": pads.id, "product_uom_qty": 15})],
+... })
+>>> out2.action_confirm()
+True
+>>> out2.state, out2.move_ids.state, out2.move_ids.quantity, pads.free_qty
+('assigned', 'partially_available', 12.0, 0.0)
+>>> action = out2.button_validate()
+>>> action["res_model"]
+'stock.backorder.confirmation'
+>>> wizard = env["stock.backorder.confirmation"].with_context(action["context"]).create({"pick_ids": [(4, out2.id)]})
+>>> wizard.process()
+True
+>>> out2.state, out2.move_ids.product_uom_qty, out2.move_ids.quantity
+('done', 12.0, 12.0)
+>>> out3 = env["stock.picking"].search([("backorder_id", "=", out2.id)])
+>>> out3.name, out3.state, out3.move_ids.state, out3.move_ids.product_uom_qty, out3.move_ids.quantity
+('LFD/OUT/00003', 'confirmed', 'confirmed', 3.0, 0.0)
+>>> pads.qty_available
+0.0
+```
+
+When the transfer is short, `button_validate` does not finish: it returns the wizard's
+action instead of `True`. The wizard's `process` is the Create Backorder button, and it
+needs the action's context to know which transfer it is validating. Note the states:
+the transfer was `assigned` (Ready) while its only move was `partially_available`.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive, and watch the backorder wake up
+
+<UiOrShell>
+<Tab>
+
+**Operations → Transfers → Receipts → New**, **Receive From** `Brembo Parts`, one line
+`Brake Pad Set`, Demand `10`. Notice the status bar: **Draft, Ready, Done**, no
+Waiting. A receipt has nothing to reserve. **Validate** straight from Draft:
+
+![The receipt LFD/IN/00002 Done, with its reference highlighted, Receive From Brembo Parts highlighted, the status bar highlighted on Done, and Demand 10 and Quantity 10 highlighted](/screens/inv02-receipt-done.jpg)
+
+Ten pads on the shelf. Now go back to the backorder, **Deliveries**, remove the Ready
+filter if it hides it, open `LFD/OUT/00003`:
+
+![The backorder LFD/OUT/00003 now Ready, with the status bar highlighted on Ready, Product Availability Available highlighted, the green Available badge highlighted, and Demand 3 and Quantity 3 highlighted](/screens/inv02-backorder-ready.jpg)
+
+Nobody clicked Check Availability. The receipt did it: when stock arrives, Odoo reserves
+for the transfers that were waiting for it. The chatter shows *Waiting to Ready* at the
+minute the receipt was validated. **Validate** the backorder. The shelf is at 7 pads.
+
+</Tab>
+<Tab>
+
+```python
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> in2 = env["stock.picking"].create({
+...     "partner_id": brembo.id, "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": pads.id, "product_uom_qty": 10})],
+... })
+>>> in2.button_validate()
+True
+>>> in2.name, in2.state, pads.qty_available
+('LFD/IN/00002', 'done', 10.0)
+>>> out3.state, out3.move_ids.state, out3.move_ids.quantity, pads.free_qty
+('assigned', 'assigned', 3.0, 7.0)
+>>> out3.button_validate()
+True
+>>> out3.state, pads.qty_available
+('done', 7.0)
+```
+
+`in2.button_validate()` from `draft` confirms and validates in one go: a receipt has no
+reservation step to wait for. Right after it, `out3` is `assigned` with `quantity` 3,
+and `free_qty` is 7 (10 on hand, 3 promised). Nothing in this transcript touched `out3`
+between the two.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Take two pads back
+
+Garage Nord returns two of the eight from the first delivery.
+
+<UiOrShell>
+<Tab>
+
+Open `LFD/OUT/00001` (**Deliveries**, remove the Ready filter) and click **Return**:
+
+![The Return dialog listing Brake Pad Set, with its quantity set to 2 highlighted, and the Return, Return All and Return for Exchange buttons highlighted](/screens/inv02-return-wizard.jpg)
+
+Both products are listed with quantity **0.00**: the wizard never guesses what came
+back. Type `2` on the Brake Pad Set line, delete the Engine Oil line with its trash
+icon, and click **Return**:
+
+![The return LFD/IN/00003 in Ready, with its reference highlighted, Receive From Garage Nord and Operation Type LibreFleet Depot: Receipts highlighted, the Source Document Return of LFD/OUT/00001 highlighted, the status bar highlighted on Ready, and the chatter line saying this transfer has been created from LFD/OUT/00001 highlighted](/screens/inv02-return-ready.jpg)
+
+Read the header. It is a **Receipt** (`LFD/IN/`), because Delivery Orders' **Returns
+Type** is Receipts. It is **from** Garage Nord, **to** `LFD/Stock`. Its Source Document
+names the delivery it undoes. And it is **Ready**, not Done: the pads have not arrived
+until you say so. **Validate**. The shelf is at 9 pads.
+
+</Tab>
+<Tab>
+
+```python
+>>> ret = env["stock.return.picking"].create({"picking_id": out1.id})
+>>> [(l.product_id.name, l.quantity) for l in ret.product_return_moves]
+[('Brake Pad Set', 0.0), ('Engine Oil 5W-30 1L', 0.0)]
+>>> ret.product_return_moves.filtered(lambda l: l.product_id == oil).unlink()
+True
+>>> ret.product_return_moves.quantity = 2
+>>> action = ret.action_create_returns()
+>>> in3 = env["stock.picking"].browse(action["res_id"])
+>>> in3.name, in3.state, in3.origin, in3.picking_type_id.name
+('LFD/IN/00003', 'assigned', 'Return of LFD/OUT/00001', 'Receipts')
+>>> in3.location_id.complete_name, in3.location_dest_id.complete_name, in3.move_ids.product_uom_qty
+('Customers', 'LFD/Stock', 2.0)
+>>> in3.move_ids.origin_returned_move_id == out1.move_ids[0]
+True
+>>> in3.button_validate()
+True
+>>> in3.state, pads.qty_available
+('done', 9.0)
+```
+
+The wizard is a `stock.return.picking` whose lines are computed from the transfer you
+give it, all at 0. `action_create_returns` is the Return button; it hands back an action
+whose `res_id` is the new transfer. The new move points at the move it undoes, which is
+how Odoo later knows the return belongs to that delivery (and, with Accounting, how the
+value comes back at the same cost).
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Scrap a leaking bottle
+
+<UiOrShell>
+<Tab>
+
+**Operations → Adjustments → Scrap → New**:
+
+- **Product:** `Engine Oil 5W-30 1L`
+- **Quantity:** `1.00` (the default)
+- **Source Location:** `LFD/Stock` (already filled)
+- **Scrap Location:** `Inventory adjustment` (already filled)
+- **Scrap Reason:** type `Leaked` and pick **Create "Leaked"**
+
+![The new scrap form with Product Engine Oil 5W-30 1L, Quantity 1.00, the unticked Replenish Quantities box and the Scrap Reason tag Leaked highlighted, Source Location LFD/Stock and Scrap Location Inventory adjustment highlighted, and the Validate button highlighted](/screens/inv02-scrap-form.jpg)
+
+Leave **Replenish Quantities** unticked: we are not reordering a bottle. **Validate**.
+The scrap gets a number, `SP/00001`, and a **Product Moves** button appears at the top:
+one move, `LFD/Stock` to `Inventory adjustment`. The shelf is at 9 bottles.
+
+</Tab>
+<Tab>
+
+```python
+>>> scrap = env["stock.scrap"].create({
+...     "product_id": oil.id, "scrap_qty": 1, "location_id": wh.lot_stock_id.id,
+...     "scrap_reason_tag_ids": [(0, 0, {"name": "Leaked"})],
+... })
+>>> scrap.scrap_location_id.complete_name, scrap.scrap_location_id.usage
+('Inventory adjustment', 'inventory')
+>>> scrap.action_validate()
+True
+>>> scrap.name, scrap.state, scrap.move_ids.location_dest_id.complete_name, oil.qty_available
+('SP/00001', 'done', 'Inventory adjustment', 9.0)
+```
+
+The scrap location was computed, not given: the first Inventory Loss location of the
+company. A scrap is not a transfer, it is its own model, but what it creates is an
+ordinary `stock.move`, so it shows up in the same reports as everything else.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Choose when to reserve
+
+So far every delivery reserved the moment it was confirmed. Change that, once, to see
+the other path.
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Operations Types**, open **Delivery Orders**:
+
+![The Delivery Orders operation type form, with Type of Operation Delivery, Sequence Prefix OUT, the Reservation Method radio buttons, Returns Type LibreFleet Depot: Receipts, Create Backorder Ask, Source Location LFD/Stock and Destination Location Customers each highlighted, and the Hardware tab highlighted](/screens/inv02-optype-form.jpg)
+
+This form is the chapter's settings in one place: the **Reservation Method**, the
+**Returns Type** that made your return a receipt, and **Create Backorder** on Ask,
+which is why you were asked. The **Hardware** tab holds the print-on-validation boxes.
+Pick **Manually** and save:
+
+![The same form with Reservation Method set to Manually highlighted and the save icon highlighted](/screens/inv02-optype-manual.jpg)
+
+Now **Deliveries → New**, Delivery Address `Garage Nord`, one line `Diagnostic Tablet`,
+Demand `1`, **Mark as Todo**:
+
+![The delivery LFD/OUT/00004 in Waiting, with the status bar highlighted on Waiting, Product Availability Available highlighted, Demand 1 and Quantity 0 highlighted, and the Check Availability button highlighted](/screens/inv02-manual-waiting.jpg)
+
+**Waiting**, Quantity **0**, and yet Product Availability says **Available**. Both are
+true: the tablet is on the shelf, and nothing is reserved, because you asked Odoo to
+wait for you. Click **Check Availability**:
+
+![The same delivery now Ready, with the status bar highlighted on Ready, Demand 1 and Quantity 1 highlighted, and the chatter entry Waiting to Ready highlighted](/screens/inv02-manual-ready.jpg)
+
+Reserved. Open the gear menu next to the reference to see where the rest of the chapter's
+buttons live:
+
+![The gear menu of the transfer form open, with the gear icon highlighted and the entries Unreserve, Lock/Unlock, Scrap and Split highlighted](/screens/inv02-gear-menu.jpg)
+
+**Unreserve** would put it back to Waiting. Instead, Garage Nord changes its mind:
+close the menu and click **Cancel**:
+
+![The confirmation dialog asking Are you sure you want to cancel this transfer, with the question and the Ok button highlighted](/screens/inv02-cancel-confirm.jpg)
+
+**Ok**:
+
+![The delivery LFD/OUT/00004 Cancelled, with the status bar highlighted on Cancelled, Demand 1 and Quantity 0 highlighted, and the chatter entry Ready to Cancelled highlighted](/screens/inv02-cancelled.jpg)
+
+The Demand stays as a record, the Quantity went back to 0, and the tablet is free
+again. Finally, put **Delivery Orders** back on **At Confirmation**: the next chapters
+assume it.
+
+</Tab>
+<Tab>
+
+```python
+>>> wh.out_type_id.reservation_method = "manual"
+>>> out4 = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": wh.out_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": tablet.id, "product_uom_qty": 1})],
+... })
+>>> out4.action_confirm()
+True
+>>> out4.state, out4.move_ids.state, out4.move_ids.quantity, out4.products_availability
+('confirmed', 'confirmed', 0.0, 'Available')
+>>> out4.action_assign()
+True
+>>> out4.state, out4.move_ids.state, out4.move_ids.quantity, tablet.free_qty
+('assigned', 'assigned', 1.0, 0.0)
+>>> out4.do_unreserve()
+>>> out4.state, out4.move_ids.quantity, tablet.free_qty
+('confirmed', 0.0, 1.0)
+>>> out4.action_assign()
+True
+>>> out4.action_cancel()
+True
+>>> out4.state, out4.move_ids.state, tablet.qty_available, tablet.free_qty
+('cancel', 'cancel', 1.0, 1.0)
+>>> wh.out_type_id.reservation_method = "at_confirm"
+```
+
+`action_assign` is Check Availability, `do_unreserve` is Unreserve, `action_cancel` is
+Cancel. Watch `free_qty` go 1, 0, 1, 1 while `qty_available` never moves: that is the
+whole difference between a reservation and a movement.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read the two reports
+
+<UiOrShell>
+<Tab>
+
+**Reporting → Moves History** is the list of done move lines, newest first:
+
+![The Moves History report with the Done filter highlighted and two rows highlighted: SP/00001, Engine Oil from LFD/Stock to Inventory adjustment, and LFD/IN/00003, Brake Pad Set from Customers to LFD/Stock](/screens/inv02-moves-history.jpg)
+
+Eleven rows: the four lines of the first receipt, then everything you did today. Read
+the **From** and **To** columns: the scrap went to `Inventory adjustment`, the return
+came from `Customers`. This report is the audit trail of the warehouse.
+
+**Reporting → Moves Analysis** is the same data as a pivot, grouped by operation type:
+
+![The Moves Analysis pivot with the column headers LibreFleet Depot: Receipts, LibreFleet Depot: Delivery Orders and None highlighted, and the Total row highlighted: 95 received over 6 moves, 25 delivered over 4, 1 scrapped under None](/screens/inv02-moves-analysis.jpg)
+
+95 in through Receipts (83 on the first receipt, 10 more, 2 returned), 25 out through
+Delivery Orders (8, 12, 3, and the 2 bottles), and 1 under **None**: the scrap has no
+operation type. Pivot, list, graph and the Done filter are all the same `stock.move`
+records.
+
+</Tab>
+<Tab>
+
+```python
+>>> for ml in env["stock.move.line"].search([("state", "=", "done")], order="id"):
+...     print(f"{ml.reference:<14} {ml.product_id.name:<20} {ml.location_id.complete_name:<10} -> {ml.location_dest_id.complete_name:<20} {ml.quantity:>6.2f}")
+...
+LFD/IN/00001   Brake Pad Set        Vendors    -> LFD/Stock             20.00
+LFD/IN/00001   Engine Oil 5W-30 1L  Vendors    -> LFD/Stock             12.00
+LFD/IN/00001   Diagnostic Tablet    Vendors    -> LFD/Stock              1.00
+LFD/IN/00001   Shop Rags            Vendors    -> LFD/Stock             50.00
+LFD/OUT/00001  Brake Pad Set        LFD/Stock  -> Customers              8.00
+LFD/OUT/00001  Engine Oil 5W-30 1L  LFD/Stock  -> Customers              2.00
+LFD/OUT/00002  Brake Pad Set        LFD/Stock  -> Customers             12.00
+LFD/IN/00002   Brake Pad Set        Vendors    -> LFD/Stock             10.00
+LFD/OUT/00003  Brake Pad Set        LFD/Stock  -> Customers              3.00
+LFD/IN/00003   Brake Pad Set        Customers  -> LFD/Stock              2.00
+SP/00001       Engine Oil 5W-30 1L  LFD/Stock  -> Inventory adjustment   1.00
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal")], order="id"):
+...     print(f"{q.location_id.complete_name:<10} {q.product_id.name:<20} {q.quantity:>6.2f} reserved {q.reserved_quantity:.2f}")
+...
+LFD/Stock  Brake Pad Set          9.00 reserved 0.00
+LFD/Stock  Engine Oil 5W-30 1L    9.00 reserved 0.00
+LFD/Stock  Diagnostic Tablet      1.00 reserved 0.00
+>>> env.cr.commit()
+```
+
+Moves History is `stock.move.line` filtered on `done`. Add the eleven quantities with
+their directions and you get the three quants, which is the point: a quant is nothing but
+the sum of the move lines that touched it. Commit, or the whole chapter vanishes with the
+shell.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Where the other switches live
+
+Nothing to change here, just two screens to know. **Configuration → Settings**, scroll to
+**Shipping**:
+
+![The Inventory settings Shipping section with Email Confirmation unticked, Text Confirmation ticked with its SMS template, and Signature unticked, all three highlighted](/screens/inv02-settings-shipping.jpg)
+
+**Text Confirmation** is on in a fresh database. If Garage Nord had a mobile number, the
+first delivery you validated would have tried to text them. On a client project, decide
+this on day one.
+
+On any transfer, the **Additional Info** tab holds the **Shipping Policy**, the
+**Responsible** user and a **Priority** star, and the **Note** tab is free text printed
+on the delivery slip. **Edit Properties** in the gear menu adds your own fields to every
+transfer of this operation type, without a module.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv02 --db warehouse
+```
+
+```text
+✔ a delivery of 8 pads and 2 oil to Garage Nord is done
+✔ a short delivery left a backorder, and the backorder is done
+✔ a second receipt brought 10 pads
+✔ two pads came back through a return
+✔ one bottle of oil was scrapped
+✔ a delivery of the tablet was reserved by hand, then cancelled
+✔ Delivery Orders reserve At Confirmation again
+✔ the shelf holds 9 pads, 9 oil and 1 tablet, nothing reserved
+
+inv02 complete! On to the next chapter 🔧
+```
+
+The last check also asserts that nothing is reserved. If it fails, a transfer is still
+open somewhere, and Operations → Transfers with the filters removed will show it.
+
+Two proofs from the database. Every transfer and its state:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select name as transfer, state, origin from stock_picking order by id;"
+```
+
+```text
+   transfer    | state  |         origin
+---------------+--------+-------------------------
+ LFD/IN/00001  | done   |
+ LFD/OUT/00001 | done   |
+ LFD/OUT/00002 | done   |
+ LFD/OUT/00003 | done   |
+ LFD/IN/00002  | done   |
+ LFD/IN/00003  | done   | Return of LFD/OUT/00001
+ LFD/OUT/00004 | cancel |
+(7 rows)
+```
+
+And the shelf, with the reservation column this time:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity, q.reserved_quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id where l.usage='internal' order by q.id;"
+```
+
+```text
+ location  |       product       | quantity | reserved_quantity
+-----------+---------------------+----------+-------------------
+ LFD/Stock | Brake Pad Set       |     9.00 |              0.00
+ LFD/Stock | Engine Oil 5W-30 1L |     9.00 |              0.00
+ LFD/Stock | Diagnostic Tablet   |     1.00 |              0.00
+(3 rows)
+```
+
+20 minus 8, minus 12, plus 10, minus 3, plus 2 is 9. 12 minus 2 minus 1 is 9. The
+tablet was promised twice and never left.
+
+## Gotchas
+
+- **Mark as Todo is not Validate.** The first reserves, the second moves. A transfer can
+  sit in Ready for a week with the goods still on the shelf, and the Stock report's On
+  Hand will not budge; only Free to Use does. "It says we shipped it" usually means
+  somebody confirmed and nobody validated.
+- **The green badge in Draft is a forecast.** It said Available on a line asking for 15
+  pads when 12 were free. Only after Mark as Todo does the badge reflect a real
+  reservation. Trust the Quantity column, not the colour.
+- **No Backorder rewrites history, politely.** It sets the demand on the done transfer to
+  what was shipped and logs the change. The customer's missing three are then nowhere in
+  Inventory; only the chatter remembers. On a sales order they still show as not
+  delivered, which is the right place to catch them.
+- **The return wizard starts at zero.** Click Return then Return without typing a quantity
+  and you get a return of nothing. Return All is the shortcut when everything comes back.
+- **The previous chapter's last check turns red now.** It asserted 20, 12 and 1 on the
+  shelf. That is expected: checks describe a chapter's end state, and `start inv02`
+  rebuilds and checks the previous chapter before replaying this one.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A delivery for 10 pads is Ready, and the Stock report shows 12 On Hand. How many pads are Free to Use?',
+      options: [
+        '12, because nothing has left the shelf yet',
+        '0, because a Ready transfer blocks the whole product until validated',
+        '2, because Ready means 10 are reserved',
+      ],
+      answer: 2,
+      why: 'Ready means the stock is reserved: reserved_quantity on the quant went up by 10, quantity stayed at 12, and free_qty is the difference. Validate is what moves the 10 out.',
+    },
+    {
+      q: 'You confirm a delivery of 15 pads with 12 free, shipping policy As soon as possible. What state is the transfer in?',
+      options: [
+        'Ready, because at least one move has stock reserved',
+        'Waiting, because three of the fifteen could not be reserved',
+        'Draft, until someone clicks Check Availability on it',
+      ],
+      answer: 0,
+      why: 'Under As soon as possible the transfer is Ready as soon as something is reserved; the move itself is Partially Available. Under When all products are ready the same transfer would be Waiting.',
+    },
+    {
+      q: 'A backorder is Waiting. A receipt of the same product is validated. What happens to the backorder?',
+      options: [
+        'Nothing until someone clicks Check Availability on it',
+        'It is reserved and turns Ready by itself',
+        'It is validated automatically, since the goods it waited for have arrived',
+      ],
+      answer: 1,
+      why: 'Validating a receipt triggers reservation for waiting moves of that product at that location. The backorder reserves and becomes Ready; it still needs a human to validate it, because shipping is a real act.',
+    },
+    {
+      q: 'You click Return on a done delivery and the wizard opens. What quantities does it propose?',
+      options: [
+        'The full delivered quantities',
+        'Whatever is still on hand at the customer location',
+        'Zero on every line',
+      ],
+      answer: 2,
+      why: 'The wizard never guesses what came back; every line starts at 0 and you type the real figures. Return All is the one-click way to fill the full quantities.',
+    },
+    {
+      q: 'In Odoo 19, where does a scrapped bottle go?',
+      options: [
+        'To an Inventory Loss location, Inventory adjustment in a fresh database',
+        'To the Virtual Locations/Scrap location that comes with every warehouse',
+        'To the Production location, since a scrapped item counts as consumed',
+      ],
+      answer: 0,
+      why: 'Odoo 19 has no dedicated scrap location any more. The scrap form picks the company\'s first Inventory Loss location, the same one stock counts use. Odoo 18 still had a flagged Scrap location; that is the version difference to remember.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Deliver 3 bottles of oil to Garage Nord, but before you validate, open **Reporting →
+   Stock** and write down On Hand and Free to Use for the oil. Validate, look again, and
+   explain the two changes in one sentence each.
+2. ⭐⭐ Set Delivery Orders' **Create Backorder** to **Never**, deliver 20 pads (you have
+   9), validate, and read the done transfer's demand and chatter. Then set it to
+   **Always** and do it again with 3 pads short. Put the setting back to **Ask**. Which of
+   the two would you choose for a webshop, and which for a workshop that picks parts for
+   its own mechanics?
+3. ⭐⭐ Return 1 pad from the return `LFD/IN/00003` (a return of a return). Predict its
+   operation type, its locations and its effect on the shelf before you click, then
+   check all three in Moves History.
+4. ⭐⭐⭐ Break-it lab. Open a transfer's **Additional Info** tab and set **Shipping
+   Policy** to **When all products are ready** on a new delivery for 5 pads and 20
+   bottles. Confirm it. Explain the state you get, then find the two different ways to
+   get it to Done without changing the policy (one involves the receipt chapter you just
+   did, the other a button on this form) and say what each does to the customer's order.
+
+## Further reading
+
+- <Icon name="docs" /> [Reservation methods (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/reservation_methods.html):
+  At Confirmation, Manually and Before scheduled date, from the user's side, with the
+  priority variant.
+- <Icon name="docs" /> [Scrap inventory (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/scrap_inventory.html):
+  the scrap form, including scrapping from a transfer.
+- <Icon name="source" /> [`stock/models/stock_picking.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_picking.py):
+  the `state` field's help text is the clearest statement of the Ready and Waiting rules;
+  search for `_compute_state`.
+- <Icon name="source" /> [`stock/models/stock_move.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py):
+  the seven move states and `_trigger_assign`, the method that woke the backorder up.
