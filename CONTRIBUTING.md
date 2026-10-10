@@ -77,8 +77,13 @@ respects these rules:
 - Reader-facing paths are `addons/librefleet/...`, never `code/addons/...`.
   `code/checkpoints/chNN` is still right in a chapter's Checkpoint line and in diff
   commands, since it names a path in this repository.
-- `odoolings.py` stays location-independent: pure XML-RPC against `--url`, never
-  reading the reader's files.
+- `odoolings.py`'s checks stay location-independent: pure XML-RPC against `--url`,
+  never reading the reader's files. The one exception is `start`, which a reader runs
+  from their workspace. There it may fetch checkpoint code into `addons/`, add chapter
+  44's configs, clone OCA repositories, edit `docker-compose.yml` and `odoo.conf` as
+  chapter 49 does, and restart Odoo. It shows its plan first and asks before it moves,
+  renames or edits anything that exists. Replaced code and databases are kept as
+  backups.
 - Setup needs no shell: "Use this template", `git clone` and `docker compose up`.
 - `code/docker-compose.yml` and `code/odoo.conf` here are the source of truth. If you
   change either, mirror it to the starter in the same session, then re-run the
@@ -90,6 +95,32 @@ respects these rules:
   the baseline bumps, branch the old version in the starter first (branch-per-version,
   exactly what chapter 7 teaches), then move its `main`.
 - Chapter work never touches the starter: one pull request here per chapter.
+
+### Readers can start at any chapter
+
+`python3 odoolings.py start chNN`, run from the reader's workspace, sets up the state
+chapter NN begins with, so a reader can skip the chapters before it. First it puts the
+files in place: the LibreFleet checkpoint code, chapter 44's configs and the OCA
+clones, restarting Odoo when it adds code. Then it builds each database the chapter uses
+(`tutorial`, `functional`, or both for ch53) by replaying every earlier chapter of it in
+order. For each chapter it installs what the chapter installed (`INSTALLS`, or the
+checkpoint code at chapter 8), redoes the chapter's hand-made work (its `seed_chNN`),
+then runs the chapter's own checks. An existing database is renamed to a backup unless
+`--reset` is given. Every chapter page shows a **Starting at chapter N?** box with the command
+(`web/components/jump-in.tsx`).
+
+The checks running inside the replay are what keep this honest: a seed that drifts from
+its chapter fails loudly. So when you change a chapter:
+
+- **Its hands-on creates or changes data a later chapter uses?** Update its
+  `seed_chNN` in `code/odoolings.py` to match, in the same pull request.
+- **It adds a checkpoint?** Add its module versions to `CHECKPOINTS`.
+- **It installs a module?** Add it to `INSTALLS` (functional track).
+- **Then prove it:** `start chMM --reset --yes` for the next chapter on the same track
+  must end with `Ready`. Run it from a throwaway clone of the starter on another port,
+  never against your authoring databases. To test checkpoints that are not on `main`
+  yet, serve `git archive --prefix=odoolings-main/ HEAD | gzip` locally and point
+  `ODOOLINGS_FETCH_URL` at it.
 
 ### Writing a chapter
 

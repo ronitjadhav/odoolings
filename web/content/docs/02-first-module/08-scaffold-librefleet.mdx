@@ -181,12 +181,19 @@ Then press **Update** in the dialog:
 
 ![The Module Update dialog, Click on Update below to start the process, with the Update button highlighted](/screens/ch08-update-apps-list-dialog.jpg)
 
-The button can only register what the running server has seen. The `dev_mode = all`
-line in your `odoo.conf` takes care of that: the server restarts by itself the moment
-new module files appear, and the log prints
-`autoreload: python code updated, autoreload activated`. If you never saw that line
-(say, you run without `dev_mode`), run `docker compose restart odoo` first, then update
-the list again.
+The button can only register what the running server has seen, and this first time
+it has seen nothing. When Odoo starts, it leaves any folder that holds no module yet off
+the addons path, which was true of your `addons/` until a minute ago. `dev_mode = all`
+only watches folders on the addons path, so it never noticed. Restart once, then update
+the list again:
+
+```console
+$ docker compose restart odoo
+```
+
+From now on `addons/` holds a module, `dev_mode` watches it, and new Python files there
+restart the server by themselves (the log prints
+`autoreload: python code updated, autoreload activated`).
 
 Now search `librefleet` and press **Activate**:
 
@@ -374,9 +381,11 @@ you were told to supply yourself. Anything else is worth reading.
   migration, because the name is baked into the database (`ir_module_module`, XML
   ids, table names). Choose carefully once.
 - **New module, invisible in Apps?** Run **Update Apps List** (developer mode). It can
-  only register what the running server has seen: `dev_mode = all` restarts the server
-  by itself when new module files appear, otherwise restart it first. A command-line
-  `-i` needs neither, because it refreshes the list as it starts.
+  only register what the running server has seen. Odoo leaves a folder with no module in
+  it off the addons path at startup, so the first module in an empty `addons/` needs a
+  `docker compose restart odoo`. After that, `dev_mode = all` restarts the server by
+  itself when new Python files appear. A command-line `-i` needs neither, because it
+  refreshes the list as it starts.
 - **The module form's "Latest Version" is the manifest on disk, not what is
   installed.** It changes the moment you save the manifest. The installed version is
   `latest_version`, under debug → **Data** (or in psql).
