@@ -1,0 +1,611 @@
+---
+title: "Inventory 9. Where Things Go, Where They Come From"
+description: Let putaway rules and storage categories choose the shelf for every arrival, store a pallet in an empty bay, and watch removal strategies decide which stock a sale takes, FIFO against LIFO.
+tier: professional
+---
+
+**Goal:** make Odoo choose the right shelf when goods come in and the right stock when
+they go out, and know exactly how it decides. · **Time:** ~2.5 h · **Checkpoint:** none,
+this chapter writes no module. It continues the `warehouse` database.
+
+## Why this matters
+
+So far every receipt ended in `LFD/Stock`, and every pick took "some" stock from there. A
+real depot has shelves, racks and bays, and two questions come back all day. When the
+truck arrives: *where does this go?* When an order comes in: *which of these do we take?*
+
+Odoo answers the first with **putaway rules** and **storage categories**, the second with
+**removal strategies**. Set them once, and the storekeeper's transfer already says "Shelf
+B" and the picker's says "Fluids Rack". This chapter gives the depot real shelves, rules
+that fill them by capacity, a bay that takes one pallet, and a sale where you watch the
+removal strategy change which bottles leave.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Putaway rules
+
+A putaway rule says: *when this arrives in that location, store it in this sublocation*.
+It has:
+
+| Field | Meaning |
+|---|---|
+| **When product arrives in** | the location the transfer delivers to, here `LFD/Stock` |
+| **Product** / **Product Category** / **Package type** | what the rule is for; empty means everything |
+| **Store to** | the sublocation to use instead |
+| **Sublocation** | **No**: exactly Store to. **Last Used**: where this product went last time. **Closest Location**: the first child of Store to with the right storage category and room |
+| **Having Category** | the storage category Closest Location looks for |
+| **Priority** | the drag handle, to order rules by hand |
+
+Odoo looks only at rules whose arrival location is the transfer's destination itself, not
+its parents. Among the rules that match, the most specific wins: a package type rule,
+then a product rule, then a rule on the product's own category, then on a parent category,
+then a rule for everything. The result is written on each move line as its destination;
+the transfer header still says `LFD/Stock`.
+
+### Storage categories
+
+A **storage category** describes what a location can hold. You give it to locations, and
+Closest Location only uses locations that have it.
+
+- **Max Weight**: the weight the location carries, counting the product weights.
+- **Allow New Product**: **If the location is empty**, **If all products are same**, or
+  **Allow mixed products**.
+- **Capacity by Product**: at most this many units of one product.
+- **Capacity by Package**: at most this many packages of one package type.
+
+With Closest Location, Odoo walks the matching locations in name order. It first prefers
+one that already holds the product (or the package type) and still has room, then any one
+that can take it. If none can, the goods go to the rule's Store to location itself.
+
+<Mermaid
+  label="How putaway picks a destination: find the rules for the arrival location, keep the most specific match, then either use Store to, the last used location, or the first location of the right storage category with room; if nothing fits, the goods stay in Store to."
+  chart={`flowchart TB
+    A["Line arrives in LFD/Stock"] --> B{"Rule?"}
+    B -->|none| Z["Stays in LFD/Stock"]
+    B -->|most specific| D{"Sublocation"}
+    D -->|No| E["Store to"]
+    D -->|Last Used| F["Last location<br/>of this product"]
+    D -->|Closest Location| G["First location of the category<br/>with the product and room,<br/>else first with room"]
+    G -->|none fits| E`}
+/>
+
+### Removal strategies
+
+When a transfer reserves stock, the **removal strategy** decides which quants it takes
+first:
+
+| Strategy | Takes first | Good for |
+|---|---|---|
+| **First In First Out (FIFO)** | the oldest arrival date | most goods; the default |
+| **Last In First Out (LIFO)** | the newest arrival date | bulk goods where age does not matter |
+| **Closest Location** | the location whose full name sorts first | picking along a fixed walking order |
+| **Least Packages** | as few packages as possible, then the oldest | whole cartons rather than open ones |
+| **First Expiry First Out (FEFO)** | the earliest removal date, then the oldest | goods with expiry dates (chapter 7) |
+
+Odoo picks the strategy in this order: the product category's **Force Removal Strategy**,
+else the location's **Removal Strategy**, else the nearest parent location that has one,
+else FIFO. And whatever the strategy, quants with a lot come before quants without.
+
+### Replenishments
+
+A location's **Replenishments** box marks it as one the Replenishment report watches
+(chapter 5): its own stock and its children's count as one. Each warehouse's stock location
+has it; a parent and its child cannot both have it.
+
+<Callout type="info" title="Official docs">
+  [Putaway rules](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/putaway.html),
+  [storage categories](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/storage_category.html)
+  and [removal strategies](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/removal_strategies.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. Storage Locations has been on since
+chapter 1, and in Odoo 19 it brings Storage Categories and Putaway Rules with it. By the
+end: shelves that fill by capacity, a fluids rack, a pallet in its bay, and a sale that
+takes the newest oil.
+
+<Steps>
+
+<Step>
+### A category for the fluids
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Product Categories → New**:
+
+- **Category:** `Fluids`
+- **Parent Category:** `Goods`
+
+![The new product category Fluids with Parent Category Goods highlighted, the Force Removal Strategy field highlighted, and the Putaway Rules smart button highlighted](/screens/inv09-fluids-category.jpg)
+
+Leave **Force Removal Strategy** empty for now. **Costing Method** Standard Price and
+**Inventory Valuation** Periodic are what the oil already uses without a category, so
+nothing changes in valuation. Save, then open **Engine Oil 5W-30 1L** and set its
+**Category**:
+
+![The oil's product form with Category Goods / Fluids highlighted](/screens/inv09-oil-category.jpg)
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> goods = env["product.category"].search([("complete_name", "=", "Goods")])
+>>> fluids = env["product.category"].create({"name": "Fluids", "parent_id": goods.id})
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> oil.categ_id = fluids
+>>> fluids.complete_name, oil.cost_method, fluids.removal_strategy_id
+('Goods / Fluids', 'standard', product.removal())
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Two storage categories
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Storage Categories → New**:
+
+- **Storage Category:** `Parts Shelf`
+- **Allow New Product:** If all products are same
+- **Capacity by Product** tab, **Add a line:** `Brake Pad Set`, **Quantity** `20`
+
+![The Parts Shelf storage category with Allow New Product If all products are same highlighted, and on the Capacity by Product tab the line Brake Pad Set 20.00 Units highlighted](/screens/inv09-parts-shelf.jpg)
+
+Save, then **New** again:
+
+- **Storage Category:** `Pallet Bay`
+- **Allow New Product:** If the location is empty
+- **Capacity by Package** tab, **Add a line:** `Pallet`, **Quantity** `1`
+
+![The Pallet Bay storage category with Allow New Product If the location is empty highlighted, and on the Capacity by Package tab the line Pallet 1.00 highlighted](/screens/inv09-pallet-bay.jpg)
+
+Leave **Max Weight** at 0: no product here has a weight yet (a gotcha below says why that
+matters).
+
+</Tab>
+<Tab>
+
+```python
+>>> pads = env["product.product"].search([("name", "=", "Brake Pad Set")])
+>>> pallet = env["stock.package.type"].search([("name", "=", "Pallet")])
+>>> Storage = env["stock.storage.category"]
+>>> parts_shelf = Storage.create({"name": "Parts Shelf", "allow_new_product": "same",
+...                               "capacity_ids": [(0, 0, {"product_id": pads.id, "quantity": 20})]})
+>>> pallet_bay = Storage.create({"name": "Pallet Bay", "allow_new_product": "empty",
+...                              "capacity_ids": [(0, 0, {"package_type_id": pallet.id, "quantity": 1})]})
+>>> [(c.name, c.allow_new_product, [(cap.product_id.name or cap.package_type_id.name, cap.quantity) for cap in c.capacity_ids]) for c in parts_shelf | pallet_bay]
+[('Parts Shelf', 'same', [('Brake Pad Set', 20.0)]), ('Pallet Bay', 'empty', [('Pallet', 1.0)])]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Shelves, bays and a rack
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Locations → New**:
+
+- **Location Name:** `Pallet Bay 1`
+- **Parent Location:** `LFD/Stock`
+- **Storage Category:** `Pallet Bay`
+
+![The new location Pallet Bay 1 with Parent Location LFD/Stock highlighted, Storage Category Pallet Bay and Replenishments highlighted, and the Removal Strategy choices highlighted](/screens/inv09-pallet-bay-1.jpg)
+
+The same form holds the location's **Removal Strategy** and **Replenishments**; leave
+both empty. Create **Pallet Bay 2** the same way, then **Fluids Rack** under `LFD/Stock`
+with no storage category. Finally open **LFD/Stock/Shelf A** and **Shelf B**, made in
+chapter 1, and give both the storage category **Parts Shelf**. The list:
+
+![The Locations list with the five sublocations of LFD/Stock highlighted: Fluids Rack without a category, Pallet Bay 1 and 2 with Pallet Bay, Shelf A and B with Parts Shelf](/screens/inv09-locations.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> Loc = env["stock.location"]
+>>> stock = Loc.search([("complete_name", "=", "LFD/Stock")])
+>>> Loc.search([("complete_name", "in", ["LFD/Stock/Shelf A", "LFD/Stock/Shelf B"])]).storage_category_id = parts_shelf
+>>> bay1 = Loc.create({"name": "Pallet Bay 1", "location_id": stock.id, "storage_category_id": pallet_bay.id})
+>>> bay2 = Loc.create({"name": "Pallet Bay 2", "location_id": stock.id, "storage_category_id": pallet_bay.id})
+>>> rack = Loc.create({"name": "Fluids Rack", "location_id": stock.id})
+>>> [(l.complete_name, l.storage_category_id.name) for l in stock.child_ids.sorted("complete_name")]
+[('LFD/Stock/Fluids Rack', False), ('LFD/Stock/Pallet Bay 1', 'Pallet Bay'), ('LFD/Stock/Pallet Bay 2', 'Pallet Bay'), ('LFD/Stock/Shelf A', 'Parts Shelf'), ('LFD/Stock/Shelf B', 'Parts Shelf')]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Three putaway rules
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Putaway Rules**, an editable list. **New** for each line:
+
+- **Pads:** When product arrives in `LFD/Stock`, Product `Brake Pad Set`, Store to
+  `LFD/Stock`, Sublocation Closest Location, Having Category `Parts Shelf`
+- **Fluids:** arrives in `LFD/Stock`, Product Category `Goods / Fluids`, Store to
+  `LFD/Stock/Fluids Rack`, Sublocation No
+- **Pallets:** arrives in `LFD/Stock`, Package type `Pallet`, Store to `LFD/Stock`,
+  Sublocation Closest Location, Having Category `Pallet Bay`
+
+![The Putaway Rules list with the three rules highlighted: Brake Pad Set to LFD/Stock with Closest Location and Parts Shelf, Goods / Fluids to LFD/Stock/Fluids Rack, and Pallet to LFD/Stock with Closest Location and Pallet Bay](/screens/inv09-putaway-rules.jpg)
+
+**Having Category** only takes a value with Closest Location. The same rules show from a
+location or a product category through its **Putaway Rules** smart button.
+
+</Tab>
+<Tab>
+
+```python
+>>> Rule = env["stock.putaway.rule"]
+>>> Rule.create({"location_in_id": stock.id, "product_id": pads.id, "location_out_id": stock.id,
+...              "sublocation": "closest_location", "storage_category_id": parts_shelf.id})
+stock.putaway.rule(1,)
+>>> Rule.create({"location_in_id": stock.id, "category_id": fluids.id, "location_out_id": rack.id})
+stock.putaway.rule(2,)
+>>> Rule.create({"location_in_id": stock.id, "package_type_ids": [(6, 0, pallet.ids)], "location_out_id": stock.id,
+...              "sublocation": "closest_location", "storage_category_id": pallet_bay.id})
+stock.putaway.rule(3,)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive pads, twice
+
+<UiOrShell>
+<Tab>
+
+**Receipts → New** from Brembo Parts, `Brake Pad Set` 15, **Mark as To Do**,
+**Validate**, **Next Transfer**. The Storage header still says `LFD/Stock`; open the line's
+**Details**:
+
+![The Detailed Operations of LFD/STOR/00011: 15 Brake Pad Set from LFD/Input with Store To LFD/Stock/Shelf A highlighted](/screens/inv09-storage-shelf-a.jpg)
+
+Neither shelf holds pads, so Closest Location took the first Parts Shelf by name, Shelf A,
+which has room for 15 of 20. Discard the dialog and **Validate**. Then a second receipt
+from Brembo, `Brake Pad Set` 10, and the same path:
+
+![The Detailed Operations of LFD/STOR/00012: 10 Brake Pad Set with Store To LFD/Stock/Shelf B highlighted](/screens/inv09-storage-shelf-b.jpg)
+
+Shelf A already holds pads, but 15 plus 10 is more than its capacity of 20, so Odoo moved
+on to Shelf B. **Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> def receive(partner, product, qty):
+...     receipt = env["stock.picking"].create({"partner_id": partner.id, "picking_type_id": lfd.in_type_id.id,
+...                                            "move_ids": [(0, 0, {"product_id": product.id, "product_uom_qty": qty})]})
+...     receipt.action_confirm()
+...     receipt.button_validate()
+...     storage = receipt.move_ids.move_dest_ids.picking_id
+...     print(receipt.name, storage.name, [(l.quantity, l.location_dest_id.complete_name) for l in storage.move_line_ids])
+...     storage.button_validate()
+... 
+>>> receive(brembo, pads, 15)
+LFD/IN/00014 LFD/STOR/00011 [(15.0, 'LFD/Stock/Shelf A')]
+>>> receive(brembo, pads, 10)
+LFD/IN/00015 LFD/STOR/00012 [(10.0, 'LFD/Stock/Shelf B')]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Oil goes by its category
+
+<UiOrShell>
+<Tab>
+
+A receipt from Nordic Lubricants, `Engine Oil 5W-30 1L` 6, through to its Storage:
+
+![The Detailed Operations of LFD/STOR/00013: 6 Engine Oil 5W-30 1L with Store To LFD/Stock/Fluids Rack highlighted](/screens/inv09-storage-fluids-rack.jpg)
+
+No rule names the oil; the rule for its category, Goods / Fluids, sent it to the rack.
+**Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> receive(env["res.partner"].search([("name", "=", "Nordic Lubricants")]), oil, 6)
+LFD/IN/00016 LFD/STOR/00013 [(6.0, 'LFD/Stock/Fluids Rack')]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Put the pallet in a bay
+
+<UiOrShell>
+<Tab>
+
+The pallet from the previous chapter stands in plain `LFD/Stock`. Putaway applies to any
+transfer into `LFD/Stock`, an internal one included. **Operations → Internal → New**,
+**Operation Type** `LibreFleet Depot: Internal Transfers` (source and destination both
+`LFD/Stock`), then **Move a Pack** and tick **PAL0000001**:
+
+![The Select Packages to Move dialog with PAL0000001 selected and highlighted, and the Select button highlighted](/screens/inv09-move-a-pack.jpg)
+
+**Select**. In the **Moves** list, both cartons go to the same place:
+
+![The Detailed Operations of LFD/INT/00001: both cartons, picked from LFD/Stock - PAL0000001, with To LFD/Stock/Pallet Bay 1 highlighted](/screens/inv09-pallet-to-bay.jpg)
+
+The package type rule beat the pads rule (the pallet holds pads too): package type rules
+are the most specific. Bay 1 is empty and takes one pallet. **Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> pal = env["stock.package"].search([("name", "=", "PAL0000001")])
+>>> move = env["stock.picking"].create({"picking_type_id": lfd.int_type_id.id, "location_id": stock.id, "location_dest_id": stock.id})
+>>> move.action_add_entire_packs(pal.ids)
+True
+>>> move.name, [(l.package_id.name, l.location_dest_id.complete_name) for l in move.move_line_ids]
+('LFD/INT/00001', [('CTN0000001', 'LFD/Stock/Pallet Bay 1'), ('CTN0000002', 'LFD/Stock/Pallet Bay 1')])
+>>> move.button_validate()
+True
+>>> pal.location_id.complete_name
+'LFD/Stock/Pallet Bay 1'
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Watch FIFO, then LIFO
+
+<UiOrShell>
+<Tab>
+
+The depot now has oil in three places: 13 loose in `LFD/Stock` from the first chapters,
+12 in a carton in Pallet Bay 1 from the last chapter, and 6 on the Fluids Rack from
+today. **Sales → New** for Garage Nord, `Engine Oil 5W-30 1L` 6, **Confirm**, open the
+Pick and its line's **Details**:
+
+![The Detailed Operations of LFD/PICK/00010 with Pick From LFD/Stock highlighted, 6 Units](/screens/inv09-pick-fifo.jpg)
+
+The oil's category has no strategy, so `LFD/Stock`'s applies: FEFO, set in chapter 7. The
+oil has no expiry dates, so FEFO falls back to arrival order and takes the oldest bottles,
+the loose ones. Now **Configuration → Product Categories → Goods / Fluids**, **Force
+Removal Strategy** `Last In First Out (LIFO)`, save:
+
+![The Fluids category with Force Removal Strategy Last In First Out (LIFO) highlighted, and the change logged in the chatter](/screens/inv09-fluids-lifo.jpg)
+
+Back on the Pick: the gear menu, **Unreserve**, then **Check Availability**, and the
+**Details** again:
+
+![The same Pick after Check Availability, with Pick From LFD/Stock/Fluids Rack highlighted, 6 Units](/screens/inv09-pick-lifo.jpg)
+
+The category's strategy beats the location's, and LIFO takes the newest bottles, the ones
+that arrived on the rack an hour ago. **Validate** the Pick, then the Pack and the
+Delivery through **Next Transfer**.
+
+</Tab>
+<Tab>
+
+```python
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> order = env["sale.order"].create({"partner_id": garage.id, "order_line": [(0, 0, {"product_id": oil.id, "product_uom_qty": 6})]})
+>>> order.action_confirm()
+True
+>>> pick = order.picking_ids
+>>> Quant = env["stock.quant"]
+>>> Quant._get_removal_strategy(oil, stock), [(l.location_id.complete_name, l.quantity) for l in pick.move_line_ids]
+('fefo', [('LFD/Stock', 6.0)])
+>>> fluids.removal_strategy_id = env.ref("stock.removal_lifo")
+>>> pick.do_unreserve()
+>>> pick.action_assign()
+True
+>>> Quant._get_removal_strategy(oil, stock), [(l.location_id.complete_name, l.quantity) for l in pick.move_line_ids]
+('lifo', [('LFD/Stock/Fluids Rack', 6.0)])
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> pack.move_ids.move_dest_ids.picking_id.button_validate()
+True
+>>> for q in Quant.search([("product_id", "in", (oil | pads).ids), ("location_id", "child_of", stock.id), ("quantity", "!=", 0)], order="product_id, location_id"):
+...     print(f"{q.product_id.name:<20} {q.location_id.complete_name:<24} {q.package_id.name or '':<11} {q.quantity:>6.2f}")
+... 
+Brake Pad Set        LFD/Stock                             15.00
+Brake Pad Set        LFD/Stock/Pallet Bay 1   CTN0000002   10.00
+Brake Pad Set        LFD/Stock/Shelf A                     15.00
+Brake Pad Set        LFD/Stock/Shelf B                     10.00
+Engine Oil 5W-30 1L  LFD/Stock                             13.00
+Engine Oil 5W-30 1L  LFD/Stock/Pallet Bay 1   CTN0000001   12.00
+>>> env.cr.commit()
+```
+
+`_get_removal_strategy` is the lookup described above: category, location, parents, FIFO.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Where the location's own settings live
+
+Nothing to change. Open **LFD/Stock**:
+
+![The LFD/Stock location form with Replenishments ticked and highlighted, Removal Strategy First Expiry First Out (FEFO) highlighted, and the Putaway Rules smart button highlighted](/screens/inv09-lfd-stock-form.jpg)
+
+**Replenishments** is ticked: this is the location the Replenishment report watches, with
+all its shelves and bays inside it. Its **Removal Strategy** is FEFO, which every child
+without one of its own inherits. **Putaway Rules** lists the three rules you made. For the
+shell, **Commit** is the last line of the previous block.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv09 --db warehouse
+```
+
+```text
+✔ the oil is in the product category Goods / Fluids
+✔ Parts Shelf and Pallet Bay storage categories with their capacities
+✔ the shelves and bays under LFD/Stock carry their categories
+✔ three putaway rules on LFD/Stock
+✔ putaway chose Shelf A, then Shelf B, then the Fluids Rack
+✔ the pallet was moved whole to Pallet Bay 1
+✔ LIFO took the newest oil
+✔ the shelf holds what putaway and the sale left
+
+inv09 complete! On to the next chapter 🔧
+```
+
+Where the pads and the oil are now, and what each place is:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, coalesce(sc.name, '') as storage_category, t.name->>'en_US' as product, coalesce(pk.name, '') as package, q.quantity from stock_quant q join stock_location l on l.id=q.location_id left join stock_storage_category sc on sc.id=l.storage_category_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id left join stock_package pk on pk.id=q.package_id where l.complete_name like 'LFD/Stock%' and q.quantity<>0 and t.name->>'en_US' in ('Engine Oil 5W-30 1L','Brake Pad Set') order by l.complete_name, product;"
+```
+
+```text
+        location        | storage_category |       product       |  package   | quantity 
+------------------------+------------------+---------------------+------------+----------
+ LFD/Stock              |                  | Brake Pad Set       |            |    15.00
+ LFD/Stock              |                  | Engine Oil 5W-30 1L |            |    13.00
+ LFD/Stock/Pallet Bay 1 | Pallet Bay       | Brake Pad Set       | CTN0000002 |    10.00
+ LFD/Stock/Pallet Bay 1 | Pallet Bay       | Engine Oil 5W-30 1L | CTN0000001 |    12.00
+ LFD/Stock/Shelf A      | Parts Shelf      | Brake Pad Set       |            |    15.00
+ LFD/Stock/Shelf B      | Parts Shelf      | Brake Pad Set       |            |    10.00
+(6 rows)
+```
+
+The Fluids Rack is empty again: LIFO sold its 6 bottles.
+
+## Gotchas
+
+- **Putaway never splits a line.** A Storage line of 25 pads fits no Parts Shelf (20
+  each), so it lands in `LFD/Stock` itself. Split the line in **Details** if it should
+  spread over shelves.
+- **Rules belong to the exact arrival location.** A rule on `LFD` does nothing for a
+  transfer into `LFD/Stock`. Put the rule where the transfer delivers.
+- **"Closest" means first by name.** Both the Closest Location putaway and the removal
+  strategy sort locations by their full name, not by distance in the building. Name
+  shelves in walking order.
+- **Max Weight 0 refuses anything with a weight.** It is not "no limit". As soon as the
+  pads get a weight, Parts Shelf (Max Weight 0) accepts none of them, and putaway falls back
+  to `LFD/Stock`. Set a real Max Weight on every category once products have weights.
+- **A category strategy overrides the location for every product in it.** Had Brake
+  Fluid been in Fluids, LIFO would have replaced the FEFO it needs. Group products by how
+  they must leave, not only by what they are.
+- **Made-to-order products do not reserve stock.** The pads have Replenish on Order
+  (chapter 4), so a sale of pads waits for a manufacturing order and no removal strategy
+  ever applies to them.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Shelf A holds 15 pads and both shelves have a capacity of 20. Where does a Storage line of 10 pads go?',
+      options: [
+        'Shelf A, because it already holds the very same product',
+        'Shelf B, because 25 would be over Shelf A\'s capacity',
+        'Split, 5 on Shelf A and the other 5 on Shelf B',
+      ],
+      answer: 1,
+      why: 'Closest Location prefers a location that already holds the product, but only if it still has room for the whole line. Shelf A fails the capacity check, so Odoo takes the next Parts Shelf by name. It never splits the line.',
+    },
+    {
+      q: 'The pallet holds pads, and there is a rule for the pads and one for pallets. Which rule places the pallet?',
+      options: [
+        'The pads rule, because product rules come first',
+        'The rule with the lowest Priority number in the whole list',
+        'The pallet rule, because package type rules come first',
+      ],
+      answer: 2,
+      why: 'Among matching rules, Odoo sorts by specificity: package type, then product, then the product\'s own category, then parent categories. The pallet went to Pallet Bay 1.',
+    },
+    {
+      q: 'LFD/Stock has FEFO and the Fluids category has LIFO. Which applies to oil reserved from LFD/Stock?',
+      options: [
+        'LIFO, the product category comes before the location',
+        'FEFO, the location comes before the product category',
+        'FIFO, because the two settings disagree with each other',
+      ],
+      answer: 0,
+      why: 'The lookup is category, then the location, then its parents, then FIFO. That is why the second reservation took the Fluids Rack.',
+    },
+    {
+      q: 'With Closest Location as the removal strategy, which oil does a pick of 12 take first here?',
+      options: [
+        'The carton in Pallet Bay 1, the nearest bay to the dock',
+        'The loose oil in LFD/Stock, whose name sorts first',
+        'The oldest bottles, wherever in the depot they are',
+      ],
+      answer: 1,
+      why: 'Closest Location orders quants by the full location name. LFD/Stock sorts before LFD/Stock/Pallet Bay 1, whatever the real distances.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Set the Fluids category's **Force Removal Strategy** to **Least Packages** and sell 12
+   oil to Garage Nord. What does the Pick reserve, and why that and not the 13 loose
+   bottles? Try **Closest Location** next (Unreserve, Check Availability), then cancel the
+   order and set LIFO back.
+2. ⭐⭐ Change the pads rule's **Sublocation** to **Last Used** and receive 4 pads. Where do
+   they go, and what happened to **Having Category**? Set the rule back to Closest
+   Location with Parts Shelf.
+3. ⭐⭐ Receive 25 pads in one line and look at the Storage's **Details**. Split it by
+   hand: set the line to 20 and **Add a line** of 5. Which line gets a shelf, and which
+   keeps `LFD/Stock`? (Putaway runs when a new line gets its quantity, not when an existing
+   one changes.)
+4. ⭐⭐⭐ Break-it lab. Give Brake Pad Set a **Weight** of 1.5 kg, receive 2 pads, and see
+   where Storage sends them. Then give Parts Shelf a **Max Weight** of 100 kg and receive
+   2 more. Explain both results, then set the weight back to 0.
+
+## Further reading
+
+- <Icon name="docs" /> [Putaway rules (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/putaway.html)
+  and [storage categories (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/storage_category.html):
+  the forms and fields from the user's side.
+- <Icon name="docs" /> [Removal strategies (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/removal_strategies.html):
+  FIFO, LIFO, Closest Location, Least Packages and FEFO, each with its own page.
+- <Icon name="source" /> [`stock/models/stock_location.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_location.py):
+  `_get_putaway_strategy` sorts the rules and `_check_can_be_used` applies the storage
+  category.
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  `_get_removal_strategy` and `_get_removal_strategy_order` decide which stock leaves first.

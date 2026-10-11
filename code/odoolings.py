@@ -3425,6 +3425,103 @@ def shelf_after_packing(env):
     assert not extra, "unexpected stock: %s. A transfer is not finished" % extra
 
 
+def the_oil_is_in_category_fluids(env):
+    rows = env.call("product.category", "search_read", [("complete_name", "=", "Goods / Fluids")], fields=["id"])
+    assert rows, "no product category Goods / Fluids; Configuration > Product Categories > New, Parent Category Goods"
+    oil = env.call("product.product", "search_read", [("name", "=", "Engine Oil 5W-30 1L")], fields=["categ_id"])[0]
+    assert oil["categ_id"] and oil["categ_id"][0] == rows[0]["id"], "the oil's Category (General Information) should be Goods / Fluids"
+
+
+def two_storage_categories_exist(env):
+    cats = {c["name"]: c for c in env.call("stock.storage.category", "search_read", [], fields=["name", "allow_new_product", "capacity_ids"])}
+    for name in ("Parts Shelf", "Pallet Bay"):
+        assert name in cats, "no storage category %s; Configuration > Storage Categories > New" % name
+    assert cats["Parts Shelf"]["allow_new_product"] == "same", "Parts Shelf: Allow New Product should be If all products are same"
+    assert cats["Pallet Bay"]["allow_new_product"] == "empty", "Pallet Bay: Allow New Product should be If the location is empty"
+    caps = env.call("stock.storage.category.capacity", "search_read", [("storage_category_id", "in", [cats["Parts Shelf"]["id"], cats["Pallet Bay"]["id"]])],
+                    fields=["storage_category_id", "product_id", "package_type_id", "quantity"])
+    got = sorted((c["storage_category_id"][1], (c["product_id"] or c["package_type_id"])[1], c["quantity"]) for c in caps)
+    assert got == [("Pallet Bay", "Pallet", 1.0), ("Parts Shelf", "Brake Pad Set", 20.0)], (
+        "capacities should be 20 Brake Pad Set per Parts Shelf and 1 Pallet per Pallet Bay, they are %s" % got)
+
+
+def the_shelves_have_their_categories(env):
+    rows = env.call("stock.location", "search_read", [("complete_name", "like", "LFD/Stock/")], fields=["complete_name", "storage_category_id"])
+    have = {r["complete_name"]: r["storage_category_id"] and r["storage_category_id"][1] for r in rows}
+    want = {"LFD/Stock/Shelf A": "Parts Shelf", "LFD/Stock/Shelf B": "Parts Shelf", "LFD/Stock/Pallet Bay 1": "Pallet Bay",
+            "LFD/Stock/Pallet Bay 2": "Pallet Bay", "LFD/Stock/Fluids Rack": False}
+    for name, cat in want.items():
+        assert name in have, "no location %s; Configuration > Locations > New, Parent Location LFD/Stock" % name
+        assert have[name] == cat, "%s should have Storage Category %s, it has %s" % (name, cat or "none", have[name] or "none")
+
+
+def three_putaway_rules_on_lfd_stock(env):
+    rules = env.call("stock.putaway.rule", "search_read", [("location_in_id.complete_name", "=", "LFD/Stock")],
+                     fields=["product_id", "category_id", "package_type_ids", "location_out_id", "sublocation", "storage_category_id"])
+    def find(test, what):
+        hit = [r for r in rules if test(r)]
+        assert hit, "no putaway rule for %s arriving in LFD/Stock; Configuration > Putaway Rules" % what
+        return hit[0]
+    pads = find(lambda r: r["product_id"] and r["product_id"][1] == "Brake Pad Set", "Brake Pad Set")
+    assert (pads["sublocation"], pads["storage_category_id"] and pads["storage_category_id"][1]) == ("closest_location", "Parts Shelf"), (
+        "the pads rule should be Sublocation Closest Location, Having Category Parts Shelf")
+    fluids = find(lambda r: r["category_id"] and r["category_id"][1] == "Goods / Fluids", "the category Goods / Fluids")
+    assert fluids["location_out_id"][1] == "LFD/Stock/Fluids Rack", "the Fluids rule should Store to LFD/Stock/Fluids Rack"
+    pallet = find(lambda r: r["package_type_ids"], "the package type Pallet")
+    assert (pallet["sublocation"], pallet["storage_category_id"] and pallet["storage_category_id"][1]) == ("closest_location", "Pallet Bay"), (
+        "the Pallet rule should be Sublocation Closest Location, Having Category Pallet Bay")
+
+
+def putaway_chose_the_shelves(env):
+    lines = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("picking_type_id.sequence_code", "=", "STOR"),
+                                                        ("location_dest_id.complete_name", "in", ["LFD/Stock/Shelf A", "LFD/Stock/Shelf B", "LFD/Stock/Fluids Rack"])],
+                     fields=["product_id", "location_dest_id", "quantity"])
+    got = sorted((l["product_id"][1], l["location_dest_id"][1], l["quantity"]) for l in lines)
+    want = [("Brake Pad Set", "LFD/Stock/Shelf A", 15.0), ("Brake Pad Set", "LFD/Stock/Shelf B", 10.0), ("Engine Oil 5W-30 1L", "LFD/Stock/Fluids Rack", 6.0)]
+    assert got == want, ("Storage should have put 15 pads on Shelf A, then 10 on Shelf B (A was too full) and 6 oil on the Fluids Rack; "
+                         "it did %s. Receive the pads in two receipts, 15 then 10" % got)
+
+
+def the_pallet_sits_in_bay_1(env):
+    lines = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("picking_type_id.sequence_code", "=", "INT"),
+                                                        ("result_package_id.parent_package_id.name", "=", "PAL0000001")],
+                     fields=["location_dest_id"])
+    assert lines and {l["location_dest_id"][1] for l in lines} == {"LFD/Stock/Pallet Bay 1"}, (
+        "no done internal transfer moved PAL0000001 to LFD/Stock/Pallet Bay 1; Internal Transfers > New, Move a Pack")
+
+
+def lifo_took_the_newest_oil(env):
+    cat = env.call("product.category", "search_read", [("complete_name", "=", "Goods / Fluids")], fields=["removal_strategy_id"])
+    assert cat and cat[0]["removal_strategy_id"] and "LIFO" in cat[0]["removal_strategy_id"][1], (
+        "Goods / Fluids should have Force Removal Strategy Last In First Out (LIFO)")
+    lines = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("picking_type_id.sequence_code", "=", "PICK"),
+                                                        ("product_id.name", "=", "Engine Oil 5W-30 1L"), ("picking_partner_id.name", "=", "Garage Nord"),
+                                                        ("location_id.complete_name", "=", "LFD/Stock/Fluids Rack")], fields=["quantity"])
+    assert lines and lines[0]["quantity"] == 6, ("no done Pick of 6 oil from the Fluids Rack; sell 6 to Garage Nord, set LIFO, "
+                                                 "Unreserve and Check Availability on the Pick, then finish the chain")
+
+
+def shelf_after_putaway(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 10.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 13.0, ("LFD/Stock/Pallet Bay 1", "Engine Oil 5W-30 1L", False, True): 12.0,
+            ("LFD/Stock", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 12.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " in packages" if key[3] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4300,6 +4397,23 @@ CHAPTERS = {
          "Sell 2 Pack of 6 to Garage Nord: Pick into TOTE0000001, Put in Pack on the Pack step, then the delivery."),
         ("the shelf holds the cartons and the loose stock", shelf_after_packing,
          "Products > Packages shows what sits in which package; Reporting > Locations shows the loose rest."),
+    ],    "inv09": [
+        ("the oil is in the product category Goods / Fluids", the_oil_is_in_category_fluids,
+         "Configuration > Product Categories > New: Fluids, Parent Category Goods; then the oil's Category."),
+        ("Parts Shelf and Pallet Bay storage categories with their capacities", two_storage_categories_exist,
+         "Configuration > Storage Categories: Parts Shelf (same products, 20 Brake Pad Set), Pallet Bay (empty only, 1 Pallet)."),
+        ("the shelves and bays under LFD/Stock carry their categories", the_shelves_have_their_categories,
+         "Configuration > Locations: Shelf A and B get Parts Shelf; new Pallet Bay 1 and 2 get Pallet Bay; new Fluids Rack gets none."),
+        ("three putaway rules on LFD/Stock", three_putaway_rules_on_lfd_stock,
+         "Configuration > Putaway Rules: Brake Pad Set closest Parts Shelf; Goods / Fluids to Fluids Rack; Pallet closest Pallet Bay."),
+        ("putaway chose Shelf A, then Shelf B, then the Fluids Rack", putaway_chose_the_shelves,
+         "Receive 15 pads, then 10 pads from Brembo, then 6 oil from Nordic, validating each Storage."),
+        ("the pallet was moved whole to Pallet Bay 1", the_pallet_sits_in_bay_1,
+         "Internal Transfers > New, LFD/Stock to LFD/Stock, Move a Pack: PAL0000001, Validate."),
+        ("LIFO took the newest oil", lifo_took_the_newest_oil,
+         "Sell 6 oil to Garage Nord; Fluids: Force Removal Strategy LIFO; on the Pick, Unreserve, Check Availability."),
+        ("the shelf holds what putaway and the sale left", shelf_after_putaway,
+         "Reporting > Locations shows every quant by location; Shelf A 15 pads, Shelf B 10, the pallet in Bay 1."),
     ],
 }
 
@@ -5365,6 +5479,47 @@ def seed_inv08(env):
     _finish_chain(env, pack)
 
 
+def seed_inv09(env):
+    goods = _id(env, "product.category", [("complete_name", "=", "Goods")])
+    fluids = env.call("product.category", "create", {"name": "Fluids", "parent_id": goods})
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    oil, pads = variant("Engine Oil 5W-30 1L"), variant("Brake Pad Set")
+    env.call("product.product", "write", [oil], {"categ_id": fluids})
+    pallet = _id(env, "stock.package.type", [("name", "=", "Pallet")])
+    shelf = env.call("stock.storage.category", "create", {"name": "Parts Shelf", "allow_new_product": "same",
+                                                          "capacity_ids": [(0, 0, {"product_id": pads, "quantity": 20})]})
+    bay = env.call("stock.storage.category", "create", {"name": "Pallet Bay", "allow_new_product": "empty",
+                                                        "capacity_ids": [(0, 0, {"package_type_id": pallet, "quantity": 1})]})
+    loc = lambda name: _id(env, "stock.location", [("complete_name", "=", name)])
+    stock = loc("LFD/Stock")
+    env.call("stock.location", "write", [loc("LFD/Stock/Shelf A"), loc("LFD/Stock/Shelf B")], {"storage_category_id": shelf})
+    for name in ("Pallet Bay 1", "Pallet Bay 2"):
+        env.call("stock.location", "create", {"name": name, "location_id": stock, "storage_category_id": bay})
+    rack = env.call("stock.location", "create", {"name": "Fluids Rack", "location_id": stock})
+    rule = lambda vals: env.call("stock.putaway.rule", "create", dict(vals, location_in_id=stock))
+    rule({"product_id": pads, "location_out_id": stock, "sublocation": "closest_location", "storage_category_id": shelf})
+    rule({"category_id": fluids, "location_out_id": rack})
+    rule({"package_type_ids": [(6, 0, [pallet])], "location_out_id": stock, "sublocation": "closest_location", "storage_category_id": bay})
+    lfd = _id(env, "stock.warehouse", [("code", "=", "LFD")])
+    kinds = env.call("stock.warehouse", "read", [lfd], ["in_type_id", "int_type_id"])[0]
+    for partner, product, qty in (("Brembo Parts", pads, 15), ("Brembo Parts", pads, 10), ("Nordic Lubricants", oil, 6)):
+        receipt = env.call("stock.picking", "create", {
+            "partner_id": _id(env, "res.partner", [("name", "=", partner)]), "picking_type_id": kinds["in_type_id"][0],
+            "move_ids": [(0, 0, {"product_id": product, "product_uom_qty": qty})]})
+        _call(env, "stock.picking", "action_confirm", [receipt])
+        _finish_chain(env, receipt)  # receipt, then the Storage that putaway routes
+    move = env.call("stock.picking", "create", {"picking_type_id": kinds["int_type_id"][0], "location_id": stock, "location_dest_id": stock})
+    _call(env, "stock.picking", "action_add_entire_packs", [move], [_id(env, "stock.package", [("name", "=", "PAL0000001")])])
+    _validate(env, [move])
+    order = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Garage Nord")]),
+                                              "order_line": [(0, 0, {"product_id": oil, "product_uom_qty": 6})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    pick = env.call("sale.order", "read", [order], ["picking_ids"])[0]["picking_ids"][0]
+    env.call("product.category", "write", [fluids], {"removal_strategy_id": _xmlid(env, "stock.removal_lifo")})
+    _call(env, "stock.picking", "do_unreserve", [pick])
+    _call(env, "stock.picking", "action_assign", [pick])  # LIFO now takes the Fluids Rack
+    _finish_chain(env, pick)
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5374,7 +5529,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
-    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08,
+    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
