@@ -3926,6 +3926,23 @@ def shelf_after_extending(env):
     assert not extra, "unexpected stock: %s. A transfer of the second service order is not finished" % extra
 
 
+def no_quants_at_zero(env):
+    n = env.call("stock.quant", "search_count", [("quantity", "=", 0), ("reserved_quantity", "=", 0), ("inventory_quantity_set", "=", False)])
+    assert n == 0, "%d quants still sit at zero; run Inventory > Operations > Procurement: run scheduler (developer mode)" % n
+
+
+def no_negative_or_over_reserved_stock(env):
+    bad = env.call("stock.quant", "search_read", ["&", ("location_id.usage", "in", ["internal", "transit"]), "|", ("quantity", "<", 0), ("reserved_quantity", ">", 0)],
+                   fields=["location_id", "product_id", "quantity", "reserved_quantity"])
+    bad = [b for b in bad if b["quantity"] < 0 or b["reserved_quantity"] > b["quantity"]]
+    assert not bad, "negative or over-reserved stock: %s. Was a ticket demo committed? Fix it with a count" % [(b["location_id"][1], b["product_id"][1], b["quantity"]) for b in bad]
+
+
+def no_move_is_stuck(env):
+    n = env.call("stock.move", "search_count", [("state", "in", ["confirmed", "waiting", "partially_available"])])
+    assert n == 0, "%d moves wait for stock; the audit should find none at the end of chapter 14" % n
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4906,6 +4923,15 @@ CHAPTERS = {
          "report/report_deliveryslip.xml extends stock.report_delivery_document after div_origin."),
         ("the shelf holds what the second order left", shelf_after_extending,
          "12 air filters in LFD/Stock, 1 on Shelf A, 6 oil in the van."),
+    ],    "inv15": [
+        ("no quant sits at zero", no_quants_at_zero,
+         "Developer mode, Inventory > Operations > Procurement: run scheduler; it merges and deletes empty quants."),
+        ("no stock is negative or over-reserved", no_negative_or_over_reserved_stock,
+         "The ticket demos run inside a rollback; if one was committed, count the location back to its real quantity."),
+        ("no move is stuck waiting", no_move_is_stuck,
+         "Open the waiting transfers from the audit and finish or cancel them."),
+        ("the shelf holds what chapter 14 left", shelf_after_extending,
+         "This chapter changes no stock: 12 air filters in LFD/Stock, 1 on Shelf A, 6 oil in the van."),
     ],
 }
 
@@ -6217,6 +6243,10 @@ def seed_inv14(env):
     _validate(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id.sequence_code", "=", "WSC"), ("state", "=", "assigned")]))
 
 
+def seed_inv15(env):
+    _call(env, "stock.rule", "run_scheduler")  # merges and deletes the quants left at zero
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6228,7 +6258,7 @@ SEEDS = {
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
-    "inv14": seed_inv14,
+    "inv14": seed_inv14, "inv15": seed_inv15,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped

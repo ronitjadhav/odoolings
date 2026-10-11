@@ -580,6 +580,8 @@ RPC, so it is a typing assistant, not a business rule.
 field name. Stored nowhere: it is a live query over the comodel's many2one, which
 is why it cannot exist without one.
 
+**opening stock**: the quantities a database starts with at go-live. Import them as counts in Physical Inventory (or quants in `inventory_mode`), after the costs, never as receipts from a made-up vendor (Inventory chapter 15).
+
 **operation type (`stock.picking.type`)**: a kind of transfer with its own numbering and
 its own default source and destination: Receipts (Vendors to Stock, `IN`), Delivery
 Orders (Stock to Customers, `OUT`), Internal Transfers (`INT`), and later Pick, Pack,
@@ -767,6 +769,8 @@ rule wins: package type, then product, then category. It never splits a line.
 "stock": every On Hand figure is a sum over quants, and quants only change when a
 transfer is validated. Vendor and customer locations keep quants too, which is why a
 receipt leaves `Vendors` at a negative quantity (Inventory deep dive, chapter 1).
+
+**quant housekeeping (`_quant_tasks`)**: the cleanup the scheduler runs on quants: `_merge_quants` joins duplicates, `_clean_reservations` repairs reserved quantities, `_unlink_zero_quants` deletes empty ones. Odoo defers that deletion for speed, so quants at zero are normal between runs (Inventory chapter 15).
 
 **QWeb**: Odoo's XML templating engine, used both server-side (PDF reports, website
 pages) and client-side (OWL component templates).
