@@ -2728,8 +2728,14 @@ def inventory_app_installed(env):
     assert rows and rows[0]["state"] == "installed", "the Inventory app (module 'stock') is not installed"
 
 
+def _in_group(env, xmlid):
+    # has_group over XML-RPC returns None for some groups in 19; the group list does not lie
+    gid = _xmlid(env, xmlid)  # first call of a run: this is what logs in and sets env.uid
+    return bool(env.call("res.users", "search_count", [("id", "=", env.uid), ("all_group_ids", "in", [gid])]))
+
+
 def storage_locations_are_on(env):
-    assert env.call("res.users", "has_group", [env.uid], "stock.group_stock_multi_locations"), (
+    assert _in_group(env, "stock.group_stock_multi_locations"), (
         "the Storage Locations setting is off; Inventory > Configuration > Settings > Storage Locations")
 
 
@@ -2872,6 +2878,99 @@ def shelf_holds_nine_nine_and_one(env):
     assert all(r["reserved_quantity"] == 0 for r in rows), (
         "something is still reserved in LFD/Stock; a cancelled or done transfer holds no reservation, "
         "so a transfer is still open: find it under Operations > Transfers")
+
+
+def multi_step_routes_is_on(env):
+    assert _in_group(env, "stock.group_adv_location"), (
+        "Multi-Step Routes is off; Inventory > Configuration > Settings > Warehouse > Multi-Step Routes, Save")
+
+
+def depot_receives_in_two_steps_and_ships_in_three(env):
+    wh = env.call("stock.warehouse", "search_read", [("code", "=", "LFD")], fields=["reception_steps", "delivery_steps"])
+    assert wh, "no warehouse with Short Name LFD"
+    assert wh[0]["reception_steps"] == "two_steps", (
+        "Incoming Shipments is %r; Configuration > Warehouses > LibreFleet Depot, pick Receive then Store (2 steps)"
+        % wh[0]["reception_steps"])
+    assert wh[0]["delivery_steps"] == "pick_pack_ship", (
+        "Outgoing Shipments is %r; on the same form pick Pick, Pack, then Deliver (3 steps)" % wh[0]["delivery_steps"])
+
+
+def _done_moves(env, type_code, product, qty):
+    return env.call("stock.move", "search_read",
+                    [("state", "=", "done"), ("picking_id.picking_type_id.sequence_code", "=", type_code),
+                     ("product_id.name", "=", product), ("product_uom_qty", "=", qty)],
+                    fields=["reference", "move_orig_ids", "move_dest_ids"])
+
+
+def six_bottles_came_in_through_input(env):
+    assert _done_moves(env, "IN", "Engine Oil 5W-30 1L", 6), (
+        "no done receipt of 6 Engine Oil 5W-30 1L; Receipts > New, Receive From Brembo Parts, 6 bottles, Validate. "
+        "With two-step reception the receipt lands in LFD/Input")
+    stor = _done_moves(env, "STOR", "Engine Oil 5W-30 1L", 6)
+    assert stor, ("the receipt is done but its Storage transfer is not; open the receipt, click Next Transfer "
+                  "(the push rule made it) and Validate it, that is what puts the bottles in LFD/Stock")
+    assert stor[0]["move_orig_ids"], "the Storage transfer is not chained to the receipt; it should come from the push rule, not be typed by hand"
+
+
+def four_pads_went_pick_pack_ship(env):
+    for code, hint in (("PICK", "Overview > Pick > New: Garage Nord, Brake Pad Set 4, Mark as Todo, Validate"),
+                       ("PACK", "validate the Pick, then Next Transfer opens the Pack it pushed: Validate it"),
+                       ("OUT", "validate the Pack, then Next Transfer opens the delivery: Validate it")):
+        assert _done_moves(env, code, "Brake Pad Set", 4), "no done %s transfer of 4 Brake Pad Set; %s" % (code, hint)
+    out = _done_moves(env, "OUT", "Brake Pad Set", 4)
+    assert out[0]["move_orig_ids"], ("the delivery of 4 pads was typed by hand, not pushed from a Pack; in a "
+                                     "three-step warehouse the chain starts at the Pick")
+
+
+def sales_and_purchase_are_installed(env):
+    rows = env.call("ir.module.module", "search_read",
+                    [("name", "in", ["sale_management", "purchase"]), ("state", "=", "installed")], fields=["name"])
+    missing = {"sale_management", "purchase"} - {r["name"] for r in rows}
+    assert not missing, "Apps > Activate Sales and Purchase; still missing: %s" % ", ".join(sorted(missing))
+
+
+def tablet_is_replenished_on_order(env):
+    mto = env.call("stock.route", "search_read", [("name", "ilike", "Replenish on Order")],
+                   fields=["active"], context={"active_test": False})
+    assert mto and mto[0]["active"], (
+        "the Replenish on Order (MTO) route is archived; Inventory > Configuration > Settings > Replenish on Order (MTO), Save")
+    tmpl = env.call("product.template", "search_read", [("name", "=", "Diagnostic Tablet")], fields=["route_ids", "seller_ids"])
+    assert tmpl, "no Diagnostic Tablet product"
+    assert mto[0]["id"] in tmpl[0]["route_ids"], (
+        "the tablet does not have the Replenish on Order (MTO) route; product form > Inventory tab > Routes")
+    assert tmpl[0]["seller_ids"], (
+        "the tablet has no vendor; product form > Purchase tab > Add a line, Brembo Parts. The Buy rule only "
+        "fires for a product that has someone to buy it from")
+
+
+def the_order_bought_the_tablet(env):
+    so = env.call("sale.order", "search_read",
+                  [("partner_id.name", "=", "Garage Nord"), ("state", "=", "sale"),
+                   ("order_line.product_id.name", "=", "Diagnostic Tablet")], fields=["name", "order_line"])
+    assert so, "no confirmed sales order for a Diagnostic Tablet to Garage Nord; Sales > New, Diagnostic Tablet 1, Confirm"
+    po = env.call("purchase.order", "search_read", [("origin", "=", so[0]["name"])], fields=["state", "picking_ids"])
+    assert po, ("confirming the order created no purchase; the chain is MTO route on the product + a vendor on the "
+                "product + the warehouse's Buy rule. Check the three, then confirm a new order")
+    assert po[0]["state"] in ("purchase", "done"), "the request for quotation %s is still open; open it and Confirm Order" % so[0]["name"]
+    pickings = env.call("stock.picking", "search_read", [("id", "in", po[0]["picking_ids"])], fields=["state"])
+    assert pickings and all(p["state"] == "done" for p in pickings), (
+        "the purchase's receipt is not done; open it from the purchase order, Validate, then Validate the Storage it pushes")
+    line = env.call("sale.order.line", "read", so[0]["order_line"], ["qty_delivered"])[0]
+    assert line["qty_delivered"] == 1.0, (
+        "the order shows %s delivered; the Pick woke up when the Storage was done, so Validate Pick, then Pack, then the delivery"
+        % line["qty_delivered"])
+
+
+def shelf_holds_five_fifteen_and_one(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "=", "internal")],
+                    fields=["product_id", "location_id", "quantity", "reserved_quantity"])
+    stock = {r["product_id"][1]: r["quantity"] for r in rows if r["location_id"][1] == "LFD/Stock"}
+    assert stock.get("Brake Pad Set") == 5.0, "LFD/Stock should hold 5 Brake Pad Set (9 - 4 picked), it holds %s" % stock.get("Brake Pad Set")
+    assert stock.get("Engine Oil 5W-30 1L") == 15.0, "LFD/Stock should hold 15 Engine Oil 5W-30 1L (9 + 6 stored), it holds %s" % stock.get("Engine Oil 5W-30 1L")
+    assert stock.get("Diagnostic Tablet") == 1.0, "LFD/Stock should hold 1 Diagnostic Tablet: the bought one came in and went out"
+    stuck = [(r["location_id"][1], r["product_id"][1], r["quantity"]) for r in rows
+             if r["location_id"][1] != "LFD/Stock" and r["quantity"]]
+    assert not stuck, "goods are sitting in a step location: %s. A transfer in the chain is not validated" % stuck
 
 
 # Each chapter: list of (description, check_fn, hint shown on failure).
@@ -3626,6 +3725,32 @@ CHAPTERS = {
          "Reporting > Stock. Every number here is the sum of the transfers above; if one is off, "
          "Reporting > Moves History lists every done move line in order."),
     ],
+    "inv03": [
+        ("Multi-Step Routes is switched on", multi_step_routes_is_on,
+         "Configuration > Settings > Warehouse > Multi-Step Routes. It adds the Routes and Rules menus "
+         "and the step choices on the warehouse form."),
+        ("the depot receives in 2 steps and delivers in 3", depot_receives_in_two_steps_and_ships_in_three,
+         "Configuration > Warehouses > LibreFleet Depot: Incoming Shipments, Outgoing Shipments. Saving "
+         "rewrites the routes and wakes up Input, Output and Packing Zone."),
+        ("6 bottles came in through Input and were stored", six_bottles_came_in_through_input,
+         "A receipt now stops in LFD/Input; the push rule creates a Storage transfer when it is done. "
+         "Validate both."),
+        ("4 pads went out as Pick, Pack, then Delivery", four_pads_went_pick_pack_ship,
+         "Start at the Pick (Overview > Pick > New). Each Validate pushes the next transfer; Next Transfer "
+         "opens it."),
+        ("Sales and Purchase are installed", sales_and_purchase_are_installed,
+         "Apps > Sales > Activate, Apps > Purchase > Activate. Purchase brings the Buy route, Sales lets "
+         "an order start a chain."),
+        ("the tablet is Replenish on Order with a vendor", tablet_is_replenished_on_order,
+         "Settings > Replenish on Order (MTO) unarchives the route; then on the product, Inventory tab tick "
+         "the route and Purchase tab add Brembo Parts."),
+        ("the sales order bought, received, stored, picked, packed and shipped one tablet", the_order_bought_the_tablet,
+         "Confirm the order, Confirm Order on the purchase it made, Validate the receipt, then follow Next "
+         "Transfer until the delivery is Done."),
+        ("the shelf holds 5 pads, 15 oil and 1 tablet, nothing in the step locations", shelf_holds_five_fifteen_and_one,
+         "Reporting > Locations without the Internal filter shows Input, Packing Zone and Output. Anything "
+         "left there is a chain you did not finish."),
+    ],
 }
 
 
@@ -3876,6 +4001,7 @@ INSTALLS = {
     "ch49": ["sale_fixed_discount"],
     "ch50": ["crm_lead_code", "product_secondary_unit", "auditlog", "web_responsive"],
     "ch51": ["sale_fixed_discount_limit"],
+    "inv03": ["sale_management", "purchase"],  # the Buy route, and an order that starts a chain
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -4406,6 +4532,50 @@ def seed_inv02(env):
     env.call("stock.picking.type", "write", [out_type], {"reservation_method": "at_confirm"})
 
 
+def _finish_chain(env, picking):
+    """Validate a transfer, then every Ready transfer its moves feed, as the reader clicks Next Transfer."""
+    _validate(env, [picking])
+    moves = env.call("stock.move", "search_read", [("picking_id", "=", picking)], fields=["move_dest_ids"])
+    dests = [d for m in moves for d in m["move_dest_ids"]]
+    for nxt in env.call("stock.move", "search_read", [("id", "in", dests), ("picking_id.state", "=", "assigned")],
+                        fields=["picking_id"]):
+        _finish_chain(env, nxt["picking_id"][0])
+
+
+def seed_inv03(env):
+    _install(env, ["sale_management", "purchase"])
+    _settings(env, group_stock_adv_location=True)
+    depot = _id(env, "stock.warehouse", [])
+    env.call("stock.warehouse", "write", [depot], {"reception_steps": "two_steps", "delivery_steps": "pick_pack_ship"})
+    kinds = env.call("stock.warehouse", "read", [depot], ["in_type_id", "pick_type_id"])[0]
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    pads, oil, tablet = variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L"), variant("Diagnostic Tablet")
+    garage = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    brembo = _id(env, "res.partner", [("name", "=", "Brembo Parts")])
+
+    def picking(partner, kind, lines):
+        return env.call("stock.picking", "create", {
+            "partner_id": partner, "picking_type_id": kind,
+            "move_ids": [(0, 0, {"product_id": p, "product_uom_qty": q}) for p, q in lines]})
+
+    _finish_chain(env, picking(brembo, kinds["in_type_id"][0], [(oil, 6)]))  # receipt, then the pushed Storage
+    pick = picking(garage, kinds["pick_type_id"][0], [(pads, 4)])
+    _call(env, "stock.picking", "action_confirm", [pick])
+    _finish_chain(env, pick)  # pick, then the pushed Pack and Delivery
+    _settings(env, replenish_on_order=True)
+    mto = _id(env, "stock.route", [("name", "ilike", "Replenish on Order")])
+    env.call("product.template", "write", [_id(env, "product.template", [("name", "=", "Diagnostic Tablet")])],
+             {"route_ids": [(4, mto)], "seller_ids": [(0, 0, {"partner_id": brembo, "price": 400})]})
+    order = env.call("sale.order", "create", {
+        "partner_id": garage,
+        "order_line": [(0, 0, {"product_id": tablet, "product_uom_qty": 1, "price_unit": 650})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    po = _id(env, "purchase.order", [("origin", "=", env.call("sale.order", "read", [order], ["name"])[0]["name"])])
+    _call(env, "purchase.order", "button_confirm", [po])
+    for receipt in env.call("purchase.order", "read", [po], ["picking_ids"])[0]["picking_ids"]:
+        _finish_chain(env, receipt)  # receipt, Storage, then the waiting Pick, Pack and Delivery
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4414,7 +4584,7 @@ SEEDS = {
     "ch21": seed_ch21, "ch22": seed_ch22, "ch23": seed_ch23, "ch24": seed_ch24,
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
-    "inv01": seed_inv01, "inv02": seed_inv02,
+    "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
