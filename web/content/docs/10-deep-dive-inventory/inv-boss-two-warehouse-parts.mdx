@@ -1,0 +1,133 @@
+---
+title: "Boss Challenge: A Two-Warehouse Parts Operation"
+description: Open a second depot fed by the first, from a one-page spec and from memory, verified by odoolings.
+tier: expert
+---
+
+**Goal:** prove the Inventory deep dive stuck, by running a two-warehouse parts operation
+from a spec alone. · **Time:** ~2–3 h · **Solution:** the `seed_inv_boss` function in
+`odoolings.py` (after you're done!)
+
+## The rules
+
+This page is a *spec*, not a tutorial. No steps, no screenshots, nothing to copy. Work in
+the `warehouse` database where chapter 15 left it, and **don't reopen the Inventory
+chapters while you build**. Struggling for a while is the point: it is what turns
+"followed along" into "can do". If you are truly blocked, read the *Concepts* section of
+the chapter you need (never its Hands-on), close it, and carry on.
+
+When you think you're done:
+
+```console
+$ python3 odoolings.py check inv-boss --db warehouse
+```
+
+Eight checks. All green means you can run a real multi-warehouse parts operation in Odoo
+19. Only then open `seed_inv_boss` in `odoolings.py` and compare choices, not
+correctness.
+
+Made a mess of the database? The box at the top of this page rebuilds chapter 15's end
+state in one command, and keeps a backup of what you had.
+
+## The story
+
+LibreFleet opens a small second depot in the north. It has no receiving dock worth the
+name, so goods are put away the moment they arrive, but orders are still picked before
+they are shipped. North never buys from vendors and never manufactures: everything it
+holds comes from the main depot, LFD, and it reorders by itself when it runs low.
+
+The first product it stocks is a new family of wear parts, starting with wiper blades.
+Wear parts are valued first in, first out, and in North they always live on their own
+shelf. The main depot already has 30 blades on its shelves from before the system went
+live; they have to be brought in properly, at cost. Then North fills up, and its first
+customer, Garage Sud, buys three.
+
+## The spec
+
+**Warehouse:**
+
+| Setting | Value |
+|---|---|
+| Warehouse | `LibreFleet North` |
+| Short Name | `LFN` |
+| Incoming Shipments | 1 step, straight into stock |
+| Outgoing Shipments | 2 steps, pick then ship |
+| Buy to Resupply, Manufacture to Resupply | both off |
+| Resupply From | `LibreFleet Depot` |
+
+**Storage:** an internal location `Shelf W` directly under `LFN/Stock`. A product
+category `Wear Parts` under `Goods`, with Costing Method **First In First Out (FIFO)**.
+One putaway rule: Wear Parts arriving in `LFN/Stock` are stored on `LFN/Stock/Shelf W`.
+
+**Product:** `Wiper Blade`, a goods product that tracks inventory, in `Goods / Wear
+Parts`.
+
+| Field | Value |
+|---|---|
+| Sales Price | $12 |
+| Cost | $4 |
+
+**Opening stock:** 30 blades counted into `LFD/Stock` through a physical inventory, with
+the Inventory Reason `Opening stock`. The count must be worth $120, so the order of
+your clicks matters.
+
+**Replenishment:** one reordering rule for the blade, on `LFN/Stock`, min 5, max 20.
+The rule itself names its route: the supply route North got from the main depot. A route
+left empty on the rule, or set only on the product, does not meet the spec.
+
+**Run it:** let the scheduler see the rule, then push the blades all the way through:
+out of the main depot and into North, onto Shelf W, without ever choosing the shelf
+yourself. Then sell 3 blades to Garage Sud from North (the sale's Warehouse decides
+that) and deliver them.
+
+**End state:**
+
+| Where | Wiper Blades |
+|---|---|
+| `LFD/Stock` | 10 |
+| `LFN/Stock/Shelf W` | 17 |
+| anywhere else inside the company, transit included | 0 |
+
+The 27 blades on hand are worth $108.
+
+The names in this spec are fixed: odoolings looks up `LFN`, `LibreFleet North`, `Shelf
+W`, `Goods / Wear Parts`, `Wiper Blade`, `Opening stock` and `Garage Sud`. Everything
+else is your call.
+
+## What the checks probe (so nothing feels unfair)
+
+`odoolings check inv-boss` reads your database and changes nothing. It checks:
+
+- the warehouse's name, its steps in and out, the two Resupply boxes and the warehouse it
+  is resupplied from;
+- the shelf, the category's costing method and the putaway rule, exactly one, from
+  `LFN/Stock` to Shelf W;
+- the blade's settings, then the done inventory moves with the reference `Opening stock`
+  into `LFD/Stock`: their quantity and their value;
+- the reordering rule's location, min, max and Route;
+- that 20 blades went from the transit location straight onto Shelf W;
+- that 3 blades reached Garage Sud through one of North's own transfers;
+- where every blade is now, and what Odoo says they are worth.
+
+One fair warning, since it is about the screen and not about Inventory: the **Route**
+column of a reordering rule list is hidden until you turn it on from the column picker
+at the right end of the header.
+
+## Self-review, integrator style
+
+After green, look at your work the way a colleague taking over the project would:
+
+- Run the scheduler again. Does North order more blades? Say why from the rule's
+  numbers before you look.
+- Open any transfer of the resupply chain. Could someone who never saw you work find the
+  rule that started it, from that transfer alone?
+- Which of your settings would you have to change if North later bought blades straight
+  from a vendor, and which would stay exactly as they are?
+- If a second wear part arrives next month, how many things do you have to set up for it
+  to land on Shelf W and be valued FIFO?
+
+## When you're done
+
+Mark this page complete and breathe out: you have walked the whole Inventory app, from
+the location tree to the rule engine's code, and run it end to end without a net. Every
+Inventory ticket you meet from here is one of the patterns you just used.

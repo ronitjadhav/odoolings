@@ -3943,6 +3943,78 @@ def no_move_is_stuck(env):
     assert n == 0, "%d moves wait for stock; the audit should find none at the end of chapter 14" % n
 
 
+def lfn_is_a_two_step_depot_fed_by_lfd(env):
+    w = env.call("stock.warehouse", "search_read", [("code", "=", "LFN")],
+                 fields=["name", "reception_steps", "delivery_steps", "resupply_wh_ids", "buy_to_resupply", "manufacture_to_resupply"])
+    assert w, "no warehouse with Short Name LFN"
+    w = w[0]
+    assert w["name"] == "LibreFleet North", "the LFN warehouse should be called LibreFleet North"
+    assert (w["reception_steps"], w["delivery_steps"]) == ("one_step", "pick_ship"), (
+        "LFN: Incoming Shipments in 1 step, Outgoing Shipments in 2 steps (pick + ship); it has %s / %s" % (w["reception_steps"], w["delivery_steps"]))
+    assert not (w["buy_to_resupply"] or w["manufacture_to_resupply"]), "LFN never buys or manufactures: untick Buy to Resupply and Manufacture to Resupply"
+    sup = env.call("stock.warehouse", "read", w["resupply_wh_ids"], ["code"])
+    assert [x["code"] for x in sup] == ["LFD"], "LFN: Resupply From LibreFleet Depot"
+
+
+def wear_parts_go_to_shelf_w(env):
+    shelf = env.call("stock.location", "search_read", [("complete_name", "=", "LFN/Stock/Shelf W")], fields=["usage"])
+    assert shelf and shelf[0]["usage"] == "internal", "no internal location LFN/Stock/Shelf W"
+    c = env.call("product.category", "search_read", [("complete_name", "=", "Goods / Wear Parts")], fields=["property_cost_method"])
+    assert c and c[0]["property_cost_method"] == "fifo", "Goods / Wear Parts should exist with Costing Method FIFO"
+    rules = env.call("stock.putaway.rule", "search_read", [("category_id.complete_name", "=", "Goods / Wear Parts")], fields=["location_in_id", "location_out_id"])
+    assert [(r["location_in_id"][1], r["location_out_id"][1]) for r in rules] == [("LFN/Stock", "LFN/Stock/Shelf W")], (
+        "one putaway rule: Wear Parts arriving in LFN/Stock go to LFN/Stock/Shelf W")
+
+
+def the_wiper_blade_is_set_up(env):
+    p = env.call("product.product", "search_read", [("name", "=", "Wiper Blade")], fields=["is_storable", "categ_id", "standard_price", "list_price"])
+    assert p, "no product named Wiper Blade"
+    p = p[0]
+    assert p["is_storable"] and p["categ_id"][1] == "Goods / Wear Parts", "Wiper Blade: Track Inventory, category Goods / Wear Parts"
+    assert (p["standard_price"], p["list_price"]) == (4, 12), "Wiper Blade: Cost 4, Sales Price 12; it has %s / %s" % (p["standard_price"], p["list_price"])
+
+
+def opening_stock_was_counted(env):
+    moves = env.call("stock.move", "search_read", [("is_inventory", "=", True), ("state", "=", "done"), ("product_id.name", "=", "Wiper Blade"),
+                                                   ("reference", "=", "Opening stock"), ("location_dest_id.complete_name", "=", "LFD/Stock")],
+                     fields=["quantity", "value"])
+    qty = sum(m["quantity"] for m in moves)
+    assert qty == 30, "30 Wiper Blades counted into LFD/Stock with the Inventory Reason Opening stock; found %s" % qty
+    value = sum(m["value"] for m in moves)
+    assert value == 120, "the opening count should be worth 30 x $4 = $120: was the cost set before counting? It is %s" % value
+
+
+def lfn_reorders_from_lfd(env):
+    op = env.call("stock.warehouse.orderpoint", "search_read", [("product_id.name", "=", "Wiper Blade")],
+                  fields=["location_id", "product_min_qty", "product_max_qty", "route_id"])
+    assert len(op) == 1, "one reordering rule for Wiper Blade, on LFN/Stock"
+    op = op[0]
+    assert (op["location_id"][1], op["product_min_qty"], op["product_max_qty"]) == ("LFN/Stock", 5, 20), "the rule: LFN/Stock, min 5, max 20"
+    assert op["route_id"] and "Supply Product from LibreFleet Depot" in op["route_id"][1], "the rule's Route should be LFN's supply route from LibreFleet Depot"
+
+
+def lfn_received_20_on_shelf_w(env):
+    lines = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("product_id.name", "=", "Wiper Blade"),
+                                                        ("location_id.usage", "=", "transit"), ("location_dest_id.complete_name", "=", "LFN/Stock/Shelf W")],
+                     fields=["quantity"])
+    assert sum(l["quantity"] for l in lines) == 20, "LFN should have received 20 Wiper Blades from transit straight onto Shelf W; run the scheduler and finish the chain"
+
+
+def garage_sud_got_3_from_lfn(env):
+    outs = env.call("stock.move", "search_read", [("state", "=", "done"), ("product_id.name", "=", "Wiper Blade"), ("location_dest_id.usage", "=", "customer"),
+                                                  ("picking_type_id.warehouse_id.code", "=", "LFN"), ("picking_id.partner_id.name", "=", "Garage Sud")], fields=["quantity"])
+    assert outs and sum(o["quantity"] for o in outs) == 3, "Garage Sud should have received 3 Wiper Blades shipped from LibreFleet North (the sale's Warehouse)"
+
+
+def the_blades_are_where_and_worth_what_they_should(env):
+    q = env.call("stock.quant", "search_read", [("product_id.name", "=", "Wiper Blade"), ("location_id.usage", "=", "internal"), ("quantity", "!=", 0)],
+                 fields=["location_id", "quantity"])
+    got = sorted((r["location_id"][1], r["quantity"]) for r in q)
+    assert got == [("LFD/Stock", 10), ("LFN/Stock/Shelf W", 17)], "10 Wiper Blades should stay in LFD/Stock and 17 on LFN/Stock/Shelf W; there are %s" % got
+    p = env.call("product.product", "search_read", [("name", "=", "Wiper Blade")], fields=["total_value"])[0]
+    assert p["total_value"] == 108, "27 blades at $4 should be worth $108; Odoo says %s" % p["total_value"]
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4932,6 +5004,24 @@ CHAPTERS = {
          "Open the waiting transfers from the audit and finish or cancel them."),
         ("the shelf holds what chapter 14 left", shelf_after_extending,
          "This chapter changes no stock: 12 air filters in LFD/Stock, 1 on Shelf A, 6 oil in the van."),
+    ],
+    "inv-boss": [
+        ("LibreFleet North is a 1-in, 2-out depot fed by LFD", lfn_is_a_two_step_depot_fed_by_lfd,
+         "Warehouses > New: LibreFleet North, LFN, 1 step in, 2 steps out, no Buy or Manufacture, Resupply From LibreFleet Depot."),
+        ("wear parts are FIFO and go to Shelf W", wear_parts_go_to_shelf_w,
+         "Location LFN/Stock/Shelf W; category Goods / Wear Parts on FIFO; a putaway rule from LFN/Stock to Shelf W for it."),
+        ("the Wiper Blade is set up", the_wiper_blade_is_set_up,
+         "Goods, Track Inventory, category Goods / Wear Parts, Cost 4, Sales Price 12."),
+        ("opening stock was counted, at cost", opening_stock_was_counted,
+         "Physical Inventory: 30 in LFD/Stock, header Apply with Inventory Reason Opening stock, after setting the cost."),
+        ("LFN reorders from LFD", lfn_reorders_from_lfd,
+         "Reordering rule on LFN/Stock, min 5, max 20, Route the LFN supply route from LibreFleet Depot."),
+        ("LFN received 20 blades onto Shelf W", lfn_received_20_on_shelf_w,
+         "Run the scheduler, then validate the depot's Pick, Pack, Delivery and LFN's receipt."),
+        ("Garage Sud got 3 blades from LFN", garage_sud_got_3_from_lfn,
+         "A sale with Warehouse LibreFleet North, 3 Wiper Blades, then LFN's Pick and Delivery."),
+        ("the blades are where, and worth what, they should be", the_blades_are_where_and_worth_what_they_should,
+         "10 in LFD/Stock, 17 on Shelf W, 27 x $4 = $108 under FIFO."),
     ],
 }
 
@@ -6247,6 +6337,36 @@ def seed_inv15(env):
     _call(env, "stock.rule", "run_scheduler")  # merges and deletes the quants left at zero
 
 
+def seed_inv_boss(env):
+    """The boss's solution: everything the spec asks, in the order a reader clicks it."""
+    lfd = _id(env, "stock.warehouse", [("code", "=", "LFD")])
+    lfn = env.call("stock.warehouse", "create", {"name": "LibreFleet North", "code": "LFN", "reception_steps": "one_step",
+                                                 "delivery_steps": "pick_ship", "buy_to_resupply": False,
+                                                 "manufacture_to_resupply": False, "resupply_wh_ids": [(6, 0, [lfd])]})
+    lfn_stock = env.call("stock.warehouse", "read", [lfn], ["lot_stock_id"])[0]["lot_stock_id"][0]
+    shelf_w = env.call("stock.location", "create", {"name": "Shelf W", "location_id": lfn_stock})
+    wear = env.call("product.category", "create", {"name": "Wear Parts", "parent_id": _id(env, "product.category", [("complete_name", "=", "Goods")]),
+                                                   "property_cost_method": "fifo"})
+    env.call("stock.putaway.rule", "create", {"category_id": wear, "location_in_id": lfn_stock, "location_out_id": shelf_w})
+    blade = env.call("product.product", "create", {"name": "Wiper Blade", "is_storable": True, "categ_id": wear, "list_price": 12, "standard_price": 4})
+    inv = {"inventory_mode": True}
+    quant = env.call("stock.quant", "create", {"product_id": blade, "location_id": _id(env, "stock.location", [("complete_name", "=", "LFD/Stock")]),
+                                               "inventory_quantity": 30}, context=inv)
+    name = env.call("stock.inventory.adjustment.name", "create", {"quant_ids": [(6, 0, [quant])], "inventory_adjustment_name": "Opening stock"})
+    _call(env, "stock.inventory.adjustment.name", "action_apply", [name])
+    route = _id(env, "stock.route", [("name", "=", "LibreFleet North: Supply Product from LibreFleet Depot")])
+    env.call("stock.warehouse.orderpoint", "create", {"product_id": blade, "warehouse_id": lfn, "location_id": lfn_stock,
+                                                      "product_min_qty": 5, "product_max_qty": 20, "route_id": route})
+    _call(env, "stock.rule", "run_scheduler")
+    pick = env.call("stock.picking", "search", [("product_id", "=", blade), ("picking_type_id.warehouse_id", "=", lfd),
+                                                ("picking_type_id.sequence_code", "=", "PICK"), ("state", "=", "assigned")])
+    _finish_chain(env, pick[0])  # depot Pick, Pack, Delivery to transit, LFN receipt onto Shelf W
+    order = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Garage Sud")]), "warehouse_id": lfn,
+                                              "order_line": [(0, 0, {"product_id": blade, "product_uom_qty": 3})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    _finish_chain(env, env.call("stock.picking", "search", [("sale_id", "=", order), ("picking_type_id.sequence_code", "=", "PICK")])[0])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6258,7 +6378,7 @@ SEEDS = {
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
-    "inv14": seed_inv14, "inv15": seed_inv15,
+    "inv14": seed_inv14, "inv15": seed_inv15, "inv-boss": seed_inv_boss,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped

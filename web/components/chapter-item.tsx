@@ -43,7 +43,7 @@ export function ChapterItem({ item }: { item: PageTree.Item }) {
   const chapter = chapterIdFromUrl(url);
   const done = !!(chapter && progress?.done[chapter]);
 
-  const isBoss = /\/boss\d*-/.test(url);
+  const isBoss = /\/(?:[a-z]+-)?boss\d*-/.test(url);
   const isReview = !numbered && !isBoss && /Review/i.test(name);
   const milestone = isBoss || isReview;
 
