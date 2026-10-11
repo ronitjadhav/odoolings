@@ -8,6 +8,7 @@
     "inv05-replenishment-properly",
     "inv06-more-than-one-warehouse",
     "inv07-traceability-lots-serials-expiry",
-    "inv08-packages-packagings-and-barcodes"
+    "inv08-packages-packagings-and-barcodes",
+    "inv09-where-things-go-where-they-come-from"
   ]
 }

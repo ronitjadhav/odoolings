@@ -718,6 +718,12 @@ an existing one. With **Set Package Type** on the operation type it asks for the
 without, it uses the packaging's package type. When every line already has a package, it
 packs the packages into a container.
 
+**putaway rule (`stock.putaway.rule`)**: *when this arrives in that location, store it
+here instead*. It matches on product, product category or package type, applies only to
+transfers into its exact **When product arrives in** location, and its **Sublocation**
+(No, Last Used, Closest Location) decides how far it searches. The most specific matching
+rule wins: package type, then product, then category. It never splits a line.
+
 **quant (`stock.quant`)**: one row saying *this product, in this location, this many*
 (plus optional labels: lot, package, owner). The quant table is what Odoo means by
 "stock": every On Hand figure is a sum over quants, and quants only change when a
@@ -777,9 +783,11 @@ confirmation. `state` runs `draft` (RFQ), `sent`, `to approve`, `purchase`, `can
 confirming is what spawns the incoming transfer (chapter 24).
 
 **removal strategy (`removal_strategy_id`)**: which quants a reservation takes first:
-First In First Out (the default), Last In First Out, Closest Location, Least Packages, or
-First Expiry First Out. Set on a location, inherited by its children, or on a product
-category.
+First In First Out (the default, oldest arrival), Last In First Out (newest arrival),
+Closest Location (first by full location name, not by distance), Least Packages (as few
+packages as possible), or First Expiry First Out. Odoo looks at the product category's
+**Force Removal Strategy** first, then the location, then its parents, then falls back to
+FIFO; quants with a lot come before quants without.
 
 **reordering rule (`stock.warehouse.orderpoint`)**: a minimum and maximum for one
 product at one location. Creating one is a promise, not an action: it does nothing until
@@ -787,6 +795,10 @@ a scheduled action checks whether forecast has fallen below the minimum (chapter
 chapter 35). Its **Trigger** is Auto (the scheduler orders) or Manual (the line waits in
 the Replenishment report). When the forecast at today plus the lead time plus the
 horizon is below Min, it orders Max minus that forecast, rounded up to its Multiple.
+
+**Replenishments (`replenish_location`)**: the location box marking a location the
+Replenishment report watches, together with all its children. Each warehouse's stock
+location has it; a location and its parent or child cannot both have it.
 
 **Replenish on Order (MTO)**: the global route (`stock.route_warehouse0_mto`, archived
 until the setting of the same name is ticked) whose one rule has Supply Method **Trigger
@@ -932,6 +944,11 @@ workflow rules by itself.
 location and a destination location. Validating the transfer turns each move into quant
 changes at both ends. `product_uom_qty` is the Demand column (what was planned),
 `quantity` is what was actually moved. In Odoo 19 a move has no `name` field.
+
+**storage category (`stock.storage.category`)**: what a location may hold: a **Max
+Weight** (0 refuses anything that has a weight), **Allow New Product** (only if empty,
+only the same product, or mixed) and capacities per product or per package type. Putaway
+rules with Closest Location use only locations of the category they name.
 
 **sudo()**: derives a recordset with the superuser bit (`env.su`) on: access rights
 and record rules stop applying, while `env.user` stays unchanged. Bypasses spread to
