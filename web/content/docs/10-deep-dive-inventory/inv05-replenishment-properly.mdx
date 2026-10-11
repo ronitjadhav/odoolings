@@ -1,0 +1,920 @@
+---
+title: "Inventory 5. Replenishment, Properly"
+description: Let Odoo say what to buy and what to make. The Replenishment report, reordering rules with Min, Max and a Multiple, manual and automatic triggers, the scheduler, snoozing, and the lead times and horizon behind every number.
+tier: professional
+---
+
+**Goal:** look at any number in the Replenishment report and say where it came from,
+then set rules that buy and make on their own. · **Time:** ~3 h · **Checkpoint:** none,
+this chapter writes no module. It continues the `warehouse` database and installs
+nothing new.
+
+## Why this matters
+
+Until now every purchase and every manufacturing order in this track came from a person
+or from a sales order. A real depot cannot work like that: someone would have to check
+every product every morning. Odoo's answer is the **reordering rule**: "keep at least
+this many here, and when you refill, refill up to that many". The rules come with one
+screen, **Replenishment**, which lists what needs ordering and why.
+
+It is also the screen that brings integrators the most questions. "Why did Odoo order 42
+bottles when we were only 7 short?" "Why did nothing happen overnight?" "What does *No
+rule has been found* mean?" Each one has an exact answer, made of four things: the
+forecast, the horizon, the lead times and the numbers on the rule. This chapter builds
+each of them on the depot, with real numbers, until 42 is obvious.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### A reordering rule
+
+A **reordering rule** (`stock.warehouse.orderpoint`, "orderpoint" in the code) is about
+one product in one location, here `LFD/Stock`. The Replenishment screen shows one line
+per rule:
+
+| Column | In plain words |
+|---|---|
+| **Location** | where the stock must be; one rule per product and location |
+| **On Hand**, **Forecast** | what is on the shelf now, and what will be there on the forecast date (next section) |
+| **Route** | how to refill: Buy, Manufacture, or another route. Left empty, Odoo picks one and shows it in grey |
+| **Vendor** | which vendor line of the product to buy from. Left empty, Odoo picks the first that fits, also in grey |
+| **Bill of Materials** | which bill of materials to use when the route manufactures |
+| **Trigger** | **Auto**: the scheduler orders by itself. **Manual**: the line waits on this screen for you |
+| **Min**, **Max** | refill when the forecast drops below Min, and refill up to Max |
+| **Multiple** | order whole packs only: one of the product's packagings, or the vendor's unit |
+| **To Order** | what Odoo would order right now. On a Manual line you may type over it |
+| **Deadline** | the last day to order before the forecast falls below Min |
+
+Route, Vendor, Bill of Materials, Trigger, Multiple and Deadline are optional columns:
+switch them on from the toggle at the right end of the header row.
+
+### How Odoo finds the number
+
+Every To Order follows the same four steps:
+
+1. Find the **forecast date**: today, plus the **lead time** of the route, plus the
+   **horizon**.
+2. Take the **forecast** for that date: on hand, plus everything planned to come in,
+   minus everything planned to go out, up to that date. An order already started for this
+   rule counts as coming in.
+3. If the forecast is **not below Min**, To Order is 0.
+4. Otherwise To Order is **Max minus the forecast**, rounded **up** to a whole
+   **Multiple**. (If Max is smaller than Min, Min is used as Max.)
+
+<Mermaid
+  label="To Order is zero when the forecast is at or above Min; otherwise it is Max minus the forecast, rounded up to the Multiple. With a forecast of minus 7, Max 30 and packs of 6, that is 37 rounded up to 42."
+  chart={`flowchart LR
+    F["Forecast at<br/>today + lead time + horizon"] --> Q{"below Min?"}
+    Q -- "no" --> Z["To Order = 0"]
+    Q -- "yes" --> M["Max - forecast<br/>30 - (-7) = 37"]
+    M --> R["round up to the Multiple<br/>7 packs of 6 = 42"]`}
+/>
+
+That is the whole secret of "why 42": the forecast was -7, Max was 30, so 37 were
+missing, and the vendor sells packs of 6, so 7 packs. Notice that the rule does not
+order what is *missing below Min*; it orders what fills the shelf *up to Max*.
+
+### Lead time and horizon
+
+The **lead time** is how long a refill takes. Odoo adds it up from the route the rule
+would use:
+
+| Part | Where you set it | Counts when |
+|---|---|---|
+| **Vendor Lead Time** | the vendor line, product form, Purchase tab | the route buys |
+| **Days to Purchase** | Inventory settings, Advanced Scheduling | the route buys |
+| **Manufacturing Lead Time** (`produce_delay`) | the bill of materials | the route manufactures |
+| **Days to prepare Manufacturing Order** (`days_to_prepare_mo`) | the bill of materials | the route manufactures |
+| **Delay** | a pull rule of the route (`delay`) | the rule is on the way |
+| **No Vendor Found**, **No BoM Found** | nobody: Odoo adds 365 days | buying with no usable vendor, manufacturing with no BoM |
+
+The last line is a warning in disguise: a year of lead time pushes the forecast date far
+away, so the rule sees every planned move for a year and orders for all of it.
+
+The **horizon** is extra look-ahead on top of the lead time: the company's
+**Replenishment Horizon**, 365 days by default. With 365, any confirmed demand in the
+next year makes a line appear today. Set it to 0 and Odoo orders "just in time", only for
+what falls inside the lead time. The **HORIZON** box in the Replenishment side panel
+changes it for that screen only; the scheduler uses the company setting.
+
+Two more dates move the *demand* rather than the rule: the product's **Customer Lead
+Time** (Inventory tab, `sale_delay`) sets how far after the order a delivery is planned,
+and **Security Lead Time for Sales** (Inventory settings) plans every delivery that many
+days earlier. Either can move an outgoing move inside or outside the forecast date.
+
+To see a forecast with your own eyes, use the product's **Forecasted** smart button: the
+report adds on hand, incoming and outgoing up to a date, and lists who needs what. To see
+the past, use **Inventory at Date** on Reporting → Stock.
+
+### Manual, automatic, and the scheduler
+
+A **Manual** rule only shows up in Replenishment; nothing happens until you click
+**Order**. An **Auto** rule is handled by the **scheduler**, the scheduled action
+*Procurement: run scheduler*, which runs once a day. For every Auto rule with something
+to order it creates the purchase or manufacturing order, the same as clicking Order.
+It also retries reservations of waiting moves and tidies quants.
+
+The scheduler cannot show you an error. When a rule fails (no route, no vendor), it logs
+an **Exception** activity on the product instead, for the product's **Responsible**
+(Inventory tab; by default whoever created the product), or for OdooBot when the field is
+empty. Read your activities.
+
+### The Replenishment report
+
+Opening **Inventory → Operations → Replenishment** does more than read: for every
+storable product whose forecast is negative and that has no rule, it **creates** a Manual
+rule named *Replenishment Report*, with Min and Max at 0, made by OdooBot. Those are the
+"suggestions". When you order one and nothing is left to order, Odoo deletes it again. A
+rule you make yourself, or one you switch to Auto, stays.
+
+| On a line | What it does |
+|---|---|
+| **Order** | orders To Order once; the trigger stays Manual |
+| **Automate** | switches the trigger to Auto and orders once, now |
+| **Snooze** | hides the line until a date: 1 day, 1 week, 1 month or a custom date |
+| warning icon after the Route | no way to replenish: no route, vendor or bill of materials fits |
+| info icon after the Route | the Replenishment Information window: the lead time, step by step |
+| warning icon after the Forecast | ordering To Order would end above Max (packs, or receipts already planned) |
+
+Select several lines and the header offers **Order**, **Order To Max** and **Snooze**.
+*Order To Max* orders Max minus the forecast even for lines that are not below Min. The
+filters **To Reorder** (To Order above 0) and **Not Snoozed** are on by default.
+
+<Callout type="info" title="Official docs">
+  [Reordering rules](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/reordering_rules.html),
+  [the replenishment report](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/report.html)
+  and [lead times](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/lead_times.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`: 7 brake pad sets, 13 bottles of oil, 10 of each component and
+the tablet, from the previous chapter. By the end: 15 sets, 35 bottles, the tablet, no
+components, two automatic rules, and three orders nobody typed.
+
+<Steps>
+
+<Step>
+### Open Replenishment on a quiet day
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Operations → Replenishment** (under *Procurement*):
+
+![The Replenishment screen with no lines, the filters To Reorder and Not Snoozed highlighted, and the help picture highlighted: a stock curve falling to the Minimum line, a refill up to the Maximum line, and Lead time plus Horizon along the time axis](/screens/inv05-replenishment-empty.jpg)
+
+Nothing to do: no product is short. The picture is the whole chapter in one drawing.
+Stock goes down; when it would cross **Minimum** within **Lead time** plus **Horizon**,
+Odoo orders enough to climb back to **Maximum**.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> OP = env["stock.warehouse.orderpoint"]
+>>> OP.search_count([])
+0
+>>> env.company.horizon_days, env.company.days_to_purchase, env.company.security_lead
+(365.0, 0.0, 0.0)
+>>> cron = env.ref("stock.ir_cron_scheduler_action")
+>>> cron.name, cron.interval_number, cron.interval_type, cron.active
+('Procurement: run scheduler', 1, 'days', True)
+```
+
+No rules yet, a horizon of a year, no extra purchase or security days, and the scheduler
+set to run once a day.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Sell more oil than you have
+
+Garage Nord wants 20 bottles of oil. There are 13.
+
+<UiOrShell>
+<Tab>
+
+**Sales → Orders → New**:
+
+- **Customer:** `Garage Nord`
+- **Product:** `Engine Oil 5W-30 1L`, **Quantity** `20`, **Unit Price** `12`
+
+![A new quotation for Garage Nord with one line of 20 Engine Oil 5W-30 1L at 12.00, the customer and the line highlighted, and the Confirm button highlighted](/screens/inv05-so-oil.jpg)
+
+The small chart icon after the quantity is red. Click it:
+
+![The Availability popover on the order line: Forecasted Stock 13 on 10/11/2026, Available 13 in red, All planned operations included, and a View Forecast link, highlighted together with the quantity 20](/screens/inv05-so-availability.jpg)
+
+**Confirm**. The Pick that follows (`LFD/PICK/00005`) is *Ready* but reserves only the 13
+bottles there are. Now open the oil's product form and its **Forecasted** smart button:
+
+![The Forecasted Report for Engine Oil 5W-30 1L: 13 On Hand plus 0 Incoming minus 20 Outgoing equals -7 Forecasted, highlighted; Time to replenish 0 days highlighted; and the table below with 13 units of S00003 reserved on LFD/PICK/00005 and 7 units Not Available, highlighted](/screens/inv05-forecast-oil.jpg)
+
+That sum, 13 + 0 − 20 = −7, is the **forecast**, the number every rule starts from. The
+table below says who is waiting for what: 13 bottles reserved for the order, 7 not
+available. The **Replenish** button at the top left opens a one-off *Product Replenish*
+form (quantity, date, route); this chapter uses rules instead.
+
+</Tab>
+<Tab>
+
+```python
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> oil, pads, friction, plate = variant("Engine Oil 5W-30 1L"), variant("Brake Pad Set"), variant("Friction Pad"), variant("Backing Plate")
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id,
+...     "order_line": [(0, 0, {"product_id": oil.id, "product_uom_qty": 20, "price_unit": 12})],
+... })
+>>> order.action_confirm()
+True
+>>> oil.qty_available, oil.virtual_available
+(13.0, -7.0)
+>>> pick = order.picking_ids
+>>> pick.name, pick.state, pick.move_ids.quantity
+('LFD/PICK/00005', 'assigned', 13.0)
+```
+
+`virtual_available` is the forecast. The Pick is `assigned` with only 13 reserved: the
+delivery's shipping policy is "as soon as possible", so a partial reservation already
+counts as Ready.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read the suggestion, and see it fail
+
+<UiOrShell>
+<Tab>
+
+Back to **Operations → Replenishment**:
+
+![The Replenishment screen with one line for Engine Oil in LFD/Stock: On Hand 13.00 and Forecast -7.00 highlighted, a yellow warning icon highlighted, Min 0.00, Max 0.00 and To Order 7.00 highlighted, and the Order, Automate and Snooze buttons highlighted](/screens/inv05-suggestion-oil.jpg)
+
+Opening the screen created this line: a Manual rule, Min 0, Max 0, To Order 7. Seven is
+"Max minus forecast", 0 − (−7). The yellow warning icon means *missing a way to be
+replenished*. Click it:
+
+![The Replenishment Information window for the oil: a banner saying a replenishment is needed when the forecasted stock falls below the minimum, the Forecasted Date table with Today 10/11/2026, Time Horizon +365 days and Forecasted Date 10/11/2027, the Daily Demand, Average Stock, Ordering Frequency and Lead Time 0 days, and the Bills of Materials and Vendors tabs, all highlighted](/screens/inv05-info-novendor.jpg)
+
+The left table is step 1 of the recipe: today, plus no lead time (no route), plus a
+365-day horizon. The right side estimates demand from history: **Based on** a past
+period (last 7 days to last year's quarter) times a percentage, here the bottles that
+left for customers or production in the last 30 days, minus returns, divided by 30. **Close**, then
+click **Order** on the line anyway:
+
+![An Odoo Warning dialog: No rule has been found to replenish Engine Oil 5W-30 1L in LFD/Stock. Verify the routes configuration on the product. The message and the Edit Product button are highlighted](/screens/inv05-order-norule.jpg)
+
+The depot has a Buy route, so why no rule? Because the Buy route only answers for products
+that have a vendor, as *Routes and Rules, the Engine* showed. The oil has none. **Close**.
+
+</Tab>
+<Tab>
+
+```python
+>>> OP.action_open_orderpoints()["name"]
+'Replenishment'
+>>> op = OP.search([("product_id", "=", oil.id)])
+>>> op.name, op.trigger, op.location_id.complete_name, op.create_uid.name
+('Replenishment Report', 'manual', 'LFD/Stock', 'OdooBot')
+>>> op.qty_on_hand, op.qty_forecast, op.product_min_qty, op.product_max_qty, op.qty_to_order
+(13.0, -7.0, 0.0, 0.0, 7.0)
+>>> op.rule_ids, op.show_supply_warning, op.lead_days, op.lead_horizon_date
+(stock.rule(), True, 0.0, datetime.date(2027, 10, 11))
+>>> try:
+...     op.action_replenish()
+... except Exception as e:
+...     print(type(e).__name__, "|", e.args[0])
+... 
+RedirectWarning | No rule has been found to replenish "Engine Oil 5W-30 1L" in "LFD/Stock".
+Verify the routes configuration on the product.
+```
+
+`action_open_orderpoints` is the menu item: it creates the suggestion, made by OdooBot
+(the superuser). `rule_ids` is empty, which is what `show_supply_warning` reports, and
+`lead_horizon_date` is today plus 0 plus 365. Ordering raises the warning you would see
+in the browser.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Give the oil a vendor and a pack
+
+<UiOrShell>
+<Tab>
+
+Open **Engine Oil 5W-30 1L**. On the **Sales** tab, **Packagings**: pick `Pack of 6` (the
+unit you met in *The Warehouse Map*, in the Units & Packagings list):
+
+![The oil's product form on the Sales tab with Packagings set to Pack of 6, highlighted, and the Purchase tab highlighted](/screens/inv05-oil-packaging.jpg)
+
+On the **Purchase** tab, **Add a line**:
+
+- **Vendor:** `Nordic Lubricants` (type it and pick *Create*)
+- **Unit Price:** `6.00`
+- **Lead Time:** `3`
+
+![The oil's Purchase tab with one vendor line, Nordic Lubricants, 0.00 Units, price 6.00, highlighted, the Lead Time column header showing 3 highlighted, and the save icon highlighted](/screens/inv05-oil-vendor.jpg)
+
+Save, and go back to Replenishment. From the column toggle at the right end of the header,
+switch on **Vendor**, **Trigger** and **Multiple**:
+
+![The Replenishment screen with the side panel open: Locations, Trigger Manual and a HORIZON box of 365 days, highlighted; the oil line now shows Route Buy and Vendor Nordic Lubricants in grey with an info icon, Trigger Manual and Multiple Units, all highlighted](/screens/inv05-suggestion-vendor.jpg)
+
+Route and Vendor are grey: nobody chose them, Odoo did. The warning icon became an info
+icon. Click it again:
+
+![The Replenishment Information window now with a longer Forecasted Date table: Today 10/11/2026, Days to Purchase +0 days, Order Deadline 10/11/2026, Vendor Lead Time +3 days, Receipt Date 10/14/2026, Time Horizon +365 days, Forecasted Date 10/14/2027, highlighted, and Lead Time 3 days highlighted](/screens/inv05-info-vendor.jpg)
+
+The lead time is now real: 0 days to purchase plus 3 days from the vendor. The forecast
+date moved three days later, to 10/14/2027.
+
+</Tab>
+<Tab>
+
+```python
+>>> nordic = env["res.partner"].create({"name": "Nordic Lubricants"})
+>>> pack6 = env["uom.uom"].search([("name", "=", "Pack of 6")])
+>>> pack6.relative_factor, pack6.relative_uom_id.name
+(6.0, 'Units')
+>>> oil.product_tmpl_id.write({
+...     "uom_ids": [(4, pack6.id)],
+...     "seller_ids": [(0, 0, {"partner_id": nordic.id, "price": 6, "delay": 3})],
+... })
+True
+>>> [(r.name, r.action) for r in op.rule_ids]
+[('LFD: Stock (Buy)', 'buy')]
+>>> op.route_id, op.route_id_placeholder, op.effective_vendor_id.name, op.show_supply_warning
+(stock.route(), 'Buy', 'Nordic Lubricants', False)
+>>> op.lead_days, op.lead_horizon_date, op.qty_to_order
+(3.0, datetime.date(2027, 10, 14), 7.0)
+```
+
+The rule's own `route_id` is still empty; `route_id_placeholder` and `effective_vendor_id`
+are the grey values the screen shows. Packagings live in `uom_ids`, because in Odoo 19 a
+packaging is just a unit of measure with a factor.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Min, Max and the Multiple: why 37, why 42
+
+<UiOrShell>
+<Tab>
+
+Click the oil line's **Min** and type `10`, then **Max** `30`, and save:
+
+![The oil line with Forecast -7.00, Min 10.00 and Max 30.00, and To Order 37.00, each highlighted](/screens/inv05-minmax-37.jpg)
+
+To Order jumped from 7 to 37. The forecast −7 is below Min 10, so Odoo orders up to Max:
+30 − (−7) = 37. Now click the **Multiple** cell:
+
+![The Multiple dropdown open on the oil line, offering Units and Pack of 6 (6.0 Units), highlighted](/screens/inv05-multiple-choices.jpg)
+
+It offers exactly two choices: the vendor's unit and the product's packaging. Pick **Pack
+of 6** and save:
+
+![The oil line with Max 30.00, Multiple Pack of 6 and To Order 42.00 highlighted, and a warning icon after the Forecast -7.00, highlighted](/screens/inv05-multiple-42.jpg)
+
+37 rounded up to whole packs is 42. A warning icon appeared after the Forecast: −7 + 42
+is 35, more than Max. That is the price of buying by the pack, and the icon only tells
+you; it does not stop you.
+
+</Tab>
+<Tab>
+
+```python
+>>> op.write({"product_min_qty": 10, "product_max_qty": 30})
+True
+>>> op.qty_to_order
+37.0
+>>> op.write({"replenishment_uom_id": pack6.id})
+True
+>>> op.qty_to_order, op.unwanted_replenish
+(42.0, True)
+>>> op.qty_to_order = 50
+>>> op.qty_to_order_manual, op.qty_to_order
+(50.0, 50.0)
+>>> op.action_remove_manual_qty_to_order()
+>>> op.qty_to_order_manual, op.qty_to_order
+(0.0, 42.0)
+```
+
+The Multiple is `replenishment_uom_id`; the warning icon is `unwanted_replenish`. The last
+four lines are what typing over To Order does on a Manual line: the number is kept in
+`qty_to_order_manual`, and the screen shows a small undo arrow beside it that clears it,
+as `action_remove_manual_qty_to_order` did here. Ordering clears it too.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Automate
+
+<UiOrShell>
+<Tab>
+
+Scroll the line to the right. Three buttons:
+
+![The oil line scrolled right, with To Order 42.00 highlighted and the Order, Automate and Snooze buttons highlighted](/screens/inv05-three-buttons.jpg)
+
+**Order** would buy 42 once and leave the rule Manual. Click **Automate**: it switches the
+trigger to Auto and buys now. A notification names the order, *The following
+replenishment order has been generated. P00002*, and the line leaves the screen, since
+nothing is left to order. Open **Purchase → Orders → Requests for Quotation → P00002**:
+
+![The request for quotation P00002 with the vendor Nordic Lubricants highlighted, Expected Arrival Oct 14 highlighted, and one line of 42.00 Engine Oil 5W-30 1L at 6.00 for 252.00 highlighted](/screens/inv05-rfq-oil.jpg)
+
+42 bottles from Nordic Lubricants, expected in 3 days, the vendor's lead time. Its
+**Source Document** (Other Information tab) is the rule's name, *Replenishment Report*.
+
+</Tab>
+<Tab>
+
+```python
+>>> op.action_replenish_auto()["params"]["title"]
+'The following replenishment order has been generated'
+>>> line = env["purchase.order.line"].search([("orderpoint_id", "=", op.id)])
+>>> po = line.order_id
+>>> po.name, po.state, po.partner_id.name, po.origin, line.product_qty, line.price_unit, str(po.date_planned.date())
+('P00002', 'draft', 'Nordic Lubricants', 'Replenishment Report', 42.0, 6.0, '2026-10-14')
+>>> op.trigger
+'auto'
+```
+
+`action_replenish_auto` is the Automate button: set the trigger, then `action_replenish`.
+The purchase line remembers its rule in `orderpoint_id`, which is how the forecast counts
+it as "coming in" from now on.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive, and watch the sale fill up
+
+<UiOrShell>
+<Tab>
+
+On P00002, **Confirm Order**, then **Receive**, **Validate**, **Next Transfer** and
+**Validate** the Storage, as in the previous chapters. Open the waiting Pick,
+`LFD/PICK/00005`: it now reserves all 20 bottles, because a done receipt reserves the
+moves that were waiting for it. **Validate** it, then **Next Transfer** for the Pack and
+the delivery. Garage Nord has its 20 bottles, and the shelf has 13 + 42 − 20 = 35.
+
+</Tab>
+<Tab>
+
+```python
+>>> po.button_confirm()
+True
+>>> receipt = po.picking_ids
+>>> receipt.button_validate()
+True
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.button_validate()
+True
+>>> storage.name, pick.state, pick.move_ids.quantity
+('LFD/STOR/00004', 'assigned', 20.0)
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.button_validate()
+True
+>>> order.order_line.qty_delivered, oil.qty_available
+(20.0, 35.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### An automatic rule for the pads
+
+The pads are made, not bought. Give them a rule of your own, straight from the product.
+
+<UiOrShell>
+<Tab>
+
+Open **Brake Pad Set**. The smart buttons end with **More**; open it:
+
+![The Brake Pad Set product form with the More menu open, listing Reordering Rules 0, In and Out, Putaway Rules and Storage Capacities, with Reordering Rules highlighted](/screens/inv05-pads-more.jpg)
+
+**Reordering Rules**, then **New**:
+
+- **Route:** `Manufacture`
+- **Trigger:** `Auto` (already the default here)
+- **Min:** `10`
+- **Max:** `15`
+
+![The new reordering rule line for Brake Pad Set in LFD/Stock: On Hand 7.00, Forecast 7.00, the Route Manufacture highlighted, and Trigger Auto, Min 10.00 and Max 15.00 highlighted](/screens/inv05-pads-rule.jpg)
+
+Before you picked it, the Route was already *Manufacture* in grey: the pads have a bill of
+materials. Picking it makes the choice explicit, so a later Buy vendor cannot change it.
+**Save**: To Order shows 8.00, that is 15 − 7, and an **Order** button. Do not click it.
+This rule is Auto, so the scheduler will act.
+
+</Tab>
+<Tab>
+
+```python
+>>> manufacture = env.ref("mrp.route_warehouse0_manufacture")
+>>> op2 = OP.create({
+...     "product_id": pads.id, "location_id": op.location_id.id,
+...     "product_min_qty": 10, "product_max_qty": 15, "route_id": manufacture.id,
+... })
+>>> op2.name, op2.trigger, op2.qty_forecast, op2.qty_to_order, [r.action for r in op2.rule_ids]
+('OP/00001', 'auto', 7.0, 8.0, ['manufacture'])
+```
+
+A rule you create gets a sequence name, `OP/00001`, and the trigger defaults to Auto.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Run the scheduler
+
+Waiting until tomorrow is not a tutorial. The scheduler has a menu item in developer mode.
+
+<UiOrShell>
+<Tab>
+
+Turn on developer mode (add `?debug=1` to the URL), then open **Operations**:
+
+![The Inventory Operations menu in developer mode, with a last item Procurement: run scheduler highlighted, under Replenishment and References](/screens/inv05-run-scheduler.jpg)
+
+Click **Procurement: run scheduler**. Nothing seems to happen: no dialog, no
+notification. Open **Manufacturing → Operations → Manufacturing Orders**; there is a new
+one:
+
+![The manufacturing order LFD/MO/00003 for 8 Brake Pad Set, Quantity 0.00 / 8.00 highlighted, Component Status Not Available highlighted, both components at 16 Not Available, and the chatter line This manufacturing order has been created from: OP/00001 highlighted](/screens/inv05-mo-from-rule.jpg)
+
+8 sets, created from `OP/00001`. Each set needs 2 of each component, so 16 of each, and
+there are only 10: the Pick Components transfer could reserve just 10 of each.
+
+</Tab>
+<Tab>
+
+```python
+>>> env["stock.rule"].run_scheduler()
+{}
+>>> mo = env["mrp.production"].search([("orderpoint_id", "=", op2.id)])
+>>> mo.name, mo.origin, mo.product_qty, mo.state, mo.components_availability
+('LFD/MO/00003', 'OP/00001', 8.0, 'confirmed', 'Not Available')
+>>> pc = mo.picking_ids
+>>> pc.name, pc.state, pc.move_ids.mapped("quantity")
+('LFD/PC/00002', 'assigned', [10.0, 10.0])
+```
+
+`run_scheduler` is what the menu item and the daily cron call. It went through every Auto
+rule, found the pads below Min, and ran the Manufacture rule for 8.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### The components show up, and the Snooze button
+
+<UiOrShell>
+<Tab>
+
+Open **Replenishment** again:
+
+![The Replenishment screen with two lines, Backing Plate and Friction Pad, each with On Hand 10.00, Forecast -6.00 highlighted, a warning icon highlighted, Trigger Manual, and To Order 6.00 highlighted](/screens/inv05-components-suggested.jpg)
+
+The new manufacturing order consumes 16 of each component and there are 10, so each
+forecast is −6, and the screen made two suggestions. Both carry the warning icon: no
+vendor yet. Scroll the Friction Pad line to the right and click **Snooze**:
+
+![The Snooze dialog with Snooze for 1 Day, 1 Week, 1 Month or Custom highlighted, and Snooze Date Oct 12 highlighted](/screens/inv05-snooze.jpg)
+
+Snoozing hides the line until the date; the **Not Snoozed** filter does the hiding.
+*Custom* lets you type the date. You would snooze a line you have dealt with another way,
+a phone call to the vendor, say. Here, **Discard**: these components are needed now.
+
+</Tab>
+<Tab>
+
+```python
+>>> OP.action_open_orderpoints()["name"]
+'Replenishment'
+>>> comps = OP.search([("product_id", "in", (friction | plate).ids)])
+>>> for o in comps:
+...     print(o.product_id.name, o.trigger, o.qty_on_hand, o.qty_forecast, o.qty_to_order, o.show_supply_warning)
+... 
+Friction Pad manual 10.0 -6.0 6.0 True
+Backing Plate manual 10.0 -6.0 6.0 True
+```
+
+Snoozing has no shell line worth showing: it writes a date into the rule's
+`snoozed_until`, and the filter compares it with today.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Order both at once
+
+<UiOrShell>
+<Tab>
+
+Give both components a vendor: on **Friction Pad**, Purchase tab, a line for
+`Brembo Parts` at `4.00`; on **Backing Plate**, `Brembo Parts` at `3.00`. Back in
+Replenishment, tick the box in the header to select both lines and open **Order**:
+
+![Both component lines selected, with Route Buy in grey highlighted on each, and the header's Order menu open showing Order and Order To Max, highlighted](/screens/inv05-order-both.jpg)
+
+Route Buy, Vendor Brembo Parts, both in grey. Click **Order**. Both lines disappear, and
+one request for quotation holds them both:
+
+![The request for quotation P00003 for Brembo Parts with the vendor highlighted and two lines highlighted: Backing Plate 6.00 at 3.00 and Friction Pad 6.00 at 4.00](/screens/inv05-rfq-components.jpg)
+
+Same vendor, same day, so one order. And the two suggestions are gone for good: OdooBot
+made them, they were Manual, and nothing was left to order.
+
+</Tab>
+<Tab>
+
+```python
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> friction.product_tmpl_id.write({"seller_ids": [(0, 0, {"partner_id": brembo.id, "price": 4})]})
+True
+>>> plate.product_tmpl_id.write({"seller_ids": [(0, 0, {"partner_id": brembo.id, "price": 3})]})
+True
+>>> comps.action_replenish()
+False
+>>> po2 = env["purchase.order"].search([("order_line.product_id", "=", friction.id)])
+>>> po2.name, po2.origin, po2.partner_id.name, [(l.product_id.name, l.product_qty) for l in po2.order_line]
+('P00003', 'Replenishment Report', 'Brembo Parts', [('Friction Pad', 6.0), ('Backing Plate', 6.0)])
+>>> comps.exists()
+stock.warehouse.orderpoint()
+```
+
+`action_replenish` on two rules returns no notification (that is for one line) and
+`exists()` proves the two rules were deleted.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Finish the pads
+
+<UiOrShell>
+<Tab>
+
+On P00003: **Confirm Order**, **Receive**, **Validate**, **Next Transfer**, **Validate**.
+The Pick Components transfer `LFD/PC/00002` now reserves 16 of each. **Validate** it, open
+`LFD/MO/00003` and **Produce All**, then **Validate** the Store Finished Product transfer
+from its **Transfers** button. The shelf: 7 + 8 = 15 sets, and 10 + 6 − 16 = 0 of each
+component.
+
+</Tab>
+<Tab>
+
+```python
+>>> po2.button_confirm()
+True
+>>> r2 = po2.picking_ids
+>>> r2.button_validate()
+True
+>>> s2 = r2.move_ids.move_dest_ids.picking_id
+>>> s2.button_validate()
+True
+>>> pc.state, pc.move_ids.mapped("quantity")
+('assigned', [16.0, 16.0])
+>>> pc.button_validate()
+True
+>>> mo.button_mark_done()
+True
+>>> sfp = mo.picking_ids.filtered(lambda p: p.picking_type_id.sequence_code == "SFP")
+>>> sfp.button_validate()
+True
+>>> mo.state, pads.qty_available, friction.qty_available, plate.qty_available
+('done', 15.0, 0.0, 0.0)
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal"), ("quantity", "!=", 0)], order="id"):
+...     print(f"{q.location_id.complete_name:<12} {q.product_id.name:<20} {q.quantity:>6.2f}")
+... 
+LFD/Stock    Brake Pad Set         15.00
+LFD/Stock    Engine Oil 5W-30 1L   35.00
+LFD/Stock    Diagnostic Tablet      1.00
+>>> env.cr.commit()
+```
+
+Commit at the end, or the whole chapter vanishes with the shell.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Look back in time, and where the switches live
+
+Nothing to change, two places to know. **Reporting → Stock → Inventory at Date**, then
+pick a moment before you confirmed the oil order:
+
+![The Stock report at 10/11/2026 12:40:00 PM, the date in the breadcrumb highlighted, and the On Hand column highlighted: Backing Plate 10, Brake Pad Set 7, Diagnostic Tablet 1, Engine Oil 13, Friction Pad 10](/screens/inv05-inventory-at-date.jpg)
+
+The shelf as it was at the start of this chapter, rebuilt from the done moves. (Your
+date and time will be your own.) Then **Configuration → Settings**, block **Advanced
+Scheduling**:
+
+![The Inventory settings, Advanced Scheduling block, with Replenishment Horizon 365.00 days, Days to Purchase 0.00 days and Security Lead Time for Sales unticked, each highlighted](/screens/inv05-settings-scheduling.jpg)
+
+**Replenishment Horizon** is the 365 days you met in every forecast date. **Days to
+Purchase** is added to every Buy lead time. **Security Lead Time for Sales**, once
+ticked, asks how many days earlier to plan deliveries.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv05 --db warehouse
+```
+
+```text
+✔ the order for 20 bottles was shipped in full
+✔ the oil has a vendor at 6 with 3 days and a Pack of 6 packaging
+✔ the oil's rule is automatic, Min 10, Max 30, by the pack
+✔ Automate bought 42 bottles and they were received
+✔ the pads have an automatic Manufacture rule, Min 10, Max 15
+✔ the scheduler manufactured 8 pads
+✔ the components were bought on one order and the suggestions went away
+✔ the shelf holds 15 pads, 35 oil, 1 tablet and no components
+
+inv05 complete! On to the next chapter 🔧
+```
+
+The two rules that stayed:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select o.name as rule, t.name->>'en_US' as product, o.trigger, o.product_min_qty as min, o.product_max_qty as max, u.name->>'en_US' as multiple from stock_warehouse_orderpoint o join product_product p on p.id=o.product_id join product_template t on t.id=p.product_tmpl_id left join uom_uom u on u.id=o.replenishment_uom_id order by o.id;"
+```
+
+```text
+         rule         |       product       | trigger |  min  |  max  | multiple  
+----------------------+---------------------+---------+-------+-------+-----------
+ Replenishment Report | Engine Oil 5W-30 1L | auto    | 10.00 | 30.00 | Pack of 6
+ OP/00001             | Brake Pad Set       | auto    | 10.00 | 15.00 | 
+(2 rows)
+```
+
+And every order in the database, with who asked for it:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select name as order, origin, state from purchase_order union all select name, origin, state from mrp_production order by 1;"
+```
+
+```text
+    order     |        origin        |  state   
+--------------+----------------------+----------
+ LFD/MO/00001 |                      | done
+ LFD/MO/00002 | S00002               | done
+ LFD/MO/00003 | OP/00001             | done
+ P00001       | S00001               | purchase
+ P00002       | Replenishment Report | purchase
+ P00003       | Replenishment Report | purchase
+(6 rows)
+```
+
+A person, two sales orders and three rules. The oil's rule kept the name the report gave
+it; rename it if that confuses your users.
+
+## Gotchas
+
+- **An Auto rule waits for the scheduler.** Creating it or switching it to Auto orders
+  nothing; the scheduler runs once a day. **Automate** is the exception: it switches
+  *and* orders now. "Nothing happened overnight" usually means the rule is Manual, or the
+  forecast is not below Min.
+- **Setting Min and Max on a suggestion, then clicking Order, can lose them.** The report
+  made that rule (OdooBot) and it is Manual, so once nothing is left to order Odoo deletes
+  it, your Min and Max with it. Use **Automate**, or create the rule yourself from the
+  product.
+- **No vendor means "No rule has been found".** The Buy route only answers for products
+  with a vendor line. Odoo also adds 365 days of lead time when a buy rule finds no usable
+  vendor, which makes the forecast date a year later than you think.
+- **A one-year horizon orders for next year's demand today.** With the default 365 days,
+  any confirmed outgoing move in the next twelve months is in the forecast. Lower the
+  Replenishment Horizon if your buyers want just-in-time orders.
+- **The Multiple rounds up, past Max.** 37 became 42, and the warning icon after the
+  Forecast says so. If overshooting is not acceptable, choose a smaller packaging or none.
+- **The scheduler fails silently.** No error dialog, only an Exception activity on the
+  product, for its Responsible. Products created by a script or an import often have no
+  Responsible, and then the activity goes to OdooBot, which nobody reads.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'The oil\'s rule has Min 10 and Max 30, the forecast is -7, and there is no Multiple. What is To Order?',
+      options: [
+        '17, enough to reach Min from the forecast',
+        '37, enough to reach Max from the forecast',
+        '7, only what is missing below zero',
+      ],
+      answer: 1,
+      why: 'Once the forecast is below Min, Odoo orders up to Max: 30 minus -7 is 37. Min only decides whether to order, Max decides how much.',
+    },
+    {
+      q: 'You create an Auto rule for a product whose forecast is below Min. When is the order created?',
+      options: [
+        'When you save the rule, the same moment',
+        'When the scheduler next runs, or you run it',
+        'When someone opens the Replenishment screen',
+      ],
+      answer: 1,
+      why: 'Auto rules are handled by the Procurement: run scheduler action, daily by default. Saving only computes To Order, and opening Replenishment only creates suggestions for products without a rule. Automate on a line is the button that orders immediately.',
+    },
+    {
+      q: 'Why did ordering the oil fail with "No rule has been found" while the depot has a Buy route?',
+      options: [
+        'The oil had no vendor line, and Buy only answers with one',
+        'The Buy route was not ticked on the product\'s Inventory tab',
+        'The rule was Manual, and Manual rules cannot buy',
+      ],
+      answer: 0,
+      why: 'Buy is a warehouse route, not a product box; it is offered only to products that have a vendor. Manual rules buy fine, as P00003 shows.',
+    },
+    {
+      q: 'What does the Replenishment Horizon of 365 days change?',
+      options: [
+        'How far after the lead time the forecast looks for demand',
+        'How many days ahead the scheduler plans its next automatic run',
+        'How many days a snoozed line stays hidden',
+      ],
+      answer: 0,
+      why: 'The forecast date is today plus the lead time plus the horizon. The scheduler runs on its own cron interval, and snoozing has its own dates.',
+    },
+    {
+      q: 'You set Min and Max on a suggested line made by the report and click Order. What happens to the rule?',
+      options: [
+        'It stays, Manual, with your Min and Max kept',
+        'It turns Auto, because a Min and Max were set',
+        'It is deleted once nothing is left to order',
+      ],
+      answer: 2,
+      why: 'Odoo deletes report-made (OdooBot) Manual rules that have nothing left to order after Order. Automate would have kept it by switching it to Auto.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In Replenishment, open the side panel and set **HORIZON** to `0`. Confirm a sales
+   order for 40 bottles of oil with a delivery date a month away (**Other Info**,
+   **Delivery Date**), and predict whether the oil line appears. Then set the horizon back
+   to 365 and explain the difference with the four steps.
+2. ⭐⭐ Give Nordic Lubricants a second vendor line for the oil: **Quantity** `48`, price
+   `5.50`. Make the oil short again and read which line the request for quotation uses
+   for 42 bottles, then for 48. Switch on the **Vendor** column and pin a line by hand.
+3. ⭐⭐ Set **Days to Purchase** to `2` in the settings and a **Manuf. Lead Time** of `1`
+   day on the pads' bill of materials. Open the Replenishment Information window
+   of both rules and write each lead time as a sum.
+4. ⭐⭐⭐ Break-it lab. Create a storable product `Wiper Blade` with no vendor, give it an
+   **Auto** rule (Min `2`, Max `4`) and run the scheduler. Find what Odoo did instead of
+   an order, who it was assigned to, and the exact message. Then add a vendor, run the
+   scheduler again, and say what happens to the activity.
+
+## Further reading
+
+- <Icon name="docs" /> [Reordering rules (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/reordering_rules.html):
+  manual and automatic rules, and how to set Min and Max from demand.
+- <Icon name="docs" /> [Replenishment report (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/report.html):
+  the screen you used, its filters and its buttons.
+- <Icon name="docs" /> [Lead times (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/lead_times.html):
+  every delay, with the purchase and manufacturing variants.
+- <Icon name="source" /> [`stock/models/stock_orderpoint.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_orderpoint.py):
+  `_get_qty_to_order` is the four steps, `action_open_orderpoints` makes the suggestions,
+  `_procure_orderpoint_confirm` logs the Exception activities.

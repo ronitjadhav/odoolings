@@ -3057,6 +3057,111 @@ def shelf_holds_seven_thirteen_ten_ten_and_one(env):
     assert not stuck, "goods are sitting in a step location: %s. A transfer in a chain is not validated" % stuck
 
 
+def _rule_for(env, product):
+    return env.call("stock.warehouse.orderpoint", "search_read",
+                    [("product_id.name", "=", product), ("location_id.complete_name", "=", "LFD/Stock")],
+                    fields=["name", "trigger", "product_min_qty", "product_max_qty", "replenishment_uom_id", "route_id"])
+
+
+def twenty_bottles_were_sold_and_shipped(env):
+    lines = env.call("sale.order.line", "search_read",
+                     [("order_id.partner_id.name", "=", "Garage Nord"), ("order_id.state", "=", "sale"),
+                      ("product_id.name", "=", "Engine Oil 5W-30 1L"), ("product_uom_qty", "=", 20)],
+                     fields=["qty_delivered"])
+    assert lines, "no confirmed sales order for 20 Engine Oil 5W-30 1L to Garage Nord; Sales > New, 20 bottles at 12, Confirm"
+    assert lines[0]["qty_delivered"] == 20.0, (
+        "the order shows %s delivered; once the replenishment arrived the Pick was fully reserved, so Validate "
+        "Pick, Pack and the delivery" % lines[0]["qty_delivered"])
+
+
+def oil_has_a_vendor_and_a_pack(env):
+    tmpl = env.call("product.template", "search_read", [("name", "=", "Engine Oil 5W-30 1L")], fields=["seller_ids", "uom_ids"])
+    sellers = env.call("product.supplierinfo", "search_read", [("id", "in", tmpl[0]["seller_ids"])],
+                       fields=["partner_id", "price", "delay"])
+    assert any(r["partner_id"][1] == "Nordic Lubricants" and r["price"] == 6 and r["delay"] == 3 for r in sellers), (
+        "the oil has no vendor line Nordic Lubricants at 6.00 with a 3-day lead time; product form, Purchase tab, "
+        "Add a line. Without a vendor the Buy rule is invisible to it")
+    packs = env.call("uom.uom", "search_read", [("id", "in", tmpl[0]["uom_ids"])], fields=["name"])
+    assert any(r["name"] == "Pack of 6" for r in packs), (
+        "Pack of 6 is not among the oil's packagings; product form, Sales tab, Packagings. Only packagings and the "
+        "vendor's unit are offered as a Multiple")
+
+
+def oil_rule_is_automatic_min_max_by_the_pack(env):
+    rows = _rule_for(env, "Engine Oil 5W-30 1L")
+    assert rows, "no reordering rule for the oil in LFD/Stock; the Replenishment report creates one when the forecast goes negative"
+    r = rows[0]
+    assert (r["product_min_qty"], r["product_max_qty"]) == (10.0, 30.0), (
+        "the oil's rule is Min %s / Max %s, expected 10 / 30" % (r["product_min_qty"], r["product_max_qty"]))
+    assert r["replenishment_uom_id"] and r["replenishment_uom_id"][1] == "Pack of 6", (
+        "the oil's Multiple is %r, expected Pack of 6 (show the Multiple column from the optional columns)"
+        % (r["replenishment_uom_id"] and r["replenishment_uom_id"][1]))
+    assert r["trigger"] == "auto", "the oil's rule is still Manual; Automate orders once and switches the trigger to Auto"
+
+
+def automate_bought_42_bottles(env):
+    rule = _rule_for(env, "Engine Oil 5W-30 1L")
+    lines = env.call("purchase.order.line", "search_read",
+                     [("orderpoint_id", "in", [r["id"] for r in rule]), ("product_qty", "=", 42)],
+                     fields=["order_id", "qty_received", "partner_id"])
+    assert lines, ("no purchase line for 42 bottles from the oil's rule; 30 minus a forecast of -7 is 37, rounded up "
+                   "to 7 packs of 6, then Automate")
+    assert lines[0]["partner_id"][1] == "Nordic Lubricants", "the 42 bottles were bought from %s" % lines[0]["partner_id"][1]
+    assert lines[0]["qty_received"] == 42.0, (
+        "%s is not received; Confirm Order, Receive, Validate, then Next Transfer and Validate the Storage"
+        % lines[0]["order_id"][1])
+
+
+def pads_rule_manufactures_automatically(env):
+    rows = _rule_for(env, "Brake Pad Set")
+    assert rows, "no reordering rule for Brake Pad Set; product form, More, Reordering Rules, New"
+    r = rows[0]
+    assert (r["product_min_qty"], r["product_max_qty"]) == (10.0, 15.0), (
+        "the pads' rule is Min %s / Max %s, expected 10 / 15" % (r["product_min_qty"], r["product_max_qty"]))
+    assert r["route_id"] and r["route_id"][1] == "Manufacture", "the pads' rule should use the Manufacture route"
+    assert r["trigger"] == "auto", "the pads' rule must be Auto, so the scheduler acts on it"
+
+
+def the_scheduler_made_eight_pads(env):
+    rule = _rule_for(env, "Brake Pad Set")
+    mos = env.call("mrp.production", "search_read", [("orderpoint_id", "in", [r["id"] for r in rule])],
+                   fields=["name", "state", "product_qty"])
+    assert mos, ("no manufacturing order from the pads' rule; in debug mode, Inventory > Operations > Procurement: run "
+                 "scheduler. An automatic rule waits for the scheduler")
+    assert mos[0]["product_qty"] == 8.0, "the rule's order is for %s, expected 15 minus 7 = 8" % mos[0]["product_qty"]
+    assert mos[0]["state"] == "done", ("%s is not done; buy the components, Validate the Pick Components, Produce All, "
+                                       "then Validate the Store Finished Product" % mos[0]["name"])
+
+
+def components_were_bought_on_one_order(env):
+    lines = env.call("purchase.order.line", "search_read",
+                     [("product_id.name", "in", ["Friction Pad", "Backing Plate"]), ("product_qty", "=", 6)],
+                     fields=["order_id", "partner_id", "qty_received"])
+    orders = {l["order_id"][0] for l in lines}
+    assert len(lines) == 2 and len(orders) == 1, (
+        "expected one purchase order with 6 Friction Pad and 6 Backing Plate; give both Brembo Parts as vendor, "
+        "select both suggestions in Replenishment and Order")
+    assert all(l["qty_received"] == 6.0 for l in lines), "the components are not received; Confirm Order, Receive, Storage"
+    left = env.call("stock.warehouse.orderpoint", "search_count",
+                    [("product_id.name", "in", ["Friction Pad", "Backing Plate"])])
+    assert not left, "the components still have reordering rules; ordering once removes the report's own suggestions"
+
+
+def shelf_holds_fifteen_thirty_five_and_one(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "=", "internal")],
+                    fields=["product_id", "location_id", "quantity"])
+    stock = {}
+    for r in rows:
+        if r["location_id"][1] == "LFD/Stock":
+            stock[r["product_id"][1]] = stock.get(r["product_id"][1], 0) + r["quantity"]
+    want = {"Brake Pad Set": 15.0, "Engine Oil 5W-30 1L": 35.0, "Diagnostic Tablet": 1.0, "Friction Pad": 0, "Backing Plate": 0}
+    for name, qty in want.items():
+        assert stock.get(name, 0) == qty, "LFD/Stock should hold %s %s, it holds %s" % (qty, name, stock.get(name, 0))
+    stuck = [(r["location_id"][1], r["product_id"][1], r["quantity"]) for r in rows
+             if r["location_id"][1] != "LFD/Stock" and r["quantity"]]
+    assert not stuck, "goods are sitting in a step location: %s. A transfer in a chain is not validated" % stuck
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -3860,6 +3965,26 @@ CHAPTERS = {
         ("the shelf holds 7 pads, 13 oil, 10 of each component and 1 tablet", shelf_holds_seven_thirteen_ten_ten_and_one,
          "Reporting > Stock. 5 + 3 - 1 + 2 - 2 pads; 15 - 2 oil; 20 - 6 - 4 of each component. Anything left "
          "in Pre-Production or Post-Production is a step you skipped."),
+    ],
+    "inv05": [
+        ("the order for 20 bottles was shipped in full", twenty_bottles_were_sold_and_shipped,
+         "Sales > New for Garage Nord, 20 Engine Oil 5W-30 1L at 12, Confirm. Only 13 are on the shelf, "
+         "which is what puts the oil in the Replenishment report."),
+        ("the oil has a vendor at 6 with 3 days and a Pack of 6 packaging", oil_has_a_vendor_and_a_pack,
+         "Product form: Purchase tab, vendor Nordic Lubricants, price 6, Lead Time 3; Sales tab, Packagings, Pack of 6."),
+        ("the oil's rule is automatic, Min 10, Max 30, by the pack", oil_rule_is_automatic_min_max_by_the_pack,
+         "In Replenishment: Min 10, Max 30, Multiple Pack of 6, then Automate."),
+        ("Automate bought 42 bottles and they were received", automate_bought_42_bottles,
+         "Automate creates the purchase order; confirm it and receive it in two steps."),
+        ("the pads have an automatic Manufacture rule, Min 10, Max 15", pads_rule_manufactures_automatically,
+         "Brake Pad Set > More > Reordering Rules > New: Route Manufacture, Trigger Auto, Min 10, Max 15."),
+        ("the scheduler manufactured 8 pads", the_scheduler_made_eight_pads,
+         "Debug mode, Inventory > Operations > Procurement: run scheduler. Then finish the order in three steps."),
+        ("the components were bought on one order and the suggestions went away", components_were_bought_on_one_order,
+         "Brembo Parts as vendor on both components, then select both lines in Replenishment, Order."),
+        ("the shelf holds 15 pads, 35 oil, 1 tablet and no components", shelf_holds_fifteen_thirty_five_and_one,
+         "Reporting > Locations without the Internal filter shows Input, Packing Zone, Output, Pre- and "
+         "Post-Production. Anything left there is a chain you did not finish."),
     ],
 }
 
@@ -4732,6 +4857,51 @@ def seed_inv04(env):
     _finish_chain(env, sfp)  # Store Finished Product, then the waiting Pick, Pack and Delivery
 
 
+def seed_inv05(env):
+    OP = "stock.warehouse.orderpoint"
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    tmpl = lambda n: _id(env, "product.template", [("name", "=", n)])
+    pads, oil = variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L")
+    garage = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    brembo = _id(env, "res.partner", [("name", "=", "Brembo Parts")])
+    stock = _id(env, "stock.location", [("complete_name", "=", "LFD/Stock")])
+    pack6 = _id(env, "uom.uom", [("name", "=", "Pack of 6")])
+    order = env.call("sale.order", "create", {
+        "partner_id": garage, "order_line": [(0, 0, {"product_id": oil, "product_uom_qty": 20, "price_unit": 12})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    _call(env, OP, "action_open_orderpoints")  # the Replenishment report: creates the oil's suggestion
+    nordic = env.call("res.partner", "create", {"name": "Nordic Lubricants"})
+    env.call("product.template", "write", [tmpl("Engine Oil 5W-30 1L")], {
+        "uom_ids": [(4, pack6)], "seller_ids": [(0, 0, {"partner_id": nordic, "price": 6, "delay": 3})]})
+    op_oil = _id(env, OP, [("product_id", "=", oil)])
+    env.call(OP, "write", [op_oil], {"product_min_qty": 10, "product_max_qty": 30, "replenishment_uom_id": pack6})
+    env.call(OP, "action_replenish_auto", [op_oil])  # Automate: 42 bottles, trigger Auto
+    po = _id(env, "purchase.order", [("order_line.orderpoint_id", "=", op_oil)])
+    _call(env, "purchase.order", "button_confirm", [po])
+    for receipt in env.call("purchase.order", "read", [po], ["picking_ids"])[0]["picking_ids"]:
+        _finish_chain(env, receipt)
+    pick = _id(env, "stock.picking", [("origin", "=", env.call("sale.order", "read", [order], ["name"])[0]["name"])])
+    _finish_chain(env, pick)  # fully reserved now: Pick, Pack, Delivery
+    env.call(OP, "create", {"product_id": pads, "location_id": stock, "product_min_qty": 10, "product_max_qty": 15,
+                            "route_id": _id(env, "stock.route", [("name", "=", "Manufacture")]), "trigger": "auto"})
+    _call(env, "stock.rule", "run_scheduler")  # Procurement: run scheduler
+    _call(env, OP, "action_open_orderpoints")  # the components' suggestions, forecast -6
+    for name, price in (("Friction Pad", 4), ("Backing Plate", 3)):
+        env.call("product.template", "write", [tmpl(name)], {"seller_ids": [(0, 0, {"partner_id": brembo, "price": price})]})
+    ops = env.call(OP, "search", [("product_id.name", "in", ["Friction Pad", "Backing Plate"])])
+    _call(env, OP, "action_replenish", ops)
+    po2 = _id(env, "purchase.order", [("order_line.product_id.name", "=", "Friction Pad")])
+    _call(env, "purchase.order", "button_confirm", [po2])
+    for receipt in env.call("purchase.order", "read", [po2], ["picking_ids"])[0]["picking_ids"]:
+        _finish_chain(env, receipt)
+    mo = _id(env, "mrp.production", [("orderpoint_id", "!=", False)])
+    for pc in env.call("mrp.production", "read", [mo], ["picking_ids"])[0]["picking_ids"]:
+        _validate(env, [pc])  # Pick Components
+    _call(env, "mrp.production", "button_mark_done", [mo])
+    sfp = _id(env, "stock.picking", [("picking_type_id.sequence_code", "=", "SFP"), ("state", "=", "assigned")])
+    _validate(env, [sfp])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4741,6 +4911,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
+    "inv05": seed_inv05,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
