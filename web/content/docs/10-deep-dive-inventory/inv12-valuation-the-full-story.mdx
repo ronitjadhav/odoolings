@@ -1,0 +1,741 @@
+---
+title: "Inventory 12. Valuation, the Full Story"
+description: What your stock is worth and how the books hear about it in Odoo 19, from standard cost to FIFO and AVCO, with vendor bills, landed costs, the period closing and cost of goods sold, all run on the depot.
+tier: professional
+---
+
+**Goal:** say what every product in the depot is worth, why, and when the accounts find
+out. · **Time:** ~3.5 h · **Checkpoint:** none, this chapter writes no module. It
+continues the `warehouse` database and installs Landed Costs.
+
+## Why this matters
+
+Chapter 30 met valuation in the `functional` database: two switches on the product
+category, a value on every stock move, and an account on the Customers location. This
+chapter is the full tour, on stock you know by heart.
+
+It matters because a stock value is a number someone signs. The accountant closes the
+month on it, the controller compares it to the shelves, and the margin on every sale is
+built on it. In the depot, every product is worth $0 right now: no costs were ever
+entered. By the end you will have a standard cost on the oil, a product that lived under
+FIFO and then AVCO, a vendor bill that changed a receipt's value, freight added on top, a
+period closing entry, and an invoice that posts its own cost of goods sold.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Four places decide a value
+
+Valuation answers two questions, as chapter 30 put it: **what is a unit worth** (the
+costing method) and **when do the books hear about it** (the valuation). In Odoo 19 the
+answers live in four places, from the most general to the most specific:
+
+| Where | What it holds | Who sees it in Community |
+|---|---|---|
+| **Company** | `cost_method` (Standard Price by default), `inventory_valuation` (Periodic), `inventory_period` (Manual), the stock journal and the stock valuation account | nobody: no view shows them; shell, or the category |
+| **Product category** | **Costing Method** and **Inventory Valuation**, overriding the company; its accounts | the two fields: stock managers. The accounts: only with **Show Full Accounting Features** |
+| **Product** | the **Cost** (`standard_price`), and the computed `cost_method` and `valuation` | everyone |
+| **Stock move** | its `value`, set when it is done | stock managers, through the reports |
+
+An empty Inventory Valuation on a category means "use the company's". The company
+values are also copied as defaults for new categories, which is why the depot's
+categories already say Standard Price and Periodic.
+
+Only stock **the company owns** in an **internal or transit** location is valued. The
+coolant from chapter 9 belongs to Nordic Lubricants: it has a cost, and it is worth $0 to
+you.
+
+### Where the value lives
+
+There is no `stock.valuation.layer` in Odoo 19 (chapter 30). The value of each movement
+is stored on the move itself, in `stock.move.value`, once the move is done. A move counts
+when it crosses the company's boundary: **in** from a non-valued location (a vendor,
+production, an adjustment) into a valued one, or **out** the other way. The internal
+steps of a two- or three-step route are worth nothing on their own.
+
+Next to the moves sits a history model, **`product.value`**. Every change of a product's
+cost writes a row, and so does a manual correction of a move's value. That history is
+what lets Odoo answer "what was this worth on 30 June?" (**Inventory at Date**).
+
+An incoming move gets its value from the first source that can answer, in this order:
+
+| # | Source | Example |
+|---|---|---|
+| 1 | a **manual** value (`product.value` on the move) | Actions → Adjust Valuation |
+| 2 | the posted **vendor bill** | billed at $9.90 instead of $9 |
+| 3 | the **production** cost | a manufacturing order |
+| 4 | the **purchase order** line, "not billed" yet | ordered at $9 |
+| 5 | the original move, for a **return** | a customer returns a filter |
+| 6 | the product's **cost** | an inventory adjustment |
+
+**Landed costs** are added on top, unless a manual value is set: a manual value wins over
+everything. So a receipt is worth the PO price when it arrives, and it is re-valued when
+the bill is posted. An outgoing move is valued by the costing method.
+
+### How each costing method answers
+
+<Mermaid
+  label="The same purchases under three costing methods: Standard values everything at the typed cost, FIFO consumes the oldest receipt first, and AVCO keeps one running average"
+  chart={`flowchart LR
+  B["Buy 10 at $8<br/>then 10 at $10"] --> S["Standard<br/>every unit at the Cost<br/>you typed"]
+  B --> F["FIFO<br/>sell 12: 10 x $8 + 2 x $10<br/>= $100"]
+  B --> A["AVCO<br/>average $9<br/>sell 12: 12 x $9 = $108"]`}
+/>
+
+- **Standard Price**: every unit, in and out, at the product's Cost. Changing the Cost
+  re-values the whole stock at once and leaves a `product.value` row.
+- **FIFO**: each receipt keeps its value. A delivery consumes the oldest receipts first.
+  What is left of each receipt is its `remaining_qty` and `remaining_value`, and the
+  product's Cost follows: total value divided by quantity.
+- **AVCO**: one average, recomputed at each receipt: (value before + value received) ÷
+  quantity. Deliveries leave at the average.
+
+The costing method has nothing to do with the **removal strategy** of chapter 9. The oil
+category takes the newest bottle off the shelf (LIFO removal) and values every bottle at
+a standard cost. One decides which unit moves, the other what it is worth.
+
+Switching a category's costing method is not free. Odoo recomputes the products' cost as
+if the new method had always applied: a FIFO product switched to AVCO gets the average of
+its whole history.
+
+### Two ways to tell the books
+
+**Periodic (at closing)** keeps the books away from the warehouse. Vendor bills go to an
+expense account, deliveries post nothing, and at the end of a period one **closing
+entry** brings the stock valuation account to the stock's value, against the **stock
+variation** account. You trigger it from the **Inventory Valuation** report, which has
+no menu in Community: it lives at `/odoo/stock-valuation-closing`. With an Inventory
+Period of **Daily** or **Monthly** on the company, the scheduled action "Stock Account:
+Inventory Valuation Closing" posts it for you; **Manual**, the default, leaves it to you.
+
+**Perpetual (at invoicing)** writes as the documents happen, and the label is accurate:
+the entries ride on the bill and the invoice.
+
+- The vendor bill line goes to the stock valuation account instead of an expense. With
+  Standard Price, a bill above the cost sends the difference to a price difference
+  account.
+- The customer invoice gets **cost of goods sold** lines (`display_type` `cogs`): credit
+  stock valuation, debit the expense account, at the product's cost when the invoice is
+  posted.
+- Receipts and deliveries post nothing, unless a location on one side has a valuation
+  account (chapter 30 set one on Customers; Odoo shows the field on inventory-loss and
+  production locations).
+
+| Document | Periodic | Perpetual |
+|---|---|---|
+| Vendor bill | expense account | stock valuation account |
+| Delivery | nothing | nothing, unless a location has an account |
+| Customer invoice | sales and tax only | plus the cost of goods sold lines |
+| Period end | one closing entry | nothing left to close |stock valuation vs variation"]
+  end
+  subgraph R["Perpetual"]
+    R1["bill: stock valuation"] --> R2["delivery: nothing"] --> R3["invoice: COGS lines<br/>stock valuation vs expense"]
+  end`}
+/>
+
+Both can share one stock valuation account, but the closing compares **all** stock value
+with that account's balance. Close the period before a category moves to perpetual, or
+the closing will "correct" entries the invoices already made.
+
+### Landed costs
+
+A **landed cost** adds the price of getting goods in (freight, customs, insurance) to the
+receipts. The **Landed Costs** setting installs `stock_landed_costs`. A landed cost lists
+transfers and cost lines; each line is split over the received products by one method:
+
+| Split method | Share of each product |
+|---|---|
+| **Equal** | the same for every line |
+| **By Quantity** | by units received |
+| **By Current Cost** | by the value received |
+| **By Weight** / **By Volume** | by the products' weight or volume |
+
+It only works for **FIFO and AVCO** products: a standard cost is, by definition, not
+changed by what you paid. Validating it raises the moves' value; it writes a journal
+entry only for perpetual products. A service product marked **Is a Landed Cost** can sit
+on a vendor bill, whose **Create Landed Costs** button links the two.
+
+### Lot valuation
+
+On a product tracked by lots or serials, **Valuation by Lot/Serial** gives every lot its
+own cost. Each receipt must then carry a lot, deliveries leave at the lot's cost, and the
+product's value is the sum of its lots. You cannot switch it on while some stock has no
+lot. It suits a part whose price varies by batch, such as a serial-numbered diagnostic
+tablet bought at different prices.
+
+### Where to look
+
+- **Inventory → Reporting → Stock**: **Unit Cost** and **Total Value** per product, and
+  **Inventory at Date** for the past.
+- Click a **Total Value**: the **Valuation** list of the valued moves, with their value
+  and what remains of each receipt.
+- Click a **Unit Cost**: the **Unit Cost History**, every change and the average after
+  it. FIFO products have none.
+- `/odoo/stock-valuation-closing`: the **Inventory Valuation** report and its **Generate
+  Entry** button.
+
+<Callout type="info" title="Official docs">
+  [Configuring inventory valuation](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/inventory_valuation_config.html),
+  [using it](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/using_inventory_valuation.html)
+  and [landed costs](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/landed_costs.html)
+  in the 19.0 user documentation.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: oil at a standard $6,
+air filters bought under FIFO then AVCO, a bill and freight on the last receipt, a closed
+period, and an invoice with its cost of goods sold.
+
+<Steps>
+
+<Step>
+### Read the switches
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Product Categories → Goods / Fluids**:
+
+![The Goods / Fluids category with its Inventory Valuation group highlighted, Costing Method Standard Price and Inventory Valuation Periodic (at closing), and its Force Removal Strategy Last In First Out (LIFO) highlighted](/screens/inv12-category-switches.jpg)
+
+Standard Price and Periodic are the company defaults, copied onto the category. LIFO
+next to it is the removal strategy from chapter 9, a different question.
+
+Now **Reporting → Stock**:
+
+![The stock report with the Unit Cost and Total Value columns highlighted, all at $ 0.00 with a total of $ 0.00, the Coolant 5L row highlighted with a unit cost of $ 20.00 and a total value of $ 0.00, and the Inventory at Date button highlighted](/screens/inv12-stock-report-zero.jpg)
+
+The whole depot is worth $0.00: nobody ever entered a cost. The coolant has a cost of
+$20 and is still worth nothing, because Nordic Lubricants owns it.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> co = env.company
+>>> co.cost_method, co.inventory_valuation, co.inventory_period
+('standard', 'periodic', 'manual')
+>>> co.account_stock_journal_id.name, co.account_stock_valuation_id.display_name, co.account_stock_valuation_id.account_stock_variation_id.display_name
+('Inventory Valuation', 'Stock Valuation', 'Stock Variation')
+>>> fluids = env["product.category"].search([("complete_name", "=", "Goods / Fluids")])
+>>> fluids.property_cost_method, fluids.property_valuation
+('standard', 'periodic')
+>>> Product = env["product.product"]
+>>> oil = Product.search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> coolant = Product.search([("name", "=", "Coolant 5L")])
+>>> [(p.name, p.cost_method, p.qty_available, p.standard_price, p.total_value) for p in oil | coolant]
+[('Engine Oil 5W-30 1L', 'standard', 20.0, 0.0, 0.0), ('Coolant 5L', 'standard', 9.0, 20.0, 0.0)]
+```
+
+The company fields are only reachable this way in Community. The stock valuation account
+says where its counterpart goes at closing: its **Variation Account**, Stock Variation.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Give the oil a standard cost
+
+<UiOrShell>
+<Tab>
+
+Click the oil's row, set **Cost** to `6` and save. Back on **Reporting → Stock**, the oil
+reads $6.00 and $120.00: 20 bottles, the 12 in the depot and the 8 in the van. Click its
+**Unit Cost**:
+
+![The Unit Cost History of Engine Oil 5W-30 1L with the row Adjustment, Price update from 0.0 to 6.0 by Administrator, unit cost $ 6.00 highlighted, above the Initial cost row at $ 0.00](/screens/inv12-unit-cost-history.jpg)
+
+Every cost change is kept, with who made it. That history is how **Inventory at Date**
+can value the oil as it was last week.
+
+</Tab>
+<Tab>
+
+```python
+>>> oil.standard_price = 6
+>>> oil.total_value, oil.avg_cost
+(120.0, 6.0)
+>>> env["product.value"].search([("product_id", "=", oil.id)], order="id desc", limit=1).description
+'Price update from 0.0 to 6.0 by OdooBot'
+```
+
+The shell runs as OdooBot, so the history names it instead of you.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A FIFO product and two receipts
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Product Categories → New**:
+
+- **Category:** `Filters`
+- **Parent Category:** Goods
+- **Costing Method:** First In First Out (FIFO)
+
+Then **Products → Products → New**:
+
+- **Product:** `Air Filter`, **Sales Price** `25`
+- **Category:** Goods / Filters
+- **Purchase** tab: vendor Brembo Parts, Unit Price `8`
+
+Buy twice from Brembo Parts in **Purchase → New**: 10 air filters at $8, **Confirm
+Order**, open the **Receipt**, **Validate**, **Next Transfer**, **Validate** the
+Storage. Then 10 more at $10 (change the Unit Price on the line), received the same
+way.
+
+**Reporting → Stock** now shows the air filter at a unit cost of $9.00, total $180.00.
+Click the **Total Value**:
+
+![The Valuation list filtered on Air Filter, Incoming and Remaining, with LFD/IN/00019 valued $ 100.00 and LFD/IN/00018 valued $ 80.00, each with 10.00 remaining, and the Value, Remaining Quantity and Remaining Value columns highlighted](/screens/inv12-fifo-layers.jpg)
+
+Two receipts, two values. Under FIFO they stay separate until something consumes them.
+
+</Tab>
+<Tab>
+
+```python
+>>> goods = env["product.category"].search([("complete_name", "=", "Goods")])
+>>> filters = env["product.category"].create({"name": "Filters", "parent_id": goods.id, "property_cost_method": "fifo"})
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> air = Product.create({"name": "Air Filter", "is_storable": True, "categ_id": filters.id, "list_price": 25, "seller_ids": [(0, 0, {"partner_id": brembo.id, "price": 8})]})
+>>> air.cost_method, air.valuation
+('fifo', 'periodic')
+>>> def buy(qty, price):
+...     po = env["purchase.order"].create({"partner_id": brembo.id, "order_line": [(0, 0, {"product_id": air.id, "product_qty": qty, "price_unit": price})]})
+...     po.button_confirm()
+...     receipt = po.picking_ids
+...     receipt.button_validate()
+...     receipt.move_ids.move_dest_ids.picking_id.button_validate()
+...     return receipt
+... 
+>>> r1 = buy(10, 8)
+>>> r2 = buy(10, 10)
+>>> [(m.reference, m.value, m.remaining_qty, m.remaining_value) for m in (r1 | r2).move_ids]
+[('LFD/IN/00027', 80.0, 10.0, 80.0), ('LFD/IN/00028', 100.0, 10.0, 100.0)]
+>>> air.qty_available, air.total_value, air.avg_cost
+(20.0, 180.0, 9.0)
+```
+
+Only the receipt from the vendor is valued. The Storage step, Input to Stock, stays
+inside the company and is worth nothing. Your receipt numbers may differ.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Sell 12 under FIFO
+
+<UiOrShell>
+<Tab>
+
+**Sales → New** for Garage Nord, 12 air filters, **Confirm**, then validate the Pick,
+the Pack and the Delivery as in chapter 11. Back in the **Valuation** list, remove the
+**Incoming** and **Remaining** filters:
+
+![The Valuation list for Air Filter with the delivery LFD/OUT/00018 of 12 units valued $ 100.00 highlighted, LFD/IN/00019 with 8.00 remaining worth $ 80.00, and LFD/IN/00018 with 0.00 remaining highlighted](/screens/inv12-fifo-out.jpg)
+
+The delivery took the first receipt whole (10 × $8) and 2 of the second (2 × $10):
+$100. Eight filters remain, at $10 each.
+
+</Tab>
+<Tab>
+
+```python
+>>> def sell(name, qty):
+...     so = env["sale.order"].create({"partner_id": env["res.partner"].search([("name", "=", name)]).id, "order_line": [(0, 0, {"product_id": air.id, "product_uom_qty": qty})]})
+...     so.action_confirm()
+...     for kind in ("PICK", "PACK", "OUT"):
+...         so.picking_ids.filtered(lambda p: p.picking_type_id.sequence_code == kind and p.state != "done").button_validate()
+...     return so
+... 
+>>> so1 = sell("Garage Nord", 12)
+>>> out1 = so1.picking_ids.filtered(lambda p: p.picking_type_id.sequence_code == "OUT")
+>>> out1.move_ids.is_out, out1.move_ids.value
+(True, 100.0)
+>>> [(m.reference, m.remaining_qty, m.remaining_value) for m in (r1 | r2).move_ids]
+[('LFD/IN/00027', 0.0, 0.0), ('LFD/IN/00028', 8.0, 80.0)]
+>>> air.qty_available, air.total_value, air.avg_cost
+(8.0, 80.0, 10.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Switch to AVCO, and buy again
+
+<UiOrShell>
+<Tab>
+
+Open **Goods / Filters** again, set **Costing Method** to Average Cost (AVCO), and save.
+On **Reporting → Stock**:
+
+![The stock report with the Air Filter row highlighted: unit cost $ 9.00, total value $ 72.00, 8.00 on hand](/screens/inv12-avco-switch.jpg)
+
+The 8 filters were worth $80 a moment ago; now $72. Odoo recomputed the average as if
+the product had always been AVCO: two receipts averaging $9, then 12 out at $9, leaving
+8 at $9.
+
+Buy 10 more from Brembo Parts at $9 and receive them. The average stays $9, the value
+becomes $162.
+
+</Tab>
+<Tab>
+
+```python
+>>> filters.property_cost_method = "average"
+>>> air.cost_method, air.standard_price, air.total_value
+('average', 9.0, 72.0)
+>>> r3 = buy(10, 9)
+>>> r3.move_ids.value, air.standard_price, air.total_value
+(90.0, 9.0, 162.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### The bill says $9.90
+
+<UiOrShell>
+<Tab>
+
+Brembo Parts bills that last order at $9.90 a filter. In Odoo 19 the purchase order form
+has no Create Bill button: open **Purchase → Orders → Purchase Orders**, tick the order,
+and click **Create Bills**:
+
+![The Purchase Orders list with the order P00008 ticked and highlighted, and the Create Bills button highlighted](/screens/inv12-create-bills.jpg)
+
+On the draft bill set **Bill Date** to today and the line's **Price** to `9.90`, then
+**Confirm**:
+
+![The posted vendor bill BILL/2026/10/0001 from Brembo Parts with the line Air Filter, 10.00 units at 9.90, $ 99.00 highlighted, and the Posted status highlighted](/screens/inv12-bill.jpg)
+
+Back on **Reporting → Stock**, click the air filter's **Unit Cost**:
+
+![The Unit Cost History of Air Filter with LFD/IN/00020 adding 10.00 units for $ 99.00 to reach $ 171.00 for 18.00 units at $ 9.50 highlighted, and LFD/OUT/00018 removing 12.00 units for $ -108.00 highlighted, above the two first receipts](/screens/inv12-avco-history.jpg)
+
+The receipt is now worth $99: the bill beat the purchase order in the order of value
+sources, and the average moved to $9.50. Notice the delivery: here it removes $108
+(12 × $9), because the history is replayed as AVCO. Its stored value is still the FIFO
+$100.
+
+</Tab>
+<Tab>
+
+```python
+>>> po3 = r3.purchase_id
+>>> po3.action_create_invoice()["res_model"]
+'account.move'
+>>> bill = po3.invoice_ids
+>>> bill.invoice_date = bill.date
+>>> bill.invoice_line_ids.price_unit = 9.9
+>>> bill.action_post()
+False
+>>> [(l.account_id.code, l.account_id.name, l.debit, l.credit) for l in bill.line_ids]
+[('600000', 'Expenses', 99.0, 0.0), ('131000', 'Tax Paid', 14.85, 0.0), ('211000', 'Account Payable', 0.0, 113.85)]
+>>> r3.move_ids.value, air.standard_price, air.total_value
+(99.0, 9.5, 171.0)
+```
+
+The filters are periodic, so the bill line goes to Expenses, not to stock. That is the
+periodic way: the stock account only moves at closing.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Add the freight
+
+<UiOrShell>
+<Tab>
+
+The carrier charged $18 to bring those 10 filters. **Configuration → Settings**, under
+**Valuation**, tick **Landed Costs** and **Save** (it installs a module):
+
+![The Inventory settings, Valuation section, with Landed Costs ticked and highlighted, and its Default Journal field](/screens/inv12-settings-landed.jpg)
+
+Then **Products → Products → New**: `Freight`, **Product Type** Service. On the
+**Purchase** tab tick **Is a Landed Cost** and pick a **Default Split Method**:
+
+![The Freight product's Purchase tab with Is a Landed Cost ticked and the Default Split Method list open on Equal, By Quantity, By Current Cost, By Weight and By Volume, highlighted](/screens/inv12-freight-split.jpg)
+
+Choose **By Quantity** and save. Now **Operations → Landed Costs → New**: in
+**Transfers** pick the last receipt (LFD/IN/00020 here), **Add a line** with Freight and
+a **Cost** of `18`, then **Compute** and open **Valuation Adjustments**:
+
+![The landed cost LC/2026/0001 with Transfers LFD/IN/00020 highlighted, and its Valuation Adjustments tab highlighted: Freight on Air Filter, 10.00 units, original value $ 99.00, new value $ 117.00, additional landed cost $ 18.00](/screens/inv12-landed-cost.jpg)
+
+**Validate**. The receipt is worth $117 and the average is $10.50. No journal entry
+appears: the filters are still periodic.
+
+</Tab>
+<Tab>
+
+Install `stock_landed_costs` first, as the Settings save does. Then:
+
+```python
+>>> freight = Product.create({"name": "Freight", "type": "service", "landed_cost_ok": True, "split_method_landed_cost": "by_quantity"})
+>>> lc = env["stock.landed.cost"].create({"picking_ids": [(6, 0, r3.ids)], "cost_lines": [(0, 0, {"product_id": freight.id, "price_unit": 18, "split_method": "by_quantity"})]})
+>>> lc.compute_landed_cost()
+True
+>>> [(l.product_id.name, l.quantity, l.former_cost, l.additional_landed_cost, l.final_cost) for l in lc.valuation_adjustment_lines]
+[('Air Filter', 10.0, 99.0, 18.0, 117.0)]
+>>> lc.button_validate()
+True
+>>> lc.state, lc.account_move_id
+('done', account.move())
+>>> r3.move_ids.value, air.standard_price, air.total_value
+(117.0, 10.5, 189.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Close the period
+
+<UiOrShell>
+<Tab>
+
+The depot holds $309 of stock (oil $120, filters $189) and the books say $0. Type the
+report's address in the browser, `/odoo/stock-valuation-closing`:
+
+![The Inventory Valuation report as of 10/11/2026 with Initial Balance $ 0.00, and a highlighted block: Stock Variation $ 309.00, credit Stock Variation $ 309.00, debit Stock Valuation $ 309.00, Ending Stock $ 309.00, and the Generate Entry button highlighted](/screens/inv12-valuation-report.jpg)
+
+The report already shows the entry it wants: debit Stock Valuation, credit Stock
+Variation, $309. Click **Generate Entry**:
+
+![The draft journal entry STJ/2026/10/0001 with Reference Stock Closing, Accounting Date Oct 11 and Journal Inventory Valuation highlighted, and the Post button highlighted](/screens/inv12-closing-entry.jpg)
+
+**Post** it. Back on the report, the Initial Balance is $309 and the variation $0. Click
+Generate Entry once more and Odoo answers "Everything is correctly closed".
+
+The entry's lines sit on a **Journal Items** tab that only users with **Show Full
+Accounting Features** see; the report shows the same lines to everyone.
+
+</Tab>
+<Tab>
+
+```python
+>>> action = co.action_close_stock_valuation()
+>>> closing = env["account.move"].browse(action["res_id"])
+>>> closing.ref, closing.journal_id.name, closing.state
+('Stock Closing', 'Inventory Valuation', 'draft')
+>>> [(l.account_id.code, l.account_id.name, l.debit, l.credit) for l in closing.line_ids]
+[('610000', 'Stock Variation', 0.0, 309.0), ('110100', 'Stock Valuation', 309.0, 0.0)]
+>>> closing.action_post()
+False
+>>> with env.cr.savepoint():
+...     co.action_close_stock_valuation()
+... 
+Traceback (most recent call last):
+  ...
+odoo.exceptions.UserError: Everything is correctly closed
+```
+
+With `inventory_period` set to `daily` or `monthly` on the company, the scheduled action
+"Stock Account: Inventory Valuation Closing" makes and posts this entry by itself.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Go perpetual: cost of goods sold on the invoice
+
+<UiOrShell>
+<Tab>
+
+Open **Goods / Filters** once more and set **Inventory Valuation** to Perpetual (at
+invoicing):
+
+![The Goods / Filters category with Costing Method Average Cost (AVCO) and Inventory Valuation Perpetual (at invoicing) highlighted, and the chatter logging both changes](/screens/inv12-filters-perpetual.jpg)
+
+Sell 2 air filters to Garage Sud, validate the Pick, Pack and Delivery, then on the
+order click **Create Invoice**, **Create Draft**, and **Confirm**. Reload the Inventory
+Valuation report:
+
+![The Inventory Valuation report with Initial Balance $ 288.00, Stock Valuation $ 288.00 and Stock Variation $ 0.00 highlighted, and Ending Stock $ 288.00](/screens/inv12-after-cogs.jpg)
+
+The stock account went from $309 to $288 without a closing: the invoice carried $21 of
+cost of goods sold (2 × $10.50). Stock and books agree, so there is nothing to close.
+
+</Tab>
+<Tab>
+
+```python
+>>> filters.property_valuation = "real_time"
+>>> so2 = sell("Garage Sud", 2)
+>>> out2 = so2.picking_ids.filtered(lambda p: p.picking_type_id.sequence_code == "OUT")
+>>> out2.move_ids.value, out2.move_ids.account_move_id
+(21.0, account.move())
+>>> invoice = so2._create_invoices()
+>>> invoice.action_post()
+False
+>>> [(l.display_type, l.account_id.code, l.account_id.name, l.debit, l.credit) for l in invoice.line_ids]
+[('product', '400000', 'Product Sales', 0.0, 50.0), ('tax', '251000', 'Tax Received', 0.0, 7.5), ('payment_term', '121000', 'Account Receivable', 57.5, 0.0), ('cogs', '110100', 'Stock Valuation', 0.0, 21.0), ('cogs', '600000', 'Expenses', 21.0, 0.0)]
+>>> air.qty_available, air.total_value, oil.total_value
+(16.0, 168.0, 120.0)
+>>> env.cr.commit()
+```
+
+The delivery is valued ($21) but posts nothing: no location on its way has a valuation
+account. The two `cogs` lines on the invoice do the accounting.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv12 --db warehouse
+```
+
+```text
+✔ the oil is valued at a standard $6
+✔ Goods / Filters ends on AVCO and Perpetual
+✔ the receipts are worth $80, $100 and $117
+✔ FIFO valued the first sale at $100
+✔ the vendor billed $9.90
+✔ $18 of freight landed on the last receipt
+✔ the books were closed at $309
+✔ the invoice posted $21 of cost of goods sold
+✔ the stock is worth what the books say
+✔ the shelf holds what the purchases and sales left
+
+inv12 complete! On to the next chapter 🔧
+```
+
+The value of every air filter movement, straight from the moves:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select m.reference, m.is_in, m.is_out, m.quantity, m.value from stock_move m join product_product p on p.id=m.product_id join product_template t on t.id=p.product_tmpl_id where t.name->>'en_US'='Air Filter' and (m.is_in or m.is_out) order by m.id;"
+```
+
+```text
+   reference   | is_in | is_out | quantity | value  
+---------------+-------+--------+----------+--------
+ LFD/IN/00018  | t     | f      |    10.00 |  80.00
+ LFD/IN/00019  | t     | f      |    10.00 | 100.00
+ LFD/OUT/00018 | f     | t      |    12.00 | 100.00
+ LFD/IN/00020  | t     | f      |    10.00 | 117.00
+ LFD/OUT/00019 | f     | t      |     2.00 |  21.00
+(5 rows)
+```
+
+In 50, out 121, left 168: 16 filters at $10.50. The first delivery keeps its FIFO value,
+the second its AVCO value. The Storage and Pick steps are not in the list: they never
+cross the company's boundary.
+
+## Gotchas
+
+- **The company switches have no screen.** Cost method, valuation and period on the
+  company are only reachable from a shell in Community. Set the category instead, which
+  overrides them.
+- **Changing the costing method re-values history.** Switching FIFO to AVCO recomputed
+  the filters from $80 to $72. Do it at a period end, and close the period right after.
+- **Removal strategy is not costing.** LIFO removal on the oil decides which bottle
+  leaves the shelf; its value still follows its costing method.
+- **Landed costs skip standard-cost products.** Odoo refuses them: a standard cost is a
+  number you choose, not one you paid.
+- **Close before going perpetual.** The closing compares all stock with the stock
+  account. Switch a category to perpetual after a closing, or the next closing undoes
+  cost of goods sold that invoices already posted.
+- **A manual value wins over everything.** Adjust Valuation on a receipt overrides the
+  bill and drops its landed costs. Use it for a real correction, with a description.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Under FIFO you received 10 at $8, then 10 at $10, and you deliver 12. What is the delivery worth?',
+      options: [
+        '$108, because twelve units leave at the $9 average of the two receipts',
+        '$100: the oldest receipt is used up first, then 2 from the second',
+        '$120, because the newest receipt is always consumed first',
+      ],
+      answer: 1,
+      why: 'FIFO consumes the oldest receipts first: 10 x $8 + 2 x $10 = $100. $108 is the AVCO answer.',
+    },
+    {
+      q: 'A receipt came in at the PO price of $9, then the bill says $9.90. What is the receipt worth now?',
+      options: [
+        '$9.90 a unit, because a posted bill outranks the purchase order',
+        '$9 a unit, because receipt values are frozen once done',
+        'The average of the two prices, since both documents count equally',
+      ],
+      answer: 0,
+      why: 'Incoming moves take their value from the first source that answers: manual, then bill, then production, then the purchase order. Posting the bill re-values the receipt.',
+    },
+    {
+      q: 'Your filters are periodic. Which document writes to the Stock Valuation account?',
+      options: [
+        'The vendor bill, as soon as it is posted by accounting',
+        'The delivery, when the Delivery Order is validated',
+        'The closing entry from the Inventory Valuation report',
+      ],
+      answer: 2,
+      why: 'Periodic sends bills to an expense account and posts nothing at delivery. The closing entry brings the stock account to the stock value, against the variation account.',
+    },
+    {
+      q: 'You add $18 of freight to a receipt of a product on Standard Price. What happens?',
+      options: [
+        'The standard cost goes up by $1.80 for each of the ten units',
+        'Odoo refuses it: landed costs only apply to FIFO and AVCO',
+        'The freight is split over every product in the warehouse',
+      ],
+      answer: 1,
+      why: 'A landed cost changes what a receipt is worth, and a standard-cost product is always worth its cost. Odoo only accepts FIFO and AVCO moves on a landed cost.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Click **Inventory at Date** on **Reporting → Stock** and pick yesterday. What is the
+   oil worth, and why?
+2. ⭐⭐ Sell 4 more air filters to Garage Nord and invoice them. Before you post, work out
+   the cost of goods sold, then check it in a shell with the invoice's `cogs` lines.
+3. ⭐⭐ Turn on **Valuation by Lot/Serial** on Brake Fluid DOT 4 1L and confirm. Every
+   bottle in stock has a lot, so Odoo accepts. What cost does lot BF-002 start with, and
+   what would have stopped you if one bottle had no lot?
+4. ⭐⭐⭐ Break-it lab. In the **Valuation** list, select the last air filter receipt and use
+   **Actions → Adjust Valuation** to set it to $90 with a description. What happens to the
+   freight and to the average? Then set it back to $117, and explain why the landed cost
+   no longer adds anything.
+
+## Further reading
+
+- <Icon name="docs" /> [Configuring inventory valuation (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/inventory_valuation_config.html)
+  and [using it (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/using_inventory_valuation.html).
+- <Icon name="docs" /> [Landed costs (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/inventory_valuation/landed_costs.html).
+- <Icon name="source" /> [`stock_account/models/stock_move.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock_account/models/stock_move.py):
+  `_get_value_data` and the order of value sources.
+- <Icon name="source" /> [`stock_account/models/res_company.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock_account/models/res_company.py):
+  `action_close_stock_valuation` and the closing cron.

@@ -3704,6 +3704,94 @@ def shelf_after_shipping(env):
     assert not extra, "unexpected stock: %s. A transfer of the courier order or the subcontracting is not finished" % extra
 
 
+def the_oil_costs_6(env):
+    p = env.call("product.product", "search_read", [("name", "=", "Engine Oil 5W-30 1L")], fields=["standard_price", "cost_method", "total_value", "qty_available"])[0]
+    assert p["cost_method"] == "standard", "the oil should stay on Standard Price, its category Goods / Fluids is %s" % p["cost_method"]
+    assert p["standard_price"] == 6, "Engine Oil 5W-30 1L: Cost should be 6, it is %s" % p["standard_price"]
+    assert p["total_value"] == 120, "20 bottles at $6 should be worth $120, Odoo says %s" % p["total_value"]
+
+
+def filters_are_avco_and_perpetual(env):
+    c = env.call("product.category", "search_read", [("complete_name", "=", "Goods / Filters")], fields=["property_cost_method", "property_valuation"])
+    assert c, "no product category Goods / Filters"
+    assert c[0]["property_cost_method"] == "average", "Goods / Filters: Costing Method should end on Average Cost (AVCO)"
+    assert c[0]["property_valuation"] == "real_time", "Goods / Filters: Inventory Valuation should end on Perpetual (at invoicing)"
+
+
+def the_receipts_carry_their_values(env):
+    moves = env.call("stock.move", "search_read", [("product_id.name", "=", "Air Filter"), ("is_in", "=", True)], fields=["reference", "value"], order="id")
+    got = [m["value"] for m in moves]
+    assert got == [80, 100, 117], ("the three air filter receipts should be worth $80, $100 and $117 (10 at $8, 10 at $10, "
+                                   "10 billed at $9.90 plus $18 freight); they are %s" % got)
+
+
+def fifo_valued_the_first_sale(env):
+    out = env.call("stock.move", "search_read", [("product_id.name", "=", "Air Filter"), ("is_out", "=", True), ("partner_id.name", "=", "Garage Nord")],
+                   fields=["quantity", "value"])
+    assert out and out[0]["quantity"] == 12, "no delivery of 12 air filters to Garage Nord"
+    assert out[0]["value"] == 100, "under FIFO the 12 filters cost 10 x $8 + 2 x $10 = $100; the delivery says %s. Was Goods / Filters on FIFO then?" % out[0]["value"]
+
+
+def the_bill_said_9_90(env):
+    lines = env.call("account.move.line", "search_read", [("move_id.move_type", "=", "in_invoice"), ("parent_state", "=", "posted"),
+                                                          ("product_id.name", "=", "Air Filter")], fields=["price_unit", "quantity"])
+    assert lines and lines[0]["price_unit"] == 9.9, "no posted vendor bill for the last 10 air filters at $9.90 (Purchase Orders list, Create Bills)"
+
+
+def freight_landed_on_the_receipt(env):
+    lc = env.call("stock.landed.cost", "search_read", [("state", "=", "done")], fields=["picking_ids", "cost_lines", "amount_total"])
+    assert lc, "no posted landed cost; Inventory > Operations > Landed Costs"
+    line = env.call("stock.landed.cost.lines", "read", lc[0]["cost_lines"], ["product_id", "price_unit", "split_method"])[0]
+    assert (line["product_id"][1], line["price_unit"], line["split_method"]) == ("Freight", 18, "by_quantity"), (
+        "the landed cost should be Freight, $18, By Quantity; it is %s" % line)
+
+
+def the_books_were_closed_at_309(env):
+    mv = env.call("account.move", "search_read", [("ref", "=", "Stock Closing"), ("state", "=", "posted")], fields=["amount_total", "journal_id"])
+    assert mv, "no posted Stock Closing entry; open /odoo/stock-valuation-closing, Generate Entry, Post"
+    assert mv[0]["amount_total"] == 309, "the closing should move $309 (oil $120 + filters $189); it moved %s" % mv[0]["amount_total"]
+
+
+def the_invoice_posted_cogs(env):
+    lines = env.call("account.move.line", "search_read", [("move_id.move_type", "=", "out_invoice"), ("parent_state", "=", "posted"),
+                                                          ("display_type", "=", "cogs"), ("product_id.name", "=", "Air Filter")],
+                     fields=["account_id", "debit", "credit"])
+    assert lines, "no cost of goods sold on a posted invoice; switch Filters to Perpetual first, then sell 2 to Garage Sud and invoice"
+    assert sum(l["debit"] for l in lines) == 21 and sum(l["credit"] for l in lines) == 21, (
+        "2 filters at $10.50 should post $21 of COGS; the lines are %s" % [(l["account_id"][1], l["debit"], l["credit"]) for l in lines])
+
+
+def stock_value_matches_the_books(env):
+    vals = env.call("product.product", "search_read", [("name", "in", ["Engine Oil 5W-30 1L", "Air Filter"])], fields=["name", "total_value", "qty_available"])
+    got = {v["name"]: (v["qty_available"], v["total_value"]) for v in vals}
+    assert got == {"Engine Oil 5W-30 1L": (20, 120), "Air Filter": (16, 168)}, "stock value should be oil 20 / $120 and filters 16 / $168; it is %s" % got
+    acc = env.call("account.account", "search", [("code", "=", "110100")])
+    bal = env.call("account.move.line", "read_group", [("account_id", "in", acc), ("parent_state", "=", "posted")], ["balance:sum"], [])
+    assert bal and round(bal[0]["balance"], 2) == 288, "the Stock Valuation account should hold $288, like the stock; it holds %s" % (bal and bal[0]["balance"])
+
+
+def shelf_after_valuation(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 9.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 12.0, ("LFD/Stock", "Rebuilt Engine", False, False): 1.0,
+            ("LFD/Stock", "Air Filter", False, False): 16.0,
+            ("LFD/Stock/Fluids Rack", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 6.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A purchase or sale of air filters is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4635,6 +4723,27 @@ CHAPTERS = {
          "Subcontracting BoM: Rebuilt Engine, Atelier Moteur, 5 oil; buy 1, validate the Resupply, then the Receipt."),
         ("the shelf holds what shipping and subcontracting left", shelf_after_shipping,
          "Physical Inventory: 12 loose oil in LFD/Stock, the carton in Pallet Bay 1 empty, one Rebuilt Engine."),
+    ],    "inv12": [
+        ("the oil is valued at a standard $6", the_oil_costs_6,
+         "Engine Oil 5W-30 1L, General Information: Cost 6. Its category stays on Standard Price."),
+        ("Goods / Filters ends on AVCO and Perpetual", filters_are_avco_and_perpetual,
+         "Configuration > Product Categories > Goods / Filters: Costing Method AVCO, Inventory Valuation Perpetual."),
+        ("the receipts are worth $80, $100 and $117", the_receipts_carry_their_values,
+         "Buy 10 at $8 and 10 at $10 under FIFO, then 10 at $9 under AVCO, bill it at $9.90, add $18 freight."),
+        ("FIFO valued the first sale at $100", fifo_valued_the_first_sale,
+         "Sell 12 air filters to Garage Nord while Goods / Filters is still on FIFO."),
+        ("the vendor billed $9.90", the_bill_said_9_90,
+         "Purchase Orders list, tick the third order, Create Bills, Bill Date today, Price 9.90, Confirm."),
+        ("$18 of freight landed on the last receipt", freight_landed_on_the_receipt,
+         "Settings: Landed Costs. Product Freight (service, Is a Landed Cost); Landed Costs > New on that receipt, 18, By Quantity."),
+        ("the books were closed at $309", the_books_were_closed_at_309,
+         "Before switching to Perpetual: /odoo/stock-valuation-closing, Generate Entry, Post."),
+        ("the invoice posted $21 of cost of goods sold", the_invoice_posted_cogs,
+         "With Filters on Perpetual, sell 2 air filters to Garage Sud, deliver them, Create Invoice, Confirm."),
+        ("the stock is worth what the books say", stock_value_matches_the_books,
+         "Oil 20 at $6, filters 16 at $10.50: $288, and the Stock Valuation account holds $288 too."),
+        ("the shelf holds what the purchases and sales left", shelf_after_valuation,
+         "Physical Inventory: 16 air filters in LFD/Stock, the rest as after chapter 11."),
     ],
 }
 
@@ -4891,6 +5000,7 @@ INSTALLS = {
     "inv07": ["product_expiry"],  # Expiration Dates
     "inv10": ["stock_picking_batch"],  # Batch, Wave & Cluster Transfers
     "inv11": ["stock_delivery", "stock_dropshipping", "mrp_subcontracting"],  # Delivery Methods, Dropshipping, Subcontracting
+    "inv12": ["stock_landed_costs"],  # Landed Costs
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -5836,6 +5946,55 @@ def seed_inv11(env):
     _finish_chain(env, receipt)  # the receipt, then the Storage from Input
 
 
+def seed_inv12(env):
+    oil = _id(env, "product.product", [("name", "=", "Engine Oil 5W-30 1L")])
+    env.call("product.product", "write", [oil], {"standard_price": 6})
+    goods = _id(env, "product.category", [("complete_name", "=", "Goods")])
+    filters = env.call("product.category", "create", {"name": "Filters", "parent_id": goods, "property_cost_method": "fifo"})
+    brembo = _id(env, "res.partner", [("name", "=", "Brembo Parts")])
+    air = env.call("product.product", "create", {"name": "Air Filter", "is_storable": True, "categ_id": filters, "list_price": 25,
+                                                 "seller_ids": [(0, 0, {"partner_id": brembo, "price": 8})]})
+
+    def buy(qty, price):
+        po = env.call("purchase.order", "create", {"partner_id": brembo, "order_line": [(0, 0, {"product_id": air, "product_qty": qty, "price_unit": price})]})
+        _call(env, "purchase.order", "button_confirm", [po])
+        _finish_chain(env, env.call("purchase.order", "read", [po], ["picking_ids"])[0]["picking_ids"][0])  # receipt, then Storage
+        return po
+
+    def sell(partner, qty):
+        so = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", partner)]),
+                                               "order_line": [(0, 0, {"product_id": air, "product_uom_qty": qty})]})
+        _call(env, "sale.order", "action_confirm", [so])
+        _finish_chain(env, env.call("stock.picking", "search", [("sale_id", "=", so), ("picking_type_id.sequence_code", "=", "PICK")])[0])
+        return so
+
+    buy(10, 8)
+    buy(10, 10)
+    sell("Garage Nord", 12)  # FIFO: 10 x 8 + 2 x 10
+    env.call("product.category", "write", [filters], {"property_cost_method": "average"})
+    po = buy(10, 9)
+    _call(env, "purchase.order", "action_create_invoice", [po])
+    bill = env.call("purchase.order", "read", [po], ["invoice_ids"])[0]["invoice_ids"]
+    line = env.call("account.move.line", "search", [("move_id", "in", bill), ("product_id", "=", air)])
+    env.call("account.move", "write", bill, {"invoice_date": env.call("account.move", "read", bill, ["date"])[0]["date"],
+                                             "invoice_line_ids": [(1, line[0], {"price_unit": 9.9})]})
+    _call(env, "account.move", "action_post", bill)
+    _install(env, ["stock_landed_costs"])
+    freight = env.call("product.product", "create", {"name": "Freight", "type": "service", "landed_cost_ok": True, "split_method_landed_cost": "by_quantity"})
+    receipt = env.call("stock.picking", "search", [("purchase_id", "=", po), ("picking_type_id.code", "=", "incoming")])
+    lc = env.call("stock.landed.cost", "create", {"picking_ids": [(6, 0, receipt)],
+                                                  "cost_lines": [(0, 0, {"product_id": freight, "price_unit": 18, "split_method": "by_quantity"})]})
+    _call(env, "stock.landed.cost", "compute_landed_cost", [lc])
+    _call(env, "stock.landed.cost", "button_validate", [lc])
+    closing = env.call("res.company", "action_close_stock_valuation", [_id(env, "res.company", [])])
+    _call(env, "account.move", "action_post", [closing["res_id"]])
+    env.call("product.category", "write", [filters], {"property_valuation": "real_time"})
+    so = sell("Garage Sud", 2)
+    wizard = env.call("sale.advance.payment.inv", "create", {"advance_payment_method": "delivered", "sale_order_ids": [(6, 0, [so])]})
+    _call(env, "sale.advance.payment.inv", "create_invoices", [wizard])
+    _call(env, "account.move", "action_post", env.call("sale.order", "read", [so], ["invoice_ids"])[0]["invoice_ids"])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5846,7 +6005,7 @@ SEEDS = {
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
-    "inv11": seed_inv11,
+    "inv11": seed_inv11, "inv12": seed_inv12,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
