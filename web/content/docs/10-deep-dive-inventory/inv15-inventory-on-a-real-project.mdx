@@ -1,0 +1,440 @@
+---
+title: "Inventory 15. Inventory on a Real Project"
+description: Where the rows pile up and what reservation costs, the scheduler at scale, what changed in Odoo 19, the fifteen tickets every project sees, opening stock, a go-live checklist and a consultant's audit, run on the depot.
+tier: expert
+---
+
+**Goal:** run an Inventory project from the first import to the hundredth ticket, and
+audit one you did not build. · **Time:** ~3 h · **Checkpoint:** none, this chapter
+changes no code. It continues the `warehouse` database.
+
+## Why this matters
+
+A demo has twenty products and one user. A real depot has fifty thousand quants, a
+scheduler that runs every night, data imported from a system nobody understands any
+more, and a phone that rings with "it says available but it will not reserve". The
+features are the same; the work is different.
+
+This chapter is the field guide. It explains where the database grows and what costs
+time, lists what Odoo 19 changed for people coming from 17 or 18, and walks through the
+tickets you will see. It ends with an audit you can run on any database, starting with
+this one.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+</Callout>
+
+## Concepts
+
+### Where the rows pile up
+
+| Table | Grows with | Typical trap |
+|---|---|---|
+| `stock_quant` | product × location × lot × package × owner | quants left at zero after moves |
+| `stock_move` | every line of every transfer, step by step | three-step routes triple it |
+| `stock_move_line` | every lot, package and source location a move touches | serial numbers: one line per unit |
+| `stock_picking` | transfers | backorders and returns add more |
+
+Odoo does not delete a quant the moment it reaches zero: unlinking one by one hurt
+performance, so it waits. `stock.quant._quant_tasks()` does the housekeeping in three
+steps: `_merge_quants()` joins duplicates, `_clean_reservations()` repairs reserved
+quantities, `_unlink_zero_quants()` deletes the empty ones (unless a count is assigned to
+them).
+
+### What reservation costs
+
+Every reservation runs `_gather()`: a search on quants for the product under the source
+location and all its children, sorted by the removal strategy (chapter 14). Deep
+location trees, thousands of lots and quants at zero make that search slower, and the
+scheduler runs it for every waiting move. Two levers:
+
+- **Reservation Method** on the operation type (chapter 2): **Manually** or **Before
+  scheduled date** reserves less, later.
+- Fewer, cleaner quants: run the housekeeping, archive dead locations, avoid needless
+  packages.
+
+### The scheduler
+
+<Mermaid
+  label="The scheduler runs three tasks in order: the reordering rules, then a reservation attempt on every waiting move in chunks of 1000, then the quant housekeeping"
+  chart={`flowchart LR
+  S["run_scheduler()"] --> O["reordering rules<br/>_procure_orderpoint_confirm"]
+  O --> A["assign waiting moves<br/>_action_assign, 1000 at a time"]
+  A --> Q["_quant_tasks<br/>merge, clean, unlink zero"]`}
+/>
+
+The scheduled action "Procurement: run scheduler" calls `stock.rule.run_scheduler()`
+once a day; in developer mode, **Inventory → Operations → Procurement: run scheduler**
+runs it now. With `use_new_cursor`, the cron commits as it goes, so a crash keeps the work
+already done. On a big database, schedule it at night and watch its duration.
+
+### What changed in Odoo 19
+
+| Before (17/18) | Odoo 19 |
+|---|---|
+| `stock.valuation.layer` holds values | values on `stock.move`, corrections in `product.value` (chapter 12) |
+| cost method and valuation on categories only | company-level `cost_method`, `inventory_valuation`, `inventory_period`, no Community screen |
+| `stock.quant.package` | `stock.package`, plus `stock.package.history` |
+| `product.packaging` | packagings are units of measure (`uom.uom`) with product barcodes |
+| procurement groups | `stock.reference` |
+| product `type == 'product'` | `type` is goods, service or combo; `is_storable` says goods are stocked |
+| `visibility_days` | the company's `horizon_days` |
+| orderpoint `qty_multiple` | `replenishment_uom_id` |
+| rules' `group_propagation_option` | gone |
+| scrap and return flags on locations | gone |
+| stock input and output accounts | gone; locations carry valuation accounts |
+| moves had a `name` | `stock.move` has no `name` field |
+
+Code and imports written for 17 or 18 break on these first.
+
+### The fifteen tickets
+
+| Symptom | First question | Where to look |
+|---|---|---|
+| Negative stock | Was something validated without being reserved? | quants below zero in internal locations; fix with a count |
+| Stuck in Waiting | Is it waiting for another transfer? | the move's `move_orig_ids`; finish or cancel the earlier step |
+| "Available" but it will not reserve | Is the stock reserved for someone else, or outside the source location? | `free_qty`, `_get_available_quantity`, lot, owner and package |
+| Quantities off by a factor | Which unit is the move in? | the move's unit against the product's, packagings |
+| Duplicate serial | Was the serial already received? | `stock.lot`, unique per product and company |
+| FEFO not applied | Which removal strategy wins? | category before location (chapter 14), lot removal dates |
+| Not replenished | Did the rule run, and can it find a route? | orderpoint trigger, the scheduler, routes |
+| "No rule has been found" | Which routes does the product have here? | `_get_rule` order (chapter 13) |
+| Backorder, or none | What does the operation type say? | **Create Backorder**, the `skip_backorder` context |
+| Ready, but only half | Which shipping policy? | `move_type` As soon as possible or When all are ready |
+| Put away in the wrong place | Is the arrival location the rule's exact location? | putaway rules, storage categories (chapter 9) |
+| Value is zero or wrong | Is there a cost, and which method? | product cost, category, Unit Cost History (chapter 12) |
+| A package will not move | Does it still belong to a container? | Destination Package, `package_dest_id` (chapter 11) |
+| A count went wrong | Did stock move between counting and applying? | stale counts, Keep Difference (chapter 10) |
+| Validation is slow | How many quants and move lines? | the housekeeping, reservation method, location depth |
+
+### Opening stock
+
+Import quantities as **counts**, never as receipts from a fake vendor:
+
+- Products first, with **Track Inventory**, tracking, units and **category**.
+- **Costs before quantities**: the first count is valued at the cost it finds (chapter 12).
+- Then a file into **Physical Inventory** (product, location, lot, package, counted
+  quantity), and **Apply All** with a reason such as `Opening stock`.
+- In code, the same with `inventory_mode`: create quants with `inventory_quantity` and
+  call `action_apply_inventory()`.
+
+### Going live
+
+- Every product has its category, unit, tracking, weight and cost.
+- Warehouses, steps and locations match the floor; routes tested end to end with a real
+  order.
+- Operation types reviewed: reservation method, backorder policy, printing.
+- Opening stock imported as counts, valued, and checked against the old system's report.
+- Reordering rules set, and the scheduler's time chosen.
+- Access rights per role; a dry run with the real users.
+- Valuation accounts set, and the first closing planned (chapter 12).
+- A freeze date: stop moving goods, count, import, open.
+
+### The Enterprise map
+
+Inventory in Enterprise adds the **Barcode** app (scanning in the warehouse), **Quality**
+checks on transfers and work orders, the carrier connectors (chapter 11) and, in
+Manufacturing, the **Master Production Schedule**. The settings show them with an
+Enterprise badge. Everything in this track is Community.
+
+<Callout type="info" title="Official docs">
+  [Inventory (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory.html)
+  and the [upgrade documentation](https://www.odoo.com/documentation/19.0/administration/upgrade.html).
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: an audit of the depot,
+its quants cleaned, and three tickets reproduced and understood, none of them kept.
+
+<Steps>
+
+<Step>
+### Audit the depot
+
+Five questions any consultant asks a database first, as plain SQL so they run on any
+copy, even one whose Odoo will not start:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select 'stock_quant' as stock_table, count(*) from stock_quant union all select 'stock_move', count(*) from stock_move union all select 'stock_move_line', count(*) from stock_move_line union all select 'stock_picking', count(*) from stock_picking;" \
+    -c "select l.complete_name as location, l.usage, count(*) as zero_quants from stock_quant q join stock_location l on l.id=q.location_id where q.quantity=0 and q.reserved_quantity=0 group by 1, 2 order by 1;" \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id where l.usage in ('internal', 'transit') and (q.quantity < 0 or q.reserved_quantity > q.quantity) order by 1, 2;" \
+    -c "select state, count(*) from stock_move where state not in ('done', 'cancel', 'draft') group by state;" \
+    -c "select t.name->>'en_US' as product, t.categ_id is null as no_category, coalesce((p.standard_price->>'1')::numeric, 0) as cost from product_product p join product_template t on t.id=p.product_tmpl_id where t.is_storable and t.active order by 1;"
+```
+
+```text
+   stock_table   | count 
+-----------------+-------
+ stock_quant     |    58
+ stock_move      |   145
+ stock_move_line |   149
+ stock_picking   |   107
+(4 rows)
+
+        location         |  usage   | zero_quants 
+-------------------------+----------+-------------
+ Inter-warehouse transit | transit  |           1
+ LFD/Input               | internal |           2
+ LFD/Output              | internal |           3
+ LFD/Packing Zone        | internal |           3
+ LFD/Stock/Pallet Bay 1  | internal |           1
+ Subcontracting          | internal |           2
+ VAN/Stock               | internal |           1
+(7 rows)
+
+ location | product | quantity 
+----------+---------+----------
+(0 rows)
+
+ state | count 
+-------+-------
+(0 rows)
+
+       product        | no_category | cost 
+----------------------+-------------+------
+ Air Filter           | f           | 10.5
+ Backing Plate        | t           |    0
+ Brake Fluid DOT 4 1L | t           |    0
+ Brake Pad Set        | t           |    0
+ Coolant 5L           | t           | 20.0
+ Diagnostic Tablet    | t           |    0
+ Engine Oil 5W-30 1L  | f           |  6.0
+ Friction Pad         | t           |    0
+ Rebuilt Engine       | t           |    0
+ Tyre 205/55 R16      | t           | 60.0
+(10 rows)
+```
+
+How big, how much dead weight, anything impossible, anything stuck, and what is not
+ready for valuation. The depot is healthy: nothing negative or over-reserved, no move
+waiting. But 13 quants sit at zero in seven locations, the leftovers of the transfers of
+the last chapters, and six stocked products have no cost and no category: their stock is
+worth nothing in the books. Your zero count may differ if the nightly scheduler already
+ran on your database.
+
+</Step>
+
+<Step>
+### Clean the quants
+
+<UiOrShell>
+<Tab>
+
+Switch on developer mode, then **Inventory → Operations → Procurement: run scheduler**:
+
+![The Inventory Operations menu in developer mode, with the Procurement section listing Replenishment and References, and the Procurement: run scheduler item highlighted](/screens/inv15-run-scheduler.jpg)
+
+It runs at once and shows nothing. Run the second audit query again:
+
+```text
+ location | usage | zero_quants 
+----------+-------+-------------
+(0 rows)
+```
+
+</Tab>
+<Tab>
+
+```python
+>>> zero = [("quantity", "=", 0), ("reserved_quantity", "=", 0)]
+>>> Quant.search_count(zero)
+13
+>>> env["stock.rule"].run_scheduler()
+{}
+>>> Quant.search_count(zero)
+0
+>>> env.cr.commit()
+```
+
+`run_scheduler()` also ran the three reordering rules; all were above their minimum, so
+it ordered nothing. The quant table went from 58 rows to 45.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Reproduce three tickets, then undo them
+
+Tickets are understood by reproducing them. In a shell, inside one transaction that ends
+with a rollback:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+**"The van says it cannot reserve."** A move from the van for an air filter:
+
+```python
+>>> Move, Quant = env["stock.move"], env["stock.quant"]
+>>> air = env["product.product"].search([("name", "=", "Air Filter")])
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> van = env["stock.warehouse"].search([("code", "=", "VAN")])
+>>> customers = env.ref("stock.stock_location_customers")
+>>> stuck = Move.create({"product_id": air.id, "product_uom_qty": 1, "product_uom": air.uom_id.id, "location_id": van.lot_stock_id.id, "location_dest_id": customers.id})
+>>> stuck._action_confirm()
+stock.move(150,)
+>>> stuck._action_assign()
+>>> stuck.state, Quant._get_available_quantity(air, van.lot_stock_id), air.with_context(warehouse_id=lfd.id).free_qty
+('confirmed', 0.0, 13.0)
+```
+
+It stays `confirmed`: the van has 0 available. The depot has 13 free (12 plus the one on
+Shelf A), but reservation only looks under the move's source location. The fix is a
+resupply (chapter 13), not a reservation.
+
+**"We have negative stock."** A move of 5 from Shelf A, which holds 1, validated anyway:
+
+```python
+>>> shelf_a = env["stock.location"].search([("complete_name", "=", "LFD/Stock/Shelf A")])
+>>> neg = Move.create({"product_id": air.id, "product_uom_qty": 5, "product_uom": air.uom_id.id, "location_id": shelf_a.id, "location_dest_id": customers.id})
+>>> neg._action_confirm()
+stock.move(151,)
+>>> neg._action_assign()
+>>> neg.quantity
+1.0
+>>> neg.quantity = 5
+>>> neg.picked = True
+>>> neg._action_done()
+stock.move(151,)
+>>> [(q.location_id.complete_name, q.quantity) for q in Quant.search([("product_id", "=", air.id), ("location_id.usage", "=", "internal"), ("quantity", "<", 0)])]
+[('LFD/Stock/Shelf A', -4.0)]
+```
+
+Reserving found 1. Setting the quantity to 5 and validating moved 5 anyway: Shelf A is
+at -4. Odoo allows it, because blocking a truck at the door is worse; OCA's
+`stock_no_negative` forbids it, and a count puts it right.
+
+**"It will not accept the serial."** Receiving tablet DT-0000001 a second time:
+
+```python
+>>> tablet = env["product.product"].search([("name", "=", "Diagnostic Tablet")])
+>>> with env.cr.savepoint():
+...     env["stock.lot"].create({"name": "DT-0000001", "product_id": tablet.id})
+... 
+Traceback (most recent call last):
+  ...
+odoo.exceptions.ValidationError: The combination of lot/serial number and product must be unique within a company including when no company is defined.
+The following combinations contain duplicates:
+ - Product: Diagnostic Tablet, Lot/Serial Number: DT-0000001
+```
+
+A serial exists once per product and company. The real question is where the first
+DT-0000001 went: its traceability report (chapter 7) answers it.
+
+</Step>
+
+<Step>
+### The opening-stock pattern
+
+Still in the same transaction, what an opening-stock import does, for one line:
+
+```python
+>>> shelf_b = env["stock.location"].search([("complete_name", "=", "LFD/Stock/Shelf B")])
+>>> opening = Quant.with_context(inventory_mode=True).create({"product_id": air.id, "location_id": shelf_b.id, "inventory_quantity": 5})
+>>> opening.action_apply_inventory()
+>>> opening.quantity, Move.search([("product_id", "=", air.id), ("is_inventory", "=", True)], order="id desc", limit=1).mapped(lambda m: (m.reference, m.location_id.name, m.location_dest_id.complete_name, m.quantity))
+(5.0, [('Product Quantity Updated', 'Inventory adjustment', 'LFD/Stock/Shelf B', 5.0)])
+>>> env.cr.rollback()
+```
+
+A count of 5 on Shelf B became a move from Inventory adjustment, "Product Quantity
+Updated", valued at the product's cost. The rollback undoes the three tickets and this
+count: nothing here is kept.
+
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv15 --db warehouse
+```
+
+```text
+✔ no quant sits at zero
+✔ no stock is negative or over-reserved
+✔ no move is stuck waiting
+✔ the shelf holds what chapter 14 left
+
+inv15 complete! On to the next chapter 🔧
+```
+
+The last check is the proof that the ticket demos were rolled back: the stock is exactly
+what chapter 14 left.
+
+## Gotchas
+
+- **Never import opening stock as a receipt.** A receipt from a made-up vendor adds
+  purchase-like moves and values; a count says what it is.
+- **Costs before quantities.** A count applied before the cost is set is valued at 0,
+  and fixing it later means a manual valuation adjustment on every product.
+- **The scheduler does more than replenish.** It also re-tries every waiting reservation
+  and cleans the quants: run it after a big import, not only for reordering rules.
+- **Quants at zero are normal.** Odoo defers their deletion for speed; do not delete them
+  with SQL, run the housekeeping.
+- **Reproduce in a rollback.** A ticket demo on a copy or inside a rolled-back transaction
+  teaches the same and breaks nothing.
+- **Code for 17 breaks on 19 first where the model changed.** Packages, packagings,
+  valuation layers and procurement groups are the usual suspects.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A customer imported opening stock as a receipt from a vendor called "Opening". What is wrong with that?',
+      options: [
+        'Nothing at all, a receipt and a count give the same result in Odoo',
+        'It creates purchase-like moves; a count from Inventory adjustment says what it is',
+        'Receipts cannot carry lots, so all tracked products lose their serial numbers on import',
+      ],
+      answer: 1,
+      why: 'An opening balance is a count. Applied through Physical Inventory it moves stock from Inventory adjustment, valued at the cost, with a clear reason.',
+    },
+    {
+      q: 'The audit finds 13 quants at zero. What do you do?',
+      options: [
+        'Delete them directly with SQL, since they hold nothing and only slow searches down',
+        'Leave them forever, because Odoo needs them to rebuild its history',
+        'Run the scheduler or its quant housekeeping, which merges and deletes them',
+      ],
+      answer: 2,
+      why: 'Odoo defers deleting empty quants for speed; _quant_tasks, run by the scheduler, merges duplicates, repairs reservations and deletes the empty ones safely.',
+    },
+    {
+      q: 'The van shows 0 available, the depot 13. Why does the van\'s move not reserve?',
+      options: [
+        'Reservation looks only under the move\'s source location, here VAN/Stock',
+        'Air filters are not storable, so Odoo never reserves them anywhere',
+        'The scheduler has not run yet today, so no move in the van can be reserved at all',
+      ],
+      answer: 0,
+      why: '_gather searches the source location and its children. Stock in another warehouse needs a transfer, which the van\'s resupply route creates.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Add a sixth audit query: transfers in state Ready for more than seven days. Which
+   column do you compare with today?
+2. ⭐⭐ Give the six products without a cost a category and a cost, then run the stock
+   report. What is the depot worth now, and which chapter explains the jump?
+3. ⭐⭐ Reproduce "waiting for stock": sell Garage Sud more air filters than the depot holds
+   and confirm. What state is the Pick in, what do `free_qty` and the Pick's **Product
+   Availability** say, and which two actions unblock it?
+4. ⭐⭐⭐ Write a small `odoo shell` script that prints the audit as a report: each query,
+   its rows, and a one-line verdict. Run it against `functional` too.
+
+## Further reading
+
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  `_quant_tasks`, `_merge_quants`, `_unlink_zero_quants`.
+- <Icon name="source" /> [`stock/models/stock_rule.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_rule.py):
+  `run_scheduler` and `_run_scheduler_tasks`.
+- <Icon name="docs" /> [Upgrade documentation (19.0)](https://www.odoo.com/documentation/19.0/administration/upgrade.html).
+- <Icon name="source" /> [OCA `stock_no_negative` (19.0)](https://github.com/OCA/stock-logistics-workflow/tree/19.0/stock_no_negative).
