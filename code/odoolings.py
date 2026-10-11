@@ -2973,6 +2973,90 @@ def shelf_holds_five_fifteen_and_one(env):
     assert not stuck, "goods are sitting in a step location: %s. A transfer in the chain is not validated" % stuck
 
 
+def manufacturing_is_installed(env):
+    rows = env.call("ir.module.module", "search_read", [("name", "=", "mrp"), ("state", "=", "installed")], fields=["name"])
+    assert rows, "Apps > Manufacturing > Activate (the module is called mrp)"
+
+
+def depot_manufactures_in_three_steps(env):
+    wh = env.call("stock.warehouse", "search_read", [("code", "=", "LFD")], fields=["manufacture_steps"])
+    assert wh and wh[0]["manufacture_steps"] == "pbm_sam", (
+        "Manufacture is %r on the warehouse; Configuration > Warehouses > LibreFleet Depot, Resupply, pick "
+        "Pick components, manufacture, then store products (3 steps)" % (wh and wh[0]["manufacture_steps"]))
+
+
+def the_two_bills_of_materials_exist(env):
+    boms = env.call("mrp.bom", "search_read", [], fields=["product_tmpl_id", "type", "bom_line_ids", "product_qty"])
+    by_name = {b["product_tmpl_id"][1]: b for b in boms}
+    pads = by_name.get("Brake Pad Set")
+    assert pads and pads["type"] == "normal", ("no bill of materials of type Manufacture this product for Brake Pad Set; "
+                                               "Manufacturing > Products > Bills of Materials > New")
+    lines = {l["product_id"][1]: l["product_qty"] for l in
+             env.call("mrp.bom.line", "search_read", [("bom_id", "=", pads["id"])], fields=["product_id", "product_qty"])}
+    assert lines == {"Friction Pad": 2.0, "Backing Plate": 2.0}, (
+        "the Brake Pad Set BoM should have 2 Friction Pad and 2 Backing Plate per set, it has %s" % lines)
+    kit = by_name.get("Brake Service Kit")
+    assert kit and kit["type"] == "phantom", ("no Kit bill of materials for Brake Service Kit; on the product, Bill of "
+                                              "Materials > New, BoM Type Kit, 1 Brake Pad Set and 2 Engine Oil 5W-30 1L")
+
+
+def components_were_received_and_stored(env):
+    for name in ("Friction Pad", "Backing Plate"):
+        assert _done_moves(env, "STOR", name, 20), (
+            "no done Storage of 20 %s; Receipts > New from Brembo Parts, 20 of each component, Validate, then "
+            "Next Transfer and Validate the Storage" % name)
+
+
+def three_pads_were_made_from_stock(env):
+    mos = env.call("mrp.production", "search_read", [("state", "=", "done"), ("product_qty", "=", 3)],
+                   fields=["name", "origin", "product_id"])
+    assert any(m["product_id"][1] == "Brake Pad Set" and not m["origin"] for m in mos), (
+        "no done manufacturing order for 3 Brake Pad Set typed by hand; Manufacturing > Operations > Manufacturing "
+        "Orders > New, Brake Pad Set, 3, Confirm, Produce All")
+
+
+def a_kit_was_delivered_as_its_parts(env):
+    moves = env.call("stock.move", "search_read",
+                     [("state", "=", "done"), ("bom_line_id", "!=", False),
+                      ("picking_id.picking_type_id.sequence_code", "=", "OUT")],
+                     fields=["product_id", "product_uom_qty"])
+    got = {(m["product_id"][1], m["product_uom_qty"]) for m in moves}
+    assert ("Brake Pad Set", 1.0) in got and ("Engine Oil 5W-30 1L", 2.0) in got, (
+        "no done delivery that came from a kit; Overview > Pick > New, Garage Nord, Brake Service Kit 1, Mark as Todo "
+        "(the kit explodes into its parts), Validate, then Next Transfer twice")
+
+
+def the_order_made_its_own_pads(env):
+    so = env.call("sale.order", "search_read",
+                  [("partner_id.name", "=", "Garage Nord"), ("state", "=", "sale"),
+                   ("order_line.product_id.name", "=", "Brake Pad Set")], fields=["name", "order_line"])
+    assert so, "no confirmed sales order for Brake Pad Set to Garage Nord; put the MTO route on the pads first, then Sales > New, 2 pads, Confirm"
+    mo = env.call("mrp.production", "search_read", [("origin", "=", so[0]["name"])], fields=["state", "product_qty"])
+    assert mo, ("confirming the order created no manufacturing order; the pads need the Replenish on Order (MTO) route and "
+                "a bill of materials, and the warehouse Manufacture to Resupply")
+    assert mo[0]["state"] == "done", "the manufacturing order from the sale is not done; Validate its Pick Components, then Produce All"
+    for code, hint in (("PC", "Pick Components, from the MO's Transfers button"),
+                       ("SFP", "Store Finished Product, pushed when the MO was done")):
+        assert _done_moves(env, code, "Brake Pad Set" if code == "SFP" else "Friction Pad", 2 if code == "SFP" else 4), (
+            "no done %s transfer; %s" % (code, hint))
+    line = env.call("sale.order.line", "read", so[0]["order_line"], ["qty_delivered"])[0]
+    assert line["qty_delivered"] == 2.0, (
+        "the order shows %s delivered; the Pick woke up when the Store Finished Product was done, so Validate Pick, Pack, delivery"
+        % line["qty_delivered"])
+
+
+def shelf_holds_seven_thirteen_ten_ten_and_one(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "=", "internal")],
+                    fields=["product_id", "location_id", "quantity"])
+    stock = {r["product_id"][1]: r["quantity"] for r in rows if r["location_id"][1] == "LFD/Stock"}
+    want = {"Brake Pad Set": 7.0, "Engine Oil 5W-30 1L": 13.0, "Friction Pad": 10.0, "Backing Plate": 10.0, "Diagnostic Tablet": 1.0}
+    for name, qty in want.items():
+        assert stock.get(name) == qty, "LFD/Stock should hold %s %s, it holds %s" % (qty, name, stock.get(name))
+    stuck = [(r["location_id"][1], r["product_id"][1], r["quantity"]) for r in rows
+             if r["location_id"][1] != "LFD/Stock" and r["quantity"]]
+    assert not stuck, "goods are sitting in a step location: %s. A transfer in a chain is not validated" % stuck
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -3751,6 +3835,32 @@ CHAPTERS = {
          "Reporting > Locations without the Internal filter shows Input, Packing Zone and Output. Anything "
          "left there is a chain you did not finish."),
     ],
+    "inv04": [
+        ("Manufacturing is installed", manufacturing_is_installed,
+         "Apps > Manufacturing > Activate. It brings the Manufacture route, the Manufacturing operation "
+         "type and the Manufacture steps on the warehouse."),
+        ("20 Friction Pads and 20 Backing Plates were received and stored", components_were_received_and_stored,
+         "Create the two components (Track Inventory on), then one receipt from Brembo Parts with both "
+         "lines; two steps, so Validate the Storage too."),
+        ("the pads have a bill of materials and the kit has a Kit bill", the_two_bills_of_materials_exist,
+         "Manufacturing > Products > Bills of Materials. Brake Pad Set: 2 Friction Pad + 2 Backing Plate. "
+         "Brake Service Kit: BoM Type Kit, 1 Brake Pad Set + 2 Engine Oil 5W-30 1L."),
+        ("3 pads were manufactured from stock in one step", three_pads_were_made_from_stock,
+         "Manufacturing Orders > New, Brake Pad Set, quantity 3, Confirm, Produce All. One click consumes "
+         "the components and puts the pads on the shelf."),
+        ("the depot manufactures in 3 steps", depot_manufactures_in_three_steps,
+         "Configuration > Warehouses > LibreFleet Depot > Manufacture. Saving wakes up Pre-Production, "
+         "Post-Production, Pick Components and Store Finished Product."),
+        ("a Brake Service Kit went out as its parts", a_kit_was_delivered_as_its_parts,
+         "A kit is never stocked: the Pick explodes it into 1 pad and 2 bottles the moment you confirm. "
+         "Follow Next Transfer to the delivery."),
+        ("the sales order manufactured, stored, picked, packed and shipped 2 pads", the_order_made_its_own_pads,
+         "With the MTO route on the pads, Confirm makes a manufacturing order and a waiting Pick. Validate "
+         "Pick Components, Produce All, Store Finished Product, then the Pick, Pack and delivery."),
+        ("the shelf holds 7 pads, 13 oil, 10 of each component and 1 tablet", shelf_holds_seven_thirteen_ten_ten_and_one,
+         "Reporting > Stock. 5 + 3 - 1 + 2 - 2 pads; 15 - 2 oil; 20 - 6 - 4 of each component. Anything left "
+         "in Pre-Production or Post-Production is a step you skipped."),
+    ],
 }
 
 
@@ -4002,6 +4112,7 @@ INSTALLS = {
     "ch50": ["crm_lead_code", "product_secondary_unit", "auditlog", "web_responsive"],
     "ch51": ["sale_fixed_discount_limit"],
     "inv03": ["sale_management", "purchase"],  # the Buy route, and an order that starts a chain
+    "inv04": ["mrp"],
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -4576,6 +4687,51 @@ def seed_inv03(env):
         _finish_chain(env, receipt)  # receipt, Storage, then the waiting Pick, Pack and Delivery
 
 
+def seed_inv04(env):
+    _install(env, ["mrp"])
+    depot = _id(env, "stock.warehouse", [])
+    kinds = env.call("stock.warehouse", "read", [depot], ["in_type_id", "pick_type_id", "sam_type_id"])[0]
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    env.call("product.template", "create", [{"name": "Friction Pad", "type": "consu", "is_storable": True},
+                                            {"name": "Backing Plate", "type": "consu", "is_storable": True}])
+    pads, oil, friction, plate = (variant(n) for n in ("Brake Pad Set", "Engine Oil 5W-30 1L", "Friction Pad", "Backing Plate"))
+    garage = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    brembo = _id(env, "res.partner", [("name", "=", "Brembo Parts")])
+
+    def picking(partner, kind, lines):
+        return env.call("stock.picking", "create", {
+            "partner_id": partner, "picking_type_id": kind,
+            "move_ids": [(0, 0, {"product_id": p, "product_uom_qty": q}) for p, q in lines]})
+
+    _finish_chain(env, picking(brembo, kinds["in_type_id"][0], [(friction, 20), (plate, 20)]))
+    pads_tmpl = _id(env, "product.template", [("name", "=", "Brake Pad Set")])
+    env.call("mrp.bom", "create", {
+        "product_tmpl_id": pads_tmpl, "product_qty": 1, "type": "normal",
+        "bom_line_ids": [(0, 0, {"product_id": friction, "product_qty": 2}), (0, 0, {"product_id": plate, "product_qty": 2})]})
+    mo = env.call("mrp.production", "create", {"product_id": pads, "product_qty": 3})
+    _call(env, "mrp.production", "action_confirm", [mo])
+    _call(env, "mrp.production", "button_mark_done", [mo])  # Produce All, in one step
+    env.call("stock.warehouse", "write", [depot], {"manufacture_steps": "pbm_sam"})
+    kit_tmpl = env.call("product.template", "create", {"name": "Brake Service Kit", "type": "consu",
+                                                        "is_storable": False, "list_price": 150})
+    env.call("mrp.bom", "create", {
+        "product_tmpl_id": kit_tmpl, "product_qty": 1, "type": "phantom",
+        "bom_line_ids": [(0, 0, {"product_id": pads, "product_qty": 1}), (0, 0, {"product_id": oil, "product_qty": 2})]})
+    kit = picking(garage, kinds["pick_type_id"][0], [(variant("Brake Service Kit"), 1)])
+    _call(env, "stock.picking", "action_confirm", [kit])  # explodes the kit into its parts
+    _finish_chain(env, kit)
+    env.call("product.template", "write", [pads_tmpl], {"route_ids": [(4, _id(env, "stock.route", [("name", "ilike", "Replenish on Order")]))]})
+    order = env.call("sale.order", "create", {
+        "partner_id": garage, "order_line": [(0, 0, {"product_id": pads, "product_uom_qty": 2, "price_unit": 120})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    mo2 = _id(env, "mrp.production", [("origin", "=", env.call("sale.order", "read", [order], ["name"])[0]["name"])])
+    for pc in env.call("mrp.production", "read", [mo2], ["picking_ids"])[0]["picking_ids"]:
+        _validate(env, [pc])  # Pick Components: Stock to Pre-Production
+    _call(env, "mrp.production", "button_mark_done", [mo2])
+    sfp = _id(env, "stock.picking", [("picking_type_id", "=", kinds["sam_type_id"][0]), ("state", "=", "assigned")])
+    _finish_chain(env, sfp)  # Store Finished Product, then the waiting Pick, Pack and Delivery
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4584,7 +4740,7 @@ SEEDS = {
     "ch21": seed_ch21, "ch22": seed_ch22, "ch23": seed_ch23, "ch24": seed_ch24,
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
-    "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03,
+    "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
