@@ -1,0 +1,849 @@
+---
+title: "Inventory 8. Packages, Packagings and Barcodes"
+description: Put goods in cartons and cartons on pallets, move a pallet through storage in one piece, pick into a reusable tote, let a sale in packs choose its carton, and learn how Odoo reads barcodes and prints labels.
+tier: professional
+---
+
+**Goal:** track the boxes your goods travel in, from the vendor's pallet to the carton
+that leaves for the customer, and know what every barcode and label in Inventory means.
+· **Time:** ~3 h · **Checkpoint:** none, this chapter writes no module. It continues the
+`warehouse` database.
+
+## Why this matters
+
+Until now every bottle of oil moved on its own. A real warehouse does not work like
+that. Nordic Lubricants delivers cartons on a pallet, the storekeeper puts the whole
+pallet away in one go, a picker drops bottles into a plastic tote, and the packer closes
+a carton that leaves with a label on it. Nobody counts bottles one by one at each of those
+steps: they move boxes.
+
+Odoo calls such a box a **package**. Once packages are on, a transfer can move a whole
+carton or pallet, the shelf knows which carton holds what, and the labels on the boxes
+become barcodes that someone can scan. This chapter builds all of it on the depot: three
+kinds of boxes, a pallet of two cartons received and stored in one piece, a sale shipped
+in a carton, and a close look at how Odoo reads barcodes.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Package, packaging, package type
+
+Three words that sound alike and mean different things:
+
+| Word | What it is | Example | Where it lives |
+|---|---|---|---|
+| **Package** | one physical box, with its own name and contents | carton CTN0000001 holding 12 bottles | Products → Packages (`stock.package`) |
+| **Package type** | a kind of box: size, weights, name prefix | Carton, 400 × 300 × 300 mm, up to 20 kg | Configuration → Package Types |
+| **Packaging** | a unit a product is sold or bought in | Pack of 6, which contains 6 Units | Configuration → Units & Packagings |
+
+A package is a record you can open, move and print. A packaging is just a unit of
+measure, as you saw in *The Warehouse Map*: it says how many units, not which box. The
+two meet in one field: a packaging can name the **package type** its goods travel in.
+
+Packages hang on stock in two places. A **quant** says "12 bottles of oil in LFD/Stock,
+in package CTN0000001". A **move line** says where the goods come from (**Source
+Package**) and where they go (**Destination Package**). Put in Pack fills the second one.
+
+### Containers
+
+A package can sit in another package. Odoo calls the outer one the **Container**
+(`parent_package_id`): two cartons on a pallet are two packages whose container is the
+pallet. The pallet itself holds no goods directly; its content is the content of its
+cartons. Names show the nesting as `PAL0000001 > CTN0000001`.
+
+### When a package moves in one piece
+
+When Odoo reserves goods that sit in a package, it checks whether the transfer takes the
+package's whole content. If it does, the move line keeps the package as its destination
+too, and the carton arrives as a carton. If all of a container's packages move, the
+container moves with them. Both rules have one exception, and it is the most important
+switch in this chapter: **the package type's Package Use**.
+
+- **Disposable Box** (the default): the box travels. A pallet stored as a pallet, a carton
+  shipped as a carton.
+- **Reusable Box (totes)**: the box is emptied at the next step. A picker's tote carries
+  bottles to the packing table, the packer takes them out, and the tote goes back, empty,
+  to be used again.
+
+<Mermaid
+  label="One sale and one receipt through the depot: the receipt's two cartons on a pallet are stored as a pallet; the pick fills a reusable tote, the pack step empties it into a new carton, and the carton is delivered whole."
+  chart={`flowchart TB
+    IN["Receipt<br/>2 cartons on PAL"] -->|whole pallet| STOR["Storage<br/>PAL in LFD/Stock"]
+    STOR -.-> PICK["Pick<br/>12 bottles into TOTE"]
+    PICK -->|tote is reusable:<br/>emptied| PACK["Pack<br/>Put in Pack: new carton"]
+    PACK -->|carton is disposable:<br/>travels| OUT["Delivery<br/>carton to Garage Nord"]`}
+/>
+
+### Packagings on transfer lines
+
+When a sales order line is in a packaging, say 2 × Pack of 6, the stock move is still in
+the product's own unit, 12 Units. The packaging rides along in two more fields,
+**Packaging** and **Packaging Quantity** (`packaging_uom_id`, `packaging_uom_qty`). They
+do two jobs:
+
+- **Choosing the box.** If the packaging names a package type, Put in Pack without the
+  package-type question uses it.
+- **Reserving.** A product category has **Reserve Packagings**: **Reserve Partial
+  Packagings** (the default) reserves whatever is there; **Reserve Only Full Packagings**
+  reserves only whole packs, so 25 bottles on hand cover 4 packs of 6, not 4 and a bit.
+
+### Barcodes and nomenclatures
+
+A barcode is just text. A **barcode nomenclature** decides what that text means. It is a
+list of rules, each with a **Type** (Unit Product, Weighted Product, Location, Package,
+Lot, and more), an **Encoding** and a **Barcode Pattern**. Odoo reads a scanned code
+against the rules in order and stops at the first pattern that matches the start of the
+code.
+
+Odoo ships two:
+
+- **Default Nomenclature**: five rules. Codes starting with `21` are weighed products
+  (the weight is in the digits), `414` are locations, `PACK` are packages, `10` are lots,
+  and anything else is a product.
+- **Default GS1 Nomenclature**: the GS1 standard, used by most retail and logistics
+  barcodes. A code is a chain of **application identifiers**: `(01)` a product's GTIN,
+  `(10)` a lot, `(17)` an expiry date, `(30)` a quantity, `(00)` a shipping container's
+  SSCC, and about 25 more.
+
+Barcodes live on many records: the product (**Barcode**), each of its packagings
+(**Packaging Barcodes**), locations, operation types, lots (their name), packages (their
+name) and package types (**Barcode**).
+
+### Labels
+
+Every label is a report you print from a record. PDF labels go to an ordinary printer;
+ZPL labels are text for a thermal label printer (Zebra).
+
+| Label | Printed from | Formats |
+|---|---|---|
+| Product labels | product, or a transfer's **Print → Labels** | Dymo, 2 x 7 with price, 4 x 7 with price, 4 x 12, 4 x 12 with price, ZPL Labels, ZPL Labels with price |
+| Lot/SN labels | lot, or **Print → Labels** on a transfer with lots | 4 x 12 or ZPL; one per lot/SN or one per unit |
+| Package Barcode, Package Barcode with Contents | package | PDF, ZPL |
+| Packages | transfer | PDF list of the transfer's packages |
+| Location Barcode | location | PDF |
+| Operation type | operation type | PDF, ZPL |
+
+An operation type can also print by itself: on validation (delivery slip, return slip,
+product labels, lot labels, package contents) and on Put in Pack (the package label, PDF
+or ZPL).
+
+### What the Barcode app adds
+
+Everything above is Community. The **Barcode** app (Enterprise, the **Barcode Scanner**
+setting) adds the scanning screens for receipts, transfers and counts, a choice of
+nomenclature in the settings, and two fields that Community stores but never shows on a
+form: **Package Use** on the package type and **Move Entire Packages** on the operation
+type (which, in the Barcode app, shows packages instead of their products). The logic
+behind Package Use runs in Community anyway, as you will see.
+
+<Callout type="info" title="Official docs">
+  [Packages](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/package.html),
+  [packagings](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html)
+  and [barcode nomenclatures](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/barcode/operations/barcode_nomenclature.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: three package types, a
+pallet of two cartons on the depot shelf, a sale shipped in a carton, barcodes on the oil
+and its pack, and every label you can print.
+
+<Steps>
+
+<Step>
+### Switch on packages
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, block **Operations**: tick **Packages**, then
+**Save**.
+
+![The Inventory settings with the Packages setting ticked and highlighted in the Operations block, and the Save button highlighted; the Barcode block below shows Barcode Scanner with an Enterprise badge](/screens/inv08-settings-packages.jpg)
+
+The save reloads the page. Two more options appear under **Lots & Serial Numbers**,
+because both lots and packages are on now:
+
+![The Traceability block with Print GS1 Barcodes for Lots & Serial Numbers and Scannable Package Contents, with its Separator set to a comma, highlighted](/screens/inv08-settings-barcode-options.jpg)
+
+**Scannable Package Contents** puts a QR code of a package's contents on its label, the
+**Separator** (a comma) between the items. **Print GS1 Barcodes** makes lot labels use GS1
+codes. Leave both as they are.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["res.config.settings"].create({"group_stock_tracking_lot": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+>>> env.user.has_group("stock.group_tracking_lot")
+True
+```
+
+<Callout type="warn" title="Gotcha">
+  A setting changed from a shell reaches the running server only after a restart:
+  `docker compose restart odoo`.
+</Callout>
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Three kinds of boxes
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Package Types**, in the **Delivery** group. (**Barcode
+Nomenclatures**, a few lines up, comes back later.)
+
+![The Configuration menu open, with Package Types under Delivery and Barcode Nomenclatures under Products highlighted](/screens/inv08-config-menu.jpg)
+
+**New**, and fill the **Configuration** tab:
+
+- **Package Type:** `Carton`
+- **Barcode:** `CARTON`
+- **Sequence Prefix:** `CTN`
+
+![The new package type form named Carton, with Barcode CARTON and Sequence Prefix CTN highlighted on the Configuration tab](/screens/inv08-carton-config.jpg)
+
+The prefix creates a sequence just for cartons: they will be named CTN0000001,
+CTN0000002 and so on, instead of the generic PACK0000001. Then the **Dimensions** tab:
+
+- **Size:** `400` × `300` × `300` (millimetres here)
+- **Weight:** `0.4` kg, the empty box
+- **Max Weight:** `20` kg
+
+![The Dimensions tab of Carton with Size 400 by 300 by 300 mm, Weight 0.40 kg and Max Weight 20.00 kg highlighted](/screens/inv08-carton-dimensions.jpg)
+
+Save, then **New** again for the pallet: **Package Type** `Pallet`, **Sequence Prefix**
+`PAL`, **Size** `1200` × `800` × `150`, **Weight** `25`, **Max Weight** `1000`. The
+**Capacity** tab, which limits how many of these fit in a storage category, belongs to the
+next chapter.
+
+Now the tote. A tote is a reusable box, and the form has no field for that: **Package
+Use** only shows with the Enterprise Barcode app. The field exists anyway, and Import can
+fill it. Back on the list, the gear next to **Package Types**, then **Import records**:
+
+![The Package Types list with Carton and Pallet, and the gear menu open with Import records highlighted](/screens/inv08-package-types-import.jpg)
+
+Upload a CSV file with these two lines:
+
+```text
+Package Type,Package Use,Sequence Prefix
+Tote,Reusable Box (totes),TOTE
+```
+
+Odoo matches the three columns to their fields by name, Package Use included:
+
+![The import screen with package_types.csv loaded, the Package Use column mapped to the Package Use field highlighted, and the Import button highlighted](/screens/inv08-tote-import.jpg)
+
+**Import**. "1 records successfully imported", and the list now shows Carton, Pallet and
+Tote.
+
+</Tab>
+<Tab>
+
+```python
+>>> Type = env["stock.package.type"]
+>>> carton = Type.create({"name": "Carton", "barcode": "CARTON", "sequence_code": "CTN",
+...                       "packaging_length": 400, "width": 300, "height": 300, "base_weight": 0.4, "max_weight": 20})
+>>> pallet = Type.create({"name": "Pallet", "sequence_code": "PAL",
+...                       "packaging_length": 1200, "width": 800, "height": 150, "base_weight": 25, "max_weight": 1000})
+>>> tote = Type.create({"name": "Tote", "sequence_code": "TOTE", "package_use": "reusable"})
+>>> [(t.name, t.package_use, t.sequence_id.prefix) for t in carton | pallet | tote]
+[('Carton', 'disposable', 'CTN'), ('Pallet', 'disposable', 'PAL'), ('Tote', 'reusable', 'TOTE')]
+```
+
+</Tab>
+</UiOrShell>
+
+Core Inventory only stores the weights and dimensions. The **Delivery Methods** setting
+(chapter *Beyond the Four Walls*) reads them: it adds a **Carrier** and a **Carrier
+Code** to the package type and a shipping weight to Put in Pack.
+</Step>
+
+<Step>
+### Ask for the box at Receipts and Pick
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Operations Types → LibreFleet Depot: Receipts**. A new group,
+**Packages**, has one box: tick **Set Package Type**.
+
+![The Receipts operation type form with the Packages group highlighted and Set Package Type ticked](/screens/inv08-receipts-set-package-type.jpg)
+
+With it, Put in Pack asks which package type to use. Without it, Put in Pack creates a
+package straight away, of the type the packaging names, or of no type at all. Do the same
+on **LibreFleet Depot: Pick**, and leave **Pack** alone: there the packaging will choose.
+
+The **Hardware** tab of the same form holds the printing switches. **Print on "Put in
+Pack"** prints the new package's label each time; ticking **Package Label** shows a
+format, PDF or ZPL:
+
+![The Hardware tab of Receipts with Print on Validation options and the Print on Put in Pack group highlighted, Package Label ticked and Print label as PDF](/screens/inv08-receipts-print-on-pack.jpg)
+
+Untick it again before you save: in a browser, every Put in Pack would download a PDF.
+
+</Tab>
+<Tab>
+
+```python
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> (lfd.in_type_id | lfd.pick_type_id).set_package_type = True
+>>> (lfd.in_type_id | lfd.pick_type_id | lfd.pack_type_id).mapped("set_package_type")
+[True, True, False]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Tell the packaging its box, and give it a barcode
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Units & Packagings → Pack of 6**. The form has a new field, **Package
+Type**: choose **Carton**.
+
+![The Pack of 6 unit form with Package Type set to Carton highlighted, and the Packaging Barcodes smart button highlighted](/screens/inv08-pack6-package-type.jpg)
+
+Save, then click **Packaging Barcodes**. Each line gives one product a barcode for this
+packaging. **New**, **Product** `Engine Oil 5W-30 1L`, **Barcode** `15901234123454`,
+**Save**:
+
+![The Packaging Barcodes list with one line, Engine Oil 5W-30 1L with barcode 15901234123454, highlighted, and the Save button highlighted](/screens/inv08-packaging-barcode.jpg)
+
+Then the bottle itself. Open **Engine Oil 5W-30 1L**, **General Information** tab,
+**Barcode** `5901234123457`, save:
+
+![The oil's product form on the General Information tab with Barcode 5901234123457 highlighted](/screens/inv08-oil-barcode.jpg)
+
+Both are real-shaped GS1 numbers: an EAN-13 for the bottle, and a 14-digit GTIN for the
+case, which by convention is the bottle's number with an indicator digit in front and a
+new check digit at the end. Scanning the case barcode means six bottles.
+
+</Tab>
+<Tab>
+
+```python
+>>> pack6 = env["uom.uom"].search([("name", "=", "Pack of 6")])
+>>> pack6.package_type_id = carton
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> oil.barcode = "5901234123457"
+>>> env["product.uom"].create({"product_id": oil.id, "uom_id": pack6.id, "barcode": "15901234123454"}).barcode
+'15901234123454'
+```
+
+`product.uom` is the link between a product and one of its units, and it carries that
+unit's barcode for that product.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A tote for the pickers
+
+<UiOrShell>
+<Tab>
+
+**Products → Packages → New**. Leave **Package Reference** empty, set **Package Type**
+`Tote`, save:
+
+![The new package form named TOTE0000001, with Package Reference and Package Type Tote highlighted; Location and Container are empty](/screens/inv08-tote-package.jpg)
+
+The name came from the Tote sequence. A tote is a real, numbered object that comes back
+every day, which is why you create it once instead of letting each Put in Pack make a new
+one. It has no location: an empty package is nowhere.
+
+</Tab>
+<Tab>
+
+```python
+>>> t1 = env["stock.package"].create({"package_type_id": tote.id})
+>>> t1.name
+'TOTE0000001'
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive two cartons on a pallet
+
+<UiOrShell>
+<Tab>
+
+**Receipts → New** from Nordic Lubricants: `Engine Oil 5W-30 1L` 12 and `Brake Pad Set`
+10. **Mark as To Do**.
+
+If the receipt shows no **Packages** column and no **Put in Pack** button, reload the
+page: the browser can serve the screen it cached before you switched packages on.
+
+Put in Pack at the bottom of the form packs every line at once, into one package. To pack
+each line on its own, open the **Moves** smart button, which lists the move lines with
+their **Destination Package**. Tick the oil, then **Put in Pack**:
+
+![The Detailed Operations list of LFD/IN/00013 with the oil line selected and highlighted, and the Put in Pack button highlighted](/screens/inv08-receipt-select-oil.jpg)
+
+Set Package Type makes it ask. **Package Type** `Carton`, leave **Package** empty for a
+new one:
+
+![The Put in Pack dialog with Package Type Carton highlighted, Package left empty, and the Put in Pack button highlighted](/screens/inv08-put-in-pack-wizard.jpg)
+
+**Put in Pack**: the oil goes into CTN0000001. Do the same for the pads, which go into
+CTN0000002. Now tick both lines and **Put in Pack** once more:
+
+![Both lines selected, the oil in CTN0000001 and the pads in CTN0000002 highlighted in the Destination Package column, and Put in Pack highlighted](/screens/inv08-receipt-two-cartons.jpg)
+
+When every selected line already has a package, Put in Pack packs the packages: choose
+**Pallet**. The destination now reads as a path:
+
+![The Destination Package column showing PAL0000001 > CTN0000002 and PAL0000001 > CTN0000001, highlighted](/screens/inv08-receipt-on-pallet.jpg)
+
+Back on the receipt, the **Packages** column shows the outermost package, the pallet, and
+a **Packages** smart button has appeared:
+
+![The receipt LFD/IN/00013 with PAL0000001 in the Packages column for both lines highlighted, and the Packages smart button highlighted](/screens/inv08-receipt-packages-column.jpg)
+
+The button opens the transfer's packages, filtered on **Main Packages**. Remove the
+filter to see the cartons and their **Destination Container**:
+
+![The receipt's package list: CTN0000001 and CTN0000002 of type Carton with Destination Container PAL0000001 highlighted, and PAL0000001 of type Pallet](/screens/inv08-receipt-packages-list.jpg)
+
+From this list you can also re-pack, remove a package from the transfer, or change a
+carton's destination container. Go back and **Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> pads = env["product.product"].search([("name", "=", "Brake Pad Set")])
+>>> nordic = env["res.partner"].search([("name", "=", "Nordic Lubricants")])
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": nordic.id, "picking_type_id": lfd.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": oil.id, "product_uom_qty": 12}),
+...                  (0, 0, {"product_id": pads.id, "product_uom_qty": 10})],
+... })
+>>> receipt.action_confirm()
+True
+>>> oil_line, pads_line = receipt.move_line_ids.sorted(lambda l: l.product_id != oil)
+>>> oil_line.action_put_in_pack()["name"]
+'Put in Pack'
+>>> oil_line.action_put_in_pack(package_type_id=carton.id).name
+'CTN0000001'
+>>> pads_line.action_put_in_pack(package_type_id=carton.id).name
+'CTN0000002'
+>>> (oil_line | pads_line).with_context(force_move_lines=True).action_put_in_pack(package_type_id=pallet.id).name
+'PAL0000001'
+>>> [(l.product_id.name, l.result_package_id.complete_name) for l in receipt.move_line_ids]
+[('Engine Oil 5W-30 1L', 'CTN0000001'), ('Brake Pad Set', 'CTN0000002')]
+>>> receipt.button_validate()
+True
+```
+
+Called bare on a Set Package Type operation, Put in Pack returns the dialog; with a type, it returns the
+package. `force_move_lines` is what the Moves list's button sets: it packs the lines
+selected, whether or not they are marked picked. The move line points at the carton; the
+carton points at the pallet.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Store the pallet in one piece
+
+<UiOrShell>
+<Tab>
+
+**Next Transfer** opens the Storage, LFD/STOR/00010 (reload once if it shows no
+Packages column):
+
+![The storage transfer LFD/STOR/00010 with PAL0000001 in the Packages column for both lines highlighted, and the Move a Pack link highlighted](/screens/inv08-storage-whole-pallet.jpg)
+
+Nobody touched this transfer, yet it moves PAL0000001: the cartons are disposable, the
+reservation takes their whole content, so each line keeps its carton, and both cartons of
+the pallet move, so the pallet moves too. **Move a Pack**, next to Add a Product, adds a
+whole package from stock to a transfer by hand. **Validate**.
+
+**Products → Packages** now lists the boxes by location:
+
+![The Packages list grouped by location: CTN0000001 and CTN0000002 with Container PAL0000001 highlighted, PAL0000001 highlighted, all in LFD/Stock; TOTE0000001 under None](/screens/inv08-packages-list.jpg)
+
+Open PAL0000001:
+
+![The PAL0000001 package form: Package Type Pallet, Location LFD/Stock, and its Content highlighted, 12 oil in PAL0000001 > CTN0000001 and 10 pads in PAL0000001 > CTN0000002; the Unpack button and the Package Transfers smart button highlighted](/screens/inv08-pallet-form.jpg)
+
+**Content** lists everything inside, whatever the depth. **Unpack** takes the content out
+and leaves the package empty. **Package Transfers** lists the transfers whose lines name
+this package, which is why it is empty for the pallet: the lines name the cartons.
+
+For the history, open the done Storage's **Packages** button and remove the **Main
+Packages** filter:
+
+![The Storage's package history: both cartons with Origin Container PAL0000001 and Destination Container PAL0000001 highlighted, and PAL0000001 from LFD/Input to LFD/Stock](/screens/inv08-storage-package-history.jpg)
+
+Each done transfer writes a history line per package (`stock.package.history`): where it
+came from and went to, and its container before and after.
+
+</Tab>
+<Tab>
+
+```python
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.name, [(l.package_id.name, l.result_package_id.name, l.is_entire_pack) for l in storage.move_line_ids]
+('LFD/STOR/00010', [('CTN0000001', 'CTN0000001', True), ('CTN0000002', 'CTN0000002', True)])
+>>> storage.button_validate()
+True
+>>> pal = storage.move_line_ids.result_package_id.parent_package_id
+>>> pal.name, pal.location_id.complete_name, pal.child_package_ids.mapped("name")
+('PAL0000001', 'LFD/Stock', ['CTN0000001', 'CTN0000002'])
+>>> pal.content_description
+'12 Units Engine Oil 5W-30 1L and 10 Units Brake Pad Set'
+```
+
+Source package equal to destination package, and `is_entire_pack`: that is a carton
+moving whole.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Sell by the pack, ship by the carton
+
+<UiOrShell>
+<Tab>
+
+**Sales → New** for Garage Nord: `Engine Oil 5W-30 1L`, **Quantity** `2`, **Unit**
+`Pack of 6`. The price follows the unit, 6.00 a pack:
+
+![The quotation for Garage Nord with the oil line's Quantity 2.00, Unit Pack of 6 and Unit Price 6.00 highlighted](/screens/inv08-sale-pack-of-6.jpg)
+
+**Confirm** and open the **Delivery**: the Pick. Its operations list has two optional
+columns (the toggle at the right of the header): tick **Packaging Quantity** and
+**Packaging**.
+
+![The pick LFD/PICK/00009 with Packaging Quantity 2.00 and Packaging Pack of 6 highlighted, and Demand 12.00 Units highlighted](/screens/inv08-pick-packaging.jpg)
+
+The move is in Units, 12, and remembers that the customer asked for 2 packs. It reserved
+12 loose bottles from the shelf, not the carton. **Put in Pack**, and this time pick an
+existing **Package**, TOTE0000001:
+
+![The Put in Pack dialog on the pick with Package TOTE0000001 highlighted and Package Type empty](/screens/inv08-pick-into-tote.jpg)
+
+**Put in Pack**, **Validate**, then **Next Transfer**: the Pack step. Its Packages column
+is empty. Open **Moves**:
+
+![The pack's Detailed Operations: Pick From LFD/Packing Zone - TOTE0000001 highlighted, and an empty Destination Package highlighted](/screens/inv08-pack-from-tote.jpg)
+
+The goods come from the tote, and nothing sends them on in it: the tote is reusable.
+Back on the Pack, **Put in Pack**. No question this time (Pack does not set the package
+type), yet the new package is a carton:
+
+![The pack LFD/PACK/00009 with Packaging Pack of 6 and the new package CTN0000003 highlighted, and the Put in Pack button highlighted](/screens/inv08-pack-carton.jpg)
+
+Pack of 6 names Carton as its package type, so that is the box Put in Pack chose.
+**Validate**, **Next Transfer**:
+
+![The delivery LFD/OUT/00013 with CTN0000003 in the Packages column highlighted](/screens/inv08-out-whole-carton.jpg)
+
+The delivery ships the carton as it is. **Validate**. TOTE0000001 is empty again and back
+to no location, ready for the next pick.
+
+</Tab>
+<Tab>
+
+```python
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id,
+...     "order_line": [(0, 0, {"product_id": oil.id, "product_uom_qty": 2, "product_uom_id": pack6.id})],
+... })
+>>> order.action_confirm()
+True
+>>> pick = order.picking_ids
+>>> [(m.product_uom_qty, m.product_uom.name, m.packaging_uom_qty, m.packaging_uom_id.name) for m in pick.move_ids]
+[(12.0, 'Units', 2.0, 'Pack of 6')]
+>>> pick.action_put_in_pack(package_id=t1.id).name
+'TOTE0000001'
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> [(l.package_id.name, l.result_package_id.name) for l in pack.move_line_ids]
+[('TOTE0000001', False)]
+>>> box = pack.action_put_in_pack()
+>>> box.name, box.package_type_id.name
+('CTN0000003', 'Carton')
+>>> pack.button_validate()
+True
+>>> t1.quant_ids, t1.location_id
+(stock.quant(), stock.location())
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> [(l.package_id.name, l.result_package_id.name, l.is_entire_pack) for l in out.move_line_ids]
+[('CTN0000003', 'CTN0000003', True)]
+>>> out.button_validate()
+True
+>>> box.location_id.name
+'Customers'
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read barcodes the way a scanner does
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Barcode Nomenclatures → Default Nomenclature**, the one the company
+uses:
+
+![The Default Nomenclature form with its five rules; the Package barcodes rule with pattern PACK and the Product Barcodes rule with pattern dot star highlighted](/screens/inv08-default-nomenclature.jpg)
+
+Read it top to bottom, as Odoo does. Your oil's `5901234123457` matches no rule until the
+last one, so it is a product. `PACK0000001` would be a package. But `PAL0000001` does not
+start with PACK, so this nomenclature calls it a product: the custom prefixes you chose
+for nice names are invisible to it until you add a rule (an exercise below). And a
+product barcode that starts with `21` would be read as a weighed product.
+
+The other one, **Default GS1 Nomenclature**:
+
+![The Default GS1 Nomenclature form, Is GS1 Nomenclature ticked, with the rules Serial Shipping Container Code (00), Global Trade Item Number (01) and Variable count of items (30) highlighted](/screens/inv08-gs1-nomenclature.jpg)
+
+Each rule is one GS1 application identifier, with its content type and, for quantities,
+the unit it is counted in.
+
+</Tab>
+<Tab>
+
+```python
+>>> nomenclature = env.company.nomenclature_id
+>>> nomenclature.name
+'Default Nomenclature'
+>>> for rule in nomenclature.rule_ids.sorted("sequence"):
+...     print(f"{rule.name:<26} {rule.type:<9} {rule.pattern}")
+... 
+Weight Barcodes 3 Decimals weight    21.....{NNDDD}
+Location barcodes          location  414
+Package barcodes           package   PACK
+Lot barcodes               lot       10
+Product Barcodes           product   .*
+>>> for barcode in ["5901234123457", "PACK0000001", "PAL0000001", "2112345678900"]:
+...     print(f"{barcode:<14} {nomenclature.parse_barcode(barcode)['type']}")
+... 
+5901234123457  product
+PACK0000001    package
+PAL0000001     product
+2112345678900  weight
+>>> env["stock.quant"].search([("package_id", "=", oil_line.result_package_id.id)]).get_aggregate_barcodes()
+['01059012341234573000000012\t']
+>>> env.cr.commit()
+```
+
+The last line is what the content QR code on a package label carries: `01`, the oil's
+GTIN padded to 14 digits, then `30` and the quantity, 12. Each quant adds one such code,
+joined by the **Separator**; a tab ends it, which tells a scanner the code is complete.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Every label
+
+Nothing to save here, and no need to print: open each dialog and close it.
+
+On the delivery, the gear menu, **Print**:
+
+![The delivery's gear menu with Print open: Picking Operations, Delivery Slip, Packages, Return slip and Labels, with Packages and Labels highlighted](/screens/inv08-out-print-menu.jpg)
+
+**Packages** prints the transfer's package list. **Labels** opens the product label
+dialog (on a transfer with lots it first asks: Product Labels or Lot/SN Labels):
+
+![The Choose Labels Layout dialog with Quantity to print Operation Quantities and the Format choices Dymo, 2 x 7 with price, 4 x 7 with price, 4 x 12, 4 x 12 with price, ZPL Labels and ZPL Labels with price, highlighted](/screens/inv08-labels-layout.jpg)
+
+**Operation Quantities** prints one label per unit moved; **Custom** asks how many. ZPL
+adds a template size. Discard.
+
+Any report can be shown in the browser instead of downloaded: replace `/odoo/...` in the
+address with `/report/html/<report>/<record id>`. The pallet's **Package Barcode with
+Contents** is `/report/html/stock.report_package_barcode/` followed by the pallet's id
+(the number at the end of its form's address):
+
+![The Package Barcode with Contents label for PAL0000001: the pallet barcode, Pack Date and Package Type Pallet, then CTN0000001 with the oil's barcode 5901234123457 highlighted and its content QR code highlighted, and CTN0000002 with the pads, which have no barcode](/screens/inv08-pallet-label.jpg)
+
+The oil has a barcode, so its line gets one, and the QR code you decoded in the shell.
+The pads have none, so their line is blank: a label can only print the barcodes you gave.
+For the shell, **Commit** is the last line of the previous block.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv08 --db warehouse
+```
+
+```text
+✔ the Packages setting is on
+✔ Carton and Pallet are disposable, the Tote is reusable
+✔ Receipts and Pick ask for a package type
+✔ a Pack of 6 travels in a Carton
+✔ the oil and its Pack of 6 have barcodes
+✔ a pallet of two cartons sits in LFD/Stock
+✔ the tote was emptied and a carton of 12 oil shipped
+✔ the shelf holds the cartons and the loose stock
+
+inv08 complete! On to the next chapter 🔧
+```
+
+Every package, where it is and what holds it:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select p.name as package, t.name as type, t.package_use, coalesce(l.complete_name, '') as location, coalesce(c.name, '') as container from stock_package p join stock_package_type t on t.id=p.package_type_id left join stock_location l on l.id=p.location_id left join stock_package c on c.id=p.parent_package_id order by p.id;"
+```
+
+```text
+   package   |  type  | package_use | location  | container  
+-------------+--------+-------------+-----------+------------
+ TOTE0000001 | Tote   | reusable    |           | 
+ CTN0000001  | Carton | disposable  | LFD/Stock | PAL0000001
+ CTN0000002  | Carton | disposable  | LFD/Stock | PAL0000001
+ PAL0000001  | Pallet | disposable  | LFD/Stock | 
+ CTN0000003  | Carton | disposable  | Customers | 
+(5 rows)
+```
+
+The tote is empty and nowhere, the pallet still holds both cartons, and the third carton
+is at the customer.
+
+## Gotchas
+
+- **Package Use and Move Entire Packages are not on any Community form.** Both fields
+  exist and Package Use drives real logic, but only the Barcode app shows them. Set Package
+  Use by import or code, and expect every type you create in the form to be disposable.
+- **A reusable box never travels.** At the next step its goods are taken out, whether the
+  box is a tote or a pallet. If your pallets come back to the vendor and you still want
+  them stored whole, keep their type disposable.
+- **Reload after switching packages on.** The web client can serve the transfer screen it
+  cached before, without the Packages column and the Put in Pack button. One reload fixes
+  it.
+- **Custom prefixes are not packages to the Default Nomenclature.** Only codes starting
+  with `PACK` are. CTN and PAL names parse as products until a rule says otherwise, and
+  any product barcode starting with `21` parses as a weight.
+- **A container's Package Transfers is empty.** The move lines name the cartons, not the
+  pallet. Look at a carton, or at the transfers' package history.
+- **Max Weight does not stop you.** Core Inventory stores it; nothing refuses an
+  overloaded carton. The delivery modules read it for carrier packages.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A picker puts 12 bottles in a tote whose type is Reusable Box. What does the next transfer do with the tote?',
+      options: [
+        'It moves the tote with the bottles still inside it',
+        'It takes the bottles out and leaves the tote behind',
+        'It refuses to reserve until the tote is unpacked by hand',
+      ],
+      answer: 1,
+      why: 'A reusable package is never kept as the destination package. The Pack step reserved the bottles from TOTE0000001 with an empty Destination Package, and the tote ended empty, with no location.',
+    },
+    {
+      q: 'Two disposable cartons sit on a disposable pallet. Storage reserves both cartons in full. What moves?',
+      options: [
+        'The two cartons, each one taken off the pallet',
+        'Only the bottles and the pads, without any of the packages',
+        'The pallet, carrying both cartons, in one piece',
+      ],
+      answer: 2,
+      why: 'Each line keeps its carton because the reservation takes the whole carton, and because every child of the pallet moves, the pallet is set as their destination container too.',
+    },
+    {
+      q: 'A sale is for 2 Pack of 6. What unit is the stock move in?',
+      options: [
+        'Units, 12, with the packaging kept beside it',
+        'Pack of 6, 2, exactly as written on the sales order line',
+        'Cartons, 1, because Pack of 6 names Carton',
+      ],
+      answer: 0,
+      why: 'The move is in the product unit, 12 Units. Packaging and Packaging Quantity remember 2 Pack of 6; they choose the box at Put in Pack and drive the full-packaging reservation.',
+    },
+    {
+      q: 'With the Default Nomenclature, what type does Odoo give the scanned code PAL0000001?',
+      options: [
+        'Package, because a package with exactly that name exists',
+        'Product, because no rule before the last one matches',
+        'Location, because pallets stand on location barcodes',
+      ],
+      answer: 1,
+      why: 'Rules are read in order and only the pattern matters, not the records in the database. Only codes starting with PACK are packages; PAL falls through to the catch-all product rule.',
+    },
+    {
+      q: 'Put in Pack on the Pack step created a Carton without asking. Why?',
+      options: [
+        'Carton is the first package type in the list',
+        'The pick used a tote, so the pack needs a carton',
+        'Pack of 6, the line\'s packaging, names Carton',
+      ],
+      answer: 2,
+      why: 'Pack does not have Set Package Type, so Put in Pack creates the package directly and takes the package type of the move\'s packaging, if it has one.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Show the other labels in the browser, as in the last step: the small **Package
+   Barcode** of CTN0000003 (`stock.report_package_barcode_small`), the **Location
+   Barcode** of LFD/Stock (`stock.report_location_barcode`) and the **Packages** report of
+   LFD/IN/00013 (`stock.report_picking_packages`). What does each one show that the others
+   do not?
+2. ⭐⭐ Make your names scannable. On the Default Nomenclature, **Add a line**: **Rule
+   Name** `Carton and pallet barcodes`, **Type** Package, **Encoding** Any, **Barcode
+   Pattern** `CTN|PAL`, and drag it above **Product Barcodes**. Check in a shell that
+   `parse_barcode("PAL0000001")` now says package, and that TOTE0000001 still does not.
+3. ⭐⭐ Reserve whole packs only. Create a product category `Lubricants` with **Reserve
+   Packagings: Reserve Only Full Packagings**, put the oil in it, and sell 5 Pack of 6 to
+   Garage Nord. With 25 bottles on the depot shelf, how many does the Pick reserve? Switch
+   the category to partial, **Unreserve** and **Check Availability**, and compare. Cancel
+   the order.
+4. ⭐⭐⭐ Break-it lab. In a shell, set the Pallet type's `package_use` to `"reusable"`,
+   receive 6 bottles in a new carton on a new pallet, and validate the receipt and its
+   Storage. Where is the carton, what is its container, and where is the pallet? Set the
+   Pallet back to disposable.
+
+## Further reading
+
+- <Icon name="docs" /> [Packages (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/package.html)
+  and [packagings (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html):
+  package types, Put in Pack and packagings on orders, from the user's side.
+- <Icon name="docs" /> [Barcode nomenclatures (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/barcode/operations/barcode_nomenclature.html)
+  and [GS1 nomenclature (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/barcode/operations/gs1_nomenclature.html):
+  rules, patterns and the GS1 identifiers.
+- <Icon name="docs" /> [Barcode app setup (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/barcode/setup/software.html):
+  what the Enterprise Barcode Scanner setting adds.
+- <Icon name="source" /> [`stock/models/stock_picking.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_picking.py):
+  `_check_entire_pack` decides when a package moves whole, and skips reusable ones.

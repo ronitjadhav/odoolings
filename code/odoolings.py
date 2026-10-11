@@ -3331,6 +3331,100 @@ def shelf_after_the_recall(env):
     assert not extra, "unexpected stock: %s. A transfer, return or scrap is not finished" % extra
 
 
+def packages_are_on(env):
+    assert _in_group(env, "stock.group_tracking_lot"), "the Packages setting is off; Inventory > Configuration > Settings, Operations"
+
+
+def _package_types(env):
+    rows = env.call("stock.package.type", "search_read", [],
+                    fields=["name", "package_use", "sequence_code", "barcode", "packaging_length", "width", "height", "max_weight"])
+    return {r["name"]: r for r in rows}
+
+
+def carton_pallet_and_tote_exist(env):
+    types = _package_types(env)
+    for name in ("Carton", "Pallet", "Tote"):
+        assert name in types, "no package type %s; Configuration > Package Types (the Tote comes in by Import records)" % name
+    c, p, t = types["Carton"], types["Pallet"], types["Tote"]
+    assert (c["sequence_code"], c["barcode"]) == ("CTN", "CARTON"), "Carton needs Sequence Prefix CTN and Barcode CARTON"
+    assert (c["packaging_length"], c["width"], c["height"], c["max_weight"]) == (400, 300, 300, 20), (
+        "Carton's Dimensions tab should read 400 x 300 x 300 mm, Max Weight 20 kg")
+    assert p["sequence_code"] == "PAL", "Pallet needs Sequence Prefix PAL"
+    assert c["package_use"] == p["package_use"] == "disposable", "Carton and Pallet must stay disposable, or they get emptied at the next step"
+    assert t["package_use"] == "reusable", ("the Tote is %r; import it with the column Package Use set to Reusable Box (totes): "
+                                            "the form has no such field" % t["package_use"])
+
+
+def receipts_and_pick_ask_for_a_type(env):
+    rows = env.call("stock.picking.type", "search_read", [("warehouse_id.code", "=", "LFD")], fields=["sequence_code", "set_package_type"])
+    on = {r["sequence_code"] for r in rows if r["set_package_type"]}
+    assert {"IN", "PICK"} <= on, ("Set Package Type should be ticked on LibreFleet Depot: Receipts and Pick "
+                                  "(Configuration > Operations Types), it is on %s" % sorted(on))
+    assert "PACK" not in on, "leave Set Package Type off on Pack: there the Pack of 6 picks the Carton by itself"
+
+
+def pack_of_6_is_a_carton(env):
+    rows = env.call("uom.uom", "search_read", [("name", "=", "Pack of 6")], fields=["package_type_id"])
+    assert rows and rows[0]["package_type_id"] and rows[0]["package_type_id"][1] == "Carton", (
+        "Configuration > Units & Packagings > Pack of 6, Package Type: Carton")
+
+
+def oil_and_its_pack_have_barcodes(env):
+    oil = env.call("product.product", "search_read", [("name", "=", "Engine Oil 5W-30 1L")], fields=["barcode"])[0]
+    assert oil["barcode"] == "5901234123457", "the oil's Barcode (General Information tab) should be 5901234123457, it is %r" % oil["barcode"]
+    rows = env.call("product.uom", "search_read", [("product_id", "=", oil["id"]), ("uom_id.name", "=", "Pack of 6")], fields=["barcode"])
+    assert rows and rows[0]["barcode"] == "15901234123454", (
+        "Pack of 6 > Packaging Barcodes needs a line for the oil with 15901234123454")
+
+
+def a_pallet_of_two_cartons_is_stored(env):
+    pallets = env.call("stock.package", "search_read", [("package_type_id.name", "=", "Pallet"), ("location_id.complete_name", "=", "LFD/Stock")],
+                       fields=["child_package_ids"])
+    assert pallets, "no Pallet package in LFD/Stock; put the two cartons on a pallet at the receipt, then Validate the Storage"
+    kids = env.call("stock.package", "read", pallets[0]["child_package_ids"], ["package_type_id"])
+    assert [k["package_type_id"] and k["package_type_id"][1] for k in kids] == ["Carton", "Carton"], (
+        "the pallet should contain exactly two cartons, it contains %s" % [k["package_type_id"] for k in kids])
+    quants = env.call("stock.quant", "search_read", [("package_id", "in", pallets[0]["child_package_ids"])], fields=["product_id", "quantity"])
+    got = sorted((q["product_id"][1], q["quantity"]) for q in quants)
+    assert got == [("Brake Pad Set", 10.0), ("Engine Oil 5W-30 1L", 12.0)], "the cartons should hold 12 oil and 10 pads, they hold %s" % got
+
+
+def the_tote_was_emptied_and_the_carton_shipped(env):
+    tote = env.call("stock.package", "search_read", [("package_type_id.name", "=", "Tote")], fields=["quant_ids"])
+    assert tote, "no Tote package; Products > Packages > New, Package Type Tote"
+    assert not tote[0]["quant_ids"], "the tote still holds goods; the Pack step should take them out of it"
+    picked = env.call("stock.move.line", "search_count", [("result_package_id", "=", tote[0]["id"]), ("state", "=", "done"),
+                                                           ("picking_type_id.sequence_code", "=", "PICK")])
+    assert picked, "the tote was never used at a Pick; in the Pick's Put in Pack choose the existing Package"
+    shipped = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("location_dest_id.usage", "=", "customer"),
+                                                          ("result_package_id.package_type_id.name", "=", "Carton"),
+                                                          ("move_id.packaging_uom_id.name", "=", "Pack of 6")], fields=["quantity"])
+    assert shipped and shipped[0]["quantity"] == 12, ("no carton of 12 oil reached Garage Nord; sell 2 Pack of 6, "
+                                                      "Put in Pack on the Pack step, Validate the delivery")
+
+
+def shelf_after_packing(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    kinds = {p["id"]: p["package_type_id"] and p["package_type_id"][1]
+             for p in env.call("stock.package", "search_read", [], fields=["package_type_id"])}
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], r["package_id"] and kinds[r["package_id"][0]])
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock", "Brake Pad Set", False, "Carton"): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 13.0, ("LFD/Stock", "Engine Oil 5W-30 1L", False, "Carton"): 12.0,
+            ("LFD/Stock", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 12.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " in a %s" % key[3] if key[3] else " loose", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4188,6 +4282,24 @@ CHAPTERS = {
          "Sell 6 to Garage Nord, expire BF-001, return the delivery, scrap the 12 bottles of BF-001."),
         ("the shelf holds the serials, BF-002 and nothing recalled", shelf_after_the_recall,
          "Reporting > Locations shows quants by lot; BF-001 must be gone and the three tablets serialised."),
+    ],
+    "inv08": [
+        ("the Packages setting is on", packages_are_on,
+         "Inventory > Configuration > Settings, Operations: Packages, Save, then reload the page."),
+        ("Carton and Pallet are disposable, the Tote is reusable", carton_pallet_and_tote_exist,
+         "Configuration > Package Types: Carton (CTN, CARTON, 400 x 300 x 300, 0.4 / 20 kg), Pallet (PAL); the Tote by Import records."),
+        ("Receipts and Pick ask for a package type", receipts_and_pick_ask_for_a_type,
+         "Configuration > Operations Types > LibreFleet Depot: Receipts, then Pick: Set Package Type."),
+        ("a Pack of 6 travels in a Carton", pack_of_6_is_a_carton,
+         "Configuration > Units & Packagings > Pack of 6, Package Type: Carton."),
+        ("the oil and its Pack of 6 have barcodes", oil_and_its_pack_have_barcodes,
+         "Oil form, Barcode 5901234123457; Pack of 6 > Packaging Barcodes, the oil with 15901234123454."),
+        ("a pallet of two cartons sits in LFD/Stock", a_pallet_of_two_cartons_is_stored,
+         "Receive 12 oil and 10 pads from Nordic Lubricants: each line in a Carton, both cartons on a Pallet, then Storage."),
+        ("the tote was emptied and a carton of 12 oil shipped", the_tote_was_emptied_and_the_carton_shipped,
+         "Sell 2 Pack of 6 to Garage Nord: Pick into TOTE0000001, Put in Pack on the Pack step, then the delivery."),
+        ("the shelf holds the cartons and the loose stock", shelf_after_packing,
+         "Products > Packages shows what sits in which package; Reporting > Locations shows the loose rest."),
     ],
 }
 
@@ -5215,6 +5327,44 @@ def seed_inv07(env):
     _call(env, "stock.scrap", "action_validate", [scrap])
 
 
+def seed_inv08(env):
+    _settings(env, group_stock_tracking_lot=True)
+    new_type = lambda vals: env.call("stock.package.type", "create", vals)
+    carton = new_type({"name": "Carton", "sequence_code": "CTN", "barcode": "CARTON", "packaging_length": 400, "width": 300,
+                       "height": 300, "base_weight": 0.4, "max_weight": 20})
+    pallet = new_type({"name": "Pallet", "sequence_code": "PAL", "packaging_length": 1200, "width": 800, "height": 150,
+                       "base_weight": 25, "max_weight": 1000})
+    tote = new_type({"name": "Tote", "sequence_code": "TOTE", "package_use": "reusable"})
+    lfd = _id(env, "stock.warehouse", [("code", "=", "LFD")])
+    kinds = env.call("stock.warehouse", "read", [lfd], ["in_type_id", "pick_type_id"])[0]
+    env.call("stock.picking.type", "write", [kinds["in_type_id"][0], kinds["pick_type_id"][0]], {"set_package_type": True})
+    pack6 = _id(env, "uom.uom", [("name", "=", "Pack of 6")])
+    env.call("uom.uom", "write", [pack6], {"package_type_id": carton})
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    oil, pads = variant("Engine Oil 5W-30 1L"), variant("Brake Pad Set")
+    env.call("product.product", "write", [oil], {"barcode": "5901234123457"})
+    env.call("product.uom", "create", {"product_id": oil, "uom_id": pack6, "barcode": "15901234123454"})
+    receipt = env.call("stock.picking", "create", {
+        "partner_id": _id(env, "res.partner", [("name", "=", "Nordic Lubricants")]), "picking_type_id": kinds["in_type_id"][0],
+        "move_ids": [(0, 0, {"product_id": oil, "product_uom_qty": 12}), (0, 0, {"product_id": pads, "product_uom_qty": 10})]})
+    _call(env, "stock.picking", "action_confirm", [receipt])
+    lines = env.call("stock.move.line", "search", [("picking_id", "=", receipt)], order="id")
+    for line in lines:  # one carton per line, as with one row selected in Moves
+        _call(env, "stock.move.line", "action_put_in_pack", [line], package_type_id=carton)
+    _call(env, "stock.move.line", "action_put_in_pack", lines, package_type_id=pallet, context={"force_move_lines": True})
+    _finish_chain(env, receipt)  # receipt, then the Storage that moves the whole pallet
+    tote_pkg = env.call("stock.package", "create", {"package_type_id": tote})
+    order = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Garage Nord")]),
+                                              "order_line": [(0, 0, {"product_id": oil, "product_uom_qty": 2, "product_uom_id": pack6})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    pick = env.call("sale.order", "read", [order], ["picking_ids"])[0]["picking_ids"][0]
+    _call(env, "stock.picking", "action_put_in_pack", [pick], package_id=tote_pkg)
+    _validate(env, [pick])
+    pack = _id(env, "stock.picking", [("move_ids.move_orig_ids.picking_id", "=", pick)])
+    _call(env, "stock.picking", "action_put_in_pack", [pack])  # the Pack of 6 picks the Carton
+    _finish_chain(env, pack)
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5224,7 +5374,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
-    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07,
+    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
