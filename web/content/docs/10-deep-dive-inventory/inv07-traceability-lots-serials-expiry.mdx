@@ -1,0 +1,809 @@
+---
+title: "Inventory 7. Traceability: Lots, Serials, Expiry"
+description: Track the tablet by serial number and brake fluid by lots with expiry dates, give stock already on the shelf its numbers, let FEFO pick the oldest lot, then trace one lot to its customer and recall it end to end.
+tier: professional
+---
+
+**Goal:** know which batch or which unit went where, keep products that expire in date
+order, and run a recall from one lot number. · **Time:** ~3 h · **Checkpoint:** none, this
+chapter writes no module. It continues the `warehouse` database and installs Expiration
+Dates.
+
+## Why this matters
+
+So far a bottle of oil was a bottle of oil: Odoo counted how many, never which one. For
+many products that is not enough. A diagnostic tablet has a serial number on its back,
+and the customer calls about *that* tablet. Brake fluid comes in batches that expire, and
+when the supplier finds a bad batch, someone has to answer within the hour: where is it,
+who got it, how much is left?
+
+That is **traceability**, and in Odoo it is one switch on the product plus one record per
+batch or unit. This chapter puts a serial number on every tablet, including the one
+already on the shelf, receives brake fluid in two lots with expiry dates, lets Odoo pick
+the lot that expires first, and finally recalls a lot from the customer and destroys it.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### By quantity, by lots, by serial number
+
+Every storable product has a **Track Inventory** choice, once the **Lots & Serial
+Numbers** setting is on:
+
+| Tracking | What Odoo records | A quant says | Good for |
+|---|---|---|---|
+| **By Quantity** | how many | 25 bottles of oil in LFD/Stock | anything interchangeable |
+| **By Lots** | how many of each batch | 12 bottles of lot BF-002 in LFD/Stock | food, fluids, anything made or bought in batches |
+| **By Unique Serial Number** | each single unit | tablet DT-0000002 in LFD/Stock | machines, tools, anything with a warranty |
+
+A lot or serial number is a record of its own, a **lot** (`stock.lot`), with a name, the
+product, an internal **Reference**, a description and its dates. Quants are split per
+lot, so the shelf always says which lot is where. With tracking on, every move line must
+name its lot before the transfer can be validated.
+
+### Where lot numbers come from
+
+Each operation type has two boxes, under **Lots/Serial Numbers**:
+
+- **Create New**: this operation may invent new numbers. On by default for receipts and
+  manufacturing.
+- **Use Existing ones**: this operation picks among numbers already in stock. On by
+  default for everything else.
+
+On a receipt you can type the numbers, or open a line's **Details** and use:
+
+- **Generate Serials/Lots**: give the first number and the count (or, for lots, the
+  quantity per lot) and Odoo numbers the lines.
+- **Import Serials/Lots**: paste a list, one number per line.
+
+A product can have its own number series: its **Custom Lot/Serial** prefix (Inventory
+tab) creates a sequence just for it, and the generator's **New** button takes the next
+number from that sequence.
+
+### Turning tracking on for a product you already have
+
+Odoo lets you switch a product to lots or serials while it is in stock, and only warns:
+the existing quants simply have no lot. To fix them, count them: in **Physical
+Inventory**, set the line without a number to 0 and add a line with the number and the
+real quantity. Applying the count moves the stock from "no lot" to its lot.
+
+### Expiration dates
+
+The **Expiration Dates** setting installs a module (`product_expiry`). A product gets four
+day counts, and every lot received gets four dates from them:
+
+| Date on the lot | Set by the product's | What happens when it passes |
+|---|---|---|
+| **Expiration Date** | days *after receipt* | the lot shows *Expired*; validating a transfer with it asks for confirmation |
+| **Best Before Date** | days *before expiration* | nothing automatic; it is printed and shown for people |
+| **Removal Date** | days *before expiration* | the lot leaves **Free to Use** and reservations skip it, but it still counts in **On Hand**; validating a transfer with it asks for confirmation |
+| **Alert Date** | days *before expiration* | the lot shows *Expiring*, appears in the **Expiration Alerts** filter, and the daily scheduler logs an *Alert Date Reached* activity on it |
+
+The dates are written on the lot at receipt. Changing the product's day counts later does
+not touch lots already received. On the lot form, changing the Expiration Date moves the
+three other dates by the same amount.
+
+### First Expiry First Out
+
+Which quant a reservation takes is the **removal strategy** of the location (or of the
+product category). The default is **First In First Out**. With expiry dates, use **First
+Expiry First Out (FEFO)**: the lot with the earliest removal date goes first, so nothing
+sits on the shelf until it is too late.
+
+### Following a lot
+
+Every lot form has smart buttons to its **Sales**, its **Transfers** (deliveries), its
+**Locations**, and the **Traceability** report: every done move of that lot, newest
+first, from the vendor to the customer and back. A recall uses all of it:
+
+<Mermaid
+  label="A recall in four steps: find the lot's customers with the Traceability report, block the lot by moving its expiration date into the past, bring the delivered goods back with a return, and destroy everything with a scrap."
+  chart={`flowchart LR
+    FIND["Find<br/>Traceability report:<br/>who got the lot"] --> BLOCK["Block<br/>Expiration Date in the past:<br/>nobody can reserve it"]
+    BLOCK --> BACK["Bring back<br/>Return on the delivery"]
+    BACK --> DESTROY["Destroy<br/>Scrap the whole lot"]`}
+/>
+
+Three more settings live next to these: **Display Lots & Serial Numbers on Delivery
+Slips**, **Display Lots & Serial Numbers on Invoices** (in the Valuation block) and
+**Print GS1 Barcodes for Lots & Serial Numbers** (labels whose barcode carries the lot and
+dates). The product's **Valuation by Lot/Serial** box gives each lot its own cost; the
+valuation chapter comes back to it.
+
+<Callout type="info" title="Official docs">
+  [Lots](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/lots.html),
+  [serial numbers](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/serial_numbers.html)
+  and [expiration dates](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/expiration_dates.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter: one tablet, oil, pads and coolant
+in the depot, oil in the van. By the end: three tablets with serial numbers, one lot of
+brake fluid on the shelf, and a second lot recalled and scrapped.
+
+<Steps>
+
+<Step>
+### Switch on lots and expiry dates
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, block **Traceability**:
+
+- **Lots & Serial Numbers:** tick
+- **Expiration Dates:** tick
+- **Display Lots & Serial Numbers on Delivery Slips:** tick
+
+![The Traceability settings with Lots & Serial Numbers, Expiration Dates and Display Lots & Serial Numbers on Delivery Slips ticked and highlighted, Print GS1 Barcodes unticked, and the Save button highlighted](/screens/inv07-settings.jpg)
+
+**Save**. Expiration Dates is a module: the save installs it, with two small
+companions for Sales and Manufacturing (`sale_stock_product_expiry`,
+`mrp_product_expiry`), and reloads the page.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d warehouse -i product_expiry --stop-after-init
+```
+
+Whichever way you install, the server log (`docker compose logs odoo`) shows the registry
+reloading, here from the Settings save above:
+
+```text
+INFO warehouse odoo.modules.loading: loading 76 modules...
+INFO warehouse odoo.modules.loading: 76 modules loaded in 0.92s, 720 queries (+720 extra)
+INFO warehouse odoo.modules.loading: Modules loaded.
+```
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["ir.module.module"].search([("name", "=", "product_expiry")]).state
+'installed'
+>>> env["res.config.settings"].create({"group_stock_production_lot": True, "group_lot_on_delivery_slip": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+>>> env.user.has_group("stock.group_production_lot")
+True
+```
+
+<Callout type="warn" title="Gotcha">
+  A setting changed from a shell reaches the running server only after a restart:
+  `docker compose restart odoo`.
+</Callout>
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Track the tablet by serial number
+
+<UiOrShell>
+<Tab>
+
+Open **Diagnostic Tablet**. Next to **Track Inventory** a choice appeared; open it:
+
+![The tablet's General Information tab with Track Inventory ticked and its choice open: By Unique Serial Number, By Lots, By Quantity, highlighted](/screens/inv07-tracking-choices.jpg)
+
+Pick **By Unique Serial Number**. Odoo warns at once:
+
+![A Warning dialog: You have product(s) in stock that have no lot/serial number. You can assign lot/serial numbers by doing an inventory adjustment, highlighted](/screens/inv07-tracking-warning.jpg)
+
+The tablet on the shelf has no serial; the next step fixes that. **Close**, save, and open
+the **Inventory** tab. A **Traceability** group appeared; set **Custom Lot/Serial** to
+`DT-` and save:
+
+![The tablet's Inventory tab, highlighted, with the Traceability group: Valuation by Lot/Serial unticked, Custom Lot/Serial DT- followed by the next number 0000001, highlighted, and Expiration Date unticked](/screens/inv07-serial-prefix.jpg)
+
+The tablet now has its own number series: `DT-0000001`, `DT-0000002`, and so on.
+
+</Tab>
+<Tab>
+
+```python
+>>> tablet = env["product.product"].search([("name", "=", "Diagnostic Tablet")])
+>>> tablet.product_tmpl_id.write({"tracking": "serial"})
+True
+>>> tablet.product_tmpl_id._onchange_tracking()["warning"]["message"]
+'You have product(s) in stock that have no lot/serial number. You can assign lot/serial numbers by doing an inventory adjustment.'
+>>> tablet.product_tmpl_id.write({"serial_prefix_format": "DT-"})
+True
+>>> tablet.lot_sequence_id.name, tablet.lot_sequence_id.prefix, tablet.lot_sequence_id.padding
+('Diagnostic Tablet Serial Sequence', 'DT-', 7)
+```
+
+The prefix created a sequence for the product, with 7 digits.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Give the tablet on the shelf its serial
+
+<UiOrShell>
+<Tab>
+
+**Operations → Physical Inventory**. On the tablet's line (no serial, 1 on hand), set
+**Counted** to `0`. Then **New**:
+
+- **Product:** `Diagnostic Tablet`
+- **Lot/Serial Number:** type `DT-0000001` and pick *Create "DT-0000001"*
+- **Counted:** `1`
+
+![The Physical Inventory with two tablet lines highlighted: the one without a serial, On Hand 1, Counted 0, Difference -1; and the new one, DT-0000001, On Hand 0, Counted 1, Difference 1; the Apply All button highlighted](/screens/inv07-count-serial.jpg)
+
+**Apply All**, give the **Inventory Reason** `Serial for the tablet on hand` and **Update
+Quantities**. The same tablet, now with a number: the line without a serial drops to 0.
+
+</Tab>
+<Tab>
+
+```python
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> stock = lfd.lot_stock_id
+>>> Quant = env["stock.quant"].with_context(inventory_mode=True)
+>>> old = Quant.search([("product_id", "=", tablet.id), ("location_id", "=", stock.id), ("lot_id", "=", False)])
+>>> old.quantity, old.lot_id
+(1.0, stock.lot())
+>>> old.inventory_quantity = 0
+>>> dt1 = env["stock.lot"].create({"name": "DT-0000001", "product_id": tablet.id})
+>>> new = Quant.create({"product_id": tablet.id, "location_id": stock.id, "lot_id": dt1.id, "inventory_quantity": 1})
+>>> (old | new).action_apply_inventory()
+>>> [(q.lot_id.name, q.quantity) for q in env["stock.quant"].search([("product_id", "=", tablet.id), ("location_id", "=", stock.id)])]
+[(False, 0.0), ('DT-0000001', 1.0)]
+```
+
+In code the Physical Inventory is the quant itself, in `inventory_mode`: set
+`inventory_quantity` and apply.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive two tablets with generated serials
+
+<UiOrShell>
+<Tab>
+
+**Operations → Receipts → New**: **Receive From** `Brembo Parts`, a line of `Diagnostic
+Tablet`, Demand `2`, and **Mark as Todo**. The line's **Details** shows two lines of 1,
+without numbers. Click **Generate Serials/Lots**:
+
+![The Generate Serial numbers dialog over the Detailed Operations: First Serial Number DT-0000002, Number of SN 2, Keep current lines unticked, highlighted, and the Generate button highlighted](/screens/inv07-generate-serials.jpg)
+
+Type `DT-0000002` as **First Serial Number** rather than clicking **New**: you typed
+`DT-0000001` by hand, so the product's sequence is still at 1 and **New** would propose
+it again. **Generate**:
+
+![The Detailed Operations of the receipt with two lines highlighted: DT-0000002 and DT-0000003, each 1.00 Units to LFD/Input](/screens/inv07-serial-lines.jpg)
+
+**Save**, **Validate**, then **Next Transfer** and **Validate** the Storage. The done
+transfers grow a **Traceability** smart button.
+
+</Tab>
+<Tab>
+
+```python
+>>> env["stock.lot"].generate_lot_names("DT-0000002", 2)
+[{'lot_name': 'DT-0000002'}, {'lot_name': 'DT-0000003'}]
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": brembo.id, "picking_type_id": lfd.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": tablet.id, "product_uom_qty": 2})],
+... })
+>>> receipt.action_confirm()
+True
+>>> receipt.name, [(l.lot_name, l.quantity) for l in receipt.move_line_ids]
+('LFD/IN/00010', [(False, 1.0), (False, 1.0)])
+>>> for line, value in zip(receipt.move_line_ids, env["stock.lot"].generate_lot_names("DT-0000002", 2)):
+...     line.lot_name = value["lot_name"]
+... 
+>>> [(l.lot_name, l.quantity) for l in receipt.move_line_ids]
+[('DT-0000002', 1.0), ('DT-0000003', 1.0)]
+>>> receipt.button_validate()
+True
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.button_validate()
+True
+>>> sorted(env["stock.quant"].search([("product_id", "=", tablet.id), ("location_id", "=", stock.id), ("quantity", ">", 0)]).lot_id.mapped("name"))
+['DT-0000001', 'DT-0000002', 'DT-0000003']
+```
+
+`generate_lot_names` is the numbering behind the Generate button. A receipt of a
+serial-tracked product starts with one line per unit, so naming the lines is enough.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A product that expires
+
+<UiOrShell>
+<Tab>
+
+**Products → Products → New**: `Brake Fluid DOT 4 1L`, **Sales Price** `9`, **Track
+Inventory** By Lots. On the **Inventory** tab, tick **Expiration Date** and fill the
+**Dates** group:
+
+- **Expiration Date:** `365` days after receipt
+- **Best Before Date:** `60` days before expiration
+- **Removal Date:** `30` days before expiration
+- **Alert Date:** `45` days before expiration
+
+![The brake fluid's Inventory tab with Expiration Date ticked, highlighted, and the Dates group highlighted: Expiration 365 days after receipt, Best Before 60, Removal 30 and Alert 45 days before expiration](/screens/inv07-fluid-dates.jpg)
+
+Save. Every bottle is good for a year from receipt; it should leave the shelf a month
+before that, and someone should be warned six weeks before.
+
+</Tab>
+<Tab>
+
+The product is created in the next step's shell block.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive brake fluid in two lots
+
+<UiOrShell>
+<Tab>
+
+**Operations → Receipts → New**: **Receive From** `Nordic Lubricants`, a line of `Brake
+Fluid DOT 4 1L`, Demand `24`, **Mark as Todo**, then the line's **Details** and
+**Generate Serials/Lots**. For a lot-tracked product the dialog asks how much goes in
+each lot:
+
+![The Generate Lot numbers dialog: First Lot Number BF-001, Quantity per Lot 12, Quantity Received 24, highlighted, and the Generate button highlighted](/screens/inv07-generate-lots.jpg)
+
+**Generate** makes two lots of 12, and shows each one's Expiration Date, a year from now:
+
+![The Detailed Operations with two lines highlighted: BF-001 and BF-002, Expiration Date Oct 11, 2027, 12.00 Units each to LFD/Input](/screens/inv07-lot-lines.jpg)
+
+**Save**, **Validate**, **Next Transfer**, **Validate**. **Products → Lots/Serial
+Numbers** now lists five numbers, grouped by location:
+
+![The Lots / Serial Numbers list grouped by Location, with LFD/Stock (5) open: BF-001 and BF-002 of Brake Fluid, DT-0000001 to DT-0000003 of the tablet, highlighted](/screens/inv07-lots-list.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> fluid = env["product.template"].create({
+...     "name": "Brake Fluid DOT 4 1L", "type": "consu", "is_storable": True, "list_price": 9,
+...     "tracking": "lot", "use_expiration_date": True,
+...     "expiration_time": 365, "use_time": 60, "removal_time": 30, "alert_time": 45,
+... }).product_variant_id
+>>> nordic = env["res.partner"].search([("name", "=", "Nordic Lubricants")])
+>>> receipt2 = env["stock.picking"].create({
+...     "partner_id": nordic.id, "picking_type_id": lfd.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": fluid.id, "product_uom_qty": 24})],
+... })
+>>> receipt2.action_confirm()
+True
+>>> line = receipt2.move_line_ids
+>>> line.write({"lot_name": "BF-001", "quantity": 12})
+True
+>>> line.copy({"lot_name": "BF-002", "quantity": 12})
+stock.move.line(77,)
+>>> [(l.lot_name, l.quantity) for l in receipt2.move_line_ids]
+[('BF-001', 12.0), ('BF-002', 12.0)]
+>>> receipt2.button_validate()
+True
+>>> receipt2.move_ids.move_dest_ids.picking_id.button_validate()
+True
+>>> bf1, bf2 = env["stock.lot"].search([("product_id", "=", fluid.id)], order="name")
+>>> for lot in bf1 | bf2:
+...     print(lot.name, lot.product_qty, *(str(d.date()) for d in (lot.expiration_date, lot.alert_date, lot.use_date, lot.removal_date)))
+... 
+BF-001 12.0 2027-10-11 2027-08-27 2027-08-12 2027-09-11
+BF-002 12.0 2027-10-11 2027-08-27 2027-08-12 2027-09-11
+```
+
+A lot-tracked receipt starts with one line for the whole quantity; split it per lot. A
+copied move line does not keep its quantity, so pass it again.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Bring one lot's expiry forward
+
+Nordic Lubricants calls: lot BF-001 was filled from an old drum, it expires in 40 days,
+not a year.
+
+<UiOrShell>
+<Tab>
+
+Open **BF-001** from the list and set **Expiration** to 40 days from today (here
+`11/20/2026 03:36:26 PM`):
+
+![The lot BF-001 with an Expiring ribbon highlighted, and its Dates highlighted: Expiration Nov 20, Alert from Oct 6, Best before Sep 21, Removal Date Oct 21](/screens/inv07-lot-expiring.jpg)
+
+The three other dates followed, each moved by the same number of days. The alert date is
+already past, so the lot shows **Expiring** and the **Expiration Alerts** filter of the
+lots list finds it. The removal date is ten days away: the lot is still free to use.
+Save. (Across a daylight-saving change the times may shift by an hour.)
+
+</Tab>
+<Tab>
+
+```python
+>>> import datetime
+>>> def dates(expiry):
+...     return {"expiration_date": expiry, "use_date": expiry - datetime.timedelta(days=60),
+...             "removal_date": expiry - datetime.timedelta(days=30), "alert_date": expiry - datetime.timedelta(days=45)}
+... 
+>>> bf1.write(dates(datetime.datetime.now() + datetime.timedelta(days=40)))
+True
+>>> env["stock.lot"].search([("product_id", "=", fluid.id), ("alert_date", "<=", datetime.datetime.now())]).mapped("name")
+['BF-001']
+>>> env["stock.rule"].run_scheduler()
+{}
+>>> bf1.activity_ids.mapped("summary"), bf1.activity_ids.user_id.name
+(['Alert Date Reached'], 'OdooBot')
+```
+
+A write in code does not move the other dates like the form does, so set all four. The
+scheduler you met in the replenishment chapter raises the alert: an *Alert Date Reached*
+to-do on the lot, for the product's Responsible (OdooBot here, since the shell created the
+product).
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### First Expiry First Out
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Locations → LFD/Stock**, **Removal Strategy**:
+
+![The LFD/Stock location form with the Removal Strategy choices First In First Out, Last In First Out, Closest Location, Least Packages and First Expiry First Out (FEFO), FEFO selected, highlighted, and the save icon highlighted](/screens/inv07-fefo.jpg)
+
+Pick **First Expiry First Out (FEFO)** and save. Now sell: **Sales → Orders → New**,
+`Garage Nord`, `Brake Fluid DOT 4 1L`, quantity `6`, **Confirm**. Open the Pick and its
+line's **Details**:
+
+![The Detailed Operations of LFD/PICK/00008 with one line highlighted: LFD/Stock - BF-001, Expiration Date Nov 20, Removal Date Oct 21, to LFD/Packing Zone, 6.00 Units](/screens/inv07-fefo-pick.jpg)
+
+Both lots arrived together; FEFO took BF-001 because it must leave first. **Discard** the
+dialog, then **Validate** the Pick, the Pack and the delivery (`LFD/OUT/00012`), with
+Garage Nord's instruction banner on each.
+
+</Tab>
+<Tab>
+
+```python
+>>> stock.removal_strategy_id = env.ref("product_expiry.removal_fefo")
+>>> stock.removal_strategy_id.name
+'First Expiry First Out (FEFO)'
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id,
+...     "order_line": [(0, 0, {"product_id": fluid.id, "product_uom_qty": 6, "price_unit": 9})],
+... })
+>>> order.action_confirm()
+True
+>>> pick = order.picking_ids
+>>> pick.name, [(l.lot_id.name, l.quantity) for l in pick.move_line_ids]
+('LFD/PICK/00008', [('BF-001', 6.0)])
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.button_validate()
+True
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Trace the lot
+
+The next morning Nordic Lubricants calls again: BF-001 is contaminated. Where is it?
+
+<UiOrShell>
+<Tab>
+
+Open **BF-001**:
+
+![The lot BF-001 with its smart buttons highlighted: Sales 1, Transfers 1, Location, Traceability; and On Hand Quantity 6.00 highlighted](/screens/inv07-lot-buttons.jpg)
+
+One sale, one delivery, 6 bottles left. **Traceability**:
+
+![The Traceability Report for BF-001: LFD/OUT/00012 from LFD/Output to Garage Nord, 6 units, highlighted; then PACK, PICK and STOR; and LFD/IN/00011 from Nordic Lubricants to LFD/Input, 12 units, highlighted](/screens/inv07-traceability.jpg)
+
+Read it from the bottom: 12 bottles came from Nordic Lubricants, were stored, 6 were
+picked, packed and delivered to Garage Nord. Every link opens the transfer.
+
+</Tab>
+<Tab>
+
+```python
+>>> bf1.delivery_ids.mapped("name"), bf1.partner_ids.mapped("name"), bf1.sale_order_ids.mapped("name"), bf1.product_qty
+(['LFD/OUT/00012'], ['Garage Nord'], ['S00005'], 6.0)
+>>> for ml in env["stock.move.line"].search([("lot_id", "=", bf1.id), ("state", "=", "done")], order="id"):
+...     print(f"{ml.reference:<15} {ml.location_id.display_name:<18} -> {ml.location_dest_id.display_name:<18} {ml.quantity:>5.2f}")
+... 
+LFD/IN/00011    Vendors            -> LFD/Input          12.00
+LFD/STOR/00008  LFD/Input          -> LFD/Stock          12.00
+LFD/PICK/00008  LFD/Stock          -> LFD/Packing Zone    6.00
+LFD/PACK/00008  LFD/Packing Zone   -> LFD/Output          6.00
+LFD/OUT/00012   LFD/Output         -> Customers           6.00
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Recall the lot
+
+<UiOrShell>
+<Tab>
+
+**Block it first.** On BF-001, set **Expiration** to a moment earlier today and save:
+
+![The lot BF-001 with an Expired ribbon highlighted, and its Dates highlighted: Expiration Oct 11, Alert from Aug 27, Best before Aug 12, Removal Date Sep 11](/screens/inv07-lot-expired.jpg)
+
+Its removal date is now past, so nobody can reserve it any more. **Reporting → Stock**
+shows the difference:
+
+![The Stock report with the Brake Fluid DOT 4 1L row highlighted: On Hand 18.00, Free to Use 12.00](/screens/inv07-free-to-use.jpg)
+
+18 bottles on hand, only 12 free to use: BF-002's.
+
+**Bring it back.** Open the delivery `LFD/OUT/00012`, **Return**, **Return All**: Odoo
+creates `LFD/IN/00012`, a receipt from Garage Nord. **Validate**:
+
+![The Confirmation dialog on LFD/IN/00012: You are going to deliver the product Brake Fluid DOT 4 1L, BF-001 which is expired or should at least be removed from stock. Do you confirm you want to proceed? highlighted, and the buttons Confirm, Proceed except expired and Discard highlighted](/screens/inv07-expired-warning.jpg)
+
+The warning checks every transfer, even a return, and always says "deliver". **Confirm**;
+*Proceed except expired* would drop the expired lines instead. Then **Next Transfer**,
+**Validate** the Storage and **Confirm** again.
+
+**Destroy it.** **Operations → Scrap → New**:
+
+- **Product:** `Brake Fluid DOT 4 1L`
+- **Lot/Serial:** `BF-001` (the list marks it *Expired*)
+- **Quantity:** `12`
+- **Scrap Reason:** type `Recalled` and create it
+- **Source Document:** `Recall BF-001`
+
+![The scrap form with Product Brake Fluid DOT 4 1L, Quantity 12.00, Lot/Serial BF-001, Replenish Quantities unticked and Scrap Reason Recalled highlighted, Source Document Recall BF-001 highlighted, and the Validate button highlighted](/screens/inv07-scrap-recall.jpg)
+
+**Validate** (`SP/00002`). The lot's Traceability report now tells the whole story:
+
+![The Traceability Report for BF-001 with three new lines highlighted on top: SP/00002 from LFD/Stock to Inventory adjustment 12 units, LFD/STOR/00009 6 units, LFD/IN/00012 from Garage Nord 6 units](/screens/inv07-traceability-after.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> bf1.write(dates(datetime.datetime.now() - datetime.timedelta(hours=1)))
+True
+>>> env.invalidate_all()
+>>> bf1.product_expiry_alert, fluid.qty_available, fluid.free_qty
+(True, 18.0, 12.0)
+```
+
+`invalidate_all` drops the shell's cache: the expiry change must reach the quantity
+computations through the database.
+
+```python
+>>> ret = env["stock.return.picking"].with_context(active_id=out.id, active_model="stock.picking").create({})
+>>> back = env["stock.picking"].browse(ret.action_create_returns_all()["res_id"])
+>>> back.name, back.picking_type_id.name, back.location_id.display_name, back.location_dest_id.display_name
+('LFD/IN/00012', 'Receipts', 'Customers', 'LFD/Input')
+>>> warning = back.button_validate()
+>>> warning["res_model"], warning["name"]
+('expiry.picking.confirmation', 'Confirmation')
+>>> back.with_context(skip_expired=True).button_validate()
+True
+>>> back_storage = back.move_ids.move_dest_ids.picking_id
+>>> back_storage.with_context(skip_expired=True).button_validate()
+True
+>>> scrap = env["stock.scrap"].create({
+...     "product_id": fluid.id, "lot_id": bf1.id, "scrap_qty": 12, "location_id": stock.id,
+...     "origin": "Recall BF-001", "scrap_reason_tag_ids": [(0, 0, {"name": "Recalled"})],
+... })
+>>> scrap.action_validate()
+True
+>>> scrap.name, scrap.state, bf1.product_qty
+('SP/00002', 'done', 0.0)
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal"), ("quantity", "!=", 0)], order="location_id, product_id, lot_id"):
+...     print(f"{q.location_id.complete_name:<10} {q.product_id.name:<20} {q.lot_id.name or '':<11} {q.quantity:>6.2f}")
+... 
+LFD/Stock  Brake Fluid DOT 4 1L BF-002       12.00
+LFD/Stock  Brake Pad Set                     15.00
+LFD/Stock  Coolant 5L                         9.00
+LFD/Stock  Diagnostic Tablet    DT-0000001    1.00
+LFD/Stock  Diagnostic Tablet    DT-0000002    1.00
+LFD/Stock  Diagnostic Tablet    DT-0000003    1.00
+LFD/Stock  Engine Oil 5W-30 1L               25.00
+VAN/Stock  Engine Oil 5W-30 1L                8.00
+>>> env.cr.commit()
+```
+
+`skip_expired` is the context the Confirm button sets.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Where the lot switches live
+
+Nothing to change. **Configuration → Operation Types → LibreFleet Depot: Receipts**:
+
+![The Receipts operation type form with its Lots/Serial Numbers group highlighted: Create New ticked, Use Existing ones unticked](/screens/inv07-optype-lots.jpg)
+
+A receipt may invent numbers but not reuse them; Pick, Pack and Delivery Orders do the
+opposite; the manufacturing types do both. For the shell, **Commit** is the last line of
+the previous block.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv07 --db warehouse
+```
+
+```text
+✔ Lots & Serial Numbers and Expiration Dates are on
+✔ the tablet is tracked by serial number, prefix DT-
+✔ every tablet on the shelf has its own serial
+✔ Brake Fluid is tracked by lots, with expiry dates 365/60/30/45
+✔ LFD/Stock removes first expiry first
+✔ lot BF-001 was sold, blocked, returned and scrapped
+✔ the shelf holds the serials, BF-002 and nothing recalled
+
+inv07 complete! On to the next chapter 🔧
+```
+
+Every lot and what is left of it:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select lot.name as lot, t.name->>'en_US' as product, to_char(lot.expiration_date, 'YYYY-MM-DD') as expires, coalesce(sum(q.quantity) filter (where l.usage = 'internal'), 0) as on_hand from stock_lot lot join product_product p on p.id=lot.product_id join product_template t on t.id=p.product_tmpl_id left join stock_quant q on q.lot_id=lot.id left join stock_location l on l.id=q.location_id group by lot.id, t.name order by lot.name;"
+```
+
+```text
+    lot     |       product        |  expires   | on_hand 
+------------+----------------------+------------+---------
+ BF-001     | Brake Fluid DOT 4 1L | 2026-10-11 |    0.00
+ BF-002     | Brake Fluid DOT 4 1L | 2027-10-11 |   12.00
+ DT-0000001 | Diagnostic Tablet    |            |    1.00
+ DT-0000002 | Diagnostic Tablet    |            |    1.00
+ DT-0000003 | Diagnostic Tablet    |            |    1.00
+(5 rows)
+```
+
+BF-001 is gone: 12 received, 6 delivered, 6 returned, 12 scrapped. Every tablet has its
+own number.
+
+## Gotchas
+
+- **Turning tracking on does not number the stock you have.** Odoo only warns. Until a
+  count gives them numbers, the old quants have no lot, and any transfer that needs them
+  will ask for one.
+- **A serial typed by hand does not move the product's sequence.** The next **New** in the
+  generator proposes the same number again. Either always use **New**, or type the next
+  number yourself.
+- **Expired stock is still On Hand.** Past its removal date a lot leaves Free to Use and
+  reservations skip it, but stock counts, the Locations report and the On Hand column
+  still show it. Scrap or return it; expiry does not make it disappear.
+- **The expiry warning stops every transfer, not only deliveries.** Receipts, returns and
+  internal moves of an expired lot all ask for confirmation, with a message about
+  delivering.
+- **Dates are written once, at receipt.** Changing the product's day counts later leaves
+  existing lots alone. Fix a lot on its own form, where the four dates move together.
+- **FEFO is a property of the location.** Set it on `LFD/Stock`, and products without
+  dates in that location fall back to their arrival order.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You switch a product with 10 units on hand to By Lots. What happens to those 10 units?',
+      options: [
+        'Odoo creates one lot named after the product for all ten units',
+        'They move to the Inventory adjustment location until counted',
+        'They stay on the shelf without a lot until you count them',
+      ],
+      answer: 2,
+      why: 'Odoo only warns that stock has no lot. A Physical Inventory line set to 0 for the no-lot quant and a new line with the lot and the real quantity gives the stock its number.',
+    },
+    {
+      q: 'A lot\'s removal date has passed but not its expiration date. What does the Stock report show?',
+      options: [
+        'It is gone from both On Hand and Free to Use',
+        'It counts in On Hand but not in Free to Use',
+        'It counts in Free to Use until the expiration date',
+      ],
+      answer: 1,
+      why: 'Past the removal date, reservations and Free to Use leave the lot out, but the quant is still there, so On Hand includes it. The chapter saw 18 on hand and 12 free.',
+    },
+    {
+      q: 'Two lots of brake fluid arrived the same day. With FEFO on LFD/Stock, which one does a sale reserve?',
+      options: [
+        'The lot with the lowest number, BF-001',
+        'The lot with the earliest removal date',
+        'The lot received first, by arrival time',
+      ],
+      answer: 1,
+      why: 'FEFO orders quants by removal date, then by arrival. BF-001 was picked because its removal date was ten days away, not because of its name.',
+    },
+    {
+      q: 'Which tool answers "which customers received lot BF-001?"',
+      options: [
+        'The Forecasted report of Brake Fluid DOT 4 1L, by warehouse',
+        'The lot\'s Traceability report, or its Transfers button',
+        'The Replenishment report, filtered on Brake Fluid DOT 4 1L',
+      ],
+      answer: 1,
+      why: 'The Traceability report lists every done move of the lot, with its source and destination; the delivery to Garage Nord is one of its lines. The two other reports work per product, not per lot.',
+    },
+    {
+      q: 'Why did validating the return of BF-001 ask for confirmation?',
+      options: [
+        'Returns from customers always need a manager\'s approval first',
+        'The returned quantity was larger than the original delivery',
+        'The lot was expired, and the check runs on every transfer',
+      ],
+      answer: 2,
+      why: 'product_expiry checks the move lines of any transfer being validated for expired lots or lots past their removal date, whatever the operation type.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Open **Products → Lots/Serial Numbers**, remove the Location grouping and use the
+   **Expiration Alerts** filter. Move BF-002's Expiration to 40 days from now, run the
+   scheduler (developer mode, **Operations → Procurement: run scheduler**) and find the
+   activity it created. Then move the date back.
+2. ⭐⭐ Receive three more tablets with **Import Serials/Lots**, pasting the numbers one per
+   line. Then click **New** in the generator and explain the number it proposes.
+3. ⭐⭐ Sell one tablet to Garage Nord and pick a specific serial in the Pick's Details.
+   Print the delivery slip and find the serial on it.
+4. ⭐⭐⭐ Break-it lab. Try to validate a receipt of brake fluid without naming a lot, and
+   read the error. Then switch the tablet back to **By Quantity** while three serials are
+   on the shelf: what happens to the quants and to the lots? Switch it back to serials.
+
+## Further reading
+
+- <Icon name="docs" /> [Lots (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/lots.html)
+  and [serial numbers (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/serial_numbers.html):
+  tracking, generation and import, from the user's side.
+- <Icon name="docs" /> [Expiration dates (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/expiration_dates.html):
+  the four dates and the alerts.
+- <Icon name="docs" /> [FEFO removal (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/removal_strategies/fefo.html):
+  First Expiry First Out and the other removal strategies.
+- <Icon name="source" /> [`product_expiry/models/production_lot.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/product_expiry/models/production_lot.py):
+  `_compute_dates` shifts the four dates, `_alert_date_exceeded` logs the alert activities.

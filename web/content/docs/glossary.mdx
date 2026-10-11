@@ -273,6 +273,13 @@ current user. First met in `odoo shell` (chapter 6), studied properly in chapter
 **ERP**: Enterprise Resource Planning. One system, one database for a company's
 operations (sales, stock, accounting...), so every department sees the same facts.
 
+**expiration dates (`product_expiry`)**: the Expiration Dates setting. A product gets four
+day counts (Expiration, days after receipt; Best Before, Removal and Alert, days before
+expiration) and each lot received gets four dates from them. Past its removal date a lot
+leaves Free to Use and is skipped by reservation, though it still counts as On Hand; past
+its alert date it shows in the Expiration Alerts filter and the scheduler logs an *Alert
+Date Reached* activity; validating a transfer with an expired lot asks for confirmation.
+
 **extension view**: an `ir.ui.view` with `inherit_id` set (mode `extension`): a list
 of patches (xpath or field locators plus a position) applied to its parent's arch at
 request time. The parent record itself is never modified.
@@ -282,6 +289,10 @@ other modules can override it and add behaviour. `sale.order._action_confirm` is
 clearest example: it holds only a docstring, and each installed bridge module
 (`sale_stock`, `sale_purchase`, ...) overrides it to create its own document on
 confirmation (chapter 22).
+
+**FEFO (First Expiry First Out)**: the removal strategy that reserves the lot with the
+earliest removal date first, then the earliest arrival. Set on a location (Removal
+Strategy) or a product category; it comes with Expiration Dates.
 
 **filestore**: the on-disk directory where Odoo stores attachments and uploaded files
 (one subdirectory per database). Binary content lives here, not in PostgreSQL; in the
@@ -378,6 +389,13 @@ move dated on or before it. Each guards a different slice (sales, purchases,
 everything); setting the broadest ones first checks that the period's bank
 statement lines are actually reconciled, and refuses to lock a messy period
 (chapter 27).
+
+**lot / serial number (`stock.lot`)**: the record that names a batch (a lot, any
+quantity) or a single unit (a serial number) of a tracked product. Quants are split per
+lot, so the shelf says which lot is where. The lot form shows its on-hand quantity, its
+expiry dates, and smart buttons to its sales, transfers, locations and Traceability
+report. Numbers come from the product's own sequence (*Custom Lot/Serial*), from the
+receipt's Generate or Import buttons, or are typed.
 
 **manufacture steps (`manufacture_steps`)**: the warehouse's Manufacture choice: one
 step (consume from Stock, deliver to Stock), two steps (a Pick Components transfer brings
@@ -722,6 +740,11 @@ product line and not as the `discount` field. From `sale_loyalty`, which also br
 confirmation. `state` runs `draft` (RFQ), `sent`, `to approve`, `purchase`, `cancel`, and
 confirming is what spawns the incoming transfer (chapter 24).
 
+**removal strategy (`removal_strategy_id`)**: which quants a reservation takes first:
+First In First Out (the default), Last In First Out, Closest Location, Least Packages, or
+First Expiry First Out. Set on a location, inherited by its children, or on a product
+category.
+
 **reordering rule (`stock.warehouse.orderpoint`)**: a minimum and maximum for one
 product at one location. Creating one is a promise, not an action: it does nothing until
 a scheduled action checks whether forecast has fallen below the minimum (chapter 25,
@@ -908,6 +931,16 @@ disagreement is the point: it is how an over-billing supplier gets caught (chapt
 the old and new value whenever an ORM write changes it, no method required. Fires
 only on a real database write, and only becomes visible after the transaction
 commits, since the message itself is built by a precommit hook (chapter 33).
+
+**tracking (product, lots and serials)**: a stock product's *Track Inventory* choice, By
+Quantity, By Lots or By Unique Serial Number (`product.template.tracking`, needs the Lots &
+Serial Numbers setting). Every move line of a tracked product carries a lot. Switching it
+on for a product already in stock leaves that stock without lots; Odoo warns, and a
+Physical Inventory count gives the stock its numbers.
+
+**Traceability report**: the list of every done move of one lot or serial number, newest
+first, from its receipt to its delivery, return or scrap; opened from the lot's
+Traceability button or a done transfer's. The first tool of any recall.
 
 **TransactionCase / HttpCase**: Odoo's base test classes. `TransactionCase` wraps
 each test method in a database transaction rolled back at the end, no cleanup code
