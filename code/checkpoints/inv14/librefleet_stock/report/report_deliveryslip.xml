@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- a workshop transfer says which vehicle the parts went into -->
+    <template id="report_delivery_document_librefleet" inherit_id="stock.report_delivery_document">
+        <div name="div_origin" position="after">
+            <t t-set="service_order" t-value="o.move_ids.librefleet_order_id[:1]"/>
+            <div t-if="service_order" class="col col-3 mw-100 mb-2" name="div_librefleet_vehicle">
+                <strong>Vehicle</strong>
+                <div class="m-0">
+                    <span t-field="service_order.vehicle_id.license_plate"/>,
+                    <span t-field="service_order.vehicle_id.model_name"/>
+                </div>
+            </div>
+        </div>
+    </template>
+</odoo>

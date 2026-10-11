@@ -550,6 +550,8 @@ normally, which is why adding a second master-data record later still works.
 **OCA**: Odoo Community Association. A Swiss nonprofit hosting hundreds of
 community-maintained module repositories at [github.com/OCA](https://github.com/OCA).
 
+**OCA (stock-logistics repositories)**: the Odoo Community Association's three stock repositories: stock-logistics-warehouse, -workflow and -reporting. Check them, 18.0 branch included, before writing a stock module (Inventory chapter 14).
+
 **ocabot**: the bot account that runs OCA repository chores from PR comments:
 `/ocabot merge`, migration-issue tracking, and the CLA check on a contributor's
 first PR (chapter 45).
@@ -801,6 +803,8 @@ create two partial reconciliations whose amounts sum to the total. This, not
 **record rule**: an `ir.rule` filtering *which records* of a model a group may
 touch, via a domain ("only orders assigned to you"). The per-record layer on top of
 access rights, which are model-wide. LibreFleet's first one lands in chapter 12.
+
+**removal strategy order (`_get_removal_strategy_order`)**: the `stock.quant` method that turns a removal strategy's `method` (fifo, lifo, closest...) into the SQL order `_gather()` sorts quants by. A strategy of your own is a `product.removal` record plus one override of it (Inventory chapter 14).
 
 **repartition line (`account.tax.repartition.line`)**: the child record deciding where a
 piece of a tax goes, shown as the **Distribution** tables on a tax. Four per plain tax
