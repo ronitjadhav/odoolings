@@ -336,6 +336,12 @@ replaces the old `type = 'product'` storable type (chapter 21).
 lead flips the field on the record that already existed, which is why the pipeline has
 no `crm.opportunity` model and no second table (chapter 22).
 
+**lead time (replenishment)**: how long a refill takes, added up from the route a
+reordering rule would use: the vendor's lead time and the company's Days to Purchase when
+it buys, the bill of materials' lead times when it manufactures, and any rule delay on
+the way. Odoo adds 365 days when a buy rule finds no usable vendor, or a manufacture rule
+no bill of materials. The Replenishment Information window shows the sum step by step.
+
 **journal (`account.journal`)**: the book an accounting entry is written in (Sales,
 Purchases, Bank, Miscellaneous), and the owner of its numbering sequence. The sequence is
 asked for a number at **posting** time, not creation, which is why accounting numbering
@@ -439,6 +445,11 @@ views, data, or code to an Odoo database. An *app* is just a module with
 stock*: the source location, the lot or serial, the package, and a `quantity`. Reserving
 creates them, Validate turns them into quant changes, and **Moves History** lists the
 done ones. The **Details** button on a transfer line opens them.
+
+**Multiple (`replenishment_uom_id`)**: the pack size a reordering rule orders in: one of
+the product's packagings or the vendor's unit. To Order is rounded **up** to whole packs,
+so it can end above the rule's Max; the Replenishment screen flags that with a warning
+icon next to the forecast.
 
 **namespacing (field prefixes)**: naming fields you add to a model you do not own after
 your module (`librefleet_is_part`), so they cannot collide with core's or with another
@@ -698,13 +709,27 @@ confirming is what spawns the incoming transfer (chapter 24).
 **reordering rule (`stock.warehouse.orderpoint`)**: a minimum and maximum for one
 product at one location. Creating one is a promise, not an action: it does nothing until
 a scheduled action checks whether forecast has fallen below the minimum (chapter 25,
-chapter 35).
+chapter 35). Its **Trigger** is Auto (the scheduler orders) or Manual (the line waits in
+the Replenishment report). When the forecast at today plus the lead time plus the
+horizon is below Min, it orders Max minus that forecast, rounded up to its Multiple.
 
 **Replenish on Order (MTO)**: the global route (`stock.route_warehouse0_mto`, archived
 until the setting of the same name is ticked) whose one rule has Supply Method **Trigger
 Another Rule** (`procure_method = make_to_order`). Put it on a product and every sale
 creates a dedicated chain upstream (a purchase through the Buy rule, or a manufacturing
 order) instead of taking from the shelf. "MTO" is make to order.
+
+**replenishment horizon (`horizon_days`)**: extra look-ahead, on top of the lead time,
+for every reordering rule's forecast: a company setting, 365 days by default (Inventory
+settings, Advanced Scheduling). At 365 any demand confirmed for the next year counts
+today; at 0 Odoo orders just in time. The HORIZON box in the Replenishment side panel
+changes it for that screen only.
+
+**Replenishment report**: Inventory → Operations → Replenishment, the list of reordering
+rules with their forecast and To Order. Opening it creates a Manual rule named
+*Replenishment Report* (by OdooBot, Min and Max 0) for each storable product with a
+negative forecast and no rule, and deletes such a rule again once it is ordered and
+nothing is left to order. Its line buttons are Order, Automate and Snooze.
 
 **reservation (stock)**: a promise written on a quant: `reserved_quantity` goes up, the
 move gets its move lines and turns Available, and **Free to Use** (`free_qty`) shrinks,
@@ -762,6 +787,12 @@ pull request, so reviewers can click through changes.
 filter of the same `name` when the view loads. Nothing validates the match; a typo
 fails silently.
 
+**scheduler (Procurement: run scheduler)**: the daily scheduled action that orders for
+every **Auto** reordering rule whose forecast is below its Min, retries the reservation of
+waiting moves, and tidies quants. In developer mode it is a menu item under Inventory →
+Operations. A rule it cannot fulfil gets an Exception activity on the product, for the
+product's Responsible, instead of an error.
+
 **scrap (`stock.scrap`)**: taking a quantity of a product out of a location into an
 Inventory Loss location, with optional reason tags and a **Replenish Quantities** box that
 asks the replenishment rules to reorder it. Not a transfer, but it creates an ordinary
@@ -802,6 +833,10 @@ records ("3 Orders", "2 Deliveries"). You'll build one in chapter 17.
 copies its QWeb arch into that page's own `arch_db` rather than linking to the shared
 template, which is why editing one page's copy never touches another page that
 dragged in the same block (chapter 42).
+
+**snooze (reordering rule)**: hiding a line of the Replenishment report until a date (1
+day, 1 week, 1 month or a custom date), stored in the rule's `snoozed_until`. The **Not
+Snoozed** filter does the hiding; nothing else about the rule changes.
 
 **statusbar**: the widget rendering a Selection field as the stage bar in a form's
 header. With the clickable option users can change stage by clicking; it enforces no
