@@ -1,0 +1,622 @@
+---
+title: "Inventory 10. Counting, Correcting, Scrapping, Batching"
+description: Count stock and correct it, undo a wrong count, request counts from a colleague, resolve a count that went stale, scrap a damaged bottle, relocate stock, plan cyclic counts, and let Odoo batch picks into one trip.
+tier: professional
+---
+
+**Goal:** keep the numbers in Odoo equal to what is really on the shelves, and pick
+several orders in one walk. · **Time:** ~3 h · **Checkpoint:** none, this chapter writes
+no module. It continues the `warehouse` database and installs Batch, Wave & Cluster
+Transfers.
+
+## Why this matters
+
+Every number in Odoo is a claim. A bottle breaks, a box is put on the wrong shelf, a
+picker grabs two instead of one, and the claim drifts away from the shelf. Counting is how
+you pull it back: someone looks, writes down what is there, and Odoo moves the difference
+to a virtual location so the books balance.
+
+Then there is the walking. Two orders that need things from the same shelf should not
+cost two trips. Odoo's batches put several transfers into one job.
+
+This chapter counts the depot properly, including a count that a scrap makes stale while
+it waits. It undoes a count that turned out wrong, relocates stock, sets up recurring
+counts, and batches two customers' picks into one.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Counting is writing on quants
+
+**Inventory → Operations → Physical Inventory** lists every quant with its **On Hand**.
+A count is two fields on the quant itself: **Counted** (`inventory_quantity`) and the
+**Difference** it computes against On Hand. Nothing moves until you **Apply**. Then Odoo
+writes one move per counted quant, between the shelf and **Inventory adjustment**, the
+virtual location that absorbs gains and losses, and the count fields clear again.
+
+| Button | What it does |
+|---|---|
+| **Apply** on a row | applies that count at once, reference "Product Quantity Updated" |
+| **Apply** with rows selected, or **Apply All** | asks for an **Inventory Reason** and a **Counting Date**, then applies them together |
+| **Clear** | forgets the count |
+| **Request a Count** | schedules the selected quants for a date and a person |
+| **Actions → Set to quantity on hand** / **Set to 0** | fills Counted for you |
+| **Actions → Relocate** | moves the stock elsewhere straight away, with a reason |
+| **Print** | the **Count Sheet**, a paper list to count from |
+| **History** | the done moves of that quant, where a count can be reverted |
+
+### Stale counts and conflicts
+
+A count is taken at one moment. If stock moves between the count and the Apply, the
+row turns orange (**is_outdated**): the Difference no longer matches. Apply then asks:
+
+- **Keep Counted Quantity**: trust the number you wrote; the Difference is recomputed.
+- **Keep Difference**: trust the gap you found; Counted shifts by what moved since.
+
+### When to count
+
+Each quant shows a **Scheduled** date, the next time it should be counted. Two settings
+feed it: the company's **Annual Inventory Day and Month** (Settings, Operations; 31
+December by default) and a location's **Inventory Frequency** in days, which counts it
+again that many days after its **Last Inventory**. The earlier date wins.
+
+### Scrap
+
+A **scrap** (`stock.scrap`) takes stock out of a location for good: the product, a
+quantity, a lot or package if it has one, a **Scrap Reason** tag and a source document. In
+Odoo 19 it goes to the same virtual location as counts, **Inventory adjustment**.
+**Replenish Quantities** asks the replenishment rules to buy or make the scrapped amount
+again. A product can send its counts and scraps elsewhere through its **Inventory
+Location** (developer mode, the product's Inventory tab, Counterpart Locations).
+
+### Batches and waves
+
+The **Batch, Wave & Cluster Transfers** setting installs `stock_picking_batch`:
+
+- A **batch** groups whole transfers into one job (`BATCH/...`), validated in one click.
+  Make one by hand from the transfers list (**Actions → Add to batch**), or let an
+  operation type do it: **Automatic Batches**, grouped by **Contact**, **Destination
+  Country**, **Source Location** or **Destination Location**, with **Maximum lines** and
+  **Maximum transfers** per batch and **Auto-confirm**.
+- A **wave** groups move lines from several transfers, split by **Product**, **Product
+  Category** or **Location** (**Actions → Add to wave**, or the Wave Grouping options).
+- **Cluster picking** is a batch picked straight into one container per order, so the
+  goods are sorted while they are picked; it needs Packages as well.
+
+The **Dispatch Management System** setting (`stock_fleet`) plans which vehicle carries
+which batch; it is named here only.
+
+<Callout type="info" title="Official docs">
+  [Inventory adjustments](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/count_products.html),
+  [scrap](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/scrap_inventory.html)
+  and [batch transfers](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/picking_methods/batch.html)
+  cover the same ground from the user's side; [cluster picking](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/picking_methods/cluster.html)
+  has a page of its own.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: an undone oil count,
+the shelves counted, one bottle of brake fluid scrapped, the coolant on the fluids rack,
+and two orders picked in one batch.
+
+<Steps>
+
+<Step>
+### Count the oil
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Operations → Physical Inventory**. On the row **LFD/Stock, Engine Oil 5W-30
+1L**, click **Counted** and type `12`: one bottle seems to be missing. Click outside the
+row (a date picker may open; click outside again):
+
+![The Physical Inventory list with the LFD/Stock oil row showing On Hand 13.00, Counted 12.00 and Difference -1.00 highlighted, and the row's Apply and Clear buttons highlighted](/screens/inv10-count-oil.jpg)
+
+Click the row's **Apply**. On Hand becomes 12, and the count is gone from the row.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> Quant = env["stock.quant"].with_context(inventory_mode=True)
+>>> oil = Quant.search([("product_id.name", "=", "Engine Oil 5W-30 1L"), ("location_id.complete_name", "=", "LFD/Stock"), ("package_id", "=", False)])
+>>> oil.quantity
+13.0
+>>> oil.write({"inventory_quantity": 12, "inventory_quantity_set": True})
+True
+>>> oil.inventory_diff_quantity
+-1.0
+>>> oil.action_apply_inventory()
+>>> oil.quantity
+12.0
+```
+
+`inventory_mode` is what the Physical Inventory screen sets; without it the count fields
+cannot be written. The counted-quantity widget writes `inventory_quantity_set` together
+with the number, so the shell does the same.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### The bottle turns up: revert the count
+
+<UiOrShell>
+<Tab>
+
+The bottle was behind the shelf. On the same row, **History**: one line, "Product
+Quantity Updated", from `LFD/Stock` to Inventory adjustment. Tick it, then **Actions →
+Revert Inventory Adjustment**:
+
+![The History list of the oil with the adjustment line selected and the Actions menu open, Revert Inventory Adjustment highlighted](/screens/inv10-revert-adjustment.jpg)
+
+Odoo writes the opposite move and shows both:
+
+![The Reverted Moves list: the new line Product Quantity Updated (Administrator) [reverted], from Inventory adjustment to LFD/Stock, highlighted above the original line](/screens/inv10-reverted.jpg)
+
+On Hand is 13 again. Nothing was deleted: the history keeps the mistake and its fix.
+
+</Tab>
+<Tab>
+
+```python
+>>> line = env["stock.move.line"].search([("is_inventory", "=", True), ("product_id", "=", oil.product_id.id), ("location_id", "=", oil.location_id.id)], order="id desc", limit=1)
+>>> line.reference, line.location_dest_id.name
+('Product Quantity Updated', 'Inventory adjustment')
+>>> line.action_revert_inventory()["name"]
+'Reverted Moves'
+>>> oil.quantity
+13.0
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Request a count of the shelves
+
+<UiOrShell>
+<Tab>
+
+Tick the rows **LFD/Stock/Shelf A** and **LFD/Stock/Shelf B**. The header now offers
+**Apply**, **Clear**, **Request a Count**, **Print** and **Actions**. **Request a
+Count**:
+
+- **Assign to:** Administrator
+- **Scheduled at:** today
+- **Show Expected Quantity:** leave it off, so the counter does not see On Hand
+
+![The Inventory Request dialog with Assign to Administrator, Scheduled at Oct 11 and Show Expected Quantity unticked, highlighted, and the Confirm button highlighted](/screens/inv10-request-count.jpg)
+
+**Confirm**: both rows show today's date and the user. Now count: **Counted** `15` on
+Shelf A, `9` on Shelf B (one set is missing). Tick both rows again and use the header
+**Apply**, which asks for a reason. **Inventory Reason** `Shelf count October`:
+
+![The Physical Inventory apply dialog with Inventory Reason Shelf count October and Counting Date highlighted, and the Update Quantities button highlighted](/screens/inv10-inventory-reason.jpg)
+
+**Update Quantities**. Shelf B is now 9, and both rows are scheduled for 31 December
+again. Shelf A, counted right, still gets a move of 0: proof it was counted.
+
+</Tab>
+<Tab>
+
+```python
+>>> shelves = Quant.search([("product_id.name", "=", "Brake Pad Set"), ("location_id.complete_name", "in", ["LFD/Stock/Shelf A", "LFD/Stock/Shelf B"])], order="location_id")
+>>> admin = env.ref("base.user_admin")
+>>> env["stock.request.count"].create({"quant_ids": [(6, 0, shelves.ids)], "user_id": admin.id}).action_request_count()
+>>> [(q.location_id.name, str(q.inventory_date), q.user_id.name) for q in shelves]
+[('Shelf A', '2026-10-11', 'Administrator'), ('Shelf B', '2026-10-11', 'Administrator')]
+>>> shelves[0].write({"inventory_quantity": 15, "inventory_quantity_set": True})
+True
+>>> shelves[1].write({"inventory_quantity": 9, "inventory_quantity_set": True})
+True
+>>> [(q.location_id.name, q.quantity, q.inventory_quantity, q.inventory_diff_quantity) for q in shelves]
+[('Shelf A', 15.0, 15.0, 0.0), ('Shelf B', 10.0, 9.0, -1.0)]
+>>> env["stock.inventory.adjustment.name"].create({"quant_ids": [(6, 0, shelves.ids)], "inventory_adjustment_name": "Shelf count October"}).action_apply()
+>>> [(q.location_id.name, q.quantity, str(q.inventory_date)) for q in shelves]
+[('Shelf A', 15.0, '2026-12-31'), ('Shelf B', 9.0, '2026-12-31')]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Count the brake fluid, then scrap a bottle
+
+<UiOrShell>
+<Tab>
+
+On the row **BF-002**, **Counted** `12`, which matches On Hand. Do not apply yet. While
+the count waits, a bottle falls. **Operations → Scrap → New**:
+
+- **Product:** Brake Fluid DOT 4 1L
+- **Quantity:** 1
+- **Lot/Serial:** BF-002
+- **Scrap Reason:** type `Damaged` and create it
+- **Source Document:** `Dropped while counting`
+
+![The new scrap order with Product Brake Fluid DOT 4 1L, Quantity 1.00, Lot/Serial BF-002 and Scrap Reason Damaged highlighted, and Source Location LFD/Stock and Scrap Location Inventory adjustment highlighted](/screens/inv10-scrap.jpg)
+
+The **Scrap Location** is **Inventory adjustment**: Odoo 19 has one virtual location for
+counts and scraps. **Validate**: SP/00003, done.
+
+</Tab>
+<Tab>
+
+```python
+>>> bf2 = Quant.search([("lot_id.name", "=", "BF-002"), ("location_id.complete_name", "=", "LFD/Stock")])
+>>> bf2.write({"inventory_quantity": 12, "inventory_quantity_set": True})
+True
+>>> bf2.inventory_diff_quantity
+0.0
+>>> scrap = env["stock.scrap"].create({
+...     "product_id": bf2.product_id.id, "lot_id": bf2.lot_id.id, "scrap_qty": 1, "location_id": bf2.location_id.id,
+...     "origin": "Dropped while counting", "scrap_reason_tag_ids": [(0, 0, {"name": "Damaged"})],
+... })
+>>> scrap.scrap_location_id.name
+'Inventory adjustment'
+>>> scrap.action_validate()
+True
+>>> scrap.name, scrap.state, bf2.quantity
+('SP/00003', 'done', 11.0)
+```
+
+Reading `inventory_diff_quantity` matters here. It is stored, but computed only when first
+needed. In the browser the count is saved in its own request, so the Difference is stored
+right away, as 0. In one shell session it would otherwise be computed after the scrap, as
++1, and the stale count would look current.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Apply the stale count
+
+<UiOrShell>
+<Tab>
+
+Back in Physical Inventory, the BF-002 row is orange:
+
+![The Physical Inventory list with the BF-002 row in orange highlighted: On Hand 11.00, Counted 12.00, Difference 0.00, with Apply and Clear](/screens/inv10-outdated-count.jpg)
+
+On Hand fell to 11 after you counted 12, and the Difference still says 0. Click the row's
+**Apply**:
+
+![The Conflict in Inventory Adjustment dialog explaining the three choices, with the BF-002 line Quantity 11.00, Counted 12.00, Difference 0.00 highlighted, and the Keep Counted Quantity and Keep Difference buttons highlighted](/screens/inv10-conflict.jpg)
+
+Keep Counted Quantity would add a bottle back, undoing the scrap. The count was right when
+you made it, and the gap it found was zero, so choose **Keep Difference**: BF-002 stays at
+11.
+
+</Tab>
+<Tab>
+
+```python
+>>> env.invalidate_all()
+>>> bf2.is_outdated, bf2.quantity, bf2.inventory_quantity
+(True, 11.0, 12.0)
+>>> action = bf2.action_apply_inventory()
+>>> action["res_model"], action["name"]
+('stock.inventory.conflict', 'Conflict in Inventory Adjustment')
+>>> env["stock.inventory.conflict"].with_context(action["context"]).create({}).action_keep_difference()
+>>> bf2.quantity, bf2.inventory_quantity_set
+(11.0, False)
+```
+
+`env.invalidate_all()` drops the session's cached values, as a new browser request would.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Relocate the coolant
+
+<UiOrShell>
+<Tab>
+
+The coolant belongs with the fluids. Tick its row, then **Actions**:
+
+![The Physical Inventory list with the coolant row selected and the Actions menu open, Set to quantity on hand, Set to 0 and Relocate highlighted](/screens/inv10-actions-menu.jpg)
+
+**Relocate**: **To Location** `LFD/Stock/Fluids Rack`, **Reason for relocation**
+`Coolant belongs with the fluids`:
+
+![The relocation dialog with To Location LFD/Stock/Fluids Rack and Reason for relocation highlighted, and the Confirm button highlighted](/screens/inv10-relocate.jpg)
+
+**Confirm**. The move is done at once, under the reason you typed, and the coolant keeps
+its owner, Nordic Lubricants. **To Package** can drop the stock into a package on the
+way.
+
+</Tab>
+<Tab>
+
+```python
+>>> coolant = Quant.search([("product_id.name", "=", "Coolant 5L"), ("location_id.complete_name", "=", "LFD/Stock")])
+>>> rack = env["stock.location"].search([("complete_name", "=", "LFD/Stock/Fluids Rack")])
+>>> env["stock.quant.relocate"].create({"quant_ids": [(6, 0, coolant.ids)], "dest_location_id": rack.id, "message": "Coolant belongs with the fluids"}).action_relocate_quants()["name"]
+'Locations'
+>>> moved = Quant.search([("product_id.name", "=", "Coolant 5L"), ("quantity", ">", 0), ("location_id.usage", "=", "internal")])
+>>> moved.location_id.complete_name, moved.owner_id.name, moved.quantity
+('LFD/Stock/Fluids Rack', 'Nordic Lubricants', 9.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Count Shelf A every 30 days
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Locations → LFD/Stock/Shelf A**, **Inventory Frequency** `30`:
+
+![The Shelf A location form with Inventory Frequency 30 days, Last Inventory Oct 11 and Next Expected Nov 10 highlighted](/screens/inv10-cyclic-count.jpg)
+
+**Last Inventory** is today's count; **Next Expected** is 30 days later. From now on the
+quants of Shelf A are scheduled for that date instead of 31 December, so the Physical
+Inventory's **Scheduled** filters bring them up on time.
+
+</Tab>
+<Tab>
+
+```python
+>>> shelf_a = shelves[0].location_id
+>>> shelf_a.cyclic_inventory_frequency = 30
+>>> str(shelf_a.last_inventory_date), str(shelf_a.next_inventory_date)
+('2026-10-11', '2026-11-10')
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Batch the picks automatically
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, Operations: tick **Batch, Wave & Cluster
+Transfers** and **Save** (it installs a module). The **Annual Inventory Day and Month**
+sits just below:
+
+![The Inventory settings with Batch, Wave & Cluster Transfers ticked and highlighted, Annual Inventory Day and Month 31 December highlighted, and Save highlighted](/screens/inv10-settings-batch.jpg)
+
+Then **Configuration → Operations Types → LibreFleet Depot: Pick** (reload once if the
+new group is missing). In **Batch & Wave Transfers**, tick **Automatic Batches**, then
+under **Batch Grouping** tick **Source Location**:
+
+![The Pick operation type with Automatic Batches ticked, Maximum lines 0, Maximum transfers 0 and Auto-confirm ticked highlighted, and the Batch Grouping and Wave Grouping options highlighted with Source Location ticked](/screens/inv10-pick-auto-batch.jpg)
+
+Automatic Batches does nothing without at least one grouping. Every pick of the depot
+starts in `LFD/Stock`, so they all go into one batch. Save.
+
+Now two orders: **Sales → New** for Garage Nord, `Brake Fluid DOT 4 1L` 2, **Confirm**;
+then a new customer, `Garage Sud` (type it in Customer and **Create**), brake fluid 3,
+**Confirm**. Open **Operations → Batch Transfers**:
+
+![The batch BATCH/PICK/00001 in progress with Description LFD/Stock highlighted, its two operations from LFD/PICK/00011 and LFD/PICK/00012 highlighted, and the Validate button highlighted](/screens/inv10-batch.jpg)
+
+The first Pick made a batch of its own; the second joined it. **Auto-confirm** put it In
+progress. **Validate** validates both Picks in one go.
+
+</Tab>
+<Tab>
+
+```python
+>>> env["ir.module.module"].search([("name", "=", "stock_picking_batch")]).state
+'installed'
+>>> pick_type = env["stock.warehouse"].search([("code", "=", "LFD")]).pick_type_id
+>>> pick_type.write({"auto_batch": True, "batch_group_by_src_loc": True})
+True
+>>> fluid = bf2.product_id
+>>> sud = env["res.partner"].create({"name": "Garage Sud"})
+>>> orders = env["sale.order"]
+>>> for partner, qty in ((env["res.partner"].search([("name", "=", "Garage Nord")]), 2), (sud, 3)):
+...     orders |= env["sale.order"].create({"partner_id": partner.id, "order_line": [(0, 0, {"product_id": fluid.id, "product_uom_qty": qty})]})
+... 
+>>> orders.action_confirm()
+True
+>>> picks = orders.picking_ids
+>>> batch = picks.batch_id
+>>> batch.name, batch.state, batch.description, sorted(picks.mapped("name"))
+('BATCH/PICK/00001', 'in_progress', 'LFD/Stock', ['LFD/PICK/00011', 'LFD/PICK/00012'])
+>>> batch.action_done()
+True
+>>> batch.state, picks.mapped("state")
+('done', ['done', 'done'])
+```
+
+Install the module first, as the Settings save does: `-i stock_picking_batch` on the
+command line, or the Apps menu.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Finish the orders, and the batch report
+
+<UiOrShell>
+<Tab>
+
+**Operations → Transfers**, filter **Ready**: the two Packs. Tick both, **Actions**:
+
+![The Ready transfers list with LFD/PACK/00012 and LFD/PACK/00011 selected and the Actions menu open, Add to batch, Add to wave and Validate highlighted](/screens/inv10-add-to-batch.jpg)
+
+**Add to batch** is the manual way to build a batch from any selection; **Add to wave**
+picks individual lines. Here choose **Validate**, then do the same for the two
+Deliveries.
+
+The batch's **Print** button gives the picker one sheet for the whole trip. As a page:
+`/report/html/stock_picking_batch.report_picking_batch/` followed by the batch's id:
+
+![The batch report for BATCH/PICK/00001: a summary of both transfers with their barcodes, then the lines grouped From LFD/Stock To LFD/Packing Zone with the lot BF-002 barcode on each](/screens/inv10-batch-report.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> for kind in ("pack_type_id", "out_type_id"):
+...     env["stock.picking"].search([("picking_type_id", "=", pick_type.warehouse_id[kind].id), ("state", "=", "assigned")]).button_validate()
+... 
+True
+True
+>>> orders.mapped("picking_ids.state")
+['done', 'done', 'done', 'done', 'done', 'done']
+>>> env.cr.commit()
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv10 --db warehouse
+```
+
+```text
+✔ the oil count was applied, then reverted
+✔ Shelf A and B were counted on request and applied with a reason
+✔ one bottle of BF-002 was scrapped as Damaged
+✔ the outdated BF-002 count kept its difference
+✔ the coolant was relocated to the Fluids Rack
+✔ Shelf A is counted every 30 days
+✔ Picks are batched automatically by source location
+✔ one batch picked the orders of Garage Nord and Garage Sud
+✔ the shelf holds what the counts, scrap and sales left
+
+inv10 complete! On to the next chapter 🔧
+```
+
+The quants the chapter touched:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select t.name->>'en_US' as product, l.complete_name as location, coalesce(lot.name, '') as lot, coalesce(o.name, '') as owner, q.quantity from stock_quant q join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id join stock_location l on l.id=q.location_id left join stock_lot lot on lot.id=q.lot_id left join res_partner o on o.id=q.owner_id where l.complete_name like 'LFD/Stock%' and q.quantity<>0 and q.package_id is null and t.name->>'en_US' in ('Brake Pad Set','Brake Fluid DOT 4 1L','Coolant 5L','Engine Oil 5W-30 1L') order by 1, 2;"
+```
+
+```text
+       product        |       location        |  lot   |       owner       | quantity 
+----------------------+-----------------------+--------+-------------------+----------
+ Brake Fluid DOT 4 1L | LFD/Stock             | BF-002 |                   |     6.00
+ Brake Pad Set        | LFD/Stock             |        |                   |    15.00
+ Brake Pad Set        | LFD/Stock/Shelf A     |        |                   |    15.00
+ Brake Pad Set        | LFD/Stock/Shelf B     |        |                   |     9.00
+ Coolant 5L           | LFD/Stock/Fluids Rack |        | Nordic Lubricants |     9.00
+ Engine Oil 5W-30 1L  | LFD/Stock             |        |                   |    13.00
+(6 rows)
+```
+
+BF-002: 12, one scrapped, five sold. The oil is back at 13 after the revert.
+
+## Gotchas
+
+- **A row's Apply does not ask for a reason.** It applies at once, under "Product
+  Quantity Updated". To name a count, select the rows and use the header Apply or Apply
+  All.
+- **Counts go stale.** Any move between counting and applying makes the Difference
+  wrong. Apply soon after counting, and read the conflict choices: Keep Counted Quantity
+  can quietly undo a scrap or a pick.
+- **Show Expected Quantity is global.** The box in Request a Count is stored as one
+  company-wide parameter, not per request: switching it on for one count shows On Hand on
+  every count.
+- **Scrap and counts share one location.** In Odoo 19 both go to Inventory adjustment, so
+  reports that need scrap apart must filter on the scrap orders, not on the location.
+- **Automatic Batches needs a grouping.** Ticked alone, it batches nothing.
+- **A batch of one is still a batch.** The first transfer creates a batch on its own and
+  waits for a match, so the Batch Transfers list shows batches holding a single pick.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You count 12 bottles where Odoo has 13, then click the row\'s Apply. What happens?',
+      options: [
+        'Odoo asks for an inventory reason, then moves one bottle out',
+        'One bottle moves from the shelf to Inventory adjustment at once',
+        'Nothing moves until a manager approves the count in a second step',
+      ],
+      answer: 1,
+      why: 'A row Apply writes the adjustment straight away, under the reference Product Quantity Updated. Only the header Apply or Apply All asks for a reason.',
+    },
+    {
+      q: 'You counted 12 (Difference 0), then one bottle was scrapped before you applied. Which choice keeps the stock right?',
+      options: [
+        'Keep Counted Quantity, because the number you wrote is the truth',
+        'Discard the count, then count every product again from the start',
+        'Keep Difference, because the gap you found was zero at the time',
+      ],
+      answer: 2,
+      why: 'Keep Difference shifts Counted by what moved since (12 becomes 11), so nothing changes. Keep Counted Quantity would add the scrapped bottle back.',
+    },
+    {
+      q: 'Shelf A has Inventory Frequency 30 and the annual day is 31 December. When is its stock next scheduled for a count?',
+      options: [
+        '30 days after its last count, because the earlier date wins',
+        'On 31 December, because the annual day always takes precedence',
+        'Never again, until someone requests a count by hand',
+      ],
+      answer: 0,
+      why: 'The scheduled date is the earlier of the location\'s next cyclic date and the company\'s annual inventory day.',
+    },
+    {
+      q: 'Automatic Batches is on for Pick, grouped by Source Location. Why did the first order\'s pick already have a batch?',
+      options: [
+        'Each order gets a batch of its own, and batches never merge later',
+        'With no match yet, the first pick starts a batch the next one joins',
+        'Batches are made overnight by the scheduler, so it was a coincidence',
+      ],
+      answer: 1,
+      why: 'When no open batch or ready pick matches, Odoo creates a batch with the pick alone. The second pick then found that batch and joined it.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Select the pads rows and **Print** the **Count Sheet**, or show it as a page:
+   `/report/html/stock.report_inventory/` followed by the quant ids, separated by commas.
+   What does a counter fill in?
+2. ⭐⭐ Request a count of the oil in `VAN/Stock` with **Show Expected Quantity** off, set
+   it to quantity on hand from **Actions**, and apply it with the reason `Van check`.
+   Then switch Show Expected Quantity back the way it was, and explain the gotcha.
+3. ⭐⭐ Make a manual batch: two more sales of brake fluid, then in the Ready Picks select
+   both and **Actions → Add to batch**. What does the dialog offer, and how does the
+   result differ from the automatic batch?
+4. ⭐⭐⭐ Break-it lab. Count BF-002 at its On Hand, sell 1 bottle and validate the chain,
+   then apply the count with **Keep Counted Quantity**. Where did the bottle come from,
+   and how do you put the stock right with a revert?
+
+## Further reading
+
+- <Icon name="docs" /> [Inventory adjustments (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/count_products.html)
+  and [cycle counts (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/cycle_counts.html):
+  counting, applying and scheduling from the user's side.
+- <Icon name="docs" /> [Scrap inventory (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/scrap_inventory.html).
+- <Icon name="docs" /> [Batch transfers (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/picking_methods/batch.html)
+  and [wave transfers (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/picking_methods/wave.html).
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  `action_apply_inventory`, `_compute_is_outdated` and the inventory-mode fields.

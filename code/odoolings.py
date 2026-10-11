@@ -3522,6 +3522,91 @@ def shelf_after_putaway(env):
     assert not extra, "unexpected stock: %s. A transfer is not finished" % extra
 
 
+def the_oil_count_was_reverted(env):
+    moves = env.call("stock.move", "search_read", [("is_inventory", "=", True), ("state", "=", "done"), ("product_id.name", "=", "Engine Oil 5W-30 1L")],
+                     fields=["reference", "location_id", "location_dest_id", "quantity"])
+    out = [m for m in moves if m["location_id"][1] == "LFD/Stock" and m["quantity"] == 1]
+    back = [m for m in moves if m["location_dest_id"][1] == "LFD/Stock" and "[reverted]" in m["reference"]]
+    assert out, "no applied count of the oil in LFD/Stock at 12 (one missing); Physical Inventory, Counted 12, Apply"
+    assert back, "the oil count was not reverted; its History, select the line, Actions > Revert Inventory Adjustment"
+
+
+def the_shelves_were_counted_with_a_reason(env):
+    moves = env.call("stock.move", "search_read", [("is_inventory", "=", True), ("state", "=", "done"), ("product_id.name", "=", "Brake Pad Set"),
+                                                   ("location_id.complete_name", "in", ["LFD/Stock/Shelf A", "LFD/Stock/Shelf B"])],
+                     fields=["reference", "location_id", "quantity"])
+    named = {m["location_id"][1]: m for m in moves if not m["reference"].startswith("Product Quantity")}
+    assert set(named) == {"LFD/Stock/Shelf A", "LFD/Stock/Shelf B"}, (
+        "Shelf A and Shelf B should both be counted and applied together with an Inventory Reason (select both, header Apply)")
+    assert named["LFD/Stock/Shelf B"]["quantity"] == 1, "Shelf B was counted at 9 of 10: the adjustment should remove 1 pad"
+
+
+def bf002_was_scrapped_as_damaged(env):
+    rows = env.call("stock.scrap", "search_read", [("state", "=", "done"), ("lot_id.name", "=", "BF-002")], fields=["scrap_qty", "scrap_reason_tag_ids"])
+    assert rows and rows[0]["scrap_qty"] == 1, "no done scrap of 1 Brake Fluid, lot BF-002; Operations > Scrap"
+    tags = env.call("stock.scrap.reason.tag", "read", rows[0]["scrap_reason_tag_ids"], ["name"])
+    assert "Damaged" in [t["name"] for t in tags], "the scrap's Scrap Reason should be Damaged"
+
+
+def the_conflict_kept_the_difference(env):
+    added = env.call("stock.move.line", "search_count", [("move_id.is_inventory", "=", True), ("state", "=", "done"), ("lot_id.name", "=", "BF-002"),
+                                                         ("location_dest_id.complete_name", "=", "LFD/Stock"), ("quantity", ">", 0)])
+    assert not added, "a count put a bottle of BF-002 back into LFD/Stock: on the conflict choose Keep Difference, not Keep Counted Quantity"
+    q = env.call("stock.quant", "search_read", [("lot_id.name", "=", "BF-002"), ("location_id.complete_name", "=", "LFD/Stock")], fields=["quantity", "inventory_quantity_set"])
+    assert q and not q[0]["inventory_quantity_set"], "BF-002 still has a count waiting; Apply it (Keep Difference)"
+
+
+def the_coolant_was_relocated(env):
+    q = env.call("stock.quant", "search_read", [("product_id.name", "=", "Coolant 5L"), ("quantity", ">", 0), ("location_id.usage", "=", "internal")],
+                 fields=["location_id", "owner_id", "quantity"])
+    assert q and q[0]["location_id"][1] == "LFD/Stock/Fluids Rack", "the coolant should sit in LFD/Stock/Fluids Rack; Physical Inventory, Actions > Relocate"
+    assert q[0]["owner_id"] and q[0]["owner_id"][1] == "Nordic Lubricants", "the relocated coolant should still be owned by Nordic Lubricants"
+
+
+def shelf_a_is_counted_every_30_days(env):
+    r = env.call("stock.location", "search_read", [("complete_name", "=", "LFD/Stock/Shelf A")], fields=["cyclic_inventory_frequency"])[0]
+    assert r["cyclic_inventory_frequency"] == 30, "LFD/Stock/Shelf A: Inventory Frequency should be 30 days"
+
+
+def picks_are_batched_automatically(env):
+    mod = env.call("ir.module.module", "search_read", [("name", "=", "stock_picking_batch"), ("state", "=", "installed")], fields=["name"])
+    assert mod, "Batch, Wave & Cluster Transfers is not installed; Inventory > Configuration > Settings, Operations"
+    t = env.call("stock.picking.type", "search_read", [("warehouse_id.code", "=", "LFD"), ("sequence_code", "=", "PICK")],
+                 fields=["auto_batch", "batch_group_by_src_loc"])[0]
+    assert t["auto_batch"] and t["batch_group_by_src_loc"], "LibreFleet Depot: Pick needs Automatic Batches and Batch Grouping Source Location"
+
+
+def one_batch_picked_two_orders(env):
+    rows = env.call("stock.picking.batch", "search_read", [("state", "=", "done"), ("picking_type_id.sequence_code", "=", "PICK")], fields=["picking_ids"])
+    assert rows, "no done batch of Picks; two sales of Brake Fluid, then Validate the batch Odoo made"
+    picks = env.call("stock.picking", "read", rows[0]["picking_ids"], ["partner_id", "origin"])
+    assert sorted(p["partner_id"][1] for p in picks) == ["Garage Nord", "Garage Sud"], (
+        "the batch should hold the Picks of Garage Nord and Garage Sud, it holds %s" % [p["partner_id"] for p in picks])
+    outs = env.call("stock.picking", "search_count", [("origin", "in", [p["origin"] for p in picks]), ("picking_type_id.sequence_code", "=", "OUT"), ("state", "=", "done")])
+    assert outs == 2, "both orders should be delivered; validate the Packs and Deliveries (Actions > Validate on a selection)"
+
+
+def shelf_after_counting(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 9.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 13.0, ("LFD/Stock/Pallet Bay 1", "Engine Oil 5W-30 1L", False, True): 12.0,
+            ("LFD/Stock/Fluids Rack", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 6.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A count, scrap or transfer is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4414,6 +4499,25 @@ CHAPTERS = {
          "Sell 6 oil to Garage Nord; Fluids: Force Removal Strategy LIFO; on the Pick, Unreserve, Check Availability."),
         ("the shelf holds what putaway and the sale left", shelf_after_putaway,
          "Reporting > Locations shows every quant by location; Shelf A 15 pads, Shelf B 10, the pallet in Bay 1."),
+    ],    "inv10": [
+        ("the oil count was applied, then reverted", the_oil_count_was_reverted,
+         "Physical Inventory: oil in LFD/Stock, Counted 12, Apply; then History, Actions > Revert Inventory Adjustment."),
+        ("Shelf A and B were counted on request and applied with a reason", the_shelves_were_counted_with_a_reason,
+         "Select both shelves, Request a Count, enter 15 and 9, select both again, header Apply with an Inventory Reason."),
+        ("one bottle of BF-002 was scrapped as Damaged", bf002_was_scrapped_as_damaged,
+         "Operations > Scrap: Brake Fluid DOT 4 1L, lot BF-002, quantity 1, Scrap Reason Damaged, Validate."),
+        ("the outdated BF-002 count kept its difference", the_conflict_kept_the_difference,
+         "Count BF-002 at 12 before the scrap, Apply after it, and choose Keep Difference in the conflict."),
+        ("the coolant was relocated to the Fluids Rack", the_coolant_was_relocated,
+         "Physical Inventory, select the coolant, Actions > Relocate, To Location LFD/Stock/Fluids Rack."),
+        ("Shelf A is counted every 30 days", shelf_a_is_counted_every_30_days,
+         "Configuration > Locations > LFD/Stock/Shelf A: Inventory Frequency 30."),
+        ("Picks are batched automatically by source location", picks_are_batched_automatically,
+         "Settings: Batch, Wave & Cluster Transfers; then the Pick operation type: Automatic Batches, Source Location."),
+        ("one batch picked the orders of Garage Nord and Garage Sud", one_batch_picked_two_orders,
+         "Sell 2 brake fluid to Garage Nord and 3 to Garage Sud, Validate the batch, then the Packs and Deliveries."),
+        ("the shelf holds what the counts, scrap and sales left", shelf_after_counting,
+         "Physical Inventory lists every quant; BF-002 6, Shelf B 9, the coolant on the Fluids Rack."),
     ],
 }
 
@@ -4668,6 +4772,7 @@ INSTALLS = {
     "inv03": ["sale_management", "purchase"],  # the Buy route, and an order that starts a chain
     "inv04": ["mrp"],
     "inv07": ["product_expiry"],  # Expiration Dates
+    "inv10": ["stock_picking_batch"],  # Batch, Wave & Cluster Transfers
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -5520,6 +5625,49 @@ def seed_inv09(env):
     _call(env, "stock.picking", "action_assign", [pick])  # LIFO now takes the Fluids Rack
     _finish_chain(env, pick)
 
+def seed_inv10(env):
+    inv = {"inventory_mode": True}
+    quant = lambda domain: _id(env, "stock.quant", domain)
+    oil = quant([("product_id.name", "=", "Engine Oil 5W-30 1L"), ("location_id.complete_name", "=", "LFD/Stock"), ("package_id", "=", False)])
+    env.call("stock.quant", "write", [oil], {"inventory_quantity": 12, "inventory_quantity_set": True}, context=inv)
+    _call(env, "stock.quant", "action_apply_inventory", [oil], context=inv)  # a row Apply: no reason asked
+    line = _id(env, "stock.move.line", [("is_inventory", "=", True), ("product_id.name", "=", "Engine Oil 5W-30 1L"), ("location_id.complete_name", "=", "LFD/Stock")], order="id desc")
+    _call(env, "stock.move.line", "action_revert_inventory", [line])
+    shelf_a = quant([("product_id.name", "=", "Brake Pad Set"), ("location_id.complete_name", "=", "LFD/Stock/Shelf A")])
+    shelf_b = quant([("product_id.name", "=", "Brake Pad Set"), ("location_id.complete_name", "=", "LFD/Stock/Shelf B")])
+    request = env.call("stock.request.count", "create", {"quant_ids": [(6, 0, [shelf_a, shelf_b])], "user_id": 2})
+    _call(env, "stock.request.count", "action_request_count", [request])
+    env.call("stock.quant", "write", [shelf_a], {"inventory_quantity": 15, "inventory_quantity_set": True}, context=inv)
+    env.call("stock.quant", "write", [shelf_b], {"inventory_quantity": 9, "inventory_quantity_set": True}, context=inv)
+    name = env.call("stock.inventory.adjustment.name", "create", {"quant_ids": [(6, 0, [shelf_a, shelf_b])], "inventory_adjustment_name": "Shelf count October"})
+    _call(env, "stock.inventory.adjustment.name", "action_apply", [name])
+    bf2 = quant([("lot_id.name", "=", "BF-002"), ("location_id.complete_name", "=", "LFD/Stock")])
+    env.call("stock.quant", "write", [bf2], {"inventory_quantity": 12, "inventory_quantity_set": True}, context=inv)
+    fluid = _id(env, "product.product", [("name", "=", "Brake Fluid DOT 4 1L")])
+    stock = _id(env, "stock.location", [("complete_name", "=", "LFD/Stock")])
+    scrap = env.call("stock.scrap", "create", {"product_id": fluid, "lot_id": _id(env, "stock.lot", [("name", "=", "BF-002")]), "scrap_qty": 1,
+                                               "location_id": stock, "origin": "Dropped while counting",
+                                               "scrap_reason_tag_ids": [(0, 0, {"name": "Damaged"})]})
+    _call(env, "stock.scrap", "action_validate", [scrap])
+    conflict = env.call("stock.inventory.conflict", "create", {"quant_ids": [(6, 0, [bf2])], "quant_to_fix_ids": [(6, 0, [bf2])]})
+    _call(env, "stock.inventory.conflict", "action_keep_difference", [conflict], context=inv)
+    coolant = quant([("product_id.name", "=", "Coolant 5L"), ("location_id.complete_name", "=", "LFD/Stock")])
+    move = env.call("stock.quant.relocate", "create", {"quant_ids": [(6, 0, [coolant])], "message": "Coolant belongs with the fluids",
+                                                       "dest_location_id": _id(env, "stock.location", [("complete_name", "=", "LFD/Stock/Fluids Rack")])})
+    _call(env, "stock.quant.relocate", "action_relocate_quants", [move])
+    env.call("stock.location", "write", [_id(env, "stock.location", [("complete_name", "=", "LFD/Stock/Shelf A")])], {"cyclic_inventory_frequency": 30})
+    _install(env, ["stock_picking_batch"])
+    pick_type = _id(env, "stock.picking.type", [("warehouse_id.code", "=", "LFD"), ("sequence_code", "=", "PICK")])
+    env.call("stock.picking.type", "write", [pick_type], {"auto_batch": True, "batch_group_by_src_loc": True})
+    sud = env.call("res.partner", "create", {"name": "Garage Sud"})
+    for partner, qty in ((_id(env, "res.partner", [("name", "=", "Garage Nord")]), 2), (sud, 3)):
+        order = env.call("sale.order", "create", {"partner_id": partner, "order_line": [(0, 0, {"product_id": fluid, "product_uom_qty": qty})]})
+        _call(env, "sale.order", "action_confirm", [order])
+    batch = _id(env, "stock.picking.batch", [("state", "=", "in_progress"), ("picking_type_id", "=", pick_type)])
+    _call(env, "stock.picking.batch", "action_done", [batch], context={"skip_sms": True})
+    for kind in ("PACK", "OUT"):
+        _validate(env, env.call("stock.picking", "search", [("picking_type_id.sequence_code", "=", kind), ("state", "=", "assigned")]))
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5529,7 +5677,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
-    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09,
+    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
