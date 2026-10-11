@@ -1,0 +1,790 @@
+---
+title: "Inventory 6. More Than One Warehouse"
+description: Add a service van as a second warehouse, refill it from the depot through the transit location with a reordering rule, sell from it, then keep a vendor's goods on consignment and show customer instructions on every transfer.
+tier: professional
+---
+
+**Goal:** run two warehouses side by side, refill one from the other, and know where
+stock is when it sits between them. · **Time:** ~2.5 h · **Checkpoint:** none, this chapter
+writes no module. It continues the `warehouse` database and installs nothing new.
+
+## Why this matters
+
+LibreFleet's mechanics do not only work at the depot. A service van drives to broken-down
+trucks with oil and brake pads on board. That van is a place where stock lives, so for
+Odoo it is a **warehouse**: its own locations, its own receipts and deliveries, its own
+numbers. And it needs refilling, from the depot, without anyone typing transfers.
+
+Most real projects have more than one warehouse: a main store and shops, a factory and a
+showroom, a depot and vans. The questions are always the same. How does stock move from
+one to the other? Where is it while it travels? How much is in *each* one? This chapter
+answers them on the depot you built, then adds two smaller tools that live on the same
+screens: stock that belongs to a vendor (consignment) and instructions shown on a
+customer's transfers.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### A warehouse is a bundle
+
+Creating a warehouse creates much more than one record. For a warehouse with the Short
+Name `VAN`, Odoo makes:
+
+| What | Created | Active at first |
+|---|---|---|
+| a **view location** `VAN` and its children | Stock, Input, Output, Packing Zone, Quality Control, Pre-Production, Post-Production | only `VAN` and `VAN/Stock`; the others wake up with more steps |
+| **operation types**, each with its own sequence | Receipts `VAN/IN/`, Delivery Orders `VAN/OUT/`, Internal Transfers `VAN/INT/`, Manufacturing `VAN/MO/`, and the step types (Pick, Pack, Storage, ...) | the four first |
+| **routes** for its steps | *Service Van: Receive in 1 step*, *Service Van: Deliver in 1 step* | yes |
+| **rules** on the global routes | a Buy rule, a Manufacture rule, MTO rules | as the Resupply boxes say |
+
+So each warehouse numbers its own documents, and a picking always belongs to one
+warehouse through its operation type. That is why the van's first receipt is
+`VAN/IN/00001` while the depot is past `LFD/IN/00008`.
+
+The second warehouse also switches on the **Multiple Warehouses** group by itself; there
+is no setting to tick. From then on the warehouse form shows **Resupply From**, reports
+get a **Warehouses** filter, and a sales order shows a **Warehouse** field (Other Info
+tab). Archive the second warehouse and the group goes away again.
+
+### How a warehouse gets its stock
+
+The **Resupply** section of a warehouse form says where its stock comes from:
+
+| Box | What it switches on |
+|---|---|
+| **Buy to Resupply** | the Buy route's rule for this warehouse: a rule can buy straight into it |
+| **Manufacture to Resupply** | the Manufacture route's rule, and the Manufacturing operation type |
+| **Resupply From** | one new route per warehouse ticked, named *Service Van: Supply Product from LibreFleet Depot* |
+
+A new warehouse has Buy and Manufacture ticked. For a van that is wrong: the van should
+never buy, it should be refilled. Untick both, tick the depot in Resupply From, and the
+route that appears has three pull rules:
+
+<Mermaid
+  label="A need for oil in VAN/Stock pulls a van receipt from Inter-warehouse transit, which pulls a depot delivery from LFD/Output to transit, which pulls a depot Pick from LFD/Stock; the depot's own Pack step sits between Pick and Delivery."
+  chart={`flowchart RL
+    NEED["need: oil in VAN/Stock"] -- "pull" --> IN["VAN Receipts<br/>Inter-warehouse transit to VAN/Stock"]
+    IN -- "pull" --> OUT["LFD Delivery Orders<br/>LFD/Output to Inter-warehouse transit"]
+    OUT -- "pull" --> PICK["LFD Pick<br/>LFD/Stock onward"]
+    PICK -. "push: the depot's Pack step" .-> OUT`}
+/>
+
+The supplying side is the depot's own delivery, so the depot's steps apply: a three-step
+depot picks, packs and delivers even when the customer is its own van. The route is
+selectable on products, product categories and warehouses, so you can put it on a
+reordering rule, which is what this chapter does.
+
+### Stock in transit
+
+Between the depot's delivery and the van's receipt, the goods sit in **Inter-warehouse
+transit**, a location of type *Transit* that belongs to the company. It existed from the
+start, archived; the first resupply route switches it on.
+
+Transit stock belongs to **no warehouse**. The depot's on-hand has already dropped, the
+van's has not yet risen, and the product's total on-hand leaves it out. To see it, use
+**Reporting → Locations** with the **Transit Locations** filter. This is the honest
+picture of a truck on the road: the stock exists, nobody can sell it.
+
+### How much is in each warehouse
+
+A product's **On Hand** adds up every warehouse. To split it:
+
+- **Reporting → Stock** has a **Warehouses** panel on the left: pick one and every column
+  is for that warehouse only.
+- A reordering rule's **Forecast** is for its own location, so the depot rule and the van
+  rule for the same product show different numbers.
+- In code, quantities take a context: `warehouse_id` for a whole warehouse, `location`
+  for one location and its children.
+
+A sales order ships from the warehouse in its **Warehouse** field. It defaults to the
+salesperson's **Default Warehouse** (a field on the user), or to the first warehouse when
+that is empty, so a sale from the van means changing it. A van driver's user would get
+the van as Default Warehouse.
+
+### Consignment: stock that is not yours
+
+A vendor may leave goods on your shelf and be paid only for what you sell. Odoo models it
+with an **owner** on the quant. The **Consignment** setting adds an **Assign Owner** field
+to receipts; everything received that way keeps its owner through every later move.
+Owned stock:
+
+- counts in **On Hand** and can be reserved and delivered like your own;
+- has **no value** in your stock valuation, whatever its cost;
+- shows its owner in **Reporting → Locations**, in an **Owner** column.
+
+Odoo does not bill you when you sell consigned goods; you settle with the vendor
+yourself, from the deliveries.
+
+### Partner-Specific Instructions
+
+The **Partner-Specific Instructions** setting adds a text field, *Instructions on the
+Stock Operations*, to the Notes tab of every contact. Any transfer for that contact, or
+for one of its child addresses, shows the text in a blue banner. It warns, it never
+blocks.
+
+### More than one company, at a glance
+
+Warehouses belong to one company, and so do their locations and quants (`company_id`).
+A few locations are shared by every company: **Vendors** and **Customers** have no
+company. Between two companies, goods would travel through **Inter-company transit**
+instead, and turning a sale in one company into a purchase in the other is the
+**Inter-Company Transactions** setting, which is Enterprise. This track stays in one
+company.
+
+<Callout type="info" title="Official docs">
+  [Warehouses](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/warehouses.html)
+  and [resupply from another warehouse](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/resupply_warehouses.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`: 15 brake pad sets, 35 bottles of oil and the tablet in the
+depot, from the previous chapter. By the end: a van holding 8 bottles, a depot holding 25
+bottles and 9 coolants that belong to a vendor, and one customer with delivery
+instructions.
+
+<Steps>
+
+<Step>
+### Create the van
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Warehouses → New**:
+
+- **Warehouse:** `Service Van`
+- **Short Name:** `VAN`
+
+![The new warehouse form with Warehouse Service Van and Short Name VAN highlighted, Incoming and Outgoing Shipments on 1 step, and Buy to Resupply and Manufacture to Resupply both ticked, highlighted](/screens/inv06-new-warehouse.jpg)
+
+Leave one step in and one step out: a van has no dock. Notice the two Resupply boxes,
+ticked by default. **Save**.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> env.user.has_group("stock.group_stock_multi_warehouses")
+False
+>>> van = env["stock.warehouse"].create({"name": "Service Van", "code": "VAN"})
+>>> env.user.has_group("stock.group_stock_multi_warehouses")
+True
+>>> van.reception_steps, van.delivery_steps, van.buy_to_resupply, van.manufacture_to_resupply
+('one_step', 'ship_only', True, True)
+```
+
+The group switched on by itself the moment the second warehouse existed.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read what one warehouse brings
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Operation Types**, then **Group By → Warehouse**:
+
+![The Operation Types list grouped by warehouse: LibreFleet Depot with 10 types, and Service Van with 4, Receipts, Internal Transfers, Delivery Orders and Manufacturing, highlighted](/screens/inv06-operation-types.jpg)
+
+Four active types for the van, each with its own sequence: its first receipt will be
+`VAN/IN/00001`. Its Manufacturing type is there because Manufacture to Resupply was
+ticked. **Configuration → Routes** also lists *Service Van: Receive in 1 step (stock)*
+and *Service Van: Deliver in 1 step (ship)*.
+
+</Tab>
+<Tab>
+
+```python
+>>> for l in env["stock.location"].with_context(active_test=False).search([("warehouse_id", "=", van.id)], order="id"):
+...     print(f"{l.complete_name:<20} {l.usage:<9} {l.active}")
+... 
+VAN                  view      True
+VAN/Stock            internal  True
+VAN/Input            internal  False
+VAN/Quality Control  internal  False
+VAN/Output           internal  False
+VAN/Packing Zone     internal  False
+VAN/Pre-Production   internal  False
+VAN/Post-Production  internal  False
+>>> for t in env["stock.picking.type"].search([("warehouse_id", "=", van.id)], order="id"):
+...     print(f"{t.name:<18} {t.sequence_id.prefix}")
+... 
+Receipts           VAN/IN/
+Delivery Orders    VAN/OUT/
+Internal Transfers VAN/INT/
+Manufacturing      VAN/MO/
+>>> [r.name for r in van.route_ids]
+['Manufacture', 'Service Van: Receive in 1 step (stock)', 'Buy', 'Service Van: Deliver in 1 step (ship)']
+```
+
+Every location a bigger van would need is already there, archived. The search without
+`active_test=False` only finds the four active operation types.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Refill the van from the depot
+
+<UiOrShell>
+<Tab>
+
+Open **Service Van** again and **reload the page** (F5): the form was drawn before the
+Multiple Warehouses group existed, and the reload makes **Resupply From** appear. Then:
+
+- **Buy to Resupply:** untick
+- **Manufacture to Resupply:** untick
+- **Resupply From:** tick `LibreFleet Depot`
+
+![The van's Resupply section with Buy to Resupply and Manufacture to Resupply unticked, highlighted, Resupply From with LibreFleet Depot ticked, highlighted, and the save icon highlighted](/screens/inv06-resupply-from.jpg)
+
+**Save**, click the **Routes** smart button and open *Service Van: Supply Product from
+LibreFleet Depot*:
+
+![The route form: Supplied Warehouse Service Van highlighted, Applicable On with Product Categories, Products and Warehouses ticked, highlighted, and three Pull From rules highlighted: LFD/Output to Inter-warehouse transit, LFD/Stock to LFD/Output, Inter-warehouse transit to VAN/Stock](/screens/inv06-supply-route.jpg)
+
+The three rules of the diagram above. Now **Configuration → Locations**, and remove the
+**Internal** filter:
+
+![The Locations list without filter: Inter-warehouse transit of type Transit highlighted, and VAN, of type Virtual, and VAN/Stock, Internal, highlighted, among the LFD locations, Customers, Vendors, Production and Inventory adjustment](/screens/inv06-locations.jpg)
+
+**Inter-warehouse transit** is listed now: saving the route switched it on. The van shows
+two locations; the archived ones stay hidden.
+
+</Tab>
+<Tab>
+
+```python
+>>> van.write({"buy_to_resupply": False, "manufacture_to_resupply": False, "resupply_wh_ids": [(4, lfd.id)]})
+True
+>>> route = van.resupply_route_ids
+>>> route.name, route.product_selectable, route.warehouse_selectable
+('Service Van: Supply Product from LibreFleet Depot', True, True)
+>>> for r in route.rule_ids:
+...     print(f"{r.location_src_id.complete_name:<24} -> {r.location_dest_id.complete_name:<24} {r.picking_type_id.warehouse_id.code} {r.picking_type_id.name:<16} {r.procure_method}")
+... 
+LFD/Output               -> Inter-warehouse transit  LFD Delivery Orders  make_to_order
+LFD/Stock                -> LFD/Output               LFD Pick             make_to_stock
+Inter-warehouse transit  -> VAN/Stock                VAN Receipts         make_to_order
+>>> transit = env.company.internal_transit_location_id
+>>> transit.complete_name, transit.usage, transit.active
+('Inter-warehouse transit', 'transit', True)
+```
+
+Read the last column: only the rule that leaves the depot's Stock takes from stock
+(`make_to_stock`); the two others trigger the rule before them (`make_to_order`). That is
+what makes the chain.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A reordering rule for the van
+
+The van should carry between 4 and 10 bottles of oil.
+
+<UiOrShell>
+<Tab>
+
+Open **Engine Oil 5W-30 1L**, click the **Min / Max** smart button (the depot's rule from
+the previous chapter), then **New**:
+
+- **Location:** `VAN/Stock`
+- **Route:** `Service Van: Supply Product from LibreFleet Depot`
+- **Trigger:** `Auto`
+- **Min:** `4`
+- **Max:** `10`
+
+![Two oil rules: the depot's in LFD/Stock, and the new one with Location VAN/Stock, Route Service Van, Trigger Auto, Min 4.00 and Max 10.00 highlighted](/screens/inv06-van-rule.jpg)
+
+**Save**: To Order shows 10.00, since the van is empty. Click **Order** to refill it now
+instead of waiting for the scheduler. A notification says *The inter-warehouse transfers
+have been generated*, naming `VAN/IN/00001`. The two rules now read:
+
+![The two oil rules with their forecasts highlighted: LFD/Stock On Hand 35, Forecast 25; VAN/Stock On Hand 0, Forecast 10](/screens/inv06-two-forecasts.jpg)
+
+Each forecast is for its own location: 10 bottles are planned to leave the depot and to
+arrive in the van.
+
+</Tab>
+<Tab>
+
+```python
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> op = env["stock.warehouse.orderpoint"].create({
+...     "product_id": oil.id, "location_id": van.lot_stock_id.id,
+...     "product_min_qty": 4, "product_max_qty": 10, "route_id": route.id, "trigger": "auto",
+... })
+>>> op.name, op.warehouse_id.name, op.qty_forecast, op.qty_to_order
+('OP/00002', 'Service Van', 0.0, 10.0)
+>>> notification = op.action_replenish()
+>>> for m in env["stock.move"].search([("origin", "=", op.name)], order="id"):
+...     print(f"{m.reference:<15} {m.location_id.complete_name:<24} -> {m.location_dest_id.complete_name:<24} {m.state}")
+... 
+VAN/IN/00001    Inter-warehouse transit  -> VAN/Stock                waiting
+LFD/OUT/00010   LFD/Output               -> Inter-warehouse transit  waiting
+LFD/PICK/00006  LFD/Stock                -> LFD/Packing Zone         assigned
+```
+
+The rule is Auto on purpose. In a shell you are OdooBot, and a Manual rule created by
+OdooBot is deleted as soon as it is ordered (the previous chapter's gotcha). The Pick
+goes to the Packing Zone: the depot's three delivery steps apply.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Follow the oil from depot to van
+
+<UiOrShell>
+<Tab>
+
+Open `LFD/PICK/00006` (its **Source Document** is `OP/00002`, the rule) and **Validate**,
+then **Next Transfer** for the Pack, **Validate**, and **Next Transfer** again:
+
+![The depot delivery LFD/OUT/00010 with Delivery Address My Company, Source Location LFD/Output and Source Document OP/00002 highlighted](/screens/inv06-depot-delivery.jpg)
+
+A delivery to your own company's address: that is what an inter-warehouse transfer looks
+like from the depot. **Validate**. Now look for the bottles in **Reporting →
+Locations**, adding the **Transit Locations** filter to Internal Locations:
+
+![The Locations report filtered on Internal Locations or Transit Locations: LFD/Stock holds 25 Engine Oil, and Inter-warehouse transit holds 10 Engine Oil with 10 reserved, both highlighted](/screens/inv06-in-transit.jpg)
+
+Ten bottles on the road, already reserved by the van's receipt. Open
+**Operations → Receipts → VAN/IN/00001**:
+
+![The van receipt VAN/IN/00001, Ready, with Operation Type Service Van: Receipts, Destination Location VAN/Stock and Source Document OP/00002 highlighted](/screens/inv06-van-receipt.jpg)
+
+**Validate**. The van holds 10 bottles.
+
+</Tab>
+<Tab>
+
+```python
+>>> pick = env["stock.picking"].search([("origin", "=", op.name), ("state", "=", "assigned")])
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.name, out.location_dest_id.complete_name
+('LFD/OUT/00010', 'Inter-warehouse transit')
+>>> out.button_validate()
+True
+>>> receipt = out.move_ids.move_dest_ids.picking_id
+>>> receipt.name, receipt.state
+('VAN/IN/00001', 'assigned')
+>>> oil.with_context(warehouse_id=lfd.id).qty_available, oil.with_context(warehouse_id=van.id).qty_available, oil.with_context(location=transit.id).qty_available
+(25.0, 0.0, 10.0)
+>>> receipt.button_validate()
+True
+>>> oil.with_context(warehouse_id=lfd.id).qty_available, oil.with_context(warehouse_id=van.id).qty_available, oil.qty_available
+(25.0, 10.0, 35.0)
+```
+
+While in transit: 25 in the depot, 0 in the van, 10 on the road, and the product's total
+would say 25. After the receipt the total is back to 35.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### How much is in each warehouse
+
+**Reporting → Stock**, open the side panel with the icon at the top left, and pick
+**Service Van** under **Warehouses**:
+
+![The Stock report with the Warehouses panel open on Service Van, highlighted, and the Engine Oil row with 10.00 On Hand highlighted; every other product shows 0](/screens/inv06-stock-per-warehouse.jpg)
+
+**All Warehouses** says 35 bottles, **LibreFleet Depot** says 25, **Service Van** says 10.
+The shell equivalent is the `warehouse_id` context of the previous step.
+</Step>
+
+<Step>
+### Sell from the van
+
+<UiOrShell>
+<Tab>
+
+**Sales → Orders → New**:
+
+- **Customer:** `Garage Nord`
+- **Other Info → Warehouse:** `Service Van`
+- **Order Lines:** `Engine Oil 5W-30 1L`, **Quantity** `2`, **Unit Price** `12`
+
+![The new quotation for Garage Nord on its Other Info tab, with the customer highlighted and, in the Delivery section, Warehouse Service Van highlighted](/screens/inv06-so-warehouse.jpg)
+
+**Confirm**. The single **Delivery** smart button opens:
+
+![The delivery VAN/OUT/00001 for Garage Nord, highlighted, with Operation Type Service Van: Delivery Orders and Source Location VAN/Stock highlighted, 2 Engine Oil available](/screens/inv06-van-delivery.jpg)
+
+One step, from the van's stock, numbered by the van. **Validate**. The van holds 8 bottles,
+still above its Min of 4, so its rule has nothing to order.
+
+</Tab>
+<Tab>
+
+```python
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id, "warehouse_id": van.id,
+...     "order_line": [(0, 0, {"product_id": oil.id, "product_uom_qty": 2, "price_unit": 12})],
+... })
+>>> order.action_confirm()
+True
+>>> [(p.name, p.picking_type_id.warehouse_id.name, p.location_id.complete_name, p.state) for p in order.picking_ids]
+[('VAN/OUT/00001', 'Service Van', 'VAN/Stock', 'assigned')]
+>>> order.picking_ids.button_validate()
+True
+>>> oil.with_context(warehouse_id=van.id).qty_available, op.qty_forecast, op.qty_to_order
+(8.0, 8.0, 0.0)
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Keep a vendor's coolant on consignment
+
+Nordic Lubricants leaves 12 cans of coolant at the depot and will invoice only what
+LibreFleet uses.
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Settings**, block **Traceability**, tick **Consignment** and **Save**:
+
+![The Inventory settings, Traceability block, with Consignment ticked and highlighted, Set owner on stored products, and the Save button highlighted](/screens/inv06-settings-consignment.jpg)
+
+Create the product: **Products → Products → New**, `Coolant 5L`, **Cost** `20.00`, save.
+Then **Operations → Receipts → New**:
+
+- **Receive From:** `Nordic Lubricants`
+- **Assign Owner:** `Nordic Lubricants`
+- **Add a Product:** `Coolant 5L`, Demand `12`
+
+![A new receipt to LFD/Input with Receive From Nordic Lubricants highlighted, Assign Owner Nordic Lubricants highlighted, and one line of 12 Coolant 5L highlighted](/screens/inv06-consignment-receipt.jpg)
+
+**Validate**, then **Next Transfer** and **Validate** the Storage. Open **Reporting →
+Locations** and **reload the page** (F5), so the Owner column appears. Add the **Value**
+column from the column toggle:
+
+![The Locations report with an Owner column: the Coolant 5L row in LFD/Stock, 12.00, owned by Nordic Lubricants, with a Value of $0.00, highlighted](/screens/inv06-consigned-quant.jpg)
+
+Twelve cans on your shelf, owned by Nordic Lubricants, worth $0.00 to you even though
+the product costs 20. The other rows show $0.00 for a different reason: their cost is
+still 0 (valuation has its own chapter, *Valuation, the Full Story*).
+
+</Tab>
+<Tab>
+
+```python
+>>> env["res.config.settings"].create({"group_stock_tracking_owner": True, "group_warning_stock": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+>>> nordic = env["res.partner"].search([("name", "=", "Nordic Lubricants")])
+>>> coolant = env["product.template"].create({"name": "Coolant 5L", "type": "consu", "is_storable": True, "standard_price": 20}).product_variant_id
+>>> consigned = env["stock.picking"].create({
+...     "partner_id": nordic.id, "owner_id": nordic.id, "picking_type_id": lfd.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": coolant.id, "product_uom_qty": 12})],
+... })
+>>> consigned.action_confirm()
+True
+>>> consigned.button_validate()
+True
+>>> storage = consigned.move_ids.move_dest_ids.picking_id
+>>> storage.name, storage.move_line_ids.owner_id.name
+('LFD/STOR/00006', 'Nordic Lubricants')
+>>> storage.button_validate()
+True
+>>> for q in env["stock.quant"].search([("product_id", "=", coolant.id)], order="id"):
+...     print(f"{q.location_id.complete_name:<12} {q.quantity:>6.2f}  {q.owner_id.name}  value {q.value}")
+... 
+Vendors      -12.00  Nordic Lubricants  value 0.0
+LFD/Input      0.00  Nordic Lubricants  value 0.0
+LFD/Stock     12.00  Nordic Lubricants  value 0.0
+>>> coolant.qty_available, coolant.free_qty
+(12.0, 12.0)
+```
+
+This switches on both settings of this step and the next. The owner travelled from the
+receipt to the Storage on its own, and the cans count as on hand and free to use.
+
+<Callout type="warn" title="Gotcha">
+  A setting changed from a shell reaches the running server only after a restart:
+  `docker compose restart odoo`. Until then the browser and `odoolings.py check` still see
+  the old groups.
+</Callout>
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Instructions for one customer
+
+Garage Nord takes deliveries at the back door, and only in the morning. Every
+warehouse worker should see that.
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Settings**, block **Operations**, tick **Partner-Specific
+Instructions** and **Save** (skip this if you ticked it in the shell):
+
+![The Inventory settings, Operations block, with Partner-Specific Instructions ticked and highlighted, and the Save button highlighted](/screens/inv06-settings-instructions.jpg)
+
+Open the contact **Garage Nord** (from a sales order, or **Sales → Orders → Customers**),
+tab **Notes**, field **Instructions on the Stock Operations**:
+`Deliveries at the back door, before 10:00.`
+
+![The Garage Nord contact on its Notes tab, highlighted, with Instructions on the Stock Operations filled with Deliveries at the back door, before 10:00, highlighted, and the save icon highlighted](/screens/inv06-partner-instructions.jpg)
+
+Save. Now **Operations → Transfers → New**: **Operation Type** `LibreFleet Depot: Pick`,
+**Contact** `Garage Nord`, a line of `Coolant 5L`, Demand `3`, and **Mark as Todo**:
+
+![The Pick LFD/PICK/00007 for Garage Nord, Ready, with a blue banner reading Deliveries at the back door, before 10:00 highlighted, and the Contact highlighted](/screens/inv06-pick-banner.jpg)
+
+The banner appeared as soon as you picked the contact, and it follows the goods through
+the Pack and the delivery. **Validate** all three. The Pick reserved Nordic's cans
+without asking: owned stock is stock you may sell.
+
+</Tab>
+<Tab>
+
+```python
+>>> garage.picking_warn_msg = "Deliveries at the back door, before 10:00."
+>>> pick2 = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": lfd.pick_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": coolant.id, "product_uom_qty": 3})],
+... })
+>>> pick2.action_confirm()
+True
+>>> pick2.state, pick2.picking_warning_text, pick2.move_line_ids.owner_id.name
+('assigned', 'Deliveries at the back door, before 10:00.\n', 'Nordic Lubricants')
+>>> pick2.button_validate()
+True
+>>> pack2 = pick2.move_ids.move_dest_ids.picking_id
+>>> pack2.button_validate()
+True
+>>> out2 = pack2.move_ids.move_dest_ids.picking_id
+>>> out2.button_validate()
+True
+>>> out2.name, out2.state, coolant.qty_available
+('LFD/OUT/00011', 'done', 9.0)
+```
+
+The move line carries the owner it reserved from. That is the record you settle with
+Nordic Lubricants from: 3 cans delivered.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### One company, two warehouses
+
+Nothing to click. In the shell, the company boundary:
+
+```python
+>>> [(l.complete_name, l.company_id.name) for l in env["stock.location"].search([("usage", "in", ["supplier", "customer", "transit"])])]
+[('Customers', False), ('Inter-warehouse transit', 'My Company'), ('Vendors', False)]
+>>> env["stock.quant"].search([("location_id.usage", "=", "internal")]).company_id.name
+'My Company'
+>>> for q in env["stock.quant"].search([("location_id.usage", "in", ["internal", "transit"]), ("quantity", "!=", 0)], order="location_id, id"):
+...     print(f"{q.location_id.complete_name:<10} {q.product_id.name:<20} {q.quantity:>6.2f}  {q.owner_id.name or ''}")
+... 
+LFD/Stock  Brake Pad Set         15.00  
+LFD/Stock  Engine Oil 5W-30 1L   25.00  
+LFD/Stock  Diagnostic Tablet      1.00  
+LFD/Stock  Coolant 5L             9.00  Nordic Lubricants
+VAN/Stock  Engine Oil 5W-30 1L    8.00  
+>>> env.cr.commit()
+```
+
+Customers and Vendors are shared by every company; the transit location and every quant
+belong to *My Company*. Commit, or the chapter vanishes with the shell.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv06 --db warehouse
+```
+
+```text
+✔ the Service Van warehouse exists, 1 step in and out
+✔ the van is resupplied from the depot only
+✔ the van has an automatic oil rule, Min 4, Max 10, from the depot
+✔ 10 bottles travelled from the depot to the van
+✔ the van sold and delivered 2 bottles
+✔ 12 Coolant 5L came in on consignment from Nordic Lubricants
+✔ Garage Nord has stock instructions and got 3 coolant
+✔ the depot and the van hold what the chapter says, nothing in transit
+
+inv06 complete! On to the next chapter 🔧
+```
+
+The two warehouses and who refills whom:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select w.code, w.name, w.reception_steps as receive, w.delivery_steps as deliver, s.code as resupplied_from from stock_warehouse w left join stock_wh_resupply_table r on r.supplied_wh_id=w.id left join stock_warehouse s on s.id=r.supplier_wh_id order by w.id;"
+```
+
+```text
+ code |       name       |  receive  |    deliver     | resupplied_from 
+------+------------------+-----------+----------------+-----------------
+ LFD  | LibreFleet Depot | two_steps | pick_pack_ship | 
+ VAN  | Service Van      | one_step  | ship_only      | LFD
+(2 rows)
+```
+
+And every quant in a real or transit location, with its owner:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity, coalesce(p.name, '') as owner from stock_quant q join stock_location l on l.id=q.location_id join product_product pp on pp.id=q.product_id join product_template t on t.id=pp.product_tmpl_id left join res_partner p on p.id=q.owner_id where l.usage in ('internal', 'transit') and q.quantity <> 0 order by l.complete_name, q.id;"
+```
+
+```text
+ location  |       product       | quantity |       owner       
+-----------+---------------------+----------+-------------------
+ LFD/Stock | Brake Pad Set       |    15.00 | 
+ LFD/Stock | Engine Oil 5W-30 1L |    25.00 | 
+ LFD/Stock | Diagnostic Tablet   |     1.00 | 
+ LFD/Stock | Coolant 5L          |     9.00 | Nordic Lubricants
+ VAN/Stock | Engine Oil 5W-30 1L |     8.00 | 
+(5 rows)
+```
+
+35 − 10 = 25 in the depot, 10 − 2 = 8 in the van, nothing left on the road. 12 − 3 = 9
+cans, still Nordic's.
+
+## Gotchas
+
+- **A new warehouse buys and manufactures for itself.** Buy to Resupply and Manufacture to
+  Resupply are ticked by default, so a rule in the van could buy straight from a vendor.
+  Untick them when a warehouse is meant to be refilled from another.
+- **Resupply From appears only after a reload.** The field needs the Multiple Warehouses
+  group, which the second warehouse switches on while the form is already drawn. The same
+  goes for the Owner column after you tick Consignment.
+- **Stock in transit belongs to no warehouse.** It has left the depot's on-hand and is not
+  yet in the van's, and the product's total leaves it out. A stock count that forgets the
+  Transit Locations filter "loses" every truck on the road.
+- **The supplying warehouse's steps apply.** Refilling the van from a three-step depot
+  means a Pick, a Pack and a delivery, for a box that only crosses the yard. For a quick
+  move, an Internal Transfer from `LFD/Stock` to `VAN/Stock` skips transit and steps.
+- **Consigned stock is sold like your own.** Deliveries reserve it without a warning, and
+  Odoo does not bill you for it. Settle with the vendor from the deliveries, and keep in
+  mind that your stock value does not include it.
+- **The sales order's Warehouse decides who ships.** It defaults to the salesperson's
+  Default Warehouse, else the first one, so a van sale left on the default ships from the
+  depot.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'The depot has delivered 10 bottles to Inter-warehouse transit and the van has not received them yet. What does the oil\'s total On Hand show?',
+      options: [
+        '35: the bottles are still the company\'s, so they count',
+        '25: transit stock belongs to no warehouse',
+        '45: they count once in the depot and once in transit',
+      ],
+      answer: 1,
+      why: 'A transit location is not internal, so its quants are left out of every on-hand total. The shell showed 25 in the depot, 0 in the van and 10 in transit.',
+    },
+    {
+      q: 'Which setting do you tick to get the Multiple Warehouses features?',
+      options: [
+        'Multi-Step Routes, in the Inventory settings',
+        'None: the second warehouse switches it on',
+        'Storage Locations, in the Inventory settings',
+      ],
+      answer: 1,
+      why: 'The group stock.group_stock_multi_warehouses follows the number of warehouses: it is added when a company gets its second warehouse and removed when it is back to one.',
+    },
+    {
+      q: 'Why did refilling the van create a Pick, a Pack and a delivery at the depot?',
+      options: [
+        'The supply route uses the depot\'s own delivery steps',
+        'The van receives its incoming shipments in three steps',
+        'The reordering rule was Auto, so the scheduler adds steps',
+      ],
+      answer: 0,
+      why: 'The route leaves the depot through its Delivery Orders type, and the depot delivers in three steps, so its Pick and its Pack push come along. The van itself receives in one step.',
+    },
+    {
+      q: 'Twelve cans received with Assign Owner Nordic Lubricants, cost 20 each. What do they add to your stock value?',
+      options: [
+        '240, the cost times the quantity on the shelf',
+        'Nothing: owned stock is left out of valuation',
+        '240, but only once the vendor bill is posted',
+      ],
+      answer: 1,
+      why: 'A quant whose owner is not your company has no value for you. On the scratch database, 14 cans of your own were worth 280 while the 12 consigned ones stayed at 0.',
+    },
+    {
+      q: 'What does a Partner-Specific Instruction do on a transfer for that customer?',
+      options: [
+        'Blocks validation until a manager approves it',
+        'Sends the text to the customer by email',
+        'Shows the text in a banner, without blocking',
+      ],
+      answer: 2,
+      why: 'In Odoo 19 the stock warning is a plain text shown on the transfer form, for the contact and its parent company. Nothing is blocked or sent.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Move 2 brake pad sets to the van with a plain **Internal Transfer** (the depot's
+   Internal Transfers type, destination `VAN/Stock`). Compare it with the route: which
+   documents, which locations, and what the van's oil rule would have done instead.
+2. ⭐⭐ Tick **Buy to Resupply** on the van again and create a rule for the tablet in
+   `VAN/Stock` *without* a Route. Read the grey Route and the lead time in the
+   Replenishment Information window, then set the Route explicitly and compare. Untick
+   Buy to Resupply when you are done.
+3. ⭐⭐ Sell 4 more cans of coolant from the depot. From **Reporting → Moves History**,
+   build the list you would send Nordic Lubricants with the month's consumption, and
+   check that Reporting → Locations agrees with what is left.
+4. ⭐⭐⭐ Break-it lab. Switch the depot's **Outgoing Shipments** to **Deliver (1 step)**,
+   then reopen the van's supply route: which rule changed, and why? Order 2 bottles for
+   the van and follow the documents. Switch the depot back to three steps afterwards, or
+   the earlier chapters' checks turn red.
+
+## Further reading
+
+- <Icon name="docs" /> [Warehouses (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/inventory_management/warehouses.html):
+  the warehouse form and what it creates.
+- <Icon name="docs" /> [Resupply from another warehouse (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/resupply_warehouses.html):
+  the Resupply From route, with a reordering rule.
+- <Icon name="docs" /> [Multi-company (19.0)](https://www.odoo.com/documentation/19.0/applications/general/companies/multi_company.html):
+  companies, shared records and inter-company transactions.
+- <Icon name="source" /> [`stock/models/stock_warehouse.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_warehouse.py):
+  `create_resupply_routes` builds the three rules, `_check_multiwarehouse_group` the
+  automatic group.

@@ -181,6 +181,12 @@ programmatic JSON calls, `type="json"` is a deprecated alias since 19.0), `auth`
 picks who can reach it at all (`"public"`, `"user"`, `"none"`), checked before the
 method runs (chapter 37).
 
+**consignment (owner on quants)**: stock on your shelf that belongs to someone else,
+usually a vendor paid only for what you use. The **Consignment** setting
+(`stock.group_tracking_owner`) adds **Assign Owner** to receipts; the owner then stays on
+the quants (`owner_id`) through every move. Owned stock counts in On Hand and is reserved
+for deliveries like your own, but has no value in your stock valuation.
+
 **constraint (Python)**: a validation method decorated `@api.constrains(*fields)`
 that raises `ValidationError` when a rule is broken. Runs in the ORM on every write
 path (form, import, RPC, shell, code) but never on raw SQL, and only re-runs when a
@@ -451,6 +457,11 @@ the product's packagings or the vendor's unit. To Order is rounded **up** to who
 so it can end above the rule's Max; the Replenishment screen flags that with a warning
 icon next to the forecast.
 
+**Multiple Warehouses (group)**: `stock.group_stock_multi_warehouses`, switched on by
+Odoo itself when a company gets its second active warehouse and off again when it is back
+to one; there is no setting for it. It shows the warehouse form's Resupply From field, the
+Warehouses panel in reports and the Warehouse field on sales orders.
+
 **namespacing (field prefixes)**: naming fields you add to a model you do not own after
 your module (`librefleet_is_part`), so they cannot collide with core's or with another
 module extending the same model. Nothing enforces it, which is why the collision only
@@ -548,6 +559,11 @@ used: overdue is a date question, unpaid is a reconciliation question (chapter 2
 `breakpoint()` in your own code or with `pdb.runcall(fn, *args)` to stop inside code you
 do not want to edit. It needs a real terminal to read commands from, so it works in
 `odoo shell` but not in the containerised server process (chapter 6).
+
+**Partner-Specific Instructions (`picking_warn_msg`)**: an Inventory setting
+(`stock.group_warning_stock`) that adds *Instructions on the Stock Operations* to a
+contact's Notes tab. Every transfer for that contact, or for one of its child addresses,
+shows the text in a banner. Odoo 19 only displays it; nothing is blocked.
 
 **patch (`@web/core/utils/patch`)**: the frontend's escape hatch for changing a core
 class that publishes no registry slot. `patch(SomeClass.prototype, { method() { ... } })`
@@ -737,6 +753,12 @@ while On Hand does not change. When it happens is the operation type's **Reserva
 Method**: At Confirmation, Manually (Check Availability) or Before scheduled date.
 Unreserve gives the promise back.
 
+**resupply route (Resupply From)**: the route a warehouse gets for each warehouse ticked
+in its **Resupply From** field, named like *Service Van: Supply Product from LibreFleet
+Depot*. Its pull rules take the goods through the supplying warehouse's own delivery
+steps into the transit location, then through the supplied warehouse's receipt. It is
+selectable on products, categories, warehouses and reordering rules.
+
 **return (stock)**: a transfer in the opposite direction, created from a done transfer's
 Return button through the `stock.return.picking` wizard. It uses the operation type named
 as **Returns Type** on the original's type, carries *Return of ...* as its source
@@ -895,6 +917,12 @@ auth and routing, not a mocked call. `@tagged("post_install", "-at_install")` is
 usual pairing, `-` removes the default `at_install` tag rather than adding a second
 one (chapter 38).
 
+**transit location**: a location of type *Transit* where goods wait between two
+warehouses (*Inter-warehouse transit*, one per company, switched on by the first resupply
+route) or two companies (*Inter-company transit*). Transit stock belongs to no warehouse
+and is left out of every on-hand total; Reporting → Locations shows it with the Transit
+Locations filter.
+
 **uid**: the current logged-in user's id, substituted by the web client wherever it
 appears inside a domain or context string written in XML. Not a Python variable.
 
@@ -931,7 +959,9 @@ an action requests them via `view_id`.
 renaming one generates its locations, operation types, numbering sequences and routes.
 Its *Short Name* (`code`, five characters at most) is the prefix of every location path
 and transfer number under it (`LFD/Stock`, `LFD/IN/00001`), so choose it before the first
-receipt.
+receipt. A second warehouse switches on the *Multiple Warehouses* group, and each
+warehouse's **Resupply** section says where its stock comes from: Buy, Manufacture, or
+another warehouse.
 
 **Weblate**: the OCA's translation platform. Contributors translate strings there,
 never by editing a module's `.po` files directly in a PR; edits made straight to

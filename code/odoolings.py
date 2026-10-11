@@ -3162,6 +3162,102 @@ def shelf_holds_fifteen_thirty_five_and_one(env):
     assert not stuck, "goods are sitting in a step location: %s. A transfer in a chain is not validated" % stuck
 
 
+def _van(env):
+    rows = env.call("stock.warehouse", "search_read", [("code", "=", "VAN")],
+                    fields=["name", "reception_steps", "delivery_steps", "resupply_wh_ids", "buy_to_resupply",
+                            "manufacture_to_resupply", "lot_stock_id"])
+    assert rows, "no warehouse with Short Name VAN; Configuration > Warehouses > New, Service Van, VAN"
+    return rows[0]
+
+
+def van_warehouse_exists(env):
+    van = _van(env)
+    assert van["name"] == "Service Van", "the VAN warehouse is named %r, expected 'Service Van'" % van["name"]
+    assert (van["reception_steps"], van["delivery_steps"]) == ("one_step", "ship_only"), (
+        "the van should receive and deliver in 1 step, it is %s / %s" % (van["reception_steps"], van["delivery_steps"]))
+
+
+def van_is_resupplied_from_the_depot_only(env):
+    van = _van(env)
+    lfd = env.call("stock.warehouse", "search", [("code", "=", "LFD")])
+    assert van["resupply_wh_ids"] == lfd, "Resupply From on the van should tick LibreFleet Depot (and nothing else)"
+    assert not van["buy_to_resupply"] and not van["manufacture_to_resupply"], (
+        "untick Buy to Resupply and Manufacture to Resupply on the van: it is refilled from the depot only")
+    assert env.call("stock.route", "search_count", [("supplied_wh_id.code", "=", "VAN"), ("supplier_wh_id.code", "=", "LFD")]), (
+        "no route 'Service Van: Supply Product from LibreFleet Depot'; saving Resupply From creates it")
+
+
+def van_has_an_automatic_oil_rule(env):
+    rows = env.call("stock.warehouse.orderpoint", "search_read",
+                    [("product_id.name", "=", "Engine Oil 5W-30 1L"), ("location_id.complete_name", "=", "VAN/Stock")],
+                    fields=["trigger", "product_min_qty", "product_max_qty", "route_id"])
+    assert rows, "no reordering rule for the oil in VAN/Stock; oil > Reordering Rules > New, Location VAN/Stock"
+    r = rows[0]
+    assert (r["product_min_qty"], r["product_max_qty"]) == (4.0, 10.0), (
+        "the van's oil rule is Min %s / Max %s, expected 4 / 10" % (r["product_min_qty"], r["product_max_qty"]))
+    assert r["route_id"] and "Supply Product from LibreFleet Depot" in r["route_id"][1], (
+        "the van's oil rule should use the route Service Van: Supply Product from LibreFleet Depot")
+    assert r["trigger"] == "auto", "the van's oil rule should be Auto"
+
+
+def ten_bottles_travelled_to_the_van(env):
+    out = env.call("stock.move", "search_read",
+                   [("state", "=", "done"), ("product_id.name", "=", "Engine Oil 5W-30 1L"), ("product_uom_qty", "=", 10),
+                    ("location_dest_id.usage", "=", "transit")], fields=["reference"])
+    assert out, ("no done delivery of 10 bottles from the depot to Inter-warehouse transit; Order on the van's rule, "
+                 "then Validate the depot's Pick, Pack and Delivery Orders")
+    inn = env.call("stock.move", "search_read",
+                   [("state", "=", "done"), ("product_id.name", "=", "Engine Oil 5W-30 1L"), ("product_uom_qty", "=", 10),
+                    ("location_id.usage", "=", "transit"), ("location_dest_id.complete_name", "=", "VAN/Stock")],
+                   fields=["reference"])
+    assert inn, "the bottles left the depot but the van's receipt is not done; Validate VAN/IN, from Inter-warehouse transit"
+
+
+def the_van_sold_two_bottles(env):
+    lines = env.call("sale.order.line", "search_read",
+                     [("order_id.warehouse_id.code", "=", "VAN"), ("order_id.state", "=", "sale"),
+                      ("product_id.name", "=", "Engine Oil 5W-30 1L")], fields=["product_uom_qty", "qty_delivered"])
+    assert lines, "no confirmed sales order from the Service Van warehouse; Other Info > Warehouse: Service Van"
+    assert lines[0]["qty_delivered"] == lines[0]["product_uom_qty"] == 2.0, (
+        "the van's order should deliver 2 bottles, it shows %s of %s; Validate VAN/OUT"
+        % (lines[0]["qty_delivered"], lines[0]["product_uom_qty"]))
+
+
+def coolant_is_on_consignment(env):
+    assert _in_group(env, "stock.group_tracking_owner"), "the Consignment setting is off; Inventory > Configuration > Settings"
+    done = env.call("stock.picking", "search_read",
+                    [("owner_id.name", "=", "Nordic Lubricants"), ("state", "=", "done"),
+                     ("move_ids.product_id.name", "=", "Coolant 5L")], fields=["name"])
+    assert done, "no done receipt of Coolant 5L with Assign Owner Nordic Lubricants"
+
+
+def garage_nord_has_instructions_and_three_coolant(env):
+    assert _in_group(env, "stock.group_warning_stock"), (
+        "the Partner-Specific Instructions setting is off; Inventory > Configuration > Settings, Operations")
+    msg = env.call("res.partner", "search_read", [("name", "=", "Garage Nord")], fields=["picking_warn_msg"])[0]["picking_warn_msg"]
+    assert msg, "Garage Nord has no stock instruction; contact form, Notes tab, Instructions on the Stock Operations"
+    assert _done_moves(env, "OUT", "Coolant 5L", 3), (
+        "no done delivery of 3 Coolant 5L; a Pick for Garage Nord, then Pack and Delivery Orders")
+
+
+def two_shelves_two_warehouses(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "owner_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["owner_id"] and r["owner_id"][1])
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False): 15.0, ("LFD/Stock", "Engine Oil 5W-30 1L", False): 25.0,
+            ("LFD/Stock", "Diagnostic Tablet", False): 1.0, ("LFD/Stock", "Coolant 5L", "Nordic Lubricants"): 9.0,
+            ("VAN/Stock", "Engine Oil 5W-30 1L", False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " owned by %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "goods are sitting where the chapter leaves none: %s. A transfer is not validated" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -3985,6 +4081,24 @@ CHAPTERS = {
         ("the shelf holds 15 pads, 35 oil, 1 tablet and no components", shelf_holds_fifteen_thirty_five_and_one,
          "Reporting > Locations without the Internal filter shows Input, Packing Zone, Output, Pre- and "
          "Post-Production. Anything left there is a chain you did not finish."),
+    ],
+    "inv06": [
+        ("the Service Van warehouse exists, 1 step in and out", van_warehouse_exists,
+         "Inventory > Configuration > Warehouses > New: Warehouse Service Van, Short Name VAN."),
+        ("the van is resupplied from the depot only", van_is_resupplied_from_the_depot_only,
+         "On the van's form: untick Buy to Resupply and Manufacture to Resupply, tick Resupply From LibreFleet Depot."),
+        ("the van has an automatic oil rule, Min 4, Max 10, from the depot", van_has_an_automatic_oil_rule,
+         "Oil > Reordering Rules > New: Location VAN/Stock, Route Service Van: Supply Product from LibreFleet Depot."),
+        ("10 bottles travelled from the depot to the van", ten_bottles_travelled_to_the_van,
+         "Order on the van's rule, then Pick, Pack, Delivery Orders at the depot, then the van's Receipt."),
+        ("the van sold and delivered 2 bottles", the_van_sold_two_bottles,
+         "Sales > New, Garage Nord, Other Info > Warehouse Service Van, 2 bottles, Confirm, Validate."),
+        ("12 Coolant 5L came in on consignment from Nordic Lubricants", coolant_is_on_consignment,
+         "Settings > Consignment, then a receipt from Nordic Lubricants with Assign Owner Nordic Lubricants."),
+        ("Garage Nord has stock instructions and got 3 coolant", garage_nord_has_instructions_and_three_coolant,
+         "Settings > Partner-Specific Instructions, Garage Nord's Notes tab, then a Pick of 3 Coolant 5L."),
+        ("the depot and the van hold what the chapter says, nothing in transit", two_shelves_two_warehouses,
+         "Reporting > Locations with Internal and Transit Locations shows every quant the check reads."),
     ],
 }
 
@@ -4902,6 +5016,45 @@ def seed_inv05(env):
     _validate(env, [sfp])
 
 
+def seed_inv06(env):
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    oil = variant("Engine Oil 5W-30 1L")
+    lfd = _id(env, "stock.warehouse", [("code", "=", "LFD")])
+    van = env.call("stock.warehouse", "create", {"name": "Service Van", "code": "VAN"})
+    env.call("stock.warehouse", "write", [van], {"buy_to_resupply": False, "manufacture_to_resupply": False,
+                                                 "resupply_wh_ids": [(4, lfd)]})
+    route = _id(env, "stock.route", [("supplied_wh_id", "=", van), ("supplier_wh_id", "=", lfd)])
+    van_stock = env.call("stock.warehouse", "read", [van], ["lot_stock_id"])[0]["lot_stock_id"][0]
+    op = env.call("stock.warehouse.orderpoint", "create", {
+        "product_id": oil, "location_id": van_stock, "product_min_qty": 4, "product_max_qty": 10,
+        "route_id": route, "trigger": "auto"})
+    _call(env, "stock.warehouse.orderpoint", "action_replenish", [op])
+    pick = _id(env, "stock.picking", [("origin", "=", env.call("stock.warehouse.orderpoint", "read", [op], ["name"])[0]["name"]),
+                                      ("state", "=", "assigned")])
+    _finish_chain(env, pick)  # Pick, Pack, Delivery to transit, then the van's Receipt
+    garage = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    order = env.call("sale.order", "create", {
+        "partner_id": garage, "warehouse_id": van,
+        "order_line": [(0, 0, {"product_id": oil, "product_uom_qty": 2, "price_unit": 12})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    _validate(env, env.call("sale.order", "read", [order], ["picking_ids"])[0]["picking_ids"])
+    _settings(env, group_stock_tracking_owner=True, group_warning_stock=True)
+    nordic = _id(env, "res.partner", [("name", "=", "Nordic Lubricants")])
+    env.call("product.template", "create", {"name": "Coolant 5L", "type": "consu", "is_storable": True, "standard_price": 20})
+    coolant = variant("Coolant 5L")
+    kinds = env.call("stock.warehouse", "read", [lfd], ["in_type_id", "pick_type_id"])[0]
+    receipt = env.call("stock.picking", "create", {
+        "partner_id": nordic, "owner_id": nordic, "picking_type_id": kinds["in_type_id"][0],
+        "move_ids": [(0, 0, {"product_id": coolant, "product_uom_qty": 12})]})
+    _finish_chain(env, receipt)  # receipt, then the pushed Storage, owner kept
+    env.call("res.partner", "write", [garage], {"picking_warn_msg": "Deliveries at the back door, before 10:00."})
+    pick = env.call("stock.picking", "create", {
+        "partner_id": garage, "picking_type_id": kinds["pick_type_id"][0],
+        "move_ids": [(0, 0, {"product_id": coolant, "product_uom_qty": 3})]})
+    _call(env, "stock.picking", "action_confirm", [pick])
+    _finish_chain(env, pick)
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -4911,7 +5064,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
-    "inv05": seed_inv05,
+    "inv05": seed_inv05, "inv06": seed_inv06,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
