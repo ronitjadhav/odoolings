@@ -83,6 +83,13 @@ or received when a transfer is validated short. Its `backorder_id` points at the
 original; the original's demand is rewritten to what actually moved. Whether Odoo asks,
 always creates one or never does is the operation type's **Create Backorder** setting.
 
+**barcode nomenclature (`barcode.nomenclature`)**: the list of rules that says what a
+scanned code means. Each rule has a Type (product, weighed product, location, package,
+lot...), an encoding and a pattern; Odoo reads the rules in order and the first pattern
+matching the start of the code wins. The **Default Nomenclature** knows `21` weights, `414`
+locations, `PACK` packages, `10` lots and everything else as products; the **Default GS1
+Nomenclature** reads GS1 application identifiers.
+
 **bridge module**: a small module whose only job is to connect two other modules that
 do not know about each other, depending on both and holding just the glue. Usually
 `auto_install`, so it appears by itself once both sides are installed;
@@ -196,6 +203,11 @@ field it lists changes. Use it for rules that need judgment or other records
 **constraint (SQL)**: a database-level rule (`UNIQUE`, `CHECK`, foreign key) enforced
 by Postgres itself, so nothing bypasses it, not even raw SQL. Declared on Odoo 19 with
 `models.Constraint` (see that entry). Limited to what SQL can express (chapter 14).
+
+**container (package)**: a package holding other packages, its `parent_package_id`
+seen from the inside. Two cartons on a pallet have the pallet as container, and names show
+the nesting as `PAL0000001 > CTN0000001`. A container moves whole when all its packages do,
+unless its type is reusable.
 
 **context**: the read-only dict of settings every ORM call carries (`lang`, `tz`,
 `uid`, behavior flags like `active_test`). Never mutated in place; `with_context()`
@@ -326,6 +338,11 @@ implying group automatically hold everything the implied group has.
 
 **group-by**: a `<filter>` inside a search view's `<group>` block whose `context`
 sets `group_by`, delegating aggregation to a `read_group` call server-side.
+
+**GS1**: the standards body behind EAN and GTIN product numbers and the barcodes that
+chain **application identifiers**: `(01)` a product's GTIN, `(10)` a lot, `(17)` an expiry
+date, `(30)` a quantity, `(00)` a shipping container's SSCC. Odoo reads them through the
+Default GS1 Nomenclature and can print them on lot labels.
 
 **invoice policy (`invoice_policy`)**: the per-*product* setting deciding when a sales
 order line becomes invoiceable: `order` (as soon as the order is confirmed) or
@@ -558,6 +575,20 @@ matters: a per-row loop in a post-init hook is a maintenance window on real data
 commit or package version so a production build is reproducible from the project repo
 alone. Done with git submodules, git-aggregator, or pip requirements.
 
+**package (`stock.package`)**: one physical box with a name, a type, a location and
+contents: the quants that carry it. Put in Pack creates one; a move line names where goods
+come from (Source Package) and where they go (Destination Package). It needs the
+**Packages** setting.
+
+**package type (`stock.package.type`)**: a kind of box: dimensions, empty and maximum
+weight, a barcode, a name prefix (Sequence Prefix) and its **Package Use**, disposable (the
+box travels) or reusable (emptied at the next step). Configuration → Package Types.
+
+**packaging**: a unit a product is sold or bought in, such as Pack of 6. In Odoo 19 a
+packaging is a unit of measure; it can name a package type and carry a barcode per product
+(Packaging Barcodes). On a stock move it rides beside the real quantity as Packaging and
+Packaging Quantity.
+
 **payment provider (`payment.provider`)**: the record backing one checkout payment
 method (Stripe, PayPal, Wire Transfer, ...), disabled by default for every method
 Odoo ships. A `payment.transaction` links a specific attempt back to whatever
@@ -682,6 +713,11 @@ destination, working forwards from the dock. Odoo 19's generated routes pull onc
 stock) and push the rest (Storage, Pack, Delivery Orders). **Buy** and **Manufacture**
 are pulls that create a purchase or manufacturing order instead of a transfer.
 
+**Put in Pack**: the transfer button that puts move lines into a package, a new one or
+an existing one. With **Set Package Type** on the operation type it asks for the type;
+without, it uses the packaging's package type. When every line already has a package, it
+packs the packages into a container.
+
 **quant (`stock.quant`)**: one row saying *this product, in this location, this many*
 (plus optional labels: lot, package, owner). The quant table is what Odoo means by
 "stock": every On Hand figure is a sum over quants, and quants only change when a
@@ -786,6 +822,11 @@ selectable on products, categories, warehouses and reordering rules.
 Return button through the `stock.return.picking` wizard. It uses the operation type named
 as **Returns Type** on the original's type, carries *Return of ...* as its source
 document, and each move points at the move it undoes (`origin_returned_move_id`).
+
+**reusable package (tote)**: a package whose type has Package Use **Reusable Box**. It
+is never kept as a destination package: the next transfer takes its goods out, and the
+empty tote goes back to be used again. Community stores the field but only the Barcode app
+shows it on the form.
 
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
@@ -1030,3 +1071,7 @@ lifecycle.
 and CSV reference columns. Resolves against the database, which is why a missing one
 only fails where the record was never loaded (fresh installs). Chapter 34 goes
 deeper.
+
+**ZPL**: Zebra Programming Language, the text format thermal label printers read. Every
+Inventory label with a ZPL variant (product, lot, package, operation type) prints as ZPL
+text instead of a PDF.
