@@ -60,7 +60,7 @@ checker, and the reference snapshots readers diff against.
 | `web/` | The site itself: Next.js + Fumadocs, statically exported to GitHub Pages |
 | `code/addons/` | Empty on purpose. Readers build LibreFleet in their *own* repo, not here |
 | `code/odoolings.py` | The rustlings-style CLI that checks a reader's work chapter by chapter |
-| `code/checkpoints/` | A snapshot of LibreFleet after each chapter, the reference to diff against |
+| `code/checkpoints/` | A snapshot of LibreFleet after each chapter (and of `librefleet_stock` after the Inventory track's code chapters), the reference to diff against |
 | `code/docker-compose.yml` | The Odoo 19 + Postgres 16 dev environment used throughout |
 
 Two repositories in total:

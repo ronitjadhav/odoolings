@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- where consumed parts go: outside the company, beside Production and Inventory adjustment -->
+    <record id="location_workshop" model="stock.location">
+        <field name="name">Workshop</field>
+        <field name="usage">production</field>
+    </record>
+</odoo>

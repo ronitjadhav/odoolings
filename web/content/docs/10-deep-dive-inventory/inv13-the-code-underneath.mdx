@@ -1,0 +1,833 @@
+---
+title: "Inventory 13. The Code Underneath"
+description: The stock models and the methods that move them, read in a shell, then a LibreFleet bridge module that makes a finished service order take its parts from the van, through the rule engine.
+tier: expert
+---
+
+**Goal:** know which model and which method does what when stock moves, and use the rule
+engine from your own module. · **Time:** ~4 h · **Checkpoint:** `code/checkpoints/inv13`
+(a new module, `librefleet_stock`, beside chapter 53's `librefleet`). It continues the
+`warehouse` database.
+
+## Why this matters
+
+Twelve chapters clicked through Inventory. Every one of those clicks ends in a handful of
+Python methods: a quant changes, a move changes state, a rule decides where goods come
+from. When a customer says "it reserved the wrong bottle" or "the van never got its
+filter", you open those methods, not the screens.
+
+LibreFleet has spare parts and service orders, but its parts never leave a shelf. A
+finished service order should take its parts from stock, from the van first, and send
+for what the van lacks. That is a dozen lines, if they call the right method.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  This chapter also needs chapter 53's LibreFleet in `addons/`; `start` puts it there.
+</Callout>
+
+## Concepts
+
+### The models, in one picture
+
+<Mermaid
+  label="The stock models: a warehouse owns locations, operation types and routes; routes hold rules; a picking groups moves; a move has move lines; move lines change quants, which hold the quantity of a product in a location"
+  chart={`flowchart TB
+  WH["stock.warehouse"] --> LOC["stock.location"]
+  WH --> PT["stock.picking.type"]
+  WH --> RT["stock.route"]
+  RT --> RU["stock.rule"]
+  RU -.creates.-> MV
+  PT --> PK["stock.picking"]
+  PK --> MV["stock.move"]
+  MV --> ML["stock.move.line"]
+  ML -.changes.-> QT["stock.quant"]
+  QT --> LOC
+  MV --> REF["stock.reference"]`}
+/>
+
+| Model | One sentence |
+|---|---|
+| `stock.quant` | how much of a product (lot, package, owner) sits in one location, and how much is reserved |
+| `stock.move` | a demand to move a quantity of one product from one location to another |
+| `stock.move.line` | the detail of a move: which lot, which package, from which exact sub-location |
+| `stock.picking` | a transfer: the moves of one operation type, done together |
+| `stock.picking.type` | an operation type: Receipts, Pick, Workshop Consumption |
+| `stock.rule` / `stock.route` | where a product comes from when it is needed somewhere |
+| `stock.reference` | the link between the documents of one flow, which replaced procurement groups in 19 |
+
+### A move's life
+
+A move goes `draft` → `confirmed` (or `waiting` for another move) → `partially_available`
+→ `assigned` → `done`, or `cancel`. Each step is one method:
+
+| Method | What it does |
+|---|---|
+| `_action_confirm()` | draft to confirmed; merges similar moves (`_merge_moves`), runs the rules for moves that are "make to order" |
+| `_action_assign()` | reserves: finds quants and creates move lines; confirmed to assigned |
+| `_action_done()` | takes the `picked` lines, moves the quants, writes `done`; splits off what was not done (`_split`) |
+| `_action_cancel()` | cancels, and the next moves too if `propagate_cancel` |
+| `_trigger_assign()` | after a move is done, tries to reserve the moves waiting for that product there |
+
+On a transfer, **Validate** is `button_validate()`. It checks the transfer, calls
+`_pre_action_done_hook()` (where the backorder and immediate-transfer wizards come from),
+then `_action_done()`. The backorder dialog is `stock.backorder.confirmation`
+(`process()`), the return dialog `stock.return.picking` (`action_create_returns()`).
+
+### Quants: the stock itself
+
+Quants are never edited by hand in code. Two methods change them:
+
+- `_update_available_quantity(product, location, quantity, lot_id=..., package_id=..., owner_id=...)` adds or removes stock.
+- `_update_reserved_quantity(...)` reserves or frees it.
+
+`_gather(product, location)` finds the quants a move may take, in removal-strategy order,
+sub-locations included. The Physical Inventory screen writes `inventory_quantity` under
+the context key `inventory_mode`, and applies through `action_apply_inventory()`
+(chapter 10).
+
+### The rule engine
+
+A need for a product somewhere is a **procurement**: a `Procurement` named tuple of
+product, quantity, unit, location, name, origin, company and a `values` dict.
+`stock.rule.run(procurements)` finds a rule for each one with `_get_rule()`. For the
+needed location, then its parents, it tries the routes passed in `values`, then the
+package type's, then the product's and its category's, then the warehouse's. Then it
+calls `_run_<action>`: `_run_pull` makes a move, `_run_push` reacts to one, and other modules
+add `_run_buy` (purchase) and `_run_manufacture` (mrp).
+
+A pull rule builds its move with `_get_stock_move_values()`. To carry your own field from
+`values` onto that move, list it in `_get_custom_move_fields()`: that is the hook this
+chapter uses. Lead times add up in `_get_lead_days()`. Reordering rules call the same
+engine from `stock.warehouse.orderpoint._procure_orderpoint_confirm()`.
+
+With **Take From Stock, if unavailable, Trigger Another Rule** (`mts_else_mto`), a rule
+takes what its source location has. For the rest it runs a new procurement at that source
+location, so another rule can bring it there.
+
+### Quantities and their context keys
+
+`qty_available`, `free_qty` (on hand minus reserved), `virtual_available` (forecast),
+`incoming_qty` and `outgoing_qty` are computed per product, and the context decides for
+where and when:
+
+| Context key | Restricts to |
+|---|---|
+| `location` | a location and its children |
+| `warehouse_id` | a warehouse's locations |
+| `strict` | with `location`: that location only, not its children |
+| `lot_id`, `owner_id`, `package_id` | one lot, owner or package |
+| `from_date`, `to_date` | moves in that window (for history) |
+
+`strict` changes the result but is not in the field's `depends_context`, so within one
+transaction a cached value can answer for the other setting. The tour below shows it.
+
+### Valuation hooks
+
+`stock_account` adds two: `_set_value()` computes a move's `value` (chapter 12's order of
+sources), and `_should_create_account_move()` decides whether a move posts a journal
+entry. Override them, never the quants, to change what stock is worth.
+
+<Callout type="info" title="Official docs">
+  The [ORM API (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html)
+  and the source: [`stock/models/stock_move.py`](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py),
+  [`stock_rule.py`](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_rule.py),
+  [`stock_quant.py`](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py).
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: a new module,
+`librefleet_stock`; a Workshop Consumption operation type and a Workshop route on the
+van; and a service order whose oil came from the van and whose air filter came from the
+depot through the van.
+
+<Steps>
+
+<Step>
+### Tour the machine
+
+This step only reads, in a shell, and rolls everything back at the end. Open one:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+Quantities, and what the context changes:
+
+```python
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> van = env["stock.warehouse"].search([("code", "=", "VAN")])
+>>> oil.qty_available, oil.free_qty, oil.virtual_available
+(20.0, 20.0, 20.0)
+>>> oil.with_context(warehouse_id=van.id).qty_available, oil.with_context(location=lfd.lot_stock_id.id).qty_available
+(8.0, 12.0)
+>>> pads = env["product.product"].search([("name", "=", "Brake Pad Set")])
+>>> pads.with_context(location=lfd.lot_stock_id.id, strict=True).qty_available
+15.0
+>>> pads.with_context(location=lfd.lot_stock_id.id).qty_available
+15.0
+>>> env.invalidate_all()
+>>> pads.with_context(location=lfd.lot_stock_id.id).qty_available
+49.0
+```
+
+The van's 8 bottles count for `warehouse_id=van`, the depot's 12 for its stock
+location. The pads: 49 in LFD/Stock and its shelves, 15 on LFD/Stock itself. Note the
+second answer: 15 again, from the cache, because `strict` is not part of the cache key.
+After `invalidate_all()`, 49.
+
+The quants a move would take, in removal order:
+
+```python
+>>> Quant = env["stock.quant"]
+>>> [(q.location_id.complete_name, q.package_id.name, q.quantity, q.reserved_quantity) for q in Quant._gather(oil, lfd.lot_stock_id)]
+[('LFD/Stock/Pallet Bay 1', 'CTN0000001', 0.0, 0.0), ('LFD/Stock', False, 12.0, 0.0)]
+>>> Quant._get_available_quantity(oil, lfd.lot_stock_id)
+12.0
+```
+
+The empty carton's quant is still there with 0: quants at zero are cleaned up later, not
+on the spot. One move, through its whole life:
+
+```python
+>>> customers = env.ref("stock.stock_location_customers")
+>>> move = env["stock.move"].create({"product_id": oil.id, "product_uom_qty": 3, "product_uom": oil.uom_id.id, "location_id": lfd.lot_stock_id.id, "location_dest_id": customers.id})
+>>> move.state
+'draft'
+>>> move._action_confirm()
+stock.move(171,)
+>>> move.state
+'confirmed'
+>>> move._action_assign()
+>>> move.state, move.quantity, [(ml.location_id.complete_name, ml.quantity) for ml in move.move_line_ids]
+('assigned', 3.0, [('LFD/Stock', 3.0)])
+>>> oil.free_qty
+17.0
+>>> move.picked = True
+>>> move._action_done()
+stock.move(171,)
+>>> move.state, oil.qty_available
+('done', 17.0)
+```
+
+Reserving made three bottles unavailable (`free_qty` 17) before anything moved. And the
+rule engine, asked where oil for customers comes from:
+
+```python
+>>> Rule = env["stock.rule"]
+>>> rule = Rule._get_rule(oil, customers, {"warehouse_id": lfd})
+>>> rule.name, rule.action, rule.procure_method, rule.route_id.name
+('LFD: Stock → Customers', 'pull', 'make_to_stock', 'LibreFleet Depot: Deliver in 3 steps (pick + pack + ship)')
+>>> Rule._get_rule(oil, van.lot_stock_id, {"warehouse_id": van}).name
+False
+>>> env["stock.warehouse.orderpoint"].search([("product_id", "=", oil.id)]).mapped(lambda o: (o.location_id.complete_name, o.product_min_qty, o.product_max_qty))
+[('LFD/Stock', 10.0, 30.0), ('VAN/Stock', 4.0, 10.0)]
+>>> env.cr.rollback()
+>>> oil.qty_available
+20.0
+```
+
+The depot has a rule to deliver to customers. Asked with no route, nothing brings oil
+into the van: the oil does not carry the van's resupply route. Its reordering rule there
+(4 to 10) still works, because it names that route itself and passes it in `values`,
+which `_get_rule()` tries first. The rollback undoes the move: back to 20.
+
+</Step>
+
+<Step>
+### Write the bridge module
+
+`librefleet` must keep working without Inventory, so the link lives in a module of its
+own that depends on both, the way `sale_stock` joins Sales and Inventory. In your
+workspace:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet_stock" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="data" defaultOpen>
+      <File name="stock_location.xml" />
+    </Folder>
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="service_order.py" />
+      <File name="stock_move.py" />
+      <File name="stock_rule.py" />
+    </Folder>
+    <Folder name="views" defaultOpen>
+      <File name="part_views.xml" />
+      <File name="product_template_views.xml" />
+      <File name="service_order_views.xml" />
+    </Folder>
+  </Folder>
+</Files>
+
+The manifest:
+
+```python title="addons/librefleet_stock/__manifest__.py"
+# LibreFleet Stock: service orders take their parts from real stock.
+# Written in the Inventory deep dive, chapter 13.
+{
+    "name": "LibreFleet Stock",
+    "summary": "Consume spare parts from stock when a service order is done",
+    "version": "19.0.1.0.0",
+    "category": "Services",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "development_status": "Beta",
+    # the bridge pattern: librefleet keeps working without stock, this module joins them
+    "depends": ["librefleet", "stock"],
+    "data": [
+        "data/stock_location.xml",
+        "views/product_template_views.xml",
+        "views/part_views.xml",
+        "views/service_order_views.xml",
+    ],
+    "installable": True,
+}
+```
+
+`__init__.py` imports `models`, and `models/__init__.py` imports the three model files.
+The move remembers its service order, and the rule copies it there:
+
+```python title="addons/librefleet_stock/models/stock_move.py"
+from odoo import fields, models
+
+
+class StockMove(models.Model):
+    _inherit = "stock.move"
+
+    librefleet_order_id = fields.Many2one("librefleet.service.order", string="Service Order", index="btree_not_null")
+```
+
+```python title="addons/librefleet_stock/models/stock_rule.py"
+from odoo import models
+
+
+class StockRule(models.Model):
+    _inherit = "stock.rule"
+
+    def _get_custom_move_fields(self):
+        # copy the service order from the procurement values onto the move the rule creates
+        return super()._get_custom_move_fields() + ["librefleet_order_id"]
+```
+
+The service order gets a warehouse to draw from, its moves, and the call to the rule
+engine when it becomes Done:
+
+```python title="addons/librefleet_stock/models/service_order.py"
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
+
+
+class ServiceOrder(models.Model):
+    _inherit = "librefleet.service.order"
+
+    warehouse_id = fields.Many2one(
+        "stock.warehouse",
+        string="Parts From",
+        help="The warehouse whose rules supply the parts when the order is done.",
+    )
+    move_ids = fields.One2many("stock.move", "librefleet_order_id", string="Stock Moves")
+    picking_count = fields.Integer(compute="_compute_picking_count")
+
+    @api.depends("move_ids.picking_id")
+    def _compute_picking_count(self):
+        for order in self:
+            order.picking_count = len(order.move_ids.picking_id)
+
+    def write(self, vals):
+        finishing = self.filtered(lambda o: o.stage != "done") if vals.get("stage") == "done" else self.browse()
+        res = super().write(vals)
+        finishing._consume_parts()
+        return res
+
+    def _consume_parts(self):
+        """Ask the stock rules for every stocked part, as a sale order asks for a delivery."""
+        workshop = self.env.ref("librefleet_stock.location_workshop")
+        procurements = []
+        for order in self:
+            lines = order.line_ids.filtered(lambda line: line.part_id.product_id.is_storable and line.qty > 0)
+            if not lines:
+                continue
+            if not order.warehouse_id:
+                raise UserError(_("Set Parts From on %s before marking it done.", order.reference))
+            for line in lines:
+                product = line.part_id.product_id
+                procurements.append(self.env["stock.rule"].Procurement(
+                    product, line.qty, product.uom_id, workshop,
+                    order.reference, order.reference, order.warehouse_id.company_id,
+                    {"warehouse_id": order.warehouse_id, "librefleet_order_id": order.id,
+                     "partner_id": order.customer_id.id},
+                ))
+        if procurements:
+            self.env["stock.rule"].run(procurements)
+
+    def action_view_pickings(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id("stock.action_picking_tree_all")
+        action["domain"] = [("id", "in", self.move_ids.picking_id.ids)]
+        action["context"] = {"create": False}
+        return action
+```
+
+Hooking `write` catches every way to Done: the Mark Done wizard and the clickable status
+bar both end in a write of `stage`. The procurement goes to a new **Workshop** location,
+and the rules of the chosen warehouse decide how the parts get there. Nothing here
+creates a transfer by hand.
+
+The Workshop location sits beside Production and Inventory adjustment, outside the
+company:
+
+```xml title="addons/librefleet_stock/data/stock_location.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- where consumed parts go: outside the company, beside Production and Inventory adjustment -->
+    <record id="location_workshop" model="stock.location">
+        <field name="name">Workshop</field>
+        <field name="usage">production</field>
+    </record>
+</odoo>
+```
+
+Three views: the order's new field and a **Transfers** button, and two that `librefleet`
+never showed. A part's link to its product was not on the parts list, and the product's
+**Workshop Part** box, which that link requires, was on no form:
+
+```xml title="addons/librefleet_stock/views/service_order_views.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_librefleet_service_order_form_stock" model="ir.ui.view">
+        <field name="name">librefleet.service.order.form.stock</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="inherit_id" ref="librefleet.view_librefleet_service_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/h1" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button name="action_view_pickings" type="object" class="oe_stat_button"
+                            icon="fa-truck" invisible="picking_count == 0">
+                        <field name="picking_count" widget="statinfo" string="Transfers"/>
+                    </button>
+                </div>
+            </xpath>
+            <field name="service_type_id" position="after">
+                <field name="warehouse_id"/>
+            </field>
+        </field>
+    </record>
+</odoo>
+```
+
+```xml title="addons/librefleet_stock/views/part_views.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- the product a part draws from stock; librefleet keeps the field off its list -->
+    <record id="view_librefleet_part_list_stock" model="ir.ui.view">
+        <field name="name">librefleet.part.list.stock</field>
+        <field name="model">librefleet.part</field>
+        <field name="inherit_id" ref="librefleet.view_librefleet_part_list"/>
+        <field name="arch" type="xml">
+            <field name="code" position="after">
+                <field name="product_id"/>
+            </field>
+        </field>
+    </record>
+</odoo>
+```
+
+```xml title="addons/librefleet_stock/views/product_template_views.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- librefleet's part catalogue only offers products marked as parts; show the box -->
+    <record id="product_template_form_view_librefleet_part" model="ir.ui.view">
+        <field name="name">product.template.form.librefleet.part</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <div name="options" position="inside">
+                <span name="librefleet_part_option" class="d-inline-flex">
+                    <field name="librefleet_is_part"/>
+                    <label for="librefleet_is_part"/>
+                </span>
+            </div>
+        </field>
+    </record>
+</odoo>
+```
+
+</Step>
+
+<Step>
+### Install it
+
+<UiOrShell>
+<Tab>
+
+Switch on developer mode (add `?debug=1` to the address), open **Apps** and click **Update
+Apps List**, then **Update**. Search `LibreFleet` with **Search Module**:
+
+![The Apps list filtered on the module name LibreFleet, showing LibreFleet, LibreFleet Maintenance Reminders and the LibreFleet Stock card highlighted with its Activate button](/screens/inv13-apps.jpg)
+
+**Activate** LibreFleet Stock. It installs `librefleet` first, as a dependency.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d warehouse -i librefleet_stock --stop-after-init
+```
+
+On a database that has never seen the module, update the apps list first (the Apps
+button, or `ir.module.module`'s `update_list()` in a shell). Then:
+
+```python
+>>> env["ir.module.module"].search([("name", "in", ["librefleet", "librefleet_stock"])]).mapped(lambda m: (m.name, m.state))
+[('librefleet', 'installed'), ('librefleet_stock', 'installed')]
+>>> workshop = env.ref("librefleet_stock.location_workshop")
+>>> workshop.complete_name, workshop.usage
+('Workshop', 'production')
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Give the van a Workshop Consumption type
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Operation Types → New**:
+
+- **Operation Type:** `Workshop Consumption`
+- **Type of Operation:** Delivery
+- **Sequence Prefix:** `WSC`
+- **Generate Shipping Labels:** unticked
+- **Warehouse:** Service Van
+- **Create Backorder:** Always
+- **Source Location:** VAN/Stock
+- **Destination Location:** Workshop
+
+![The Workshop Consumption operation type with Type of Operation Delivery, Sequence Prefix WSC and Warehouse Service Van highlighted, Create Backorder Always highlighted, and Source Location VAN/Stock and Destination Location Workshop highlighted](/screens/inv13-op-type.jpg)
+
+**Always** creates a backorder without asking: the parts in the van are consumed now,
+the rest when they arrive. Save; Odoo creates the sequence `VAN/WSC/`.
+
+</Tab>
+<Tab>
+
+```python
+>>> van = env["stock.warehouse"].search([("code", "=", "VAN")])
+>>> wsc = env["stock.picking.type"].create({"name": "Workshop Consumption", "code": "outgoing", "sequence_code": "WSC", "warehouse_id": van.id, "default_location_src_id": van.lot_stock_id.id, "default_location_dest_id": workshop.id, "create_backorder": "always"})
+>>> wsc.display_name, wsc.sequence_id.prefix
+('Service Van: Workshop Consumption', 'VAN/WSC/')
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A Workshop route that tries the van first
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Routes → New**: name `Workshop`. Under **Applicable On**, untick
+**Products**, tick **Warehouses** and choose Service Van. **Add a line** to **Rules**:
+
+- **Name:** `VAN: Stock to Workshop`
+- **Action:** Pull From
+- **Operation Type:** Service Van: Workshop Consumption (it fills both locations)
+- **Supply Method:** Take From Stock, if unavailable, Trigger Another Rule
+
+![The Create Rules dialog with Operation Type Service Van: Workshop Consumption, Source Location VAN/Stock and Destination Location Workshop highlighted, Supply Method Take From Stock, if unavailable, Trigger Another Rule highlighted, and Odoo's explanation that a rule will be triggered for what VAN/Stock lacks](/screens/inv13-rule.jpg)
+
+**Save & Close**, then save the route:
+
+![The Workshop route applicable on the warehouse Service Van, highlighted, with its one rule Pull From VAN/Stock to Workshop highlighted](/screens/inv13-route.jpg)
+
+A warehouse route applies to every product the warehouse handles, so no product needs
+it ticked.
+
+</Tab>
+<Tab>
+
+```python
+>>> route = env["stock.route"].create({"name": "Workshop", "product_selectable": False, "warehouse_selectable": True, "warehouse_ids": [(6, 0, van.ids)], "rule_ids": [(0, 0, {"name": "VAN: Stock to Workshop", "action": "pull", "procure_method": "mts_else_mto", "location_src_id": van.lot_stock_id.id, "location_dest_id": workshop.id, "picking_type_id": wsc.id})]})
+>>> route.rule_ids.mapped(lambda r: (r.name, r.procure_method, r.picking_type_id.name))
+[('VAN: Stock to Workshop', 'mts_else_mto', 'Workshop Consumption')]
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Link the parts to products
+
+<UiOrShell>
+<Tab>
+
+Open **Engine Oil 5W-30 1L** and tick the new **Workshop Part** box next to Sales and
+Purchase:
+
+![The Engine Oil 5W-30 1L product form with the Workshop Part checkbox ticked and highlighted next to Sales and Purchase](/screens/inv13-workshop-part.jpg)
+
+Do the same on **Air Filter**, and on its **Inventory** tab tick the route **Service
+Van: Supply Product from LibreFleet Depot** (chapter 6): that is how the van gets air
+filters it lacks. Save.
+
+Then **LibreFleet → Configuration → Parts**, **New** twice:
+
+![The LibreFleet parts list with the Catalogue Product column highlighted: Engine oil 1L, code OIL-5W30, on Engine Oil 5W-30 1L, cost 6.00, price 9.00; and Air filter, code AF-01, on Air Filter, cost 10.50, price 25.00](/screens/inv13-parts.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> air = env["product.product"].search([("name", "=", "Air Filter")])
+>>> (oil | air).librefleet_is_part = True
+>>> air.route_ids = [(4, env["stock.route"].search([("name", "ilike", "Supply Product from LibreFleet Depot")]).id)]
+>>> Part = env["librefleet.part"]
+>>> p_oil = Part.create({"name": "Engine oil 1L", "code": "OIL-5W30", "product_id": oil.id, "standard_cost": 6, "list_price": 9})
+>>> p_air = Part.create({"name": "Air filter", "code": "AF-01", "product_id": air.id, "standard_cost": 10.5, "list_price": 25})
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Finish a service order
+
+<UiOrShell>
+<Tab>
+
+**LibreFleet → Service Orders → New**. In **Vehicle**, type `GE-123-NO` and **Create and
+edit**: owner Garage Nord, model `Renault Master`, year `2021`, Save. Then:
+
+- **Parts From:** Service Van
+- **Parts:** Engine oil 1L, quantity `2`; Air filter, quantity `1`
+
+Save, click **Confirmed**, then **In Progress** in the status bar:
+
+![The service order SO/2026/0001 in progress for vehicle GE-123-NO and customer Garage Nord, with Parts From Service Van highlighted, its two part lines highlighted, and the Mark Done button highlighted](/screens/inv13-service-order.jpg)
+
+**Mark Done**, and **Mark Done** again in the dialog. A **Transfers** button appears.
+
+</Tab>
+<Tab>
+
+```python
+>>> nord = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> vehicle = env["librefleet.vehicle"].create({"license_plate": "GE-123-NO", "owner_id": nord.id, "model_name": "Renault Master", "year": 2021})
+>>> order = env["librefleet.service.order"].create({"vehicle_id": vehicle.id, "customer_id": nord.id, "warehouse_id": van.id, "line_ids": [(0, 0, {"part_id": p_oil.id, "qty": 2, "price_unit": 9}), (0, 0, {"part_id": p_air.id, "qty": 1, "price_unit": 25})]})
+>>> order.stage = "confirmed"
+>>> order.stage = "in_progress"
+>>> env["librefleet.service.order.approve.wizard"].create({"order_id": order.id}).action_confirm()
+{'type': 'ir.actions.act_window_close'}
+>>> order.reference, order.stage, order.picking_count
+('SO/2026/0001', 'done', 1)
+>>> [(m.reference, m.product_id.name, m.product_uom_qty, m.state) for m in order.move_ids]
+[('VAN/WSC/00001', 'Engine Oil 5W-30 1L', 2.0, 'assigned'), ('VAN/WSC/00001', 'Air Filter', 1.0, 'confirmed')]
+>>> Picking = env["stock.picking"]
+>>> [(p.name, p.picking_type_id.name, p.state) for p in Picking.search([("origin", "=", order.reference)], order="id")]
+[('LFD/PICK/00021', 'Pick', 'assigned'), ('LFD/OUT/00025', 'Delivery Orders', 'waiting'), ('VAN/IN/00002', 'Receipts', 'waiting'), ('VAN/WSC/00001', 'Workshop Consumption', 'assigned')]
+```
+
+The air filter's move waits: the van has none. Its "trigger another rule" half made a
+procurement at VAN/Stock, the van's resupply route answered with the depot's Pick and
+Delivery and the van's Receipt.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Consume, and wait for the filter
+
+<UiOrShell>
+<Tab>
+
+Open the transfer:
+
+![The transfer VAN/WSC/00001 of type Service Van: Workshop Consumption from VAN/Stock, highlighted, with Source Document SO/2026/0001 highlighted, and its lines highlighted: Engine Oil 5W-30 1L, 2.00 available, and Air Filter, 1.00 demanded, 0.00 reserved, with an expected date](/screens/inv13-consumption.jpg)
+
+**Validate**: the oil goes to the Workshop, and the filter moves to the backorder
+VAN/WSC/00002 by itself. Now list every transfer of the order: **Inventory → Operations →
+Transfers**, search the **Source Document** `SO/2026/0001`:
+
+![The transfers of SO/2026/0001: the two workshop consumptions VAN/WSC/00002 waiting and VAN/WSC/00001 done, highlighted, and the resupply chain VAN/IN/00002 and LFD/OUT/00020 waiting and LFD/PICK/00018 ready, highlighted](/screens/inv13-chain.jpg)
+
+Validate the depot's Pick, its Pack (**Next Transfer**), its Delivery, then the van's
+Receipt. Open VAN/WSC/00002:
+
+![The backorder VAN/WSC/00002, Back Order of VAN/WSC/00001 highlighted, now Ready with the Air Filter line available highlighted](/screens/inv13-backorder.jpg)
+
+It became Ready on its own when the filter reached the van: `_trigger_assign()`.
+**Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> order.move_ids.picking_id.button_validate()
+True
+>>> for kind in ("PICK", "PACK", "OUT", "IN"):
+...     Picking.search([("origin", "=", order.reference), ("picking_type_id.sequence_code", "=", kind), ("state", "=", "assigned")]).button_validate()
+... 
+True
+True
+True
+True
+>>> backorder = Picking.search([("origin", "=", order.reference), ("picking_type_id", "=", wsc.id), ("state", "!=", "done")])
+>>> backorder.name, backorder.state, backorder.backorder_id.name
+('VAN/WSC/00002', 'assigned', 'VAN/WSC/00001')
+>>> backorder.button_validate()
+True
+>>> [(p.name, p.state) for p in Picking.search([("origin", "=", order.reference)], order="id")]
+[('LFD/PICK/00021', 'done'), ('LFD/OUT/00025', 'done'), ('VAN/IN/00002', 'done'), ('VAN/WSC/00001', 'done'), ('VAN/WSC/00002', 'done'), ('LFD/PACK/00021', 'done')]
+>>> oil.with_context(warehouse_id=van.id).qty_available, air.with_context(warehouse_id=van.id).qty_available
+(6.0, 0.0)
+>>> env.cr.commit()
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv13 --db warehouse
+```
+
+```text
+✔ LibreFleet Stock is installed
+✔ the van has a Workshop Consumption operation type
+✔ the Workshop route takes from the van first
+✔ the parts point at stock products
+✔ the service order consumed 2 oil and 1 air filter
+✔ the van was resupplied for the air filter
+✔ the shelf holds what the workshop left
+
+inv13 complete! On to the next chapter 🔧
+```
+
+The moves that carry the service order, through the field your rule copied:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select m.reference, t.name->>'en_US' as product, m.quantity, m.state, s.complete_name as from_loc, d.complete_name as to_loc from stock_move m join product_product p on p.id=m.product_id join product_template t on t.id=p.product_tmpl_id join stock_location s on s.id=m.location_id join stock_location d on d.id=m.location_dest_id where m.librefleet_order_id is not null order by m.id;"
+```
+
+```text
+   reference   |       product       | quantity | state | from_loc  |  to_loc  
+---------------+---------------------+----------+-------+-----------+----------
+ VAN/WSC/00001 | Engine Oil 5W-30 1L |     2.00 | done  | VAN/Stock | Workshop
+ VAN/WSC/00002 | Air Filter          |     1.00 | done  | VAN/Stock | Workshop
+(2 rows)
+```
+
+The backorder kept the field: a split move copies it. The depot's Pick, Delivery and the
+van's Receipt do not have it: they came from a second procurement, whose values Odoo
+built from the waiting move, not from your order.
+
+## Gotchas
+
+- **Never write quants directly.** `_update_available_quantity` and moves keep quants,
+  reservations and history consistent; a `write` on `quantity` breaks all three.
+- **`strict` is not in the cache key.** Two quantity reads in one transaction, with and
+  without `strict`, can return the same number. Invalidate between them, or read them in
+  separate requests.
+- **A field on the procurement does not follow the chain.** `_get_custom_move_fields()`
+  copies it onto the move the rule creates, not onto the moves of the procurements that
+  move triggers. Propagate it in `_prepare_procurement_values()` if you need it there.
+- **Hook the state change, not the button.** A wizard, a status bar click, an import or
+  an automated action can all change `stage`. Overriding `write` catches them all;
+  overriding one button misses the rest.
+- **No rule, an error.** `stock.rule.run` raises "No rule has been found to replenish"
+  when nothing matches. Here, an air filter without the van's resupply route would have
+  stopped Mark Done.
+- **Data that names your own records breaks elsewhere.** The van, its sequence and its
+  route exist only in this database, so the module ships the Workshop location and lets
+  the user build the rest in the UI.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Which call makes a move reserve stock?',
+      options: [
+        '_action_confirm(), because confirming always reserves everything',
+        '_action_assign(), which finds quants and creates move lines',
+        'button_validate(), because nothing is reserved before validation',
+      ],
+      answer: 1,
+      why: '_action_confirm moves a draft to confirmed; _action_assign reserves and creates the move lines; button_validate is the transfer button that ends in _action_done.',
+    },
+    {
+      q: 'The van has 8 bottles and the rule says Take From Stock, if unavailable, Trigger Another Rule. A procurement asks for 10. What happens?',
+      options: [
+        'The rule refuses, because the van does not hold the full quantity asked for',
+        'The move waits for all 10 to arrive before anything is consumed',
+        'It takes 8 from the van and procures the 2 missing from another rule',
+      ],
+      answer: 2,
+      why: 'mts_else_mto uses what the source location has and runs a new procurement at that location for the rest, so another rule can bring it there.',
+    },
+    {
+      q: 'You need your own field on the moves a pull rule creates. Where do you put it?',
+      options: [
+        'In _get_custom_move_fields(), and pass it in the procurement values',
+        'In stock.picking, since every move belongs to a transfer of some kind anyway',
+        'In the quant, so every move that touches it can read the value back',
+      ],
+      answer: 0,
+      why: 'The pull rule builds its move from the procurement values, copying the fields that _get_custom_move_fields() lists.',
+    },
+    {
+      q: 'Why does the service order override write instead of the Mark Done button?',
+      options: [
+        'Buttons cannot be overridden in Odoo, only the write method can be',
+        'The stage can also change from the status bar, an import or code',
+        'write runs faster than a button, and procurements must be quick',
+      ],
+      answer: 1,
+      why: 'Every path to Done ends in a write of stage; hooking it catches the wizard, the clickable status bar, imports and automated actions alike.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ In a shell, read the coolant's `qty_available`, then again with `owner_id` set to
+   Nordic Lubricants' id. Compare with chapter 12, where the coolant was worth $0: what
+   does the owner change, and what does it not?
+2. ⭐⭐ Add a computed `parts_cost` to the service order from its done moves' `value`
+   (chapter 12), and show it next to the margin.
+3. ⭐⭐ Make the Mark Done wizard refuse when Parts From is empty, before the stage
+   changes, instead of the error coming from `_consume_parts`. Which method do you
+   override?
+4. ⭐⭐⭐ Break-it lab. Remove the van's resupply route from Air Filter and finish another
+   order with one filter. Read the error, then fix it without touching the product: give
+   the procurement a `route_ids` value. Where does `_get_rule()` look first?
+
+## Further reading
+
+- <Icon name="source" /> [`stock/models/stock_rule.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_rule.py):
+  `run`, `_get_rule`, `_run_pull` and `_get_custom_move_fields`.
+- <Icon name="source" /> [`stock/models/stock_move.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py):
+  the move lifecycle, `_action_assign` and `_trigger_assign`.
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  `_gather` and `_update_available_quantity`.
+- <Icon name="docs" /> [ORM API (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html):
+  `depends_context`, the cache and `invalidate_all`.

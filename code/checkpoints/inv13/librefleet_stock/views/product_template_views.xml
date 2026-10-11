@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- librefleet's part catalogue only offers products marked as parts; show the box -->
+    <record id="product_template_form_view_librefleet_part" model="ir.ui.view">
+        <field name="name">product.template.form.librefleet.part</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <div name="options" position="inside">
+                <span name="librefleet_part_option" class="d-inline-flex">
+                    <field name="librefleet_is_part"/>
+                    <label for="librefleet_is_part"/>
+                </span>
+            </div>
+        </field>
+    </record>
+</odoo>

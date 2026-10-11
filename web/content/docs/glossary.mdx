@@ -338,6 +338,8 @@ taxes, and each replacement tax names what it replaces in `original_tax_ids` (ch
 `<group>`s laying out fields. Opened from a list row when the action's `view_mode`
 includes `form`.
 
+**`_get_custom_move_fields()`**: the `stock.rule` hook listing which keys of a procurement's `values` a pull rule copies onto the move it creates. The way to carry your own field, such as a service order, onto stock moves (Inventory chapter 13).
+
 **get_view**: the model method the web client calls to obtain the combined arch of a
 view type; useful in the shell to see exactly what inheritance produced.
 
@@ -983,6 +985,8 @@ changes at both ends. `product_uom_qty` is the Demand column (what was planned),
 
 **stock variation account**: the counterpart of the stock valuation account in a periodic closing entry: the change in stock value for the period. Set on the stock valuation account as its Variation Account (Inventory chapter 12).
 
+**`stock.reference`**: Odoo 19's link between the documents of one flow (a sale, its transfers), which replaced procurement groups. A move holds several in `reference_ids` (Inventory chapter 13).
+
 **storage category (`stock.storage.category`)**: what a location may hold: a **Max
 Weight** (0 refuses anything that has a weight), **Allow New Product** (only if empty,
 only the same product, or mixed) and capacities per product or per package type. Putaway
@@ -998,6 +1002,8 @@ records reached through the sudo'd set, so scope it to the smallest operation.
 rights and record rules entirely. `odoo shell` runs as it, `sudo()` switches to it.
 Not the same thing as the `admin` login, which is an ordinary user with powerful
 groups.
+
+**Take From Stock, if unavailable, Trigger Another Rule (`mts_else_mto`)**: a rule's Supply Method that takes what its source location holds and runs a new procurement at that location for the rest, so another rule can bring it there. LibreFleet's Workshop route uses it to try the van before the depot (Inventory chapter 13).
 
 **target="new"**: an action attribute that opens the action as a popup instead of
 navigating away from the current record. What makes a wizard a wizard, visually.

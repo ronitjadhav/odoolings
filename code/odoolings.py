@@ -3792,6 +3792,83 @@ def shelf_after_valuation(env):
     assert not extra, "unexpected stock: %s. A purchase or sale of air filters is not finished" % extra
 
 
+def librefleet_stock_is_installed(env):
+    rows = env.call("ir.module.module", "search_read", [("name", "in", ["librefleet", "librefleet_stock"]), ("state", "=", "installed")], fields=["name"])
+    assert {r["name"] for r in rows} == {"librefleet", "librefleet_stock"}, (
+        "LibreFleet and LibreFleet Stock must both be installed in warehouse; Apps, Update Apps List, then Activate LibreFleet Stock")
+    assert "librefleet_order_id" in env.call("stock.move", "fields_get", ["librefleet_order_id"]), "stock.move has no librefleet_order_id: is models/stock_move.py imported?"
+
+
+def the_van_has_a_workshop_consumption_type(env):
+    t = env.call("stock.picking.type", "search_read", [("name", "=", "Workshop Consumption")],
+                 fields=["warehouse_id", "sequence_code", "code", "default_location_src_id", "default_location_dest_id", "create_backorder"])
+    assert t, "no operation type named Workshop Consumption; Inventory > Configuration > Operation Types > New"
+    t = t[0]
+    assert t["warehouse_id"] and t["warehouse_id"][1] == "Service Van" and t["sequence_code"] == "WSC", "Workshop Consumption: Warehouse Service Van, Sequence Prefix WSC"
+    assert t["default_location_src_id"][1] == "VAN/Stock" and t["default_location_dest_id"][1] == "Workshop", "Workshop Consumption: from VAN/Stock to Workshop"
+    assert t["create_backorder"] == "always", "Workshop Consumption: Create Backorder should be Always, so the parts in the van go now and the rest follow"
+
+
+def the_workshop_route_tries_the_van_first(env):
+    r = env.call("stock.route", "search_read", [("name", "=", "Workshop")], fields=["warehouse_selectable", "warehouse_ids", "rule_ids"])
+    assert r and r[0]["warehouse_selectable"], "no route named Workshop applicable on warehouses"
+    whs = env.call("stock.warehouse", "read", r[0]["warehouse_ids"], ["code"])
+    assert [w["code"] for w in whs] == ["VAN"], "the Workshop route should apply to the Service Van only"
+    rules = env.call("stock.rule", "read", r[0]["rule_ids"], ["action", "procure_method", "location_src_id", "location_dest_id", "picking_type_id"])
+    assert len(rules) == 1, "the Workshop route should have one rule"
+    rule = rules[0]
+    assert (rule["action"], rule["procure_method"]) == ("pull", "mts_else_mto"), (
+        "the rule should Pull From with Take From Stock, if unavailable, Trigger Another Rule; it is %s / %s" % (rule["action"], rule["procure_method"]))
+    assert rule["location_src_id"][1] == "VAN/Stock" and rule["location_dest_id"][1] == "Workshop", "the rule should go from VAN/Stock to Workshop"
+
+
+def the_parts_draw_on_products(env):
+    parts = env.call("librefleet.part", "search_read", [], fields=["name", "product_id"])
+    got = sorted((p["name"], p["product_id"] and p["product_id"][1]) for p in parts)
+    assert got == [("Air filter", "Air Filter"), ("Engine oil 1L", "Engine Oil 5W-30 1L")], (
+        "two parts, Engine oil 1L on Engine Oil 5W-30 1L and Air filter on Air Filter; there are %s" % got)
+
+
+def the_service_order_consumed_its_parts(env):
+    order = env.call("librefleet.service.order", "search_read", [("stage", "=", "done")], fields=["reference", "warehouse_id", "move_ids"])
+    assert order, "no service order is Done; Mark Done on SO/2026/0001"
+    order = order[0]
+    assert order["warehouse_id"] and order["warehouse_id"][1] == "Service Van", "the order's Parts From should be Service Van"
+    moves = env.call("stock.move", "read", order["move_ids"], ["product_id", "quantity", "state", "location_id", "location_dest_id"])
+    done = sorted((m["product_id"][1], m["quantity"]) for m in moves if m["state"] == "done" and m["location_dest_id"][1] == "Workshop")
+    assert done == [("Air Filter", 1), ("Engine Oil 5W-30 1L", 2)], (
+        "2 oil and 1 air filter should have gone from VAN/Stock to Workshop; done moves: %s. Validate VAN/WSC/00002 once the filter arrives" % done)
+
+
+def the_van_was_resupplied_for_the_filter(env):
+    order = env.call("librefleet.service.order", "search_read", [("stage", "=", "done")], fields=["reference"])[0]
+    rec = env.call("stock.picking", "search_read", [("origin", "=", order["reference"]), ("picking_type_id.warehouse_id.code", "=", "VAN"),
+                                                    ("picking_type_id.code", "=", "incoming"), ("state", "=", "done")], fields=["name"])
+    assert rec, "no done van receipt for %s: the filter must come from the depot (Pick, Pack, Delivery, then the van's Receipt)" % order["reference"]
+
+
+def shelf_after_workshop(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 9.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 12.0, ("LFD/Stock", "Rebuilt Engine", False, False): 1.0,
+            ("LFD/Stock", "Air Filter", False, False): 15.0,
+            ("LFD/Stock/Fluids Rack", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 6.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 6.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer of the service order is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4744,6 +4821,21 @@ CHAPTERS = {
          "Oil 20 at $6, filters 16 at $10.50: $288, and the Stock Valuation account holds $288 too."),
         ("the shelf holds what the purchases and sales left", shelf_after_valuation,
          "Physical Inventory: 16 air filters in LFD/Stock, the rest as after chapter 11."),
+    ],    "inv13": [
+        ("LibreFleet Stock is installed", librefleet_stock_is_installed,
+         "Put librefleet_stock in addons/, Apps > Update Apps List (debug mode), Activate LibreFleet Stock."),
+        ("the van has a Workshop Consumption operation type", the_van_has_a_workshop_consumption_type,
+         "Operation Types > New: Delivery, prefix WSC, Service Van, VAN/Stock to Workshop, Create Backorder Always."),
+        ("the Workshop route takes from the van first", the_workshop_route_tries_the_van_first,
+         "Routes > New: Workshop, Warehouses: Service Van; rule Pull From VAN/Stock to Workshop, Take From Stock, if unavailable, Trigger Another Rule."),
+        ("the parts point at stock products", the_parts_draw_on_products,
+         "Tick Workshop Part on the oil and the air filter, then LibreFleet > Configuration > Parts with their Catalogue Product."),
+        ("the service order consumed 2 oil and 1 air filter", the_service_order_consumed_its_parts,
+         "Service order for GE-123-NO, Parts From Service Van, Mark Done, validate VAN/WSC/00001, later VAN/WSC/00002."),
+        ("the van was resupplied for the air filter", the_van_was_resupplied_for_the_filter,
+         "Validate the depot's Pick, Pack and Delivery for the order, then the van's Receipt."),
+        ("the shelf holds what the workshop left", shelf_after_workshop,
+         "6 oil left in the van, 15 air filters in the depot."),
     ],
 }
 
@@ -4985,8 +5077,10 @@ CHECKPOINTS = {
     "ch46": {"librefleet": "19.0.1.29.0", "librefleet_maintenance_reminder": "19.0.1.0.0"},
     "ch51": {"sale_fixed_discount_limit": "19.0.1.0.0"},
     "ch53": {"librefleet": "19.0.1.30.0", "librefleet_maintenance_reminder": "19.0.1.0.0"},
+    "inv13": {"librefleet_stock": "19.0.1.0.0"},
 }
 TUTORIAL_CODE = ("librefleet", "librefleet_maintenance_reminder")
+WAREHOUSE_CODE = ("librefleet", "librefleet_stock")  # the Inventory track's code, from inv13
 
 # What each functional chapter installs, in the order the chapters install it.
 INSTALLS = {
@@ -5001,6 +5095,7 @@ INSTALLS = {
     "inv10": ["stock_picking_batch"],  # Batch, Wave & Cluster Transfers
     "inv11": ["stock_delivery", "stock_dropshipping", "mrp_subcontracting"],  # Delivery Methods, Dropshipping, Subcontracting
     "inv12": ["stock_landed_costs"],  # Landed Costs
+    "inv13": ["librefleet", "librefleet_stock"],  # chapter 53's LibreFleet, and the bridge inv13 writes
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -5995,6 +6090,39 @@ def seed_inv12(env):
     _call(env, "account.move", "action_post", env.call("sale.order", "read", [so], ["invoice_ids"])[0]["invoice_ids"])
 
 
+def seed_inv13(env):
+    _call(env, "ir.module.module", "update_list")
+    _install(env, ["librefleet", "librefleet_stock"])
+    van = _id(env, "stock.warehouse", [("code", "=", "VAN")])
+    van_stock = _id(env, "stock.location", [("complete_name", "=", "VAN/Stock")])
+    workshop = _xmlid(env, "librefleet_stock.location_workshop")
+    oil = _id(env, "product.product", [("name", "=", "Engine Oil 5W-30 1L")])
+    air = _id(env, "product.product", [("name", "=", "Air Filter")])
+    env.call("product.product", "write", [oil, air], {"librefleet_is_part": True})
+    wsc = env.call("stock.picking.type", "create", {"name": "Workshop Consumption", "code": "outgoing", "sequence_code": "WSC", "warehouse_id": van,
+                                                    "default_location_src_id": van_stock, "default_location_dest_id": workshop, "create_backorder": "always"})
+    env.call("stock.route", "create", {"name": "Workshop", "product_selectable": False, "warehouse_selectable": True, "warehouse_ids": [(6, 0, [van])],
+                                       "rule_ids": [(0, 0, {"name": "VAN: Stock to Workshop", "action": "pull", "procure_method": "mts_else_mto",
+                                                            "location_src_id": van_stock, "location_dest_id": workshop, "picking_type_id": wsc})]})
+    resupply = _id(env, "stock.route", [("name", "ilike", "Supply Product from LibreFleet Depot")])
+    env.call("product.product", "write", [air], {"route_ids": [(4, resupply)]})
+    p_oil = env.call("librefleet.part", "create", {"name": "Engine oil 1L", "code": "OIL-5W30", "product_id": oil, "standard_cost": 6, "list_price": 9})
+    p_air = env.call("librefleet.part", "create", {"name": "Air filter", "code": "AF-01", "product_id": air, "standard_cost": 10.5, "list_price": 25})
+    nord = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    vehicle = env.call("librefleet.vehicle", "create", {"license_plate": "GE-123-NO", "owner_id": nord, "model_name": "Renault Master", "year": 2021})
+    order = env.call("librefleet.service.order", "create", {"vehicle_id": vehicle, "customer_id": nord, "warehouse_id": van,
+                                                            "line_ids": [(0, 0, {"part_id": p_oil, "qty": 2, "price_unit": 9}),
+                                                                         (0, 0, {"part_id": p_air, "qty": 1, "price_unit": 25})]})
+    for stage in ("confirmed", "in_progress"):
+        env.call("librefleet.service.order", "write", [order], {"stage": stage})
+    wizard = env.call("librefleet.service.order.approve.wizard", "create", {"order_id": order})
+    _call(env, "librefleet.service.order.approve.wizard", "action_confirm", [wizard])
+    ref = env.call("librefleet.service.order", "read", [order], ["reference"])[0]["reference"]
+    _validate(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id", "=", wsc)]))  # the oil; the filter goes to a backorder
+    _finish_chain(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id.sequence_code", "=", "PICK")])[0])
+    _validate(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id", "=", wsc), ("state", "=", "assigned")]))
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6005,7 +6133,7 @@ SEEDS = {
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
-    "inv11": seed_inv11, "inv12": seed_inv12,
+    "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
@@ -6259,9 +6387,12 @@ def cmd_start(a):
     ws = _workspace()
     plan, stamp = [], time.strftime("%Y%m%d-%H%M%S")
 
-    code = {m: vc for m, vc in _code_for(target).items() if m in TUTORIAL_CODE}
+    tutorial_code = "tutorial" in targets and "ch08" in _replay(target, "tutorial")
+    warehouse_code = "warehouse" in targets and "inv13" in _replay(target, "warehouse")
+    wanted = (TUTORIAL_CODE if tutorial_code else ()) + (WAREHOUSE_CODE if warehouse_code else ())
+    code = {m: vc for m, vc in _code_for(target).items() if m in wanted}
     fetch = []  # (module, version, checkpoint)
-    if ws and "tutorial" in targets and "ch08" in _replay(target, "tutorial"):
+    if ws and code:
         for module, (version, checkpoint) in sorted(code.items()):
             have = _local_version(ws, module)
             if have != version:
@@ -6326,7 +6457,7 @@ def cmd_start(a):
               % (target, " and ".join(repr(db) for db in targets), "them" if len(targets) > 1 else "it"))
     else:
         print("Chapter %s needs no database." % target)
-    if not ws and (code and "tutorial" in targets and "ch08" in _replay(target, "tutorial") or repos):
+    if not ws and (code or repos):
         print("\nRun start from your workspace folder, the one with docker-compose.yml and "
               "addons/: it sets up the %s chapter %s builds on from there."
               % ("LibreFleet code" if not repos else "OCA repositories", target))
