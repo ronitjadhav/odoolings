@@ -3258,6 +3258,79 @@ def two_shelves_two_warehouses(env):
     assert not extra, "goods are sitting where the chapter leaves none: %s. A transfer is not validated" % extra
 
 
+def lots_and_expiry_are_on(env):
+    assert _in_group(env, "stock.group_production_lot"), "the Lots & Serial Numbers setting is off; Inventory > Configuration > Settings, Traceability"
+    rows = env.call("ir.module.module", "search_read", [("name", "=", "product_expiry"), ("state", "=", "installed")], fields=["name"])
+    assert rows, "Expiration Dates is not installed; tick it in the same Traceability block and Save (the module is product_expiry)"
+
+
+def tablet_is_serial_tracked_with_a_prefix(env):
+    t = env.call("product.template", "search_read", [("name", "=", "Diagnostic Tablet")], fields=["tracking", "lot_sequence_id"])[0]
+    assert t["tracking"] == "serial", "the tablet's tracking is %r; General Information, Track Inventory: By Unique Serial Number" % t["tracking"]
+    seq = env.call("ir.sequence", "read", [t["lot_sequence_id"][0]], ["prefix"])[0] if t["lot_sequence_id"] else {}
+    assert seq.get("prefix") == "DT-", "the tablet's Custom Lot/Serial should be DT- (Inventory tab, Traceability)"
+
+
+def every_tablet_has_a_serial(env):
+    rows = env.call("stock.quant", "search_read", [("product_id.name", "=", "Diagnostic Tablet"), ("location_id.usage", "=", "internal")],
+                    fields=["lot_id", "quantity"])
+    have = sorted(r["lot_id"][1] for r in rows if r["quantity"] and r["lot_id"])
+    loose = [r for r in rows if r["quantity"] and not r["lot_id"]]
+    assert not loose, "a tablet is still on the shelf without a serial; Physical Inventory: count the no-serial line 0 and add one with a serial"
+    assert have == ["DT-0000001", "DT-0000002", "DT-0000003"], (
+        "the shelf should hold tablets DT-0000001 to DT-0000003, it holds %s; receive 2 with Generate Serials from DT-0000002" % have)
+
+
+def brake_fluid_has_lots_and_dates(env):
+    rows = env.call("product.template", "search_read", [("name", "=", "Brake Fluid DOT 4 1L")],
+                    fields=["tracking", "use_expiration_date", "expiration_time", "use_time", "removal_time", "alert_time"])
+    assert rows, "no product Brake Fluid DOT 4 1L; Products > New"
+    r = rows[0]
+    assert r["tracking"] == "lot" and r["use_expiration_date"], "Brake Fluid must be tracked By Lots with Expiration Date ticked"
+    got = (r["expiration_time"], r["use_time"], r["removal_time"], r["alert_time"])
+    assert got == (365, 60, 30, 45), "its dates should be 365 / 60 / 30 / 45 days, they are %s" % (got,)
+
+
+def depot_stock_removes_first_expiry_first(env):
+    rows = env.call("stock.location", "search_read", [("complete_name", "=", "LFD/Stock")], fields=["removal_strategy_id"])
+    rs = rows[0]["removal_strategy_id"]
+    assert rs and "FEFO" in rs[1], "LFD/Stock's Removal Strategy is %r; Configuration > Locations > LFD/Stock, First Expiry First Out (FEFO)" % (rs and rs[1])
+
+
+def lot_bf001_was_recalled(env):
+    lot = env.call("stock.lot", "search_read", [("name", "=", "BF-001")], fields=["id", "product_expiry_alert"])
+    assert lot, "no lot BF-001; receive 24 Brake Fluid with Generate Serials/Lots, first lot BF-001, 12 per lot"
+    moves = env.call("stock.move.line", "search_read", [("lot_id", "=", lot[0]["id"]), ("state", "=", "done")],
+                     fields=["location_id", "location_dest_id", "quantity"])
+    usage = {l["id"]: l["usage"] for l in env.call("stock.location", "search_read", [], fields=["usage"])}
+    sold = [m for m in moves if usage[m["location_dest_id"][0]] == "customer"]
+    back = [m for m in moves if usage[m["location_id"][0]] == "customer"]
+    scrapped = [m for m in moves if usage[m["location_dest_id"][0]] == "inventory"]
+    assert sold, "BF-001 never left for a customer; sell 6 Brake Fluid to Garage Nord, FEFO picks BF-001"
+    assert back, "the 6 bottles of BF-001 were not returned; on the delivery, Return, Return All, then Validate twice"
+    assert lot[0]["product_expiry_alert"], "BF-001 is not blocked; set its Expiration Date to a moment in the past"
+    assert sum(m["quantity"] for m in scrapped) == 12, "BF-001 should be scrapped entirely, 12 bottles; Operations > Scrap"
+
+
+def shelf_after_the_recall(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "owner_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1])
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False): 15.0, ("LFD/Stock", "Engine Oil 5W-30 1L", False): 25.0,
+            ("LFD/Stock", "Coolant 5L", False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002"): 12.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001"): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002"): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003"): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer, return or scrap is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4100,6 +4173,22 @@ CHAPTERS = {
         ("the depot and the van hold what the chapter says, nothing in transit", two_shelves_two_warehouses,
          "Reporting > Locations with Internal and Transit Locations shows every quant the check reads."),
     ],
+    "inv07": [
+        ("Lots & Serial Numbers and Expiration Dates are on", lots_and_expiry_are_on,
+         "Inventory > Configuration > Settings, Traceability: Lots & Serial Numbers and Expiration Dates, Save."),
+        ("the tablet is tracked by serial number, prefix DT-", tablet_is_serial_tracked_with_a_prefix,
+         "Diagnostic Tablet: Track Inventory By Unique Serial Number; Inventory tab, Custom Lot/Serial DT-."),
+        ("every tablet on the shelf has its own serial", every_tablet_has_a_serial,
+         "Physical Inventory for the old tablet (DT-0000001), then a receipt of 2 with Generate Serials."),
+        ("Brake Fluid is tracked by lots, with expiry dates 365/60/30/45", brake_fluid_has_lots_and_dates,
+         "New product Brake Fluid DOT 4 1L, By Lots; Inventory tab, Expiration Date and the four day counts."),
+        ("LFD/Stock removes first expiry first", depot_stock_removes_first_expiry_first,
+         "Configuration > Locations > LFD/Stock, Removal Strategy First Expiry First Out (FEFO)."),
+        ("lot BF-001 was sold, blocked, returned and scrapped", lot_bf001_was_recalled,
+         "Sell 6 to Garage Nord, expire BF-001, return the delivery, scrap the 12 bottles of BF-001."),
+        ("the shelf holds the serials, BF-002 and nothing recalled", shelf_after_the_recall,
+         "Reporting > Locations shows quants by lot; BF-001 must be gone and the three tablets serialised."),
+    ],
 }
 
 
@@ -4352,6 +4441,7 @@ INSTALLS = {
     "ch51": ["sale_fixed_discount_limit"],
     "inv03": ["sale_management", "purchase"],  # the Buy route, and an order that starts a chain
     "inv04": ["mrp"],
+    "inv07": ["product_expiry"],  # Expiration Dates
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -5055,6 +5145,76 @@ def seed_inv06(env):
     _finish_chain(env, pick)
 
 
+def seed_inv07(env):
+    import datetime
+    _install(env, ["product_expiry"])
+    _settings(env, group_stock_production_lot=True, group_lot_on_delivery_slip=True)
+    variant = lambda n: _id(env, "product.product", [("name", "=", n)])
+    tmpl = lambda n: _id(env, "product.template", [("name", "=", n)])
+    lfd = _id(env, "stock.warehouse", [("code", "=", "LFD")])
+    kinds = env.call("stock.warehouse", "read", [lfd], ["in_type_id", "lot_stock_id"])[0]
+    stock = kinds["lot_stock_id"][0]
+    tablet = variant("Diagnostic Tablet")
+    env.call("product.template", "write", [tmpl("Diagnostic Tablet")], {"tracking": "serial", "serial_prefix_format": "DT-"})
+    lot1 = env.call("stock.lot", "create", {"name": "DT-0000001", "product_id": tablet})
+    inv = {"inventory_mode": True}
+    old = env.call("stock.quant", "search", [("product_id", "=", tablet), ("location_id", "=", stock), ("lot_id", "=", False)])
+    env.call("stock.quant", "write", old, {"inventory_quantity": 0}, context=inv)
+    new = env.call("stock.quant", "create", {"product_id": tablet, "location_id": stock, "lot_id": lot1, "inventory_quantity": 1}, context=inv)
+    _call(env, "stock.quant", "action_apply_inventory", old + [new], context=inv)
+
+    def receive(partner, product, lines):
+        pick = env.call("stock.picking", "create", {
+            "partner_id": _id(env, "res.partner", [("name", "=", partner)]), "picking_type_id": kinds["in_type_id"][0],
+            "move_ids": [(0, 0, {"product_id": product, "product_uom_qty": sum(q for _, q in lines)})]})
+        _call(env, "stock.picking", "action_confirm", [pick])
+        existing = env.call("stock.picking", "read", [pick], ["move_line_ids"])[0]["move_line_ids"]
+        if len(existing) == len(lines):  # serials: one line per unit already, name them
+            for line, (name, qty) in zip(existing, lines):
+                env.call("stock.move.line", "write", [line], {"lot_name": name, "quantity": qty})
+        else:  # lots: one line for everything, split it per lot
+            env.call("stock.move.line", "write", existing, {"lot_name": lines[0][0], "quantity": lines[0][1]})
+            for name, qty in lines[1:]:
+                env.call("stock.move.line", "copy", existing, {"lot_name": name, "quantity": qty})
+        _finish_chain(env, pick)  # receipt, then the pushed Storage
+
+    receive("Brembo Parts", tablet, [("DT-0000002", 1), ("DT-0000003", 1)])
+    env.call("product.template", "create", {"name": "Brake Fluid DOT 4 1L", "type": "consu", "is_storable": True, "list_price": 9,
+                                            "tracking": "lot", "use_expiration_date": True, "expiration_time": 365,
+                                            "use_time": 60, "removal_time": 30, "alert_time": 45})
+    fluid = variant("Brake Fluid DOT 4 1L")
+    receive("Nordic Lubricants", fluid, [("BF-001", 12), ("BF-002", 12)])
+    bf1 = _id(env, "stock.lot", [("name", "=", "BF-001")])
+
+    def dates(expiry):  # a write in code does not shift the other dates, so set all four
+        f = lambda d: d.strftime("%Y-%m-%d %H:%M:%S")
+        return {"expiration_date": f(expiry), "use_date": f(expiry - datetime.timedelta(days=60)),
+                "removal_date": f(expiry - datetime.timedelta(days=30)), "alert_date": f(expiry - datetime.timedelta(days=45))}
+
+    now = datetime.datetime.utcnow()
+    env.call("stock.lot", "write", [bf1], dates(now + datetime.timedelta(days=40)))
+    env.call("stock.location", "write", [stock], {"removal_strategy_id": _xmlid(env, "product_expiry.removal_fefo")})
+    garage = _id(env, "res.partner", [("name", "=", "Garage Nord")])
+    order = env.call("sale.order", "create", {
+        "partner_id": garage, "order_line": [(0, 0, {"product_id": fluid, "product_uom_qty": 6, "price_unit": 9})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    _finish_chain(env, env.call("sale.order", "read", [order], ["picking_ids"])[0]["picking_ids"][0])  # FEFO picks BF-001
+    env.call("stock.lot", "write", [bf1], dates(now - datetime.timedelta(hours=1)))  # block the lot
+    out = _id(env, "stock.picking", [("origin", "=", env.call("sale.order", "read", [order], ["name"])[0]["name"]),
+                                     ("picking_type_id.sequence_code", "=", "OUT")])
+    ctx = {"active_id": out, "active_ids": [out], "active_model": "stock.picking"}
+    wizard = env.call("stock.return.picking", "create", {}, context=ctx)
+    action = env.call("stock.return.picking", "action_create_returns_all", [wizard], context=ctx)
+    skip = {"skip_sms": True, "skip_expired": True}  # Confirm on the expired-lot warning
+    _call(env, "stock.picking", "button_validate", [action["res_id"]], context=skip)
+    for mv in env.call("stock.move", "search_read", [("picking_id", "=", action["res_id"])], fields=["move_dest_ids"]):
+        for nxt in env.call("stock.move", "read", mv["move_dest_ids"], ["picking_id"]):
+            _call(env, "stock.picking", "button_validate", [nxt["picking_id"][0]], context=skip)
+    scrap = env.call("stock.scrap", "create", {"product_id": fluid, "lot_id": bf1, "scrap_qty": 12, "location_id": stock,
+                                               "origin": "Recall BF-001", "scrap_reason_tag_ids": [(0, 0, {"name": "Recalled"})]})
+    _call(env, "stock.scrap", "action_validate", [scrap])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5064,7 +5224,7 @@ SEEDS = {
     "ch25": seed_ch25, "ch26": seed_ch26, "ch27": seed_ch27, "ch28": seed_ch28,
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
-    "inv05": seed_inv05, "inv06": seed_inv06,
+    "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
