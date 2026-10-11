@@ -73,6 +73,8 @@ share-a-row relationship a cron has with the action it schedules (chapter 35).
 asked: `id`, `create_uid`, `create_date`, `write_uid`, `write_date`, plus the
 computed (never stored) `display_name`.
 
+**AVCO (average cost)**: a costing method that keeps one average per product: (value before + value received) ÷ quantity at every receipt, and deliveries leave at that average. Switching a product to AVCO recomputes the average over its whole history (Inventory chapter 12).
+
 **backend adapter**: in OCA's connector, the component that speaks one external
 system's protocol. Per the connector docs it "has a common interface to speak with the
 backend" and "translates the basic orders (search, read, write)" into that system's API.
@@ -139,6 +141,8 @@ looked up in the `actions` registry, where the JavaScript registered a component
 the same name; a mismatch throws `KeyNotFoundError` in the browser console and nothing
 anywhere else. The component receives the action record as a prop, so it must spread
 `standardActionServiceProps` (chapter 41).
+
+**closing entry (stock)**: the journal entry that brings the stock valuation account to the stock's value under periodic valuation, against the stock variation account. Made from the Inventory Valuation report (`/odoo/stock-valuation-closing`, Generate Entry) or daily or monthly by a scheduled action (Inventory chapter 12).
 
 **collection (OCA component)**: the model components register against, and the
 entry-point into the component system through its `work_on()` context manager. In the
@@ -316,6 +320,8 @@ confirmation (chapter 22).
 earliest removal date first, then the earliest arrival. Set on a location (Removal
 Strategy) or a product category; it comes with Expiration Dates.
 
+**FIFO (costing)**: a costing method where each receipt keeps its own value and deliveries consume the oldest receipts first. What is left of each receipt is its `remaining_qty` and `remaining_value`. Not the same thing as the FIFO removal strategy, which decides which unit leaves the shelf (Inventory chapter 12).
+
 **filestore**: the on-disk directory where Odoo stores attachments and uploaded files
 (one subdirectory per database). Binary content lives here, not in PostgreSQL; in the
 tutorial's Docker setup it sits in the `odoo-data` volume.
@@ -388,6 +394,8 @@ never retroactive (chapter 30).
 product in stock. Contributed by the Inventory app, not by `product`, and in Odoo 19 it
 replaces the old `type = 'product'` storable type (chapter 21).
 
+**landed cost (`stock.landed.cost`)**: freight, customs or insurance added to the value of received goods, split over the products Equal, By Quantity, By Current Cost, By Weight or By Volume. FIFO and AVCO products only; it posts a journal entry only for perpetual ones (Inventory chapter 12).
+
 **lead / opportunity**: the two values of `crm.lead.type`, not two models. Converting a
 lead flips the field on the record that already existed, which is why the pipeline has
 no `crm.opportunity` model and no second table (chapter 22).
@@ -435,6 +443,8 @@ lot, so the shelf says which lot is where. The lot form shows its on-hand quanti
 expiry dates, and smart buttons to its sales, transfers, locations and Traceability
 report. Numbers come from the product's own sequence (*Custom Lot/Serial*), from the
 receipt's Generate or Import buttons, or are typed.
+
+**lot valuation (Valuation by Lot/Serial)**: a product option that gives each lot or serial its own cost: receipts need a lot, deliveries leave at the lot's cost, and the product's value is the sum of its lots (Inventory chapter 12).
 
 **manufacture steps (`manufacture_steps`)**: the warehouse's Manufacture choice: one
 step (consume from Stock, deliver to Stock), two steps (a Pick Components transfer brings
@@ -715,6 +725,8 @@ on save. An attribute with a single value multiplies nothing (chapter 21).
 A template with no attributes still has exactly one variant, and core code asking for
 `product_id` always means the variant.
 
+**product.value**: the history of manual value changes in Odoo 19: every change of a product's cost, and every Adjust Valuation on a move. It is what lets Inventory at Date value stock as it was (Inventory chapter 12).
+
 **prototype inheritance**: `_inherit` *plus* a new `_name`. Creates a new model
 and table pre-filled with copies of the parent's field definitions. The two are
 unrelated from then on, and it is the rarest of the three in practice.
@@ -969,6 +981,8 @@ location and a destination location. Validating the transfer turns each move int
 changes at both ends. `product_uom_qty` is the Demand column (what was planned),
 `quantity` is what was actually moved. In Odoo 19 a move has no `name` field.
 
+**stock variation account**: the counterpart of the stock valuation account in a periodic closing entry: the change in stock value for the period. Set on the stock valuation account as its Variation Account (Inventory chapter 12).
+
 **storage category (`stock.storage.category`)**: what a location may hold: a **Max
 Weight** (0 refuses anything that has a weight), **Allow New Product** (only if empty,
 only the same product, or mixed) and capacities per product or per package type. Putaway
@@ -1044,6 +1058,8 @@ Locations filter.
 
 **uid**: the current logged-in user's id, substituted by the web client wherever it
 appears inside a domain or context string written in XML. Not a Python variable.
+
+**Unit Cost History (`stock.avco.report`)**: the list of every cost change of a product and the average after it, opened by clicking a Unit Cost in Inventory → Reporting → Stock. It replays the moves as AVCO, and FIFO products have none (Inventory chapter 12).
 
 **unit of measure (`uom.uom`)**: the unit a quantity is expressed in. In Odoo 19 each
 unit declares `relative_factor` against a `relative_uom_id` (Dozens is 12 Units),
