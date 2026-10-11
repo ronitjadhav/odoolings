@@ -90,6 +90,12 @@ matching the start of the code wins. The **Default Nomenclature** knows `21` wei
 locations, `PACK` packages, `10` lots and everything else as products; the **Default GS1
 Nomenclature** reads GS1 application identifiers.
 
+**batch transfer (`stock.picking.batch`)**: several transfers of one operation type
+grouped into one job and validated together, from the Batch, Wave & Cluster Transfers
+setting (`stock_picking_batch`). Made by hand (Actions → Add to batch) or automatically
+by the operation type's **Automatic Batches**, which needs at least one grouping
+(contact, destination country, source or destination location).
+
 **bridge module**: a small module whose only job is to connect two other modules that
 do not know about each other, depending on both and holding just the glue. Usually
 `auto_install`, so it appears by itself once both sides are installed;
@@ -343,6 +349,16 @@ sets `group_by`, delegating aggregation to a `read_group` call server-side.
 chain **application identifiers**: `(01)` a product's GTIN, `(10)` a lot, `(17)` an expiry
 date, `(30)` a quantity, `(00)` a shipping container's SSCC. Odoo reads them through the
 Default GS1 Nomenclature and can print them on lot labels.
+
+**inventory adjustment (counting)**: writing a **Counted** quantity on a quant in
+Physical Inventory and applying it: Odoo moves the difference between the shelf and the
+virtual **Inventory adjustment** location, which in Odoo 19 also receives scraps. A count
+whose stock moved before it was applied is *outdated* and raises a conflict: Keep Counted
+Quantity or Keep Difference.
+
+**Inventory Frequency (`cyclic_inventory_frequency`)**: a location's cyclic count, in
+days: its quants are scheduled for a count that many days after the **Last Inventory**,
+or on the company's annual inventory day if that comes first.
 
 **invoice policy (`invoice_policy`)**: the per-*product* setting deciding when a sales
 order line becomes invoiceable: `order` (as soon as the order is confirmed) or
@@ -1062,6 +1078,10 @@ never by editing a module's `.po` files directly in a PR; edits made straight to
 `backend.work_on(model_name)`, carrying the model, the collection and anything else the
 components in one work session need to share (an open API client, say). Components look
 each other up through it with `work.component(usage=...)` (appendix on components).
+
+**wave transfer**: a batch made of move lines picked from several transfers, split by
+product, product category or location (Actions → Add to wave, or the operation type's
+Wave Grouping).
 
 **widget**: an attribute on a view field picking an alternative renderer for the
 same data (`widget="many2many_tags"` shows chips instead of a table). Chapter 17
