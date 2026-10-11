@@ -589,6 +589,12 @@ view instead of a patch on it.
 groups ("Workshop" holding User and Manager) on the user form. Replaces the direct
 group-to-category link older versions used.
 
+**procurement (stock)**: a *need*: this much of this product is wanted in this location
+by this date. Confirming a sales order, a reordering rule firing, or a rule with
+**Trigger Another Rule** all create one; Odoo answers it by finding a rule whose
+destination is that location and running it (a transfer, a purchase order, a
+manufacturing order). Nothing is stored for the need itself, only what the rule created.
+
 **product attribute**: a `product.attribute` (Colour, Axle) whose values, when its
 variant mode is "Instantly", make Odoo generate one `product.product` per combination
 on save. An attribute with a single value multiplies nothing (chapter 21).
@@ -610,6 +616,14 @@ every other stock transfer, applied to a transformation rather than a delivery
 (chapter 26).
 
 **PSC**: Project Steering Committee, the maintainers governing one OCA repository.
+
+**pull rule / push rule**: the two directions a stock rule works in. A **pull** (`action
+= pull`) fires when goods are *needed* at its destination and creates a transfer to fetch
+them from its source, working backwards from the customer; a **push** (`action = push`)
+fires when a transfer *into* its source is validated and carries the goods on to its
+destination, working forwards from the dock. Odoo 19's generated routes pull once (out of
+stock) and push the rest (Storage, Pack, Delivery Orders). **Buy** and **Manufacture**
+are pulls that create a purchase or manufacturing order instead of a transfer.
 
 **quant (`stock.quant`)**: one row saying *this product, in this location, this many*
 (plus optional labels: lot, package, owner). The quant table is what Odoo means by
@@ -674,6 +688,12 @@ product at one location. Creating one is a promise, not an action: it does nothi
 a scheduled action checks whether forecast has fallen below the minimum (chapter 25,
 chapter 35).
 
+**Replenish on Order (MTO)**: the global route (`stock.route_warehouse0_mto`, archived
+until the setting of the same name is ticked) whose one rule has Supply Method **Trigger
+Another Rule** (`procure_method = make_to_order`). Put it on a product and every sale
+creates a dedicated chain upstream (a purchase through the Buy rule, or a manufacturing
+order) instead of taking from the shelf. "MTO" is make to order.
+
 **reservation (stock)**: a promise written on a quant: `reserved_quantity` goes up, the
 move gets its move lines and turns Available, and **Free to Use** (`free_qty`) shrinks,
 while On Hand does not change. When it happens is the operation type's **Reservation
@@ -688,6 +708,20 @@ document, and each move points at the move it undoes (`origin_returned_move_id`)
 **recordset**: the value every ORM operation returns: an ordered collection of records
 of one model, which may hold zero, one, or many. Methods called on it apply to all of
 them.
+
+**route (`stock.route`)**: a named list of stock rules plus the places where it may apply
+(*Applicable On*: products, product categories, package types, warehouses, sales order
+lines, shipping methods). The warehouse generates its own from the step settings
+("Deliver in 3 steps (pick + pack + ship)"); **Buy**, **Manufacture** and **Replenish on
+Order (MTO)** are global ones. When a need appears, Odoo gathers the routes of the product,
+its category and the warehouse, and takes the first rule whose destination matches.
+
+**rule (`stock.rule`)**: one instruction inside a route: an **Action** (Pull From, Push To,
+Buy, Manufacture), a source and destination location, the **Operation Type** of the
+transfer it creates, a **Supply Method** for pulls (Take From Stock, Trigger Another Rule,
+or the first falling back to the second), a Lead Time, Cancel Next Move
+(`propagate_cancel`), and for pushes **Automatic Move** and an applicability filter. Its
+form writes the rule out as a sentence (`rule_message`), the fastest way to read one.
 
 **routing (`reception_steps` / `delivery_steps`)**: how many transfers a warehouse
 makes goods pass through on the way in or out: directly (1 step), via Input/Output

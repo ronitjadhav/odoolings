@@ -1,0 +1,937 @@
+---
+title: "Inventory 3. Routes and Rules, the Engine"
+description: Switch on multi-step routes, read the rules Odoo writes for you, receive in two steps and deliver in three, then let one sales order buy, receive, store, pick, pack and ship a product by itself.
+tier: foundations
+---
+
+**Goal:** be able to open any transfer Odoo created on its own and say which rule made
+it, why it exists, and what will happen when you validate it. · **Time:** ~3 h ·
+**Checkpoint:** none, this chapter writes no module. It continues the `warehouse`
+database and installs the Sales and Purchase apps into it.
+
+## Why this matters
+
+Until now every transfer in the depot was one you typed. Real warehouses are the other
+way round: most transfers are created by Odoo, because a sales order was confirmed, a
+receipt was validated, a minimum was crossed. The machine that creates them is a small
+set of **routes** and **rules**, and almost every "where did this transfer come from?"
+ticket an integrator gets is answered by reading one rule.
+
+This chapter switches the engine on, reads what it generates, and then makes it run end
+to end: one sales order for a product you do not have in stock, and Odoo buys it,
+receives it, stores it, picks it, packs it and ships it, creating six documents you never
+touched. Chapter 25 of the journey showed a two-step receipt in passing. Here you will see
+every rule behind every step, in the simplest words we have.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter,
+  installs Sales and Purchase, and replays this chapter's own steps if you ask it to. You
+  only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### A rule is one sentence, a route is a list of them
+
+A **rule** (`stock.rule`) is one instruction of the form *when a product is needed in
+Customers, create a Delivery Order from LFD/Stock*. Odoo even writes the sentence for you,
+on the rule's form. A **route** (`stock.route`) is a named list of rules, plus the places
+where the route is allowed to apply. The engine is nothing more than: a need appears
+somewhere, Odoo finds the rule whose destination is that somewhere, the rule creates a
+transfer, and if that transfer needs stock it does not have, a new need appears one
+location upstream.
+
+<Mermaid
+  label="A route is a named list of rules; a rule says, for one destination, which operation type moves goods there from where."
+  chart={`flowchart LR
+    R["Route<br/>Deliver in 3 steps (pick + pack + ship)"]
+    R --> A["Rule: Pull From<br/>LFD/Stock to Customers<br/>via Pick"]
+    R --> B["Rule: Push To<br/>LFD/Packing Zone to LFD/Output<br/>via Pack"]
+    R --> C["Rule: Push To<br/>LFD/Output to Customers<br/>via Delivery Orders"]`}
+/>
+
+### Four kinds of rule, two directions
+
+The **Action** field is the rule's kind. Two of them come with Inventory, two arrive
+with other apps:
+
+| Action | Stored as | In plain words | Fires when |
+|---|---|---|---|
+| **Pull From** | `pull` | "goods are needed *here*: fetch them from *there*" | a need appears at the destination (an order, a reordering rule, another rule) |
+| **Push To** | `push` | "goods arrived *here*: carry them on to *there*" | a transfer into the source location is **validated** |
+| **Buy** | `buy` | a pull that creates a purchase order instead of a transfer | a need appears at the destination and the product has a vendor |
+| **Manufacture** | `manufacture` | a pull that creates a manufacturing order | a need appears and the product has a bill of materials |
+
+Pull works backwards from the customer; push works forwards from the dock. Odoo 19's
+generated routes use both: one pull to get goods out of stock, then pushes to carry them
+to the door. That matters for one practical reason you will see in the hands-on: in a
+multi-step warehouse, the chain **starts at the Pick**, and a Delivery Order you type by
+hand is a dead end.
+
+### Supply Method: where the pull gets its goods
+
+A pull rule also says how to satisfy the need it serves, in **Supply Method**
+(`procure_method`):
+
+| Supply Method | Stored as | Meaning |
+|---|---|---|
+| **Take From Stock** | `make_to_stock` | reserve from whatever is in the source location; wait if there is nothing |
+| **Trigger Another Rule** | `make_to_order` | do not touch existing stock: create a *new need* in the source location, so another rule (a pull, a Buy, a Manufacture) brings exactly this quantity |
+| **Take From Stock, if unavailable, Trigger Another Rule** | `mts_else_mto` | the first, falling back to the second |
+
+**Trigger Another Rule** is what people call **make to order**, or **MTO**. The
+`Replenish on Order (MTO)` route is one rule with that supply method, archived in a fresh
+database until you switch it on in the settings.
+
+### The rest of the rule form
+
+- **Operation Type**: which kind of transfer the rule creates, and therefore its number
+  prefix and default locations.
+- **Source Location** and **Destination Location**: the rule's "from" and "to". A move
+  created by a pull takes its destination from the operation type, unless *Destination
+  location origin from rule* (`location_dest_from_rule`) is ticked; the place the goods
+  are ultimately heading for is kept apart on the move as **Final Location**
+  (`location_final_id`), which is how a Pick knows it is really going to Customers.
+- **Lead Time** (`delay`): days added to the scheduled date of the transfer this rule
+  creates. The replenishment chapter adds these up.
+- **Partner Address**: forces the transfer's partner, for drop-shipping style routes.
+- **Cancel Next Move** (`propagate_cancel`): when this transfer is cancelled, cancel
+  the one it feeds.
+- **Automatic Move** (`auto`, push rules only): *Manual Operation* creates the next
+  transfer and waits for a human; *Automatic No Step Added* validates it immediately.
+- **Applicability** (`push_domain`, push rules only): a filter, so a push can apply to
+  some moves and not others.
+
+### Where a route is allowed to apply
+
+A route only does something where it is **selectable**. The route form's *Applicable On*
+boxes are the switches: **Product Categories**, **Products**, **Package Type**,
+**Warehouses**, and with Sales installed, **Sales Order Lines**; with delivery methods,
+**Shipping Methods**. When a need appears, Odoo gathers the routes from the product, then
+its category, then the warehouse, and picks the first rule (by **sequence**) whose
+destination matches. The generated warehouse routes are warehouse-selectable and ticked
+on your warehouse, which is why they apply to everything without being on any product.
+
+### The warehouse writes the routes for you
+
+You rarely write routes by hand. The warehouse form has two radio groups, **Incoming
+Shipments** and **Outgoing Shipments**, each with one, two or three steps, and saving
+them regenerates the warehouse's routes:
+
+| Setting | Route Odoo names | Rules it holds | Locations it wakes up |
+|---|---|---|---|
+| Receive and Store (1 step) | Receive in 1 step (stock) | pull Vendors to Stock | |
+| Receive then Store (2 steps) | Receive in 2 steps (input + stock) | pull Vendors to Input, **push** Input to Stock (Storage) | Input |
+| Receive, Quality Control, then Store (3 steps) | Receive in 3 steps (input + quality + stock) | pull, push to Quality Control, push to Stock | Input, Quality Control |
+| Deliver (1 step) | Deliver in 1 step (ship) | pull Stock to Customers (Delivery Orders) | |
+| Pick then Deliver (2 steps) | Deliver in 2 steps (pick + ship) | pull Stock to Output (Pick), **push** Output to Customers | Output |
+| Pick, Pack, then Deliver (3 steps) | Deliver in 3 steps (pick + pack + ship) | pull Stock to Packing Zone (Pick), push to Output (Pack), push to Customers (Delivery Orders) | Packing Zone, Output |
+
+Each extra step also wakes up an operation type (Storage, Quality Control, Pick, Pack)
+and a **Cross Dock** type from Input straight to Output, for goods that should not be
+shelved at all. Odoo renames the existing routes in place and archives the rules it no
+longer needs, so your Receipts and Delivery Orders operation types keep their numbers.
+
+### How one order becomes six documents
+
+Put the pieces together for a product that is **Replenish on Order** and has a vendor,
+in a warehouse that receives in two steps and delivers in three:
+
+<Mermaid
+  label="Confirming a sales order pulls a Pick with Trigger Another Rule, which pulls a purchase order through the Buy rule; validating each transfer then pushes the next one until the delivery."
+  chart={`flowchart TD
+    SO["Sales order confirmed:<br/>need 1 tablet in Customers"]
+    SO -- "pull (MTO rule)" --> PICK["Pick, Waiting<br/>LFD/Stock to Packing Zone"]
+    PICK -- "need 1 tablet in LFD/Stock" --> BUY["Buy rule:<br/>purchase order P00001"]
+    BUY -- "confirm" --> IN["Receipt, Ready<br/>Vendors to LFD/Input"]
+    IN -- "validate, push" --> STOR["Storage<br/>LFD/Input to LFD/Stock"]
+    STOR -- "validate: Pick wakes up" --> PICK2["Pick, Ready"]
+    PICK2 -- "validate, push" --> PACK["Pack<br/>Packing Zone to Output"]
+    PACK -- "validate, push" --> OUT["Delivery Order<br/>Output to Customers"]`}
+/>
+
+Two pulls happen at confirmation and go backwards (the Pick, then the purchase order).
+Everything after that is a push, and pushes happen one at a time, each when the
+previous transfer is **validated**. So right after the order is confirmed you see one
+Pick and one request for quotation, not the whole chain. The links between the moves are
+stored on the moves themselves (`move_orig_ids` and `move_dest_ids`), which is what the
+**Next Transfer** button follows, and what makes the Pick turn Ready the moment the
+Storage is done.
+
+### Replenish on Order, and the Buy route
+
+**Replenish on Order (MTO)** is a global route, archived until you tick the setting of
+the same name. Once active, it is product-selectable: tick it on a product's Inventory
+tab and every sale of that product creates a dedicated chain instead of taking from the
+shelf. Its one rule is *Trigger Another Rule* from Stock to Customers.
+
+The **Buy** route arrives with Purchase. In Odoo 19 it is **not** a box on the product:
+it is a warehouse route, and its rule, *Stock (Buy)*, fires for any product that has a
+vendor on its Purchase tab whenever a need reaches `LFD/Stock` that nothing else serves.
+A need from a *Trigger Another Rule* pull is exactly that. No vendor, no purchase order:
+the need simply stays open, which is a classic support ticket.
+
+<Callout type="info" title="Official docs">
+  [Routes and rules](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/use_routes.html)
+  and [Replenish on order](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/mto.html)
+  cover the same ground from the user's side. Read them after this chapter.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter: 9 brake pad sets, 9 bottles of
+oil, 1 tablet on the shelf. By the end: 5, 15 and 1, with eleven more transfers, a sales
+order and a purchase order you watched Odoo create.
+
+<Steps>
+
+<Step>
+### Switch on Multi-Step Routes and read a rule
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, under **Warehouse**, tick **Multi-Step
+Routes** and **Save**:
+
+![The Inventory settings with the Multi-Step Routes box under Warehouse highlighted, unticked, next to the ticked Storage Locations](/screens/inv03-settings-multistep.jpg)
+
+Two menus appear under **Configuration**: **Routes** and **Rules**. Open **Routes**:
+
+![The Routes list with its two rows highlighted: LibreFleet Depot: Receive in 1 step (stock) and LibreFleet Depot: Deliver in 1 step (ship)](/screens/inv03-routes-list.jpg)
+
+Two routes, both written by the warehouse. Open **Deliver in 1 step (ship)**:
+
+![The route form for Deliver in 1 step, with the Applicable On boxes highlighted, Product Categories ticked, Products and Package Type unticked, and Warehouses ticked with LibreFleet Depot highlighted, and the single rule row highlighted: Pull From, LFD/Stock to Customers](/screens/inv03-route-form.jpg)
+
+The route applies to the warehouse and to product categories, and it holds one rule.
+Click the rule's row:
+
+![The rule dialog with Name WH: Stock to Customers, Action Pull From, Operation Type LibreFleet Depot: Delivery Orders, Source Location LFD/Stock, Destination Location Customers, Supply Method Take From Stock, the sentence When products are needed in Customers, Delivery Orders are created from LFD/Stock to fulfill the need, and the options Partner Address, Cancel Next Move and Lead Time all highlighted](/screens/inv03-rule-form.jpg)
+
+Read the sentence on the right: that is the whole rule. Notice the name still says
+`WH:`: rules are named when they are created, and this one was created before you renamed
+the warehouse. **Discard** the dialog.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["res.config.settings"].create({"group_stock_adv_location": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+>>> env.user.has_group("stock.group_adv_location")
+True
+>>> wh = env["stock.warehouse"].search([])
+>>> wh.reception_steps, wh.delivery_steps
+('one_step', 'ship_only')
+>>> for route in env["stock.route"].with_context(active_test=False).search([], order="id"):
+...     print(f"{route.id} {route.name:<46} {'active' if route.active else 'archived'}")
+...
+1 Replenish on Order (MTO)                       archived
+2 LibreFleet Depot: Receive in 1 step (stock)    active
+3 LibreFleet Depot: Deliver in 1 step (ship)     active
+>>> rule = wh.delivery_route_id.rule_ids
+>>> rule.name, rule.action, rule.procure_method
+('WH: Stock → Customers', 'pull', 'make_to_stock')
+>>> rule.location_src_id.complete_name, rule.location_dest_id.complete_name, rule.picking_type_id.name
+('LFD/Stock', 'Customers', 'Delivery Orders')
+>>> print(html2plaintext(rule.rule_message))
+When products are needed in *Customers*,
+*Delivery Orders* are created from *LFD/Stock* to fulfill the need.
+```
+
+The setting is a group, like the ones in the first chapter. The warehouse keeps a pointer
+to its reception and delivery routes (`reception_route_id`, `delivery_route_id`), and the
+MTO route is already there, archived, waiting for the setting that unarchives it.
+`html2plaintext` comes from `odoo.tools`; the shell imports it for you.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Go two steps in, three steps out
+
+<UiOrShell>
+<Tab>
+
+**Configuration → Warehouses**, open **LibreFleet Depot**. The form grew a **Shipments**
+section:
+
+![The warehouse form with Incoming Shipments on Receive and Store (1 step) and Outgoing Shipments on Deliver (1 step), both radio groups highlighted, and the Routes smart button highlighted](/screens/inv03-warehouse-steps-before.jpg)
+
+Pick:
+
+- **Incoming Shipments:** Receive then Store (2 steps)
+- **Outgoing Shipments:** Pick, Pack, then Deliver (3 steps)
+
+![The same form with Receive then Store (2 steps) and Pick, Pack, then Deliver (3 steps) selected, both groups highlighted, and the save icon highlighted](/screens/inv03-warehouse-steps.jpg)
+
+Save, then click the **Routes** smart button:
+
+![The Warehouse's Routes list with two rows highlighted: LibreFleet Depot: Receive in 2 steps (input + stock) and LibreFleet Depot: Deliver in 3 steps (pick + pack + ship)](/screens/inv03-warehouse-routes.jpg)
+
+Same two routes, renamed in place, with new rules inside. **Configuration → Operations
+Types** now lists seven:
+
+![The Operations Types list with Storage, Internal Transfers, Pick, Pack, Delivery Orders and Cross Dock highlighted below Receipts](/screens/inv03-optypes-after.jpg)
+
+And the **Overview** has a card for each:
+
+![The Inventory Overview with seven cards, the new Storage, Pick and Pack titles highlighted](/screens/inv03-overview-seven.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> wh.write({"reception_steps": "two_steps", "delivery_steps": "pick_pack_ship"})
+True
+>>> wh.reception_route_id.name, wh.delivery_route_id.name
+('LibreFleet Depot: Receive in 2 steps (input + stock)', 'LibreFleet Depot: Deliver in 3 steps (pick + pack + ship)')
+>>> for rule in env["stock.rule"].search([], order="id"):
+...     print(f"{rule.id} {rule.action:<5} {(rule.location_src_id.complete_name or '-'):<17} -> {rule.location_dest_id.complete_name:<17} {rule.picking_type_id.name:<16} {rule.procure_method}")
+...
+1 pull  Vendors           -> LFD/Stock         Receipts         make_to_stock
+3 pull  LFD/Stock         -> Customers         Pick             make_to_order
+4 push  LFD/Input         -> LFD/Stock         Storage          make_to_order
+5 pull  LFD/Stock         -> Customers         Pick             make_to_stock
+6 push  LFD/Packing Zone  -> LFD/Output        Pack             make_to_order
+7 push  LFD/Output        -> Customers         Delivery Orders  make_to_order
+>>> env["stock.location"].search([("name", "in", ["Input", "Output", "Packing Zone", "Quality Control"])]).mapped("complete_name")
+['LFD/Input', 'LFD/Output', 'LFD/Packing Zone']
+>>> wh.in_type_id.default_location_dest_id.complete_name, wh.pick_type_id.default_location_dest_id.complete_name, wh.out_type_id.default_location_src_id.complete_name
+('LFD/Input', 'LFD/Packing Zone', 'LFD/Output')
+```
+
+Rule 2, the old one-step delivery rule, is gone from the active list: archived, not
+deleted. Rule 3 is the MTO route's rule, now pointing at the Pick type; it is archived too
+(its route is), and it shows here because the search runs as the superuser's shell with
+archived rules included for that route. Read the push rules: Input to Stock, Packing Zone
+to Output, Output to Customers. The three operation types changed their default locations
+to match; Quality Control stays archived, since you chose two reception steps, not three.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive six bottles through Input
+
+<UiOrShell>
+<Tab>
+
+**Operations → Transfers → Receipts → New**, **Receive From** `Brembo Parts`, one line
+`Engine Oil 5W-30 1L`, Demand `6`:
+
+![A new receipt with Destination Location LFD/Input highlighted, the status bar Draft, Ready, Done highlighted, and the Engine Oil line with demand 6 highlighted](/screens/inv03-receipt-input.jpg)
+
+The destination is **LFD/Input**, not Stock: the Receipts operation type changed its
+default when you chose two steps. **Validate**:
+
+![The receipt LFD/IN/00004 Done with Destination Location LFD/Input highlighted, the Done status highlighted, and a new Next Transfer smart button highlighted](/screens/inv03-receipt-done-next.jpg)
+
+A **Next Transfer** button appeared. Click it:
+
+![The transfer LFD/STOR/00001 in Ready, with its reference, Operation Type LibreFleet Depot: Storage, Source Location LFD/Input, Destination Location LFD/Stock, Source Document LFD/IN/00004 and the Ready status highlighted](/screens/inv03-storage-ready.jpg)
+
+Nobody created this. The push rule *Input to Stock* did, the moment the receipt was
+validated, and it is already Ready because the bottles are sitting in Input. **Validate**
+it. The shelf is at 15 bottles.
+
+</Tab>
+<Tab>
+
+```python
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> pads, oil, tablet = variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L"), variant("Diagnostic Tablet")
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": brembo.id, "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": oil.id, "product_uom_qty": 6})],
+... })
+>>> receipt.location_dest_id.complete_name, receipt.move_ids.location_final_id.complete_name
+('LFD/Input', False)
+>>> receipt.button_validate()
+True
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.name, storage.state, storage.picking_type_id.name, storage.move_ids.rule_id.name
+('LFD/STOR/00001', 'assigned', 'Storage', 'LFD: Input → Stock')
+>>> storage.location_id.complete_name, storage.location_dest_id.complete_name
+('LFD/Input', 'LFD/Stock')
+>>> oil.qty_available, oil.with_context(location=wh.wh_input_stock_loc_id.id).qty_available
+(15.0, 6.0)
+>>> storage.button_validate()
+True
+>>> oil.qty_available, oil.with_context(location=wh.wh_input_stock_loc_id.id).qty_available
+(15.0, 0.0)
+```
+
+`move_dest_ids` is the link the push rule wrote: the receipt's move now points at the
+Storage move, and the Storage move carries `rule_id`, the rule that made it. Watch
+`qty_available`: it was already 15 while the bottles were in Input, because Input is an
+internal location under the warehouse; the context trick from the first chapter shows the
+6 sitting in Input until the Storage is done.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Pick, pack and ship four pads
+
+In a three-step warehouse the chain starts at the **Pick**.
+
+<UiOrShell>
+<Tab>
+
+**Overview**, on the **Pick** card click **Open**, then **New**:
+
+- **Contact:** `Garage Nord`
+- **Add a Product:** `Brake Pad Set`, Demand `4`
+
+![A new Pick in Draft with Contact Garage Nord, Operation Type LibreFleet Depot: Pick, Source Location LFD/Stock and Destination Location LFD/Packing Zone highlighted, the Brake Pad Set line with demand 4 highlighted, and the Mark as Todo button highlighted](/screens/inv03-pick-new.jpg)
+
+From Stock to the Packing Zone. **Mark as Todo**:
+
+![The pick LFD/PICK/00001 in Ready, with its reference, the Ready status and Demand 4, Quantity 4 highlighted](/screens/inv03-pick-ready.jpg)
+
+Ready, reserved, and no Next Transfer yet: pushes fire on **Validate**, not on confirm.
+**Validate**:
+
+![The pick LFD/PICK/00001 Done, with Destination Location LFD/Packing Zone highlighted, the Done status highlighted and the Next Transfer button highlighted](/screens/inv03-pick-done-next.jpg)
+
+Click **Next Transfer**:
+
+![The transfer LFD/PACK/00001 in Ready, with its reference, Operation Type LibreFleet Depot: Pack, Source Location LFD/Packing Zone, Destination Location LFD/Output, Source Document LFD/PICK/00001 and the Ready status highlighted](/screens/inv03-pack-ready.jpg)
+
+**Validate** the Pack, click **Next Transfer** again:
+
+![The delivery LFD/OUT/00005 in Ready, with its reference, Delivery Address Garage Nord, Operation Type LibreFleet Depot: Delivery Orders, Source Location LFD/Output, Source Document LFD/PICK/00001 and the Ready status highlighted](/screens/inv03-delivery-from-pack.jpg)
+
+The delivery goes from **LFD/Output** to Customers and remembers it started at
+`LFD/PICK/00001`. **Validate**. The shelf is at 5 pads.
+
+</Tab>
+<Tab>
+
+```python
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> pick = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": wh.pick_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": pads.id, "product_uom_qty": 4})],
+... })
+>>> pick.action_confirm()
+True
+>>> pick.name, pick.state, pick.location_dest_id.complete_name, pick.move_ids.move_dest_ids
+('LFD/PICK/00001', 'assigned', 'LFD/Packing Zone', stock.move())
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.name, pack.state, pack.location_id.complete_name, pack.location_dest_id.complete_name, pack.move_ids.rule_id.name
+('LFD/PACK/00001', 'assigned', 'LFD/Packing Zone', 'LFD/Output', 'LFD: Packing Zone → Output')
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.name, out.state, out.picking_type_id.name, out.location_id.complete_name, out.partner_id.name
+('LFD/OUT/00005', 'assigned', 'Delivery Orders', 'LFD/Output', 'Garage Nord')
+>>> out.button_validate()
+True
+>>> pads.qty_available
+5.0
+>>> env.cr.commit()
+```
+
+After `action_confirm`, `move_dest_ids` is still empty: nothing is pushed until the pick
+is done. Each `button_validate` fills in the next link. The partner travels along the
+chain, so the delivery is addressed to Garage Nord without anyone typing it. Commit here;
+the next step leaves the shell to install two apps.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Install Sales and Purchase
+
+The engine shows its real worth when a sales order starts it and a purchase order ends
+it. Two apps.
+
+<UiOrShell>
+<Tab>
+
+Open the **Apps** menu. Click **Activate** on **Purchase**, wait for the reload, come
+back to Apps and click **Activate** on **Sales**:
+
+![The Apps screen with the Sales card, showing Activate, and the Purchase card, already installed, both highlighted](/screens/inv03-apps-purchase-sales.jpg)
+
+Each install takes about a minute and lands you in Discuss. Purchase brings the **Buy**
+route; Sales lets an order create a need.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d warehouse -i sale_management,purchase --stop-after-init
+```
+
+Whichever way you install, the server log (`docker compose logs odoo`) shows the
+registry reloading with more modules each time. From the two Apps clicks above:
+
+```text
+INFO warehouse odoo.modules.loading: loading 58 modules...
+INFO warehouse odoo.modules.loading: Modules loaded.
+INFO warehouse odoo.modules.loading: loading 69 modules...
+INFO warehouse odoo.modules.loading: Modules loaded.
+```
+
+Fifty-eight modules after Purchase, sixty-nine after Sales, up from forty:
+`sale_management` and `purchase` pull in `sale`, `sale_stock`, `purchase_stock`,
+`account` and their dependencies. The `_stock` bridges are where the routes meet the
+orders.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Make the tablet Replenish on Order, with a vendor
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, scroll to **Logistics**, tick **Replenish on
+Order (MTO)** and **Save**:
+
+![The Inventory settings Logistics section with the Replenish on Order (MTO) box highlighted, unticked, next to Dropshipping](/screens/inv03-settings-mto.jpg)
+
+Now **Products → Products**, open **Diagnostic Tablet**, **Inventory** tab:
+
+![The Diagnostic Tablet product form on the Inventory tab, with the Routes box Replenish on Order (MTO) ticked and highlighted, the View Diagram link highlighted, and the Purchase tab highlighted](/screens/inv03-product-mto.jpg)
+
+Tick **Replenish on Order (MTO)**. Only one route is offered: the Buy route is not a
+product choice in Odoo 19. Switch to the **Purchase** tab, **Add a line**:
+
+- **Vendor:** `Brembo Parts`
+- **Unit Price:** `400`
+
+![The product's Purchase tab with the vendor line Brembo Parts at unit price 400 highlighted, and the Control Policy radio buttons highlighted](/screens/inv03-product-vendor.jpg)
+
+Save. The product now says who to buy it from and that every sale should trigger a
+purchase.
+
+</Tab>
+<Tab>
+
+A fresh shell, since the apps were installed outside it:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["res.config.settings"].create({"replenish_on_order": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+>>> mto = env.ref("stock.route_warehouse0_mto")
+>>> mto.name, mto.active, mto.rule_ids.mapped("name")
+('Replenish on Order (MTO)', True, ['LFD: Stock → Customers (MTO)'])
+>>> buy = env.ref("purchase_stock.route_warehouse0_buy")
+>>> buy.name, buy.product_selectable, buy.warehouse_selectable, [(r.name, r.action) for r in buy.rule_ids]
+('Buy', False, True, [('LFD: Stock (Buy)', 'buy')])
+>>> wh = env["stock.warehouse"].search([])
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> tablet = variant("Diagnostic Tablet")
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> tablet.product_tmpl_id.write({"route_ids": [(4, mto.id)], "seller_ids": [(0, 0, {"partner_id": brembo.id, "price": 400})]})
+True
+>>> tablet.route_ids.mapped("name"), tablet.seller_ids.mapped("partner_id.name")
+(['Replenish on Order (MTO)'], ['Brembo Parts'])
+```
+
+The two routes have stable external ids, `stock.route_warehouse0_mto` and
+`purchase_stock.route_warehouse0_buy`, so code can find them without searching by name.
+Read the Buy route's flags: `product_selectable` False, `warehouse_selectable` True.
+Routes live on the template (`route_ids`), as do vendors (`seller_ids`, the Purchase tab).
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Let one order run the engine
+
+<UiOrShell>
+<Tab>
+
+Open the **Sales** app, **New**:
+
+- **Customer:** `Garage Nord`
+- **Add a product:** `Diagnostic Tablet`, quantity `1`, **Unit Price** `650`
+
+![A new quotation with Customer Garage Nord highlighted, the Diagnostic Tablet line at 650 highlighted, and the Confirm button highlighted](/screens/inv03-so-new.jpg)
+
+**Confirm**:
+
+![The sales order S00001 with the Sales Order status highlighted and two smart buttons highlighted: Delivery 1 and Purchase 1](/screens/inv03-so-confirmed.jpg)
+
+One click, two documents. Click **Purchase**:
+
+![The request for quotation P00001 with its reference, Vendor Brembo Parts, Deliver To LibreFleet Depot: Receipts, the Diagnostic Tablet line at 400, the Sale smart button and the Confirm Order button highlighted](/screens/inv03-rfq.jpg)
+
+A request for quotation to Brembo, for exactly one tablet at the vendor price, linked
+back to the sale. The Delivery smart button meanwhile holds one Pick, **Waiting Another
+Operation**: it is make to order, so it refuses the tablet already on the shelf and waits
+for its own. **Confirm Order**, then click the **Receipt** smart button:
+
+![The receipt LFD/IN/00005 in Ready, with its reference, Destination Location LFD/Input, Source Document P00001 and the Ready status highlighted](/screens/inv03-receipt-po.jpg)
+
+**Validate**, then **Next Transfer**:
+
+![The transfer LFD/STOR/00002 in Ready, with its reference, Operation Type LibreFleet Depot: Storage, Source Location LFD/Input, Destination Location LFD/Stock, Source Document P00001 and the Ready status highlighted](/screens/inv03-storage-po.jpg)
+
+**Validate**, then **Next Transfer** once more:
+
+![The pick LFD/PICK/00002 now Ready, with its reference, Operation Type LibreFleet Depot: Pick, Source Document S00001, Demand 1 and Quantity 1, the Ready status, and the chatter line Waiting Another Operation to Ready highlighted](/screens/inv03-pick-so-ready.jpg)
+
+The Pick that was waiting woke up the moment the Storage put a tablet into Stock: the
+chatter records *Waiting Another Operation to Ready*. **Validate** it, **Next Transfer**
+to the Pack, **Validate**, **Next Transfer** to the delivery:
+
+![The delivery LFD/OUT/00006 in Ready, with its reference, Delivery Address Garage Nord, Operation Type LibreFleet Depot: Delivery Orders, Source Location LFD/Output, Source Document S00001 and the Ready status highlighted](/screens/inv03-delivery-so.jpg)
+
+**Validate**. Back on the sales order:
+
+![The sales order S00001 with the Delivery 3 and Purchase 1 smart buttons highlighted and the Delivered column showing 1.00 highlighted](/screens/inv03-so-delivered.jpg)
+
+Delivered 1. Click **Delivery**:
+
+![The Transfers list for S00001 with its three rows highlighted: LFD/PICK/00002 from LFD/Stock to LFD/Packing Zone, LFD/PACK/00002 from LFD/Packing Zone to LFD/Output and LFD/OUT/00006 from LFD/Output to Customers, all Done](/screens/inv03-so-transfers.jpg)
+
+Three transfers, one purchase, one receipt, one storage. You created none of them. The
+tablet that was on the shelf all along is still there.
+
+</Tab>
+<Tab>
+
+```python
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id,
+...     "order_line": [(0, 0, {"product_id": tablet.id, "product_uom_qty": 1, "price_unit": 650})],
+... })
+>>> order.action_confirm()
+True
+>>> order.name, order.picking_ids.mapped("name"), order.picking_ids.mapped("state")
+('S00001', ['LFD/PICK/00002'], ['waiting'])
+>>> pick = order.picking_ids
+>>> pick.move_ids.procure_method, pick.move_ids.rule_id.name, pick.move_ids.location_final_id.complete_name
+('make_to_order', 'LFD: Stock → Customers (MTO)', 'Customers')
+>>> po = env["purchase.order"].search([("origin", "=", order.name)])
+>>> po.name, po.state, po.partner_id.name, po.order_line.product_id.name, po.order_line.price_unit
+('P00001', 'draft', 'Brembo Parts', 'Diagnostic Tablet', 400.0)
+>>> po.button_confirm()
+True
+>>> receipt = po.picking_ids
+>>> receipt.name, receipt.state, receipt.location_dest_id.complete_name, receipt.move_ids.move_dest_ids.reference
+('LFD/IN/00005', 'assigned', 'LFD/Input', 'LFD/PICK/00002')
+>>> receipt.button_validate()
+True
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.name, storage.state, storage.move_ids.move_dest_ids.reference
+('LFD/STOR/00002', 'assigned', 'LFD/PICK/00002')
+>>> storage.button_validate()
+True
+>>> pick.state, pick.move_ids.quantity
+('assigned', 1.0)
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.button_validate()
+True
+>>> [(p.name, p.state) for p in order.picking_ids], order.order_line.qty_delivered
+([('LFD/PICK/00002', 'done'), ('LFD/PACK/00002', 'done'), ('LFD/OUT/00006', 'done')], 1.0)
+```
+
+The pick's move says it all: `procure_method` is `make_to_order`, its `rule_id` is the
+MTO rule, and its `location_final_id` is Customers even though its destination is the
+Packing Zone. Before the receipt was validated, its move already pointed at the Pick
+(`move_dest_ids`); after validation the Storage move was spliced in between. That is how
+the Pick knows to wait, and how it knows when to stop waiting.
+
+</Tab>
+</UiOrShell>
+
+If you took an `odoolings snapshot` before confirming the order, `odoolings diff` lists
+what one click created, with nothing else in the way:
+
+```console
+$ python3 odoolings.py diff --db warehouse
+```
+
+```text
+purchase.order      +1
+      new   P00001                   state=draft  amount_total=400.0  invoice_status=no
+purchase.order.line +1
+      new   Diagnostic Tablet        product_qty=1.0  price_unit=400.0
+sale.order          +1
+      new   S00001                   state=sale  amount_untaxed=650.0  amount_total=650.0  invoice_status=to invoice
+sale.order.line     +1
+      new   Diagnostic Tablet        product_uom_qty=1.0  price_unit=650.0
+stock.move          +1
+      new   Diagnostic Tablet        reference=LFD/PICK/00002  product_uom_qty=1.0  state=waiting
+stock.picking       +1
+      new   LFD/PICK/00002           state=waiting  picking_type_id=LibreFleet Depot: Pick
+```
+
+One sales order, one purchase order, one Pick. Not three transfers: the Pack and the
+delivery do not exist yet, because pushes wait for a validation.
+</Step>
+
+<Step>
+### Read the chain, three ways
+
+<UiOrShell>
+<Tab>
+
+On the tablet's product form, **Inventory** tab, click **View Diagram**:
+
+![The Product Routes Report for Diagnostic Tablet: a grid of locations Vendors, LFD/Stock, LFD/Packing Zone, LFD/Output, LFD/Input and Customers, with arrows for Pick, Receipts, Storage, Pick, Pack and Delivery Orders, and a legend for push rule, pull rule, trigger another rule and buy](/screens/inv03-routes-report.jpg)
+
+Every rule that can apply to this product, drawn between the locations it connects. The
+dashed start on an arrow means *Trigger Another Rule*; the small card on Receipts means
+Buy. **Print** gives the same as a PDF.
+
+**Configuration → Rules** is the flat list:
+
+![The Rules list with the Action column highlighted: Pull From for the MTO route, Push To for Input to Stock, Pull From and two Push To for the three-step delivery route, and Buy](/screens/inv03-rules-list.jpg)
+
+Open **Push To, LFD/Input to LFD/Stock**:
+
+![The push rule form LFD: Input to Stock with Action Push To, Operation Type LibreFleet Depot: Storage, Source Location LFD/Input, Destination Location LFD/Stock, Automatic Move Manual Operation, the Route and the sentence When products arrive in LFD/Input, Storage are created to send them to LFD/Stock highlighted](/screens/inv03-push-rule.jpg)
+
+A push rule's form has **Automatic Move** and an **Applicability** filter that the pull
+rule did not. *Manual Operation* is why the Storage waited for your Validate.
+
+</Tab>
+<Tab>
+
+```python
+>>> move = out.move_ids
+>>> while move:
+...     print(f"{move.reference:<15} {move.location_id.complete_name:<17} -> {move.location_dest_id.complete_name:<17} {move.state:<5} rule: {move.rule_id.name or '-'}")
+...     move = move.move_orig_ids
+...
+LFD/OUT/00006   LFD/Output        -> Customers         done  rule: LFD: Output → Customers
+LFD/PACK/00002  LFD/Packing Zone  -> LFD/Output        done  rule: LFD: Packing Zone → Output
+LFD/PICK/00002  LFD/Stock         -> LFD/Packing Zone  done  rule: LFD: Stock → Customers (MTO)
+LFD/STOR/00002  LFD/Input         -> LFD/Stock         done  rule: LFD: Input → Stock
+LFD/IN/00005    Vendors           -> LFD/Input         done  rule: -
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal")], order="id"):
+...     print(f"{q.location_id.complete_name:<17} {q.product_id.name:<20} {q.quantity:>6.2f}")
+...
+LFD/Stock         Brake Pad Set          5.00
+LFD/Stock         Engine Oil 5W-30 1L   15.00
+LFD/Stock         Diagnostic Tablet      1.00
+LFD/Input         Engine Oil 5W-30 1L    0.00
+LFD/Packing Zone  Brake Pad Set          0.00
+LFD/Output        Brake Pad Set          0.00
+LFD/Input         Diagnostic Tablet      0.00
+LFD/Packing Zone  Diagnostic Tablet      0.00
+LFD/Output        Diagnostic Tablet      0.00
+>>> env.cr.commit()
+```
+
+Walking `move_orig_ids` from the delivery backwards reads the whole story, rule by
+rule, down to the receipt, which has no rule because the purchase order created it. The
+step locations keep zero quants behind: a quant is not deleted when it empties, which is
+why Reporting → Locations shows them, and why a quantity stuck at Input is easy to spot.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv03 --db warehouse
+```
+
+```text
+✔ Multi-Step Routes is switched on
+✔ the depot receives in 2 steps and delivers in 3
+✔ 6 bottles came in through Input and were stored
+✔ 4 pads went out as Pick, Pack, then Delivery
+✔ Sales and Purchase are installed
+✔ the tablet is Replenish on Order with a vendor
+✔ the sales order bought, received, stored, picked, packed and shipped one tablet
+✔ the shelf holds 5 pads, 15 oil and 1 tablet, nothing in the step locations
+
+inv03 complete! On to the next chapter 🔧
+```
+
+Every transfer, with the document that started it:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select p.name as transfer, t.name->>'en_US' as type, p.state, p.origin from stock_picking p join stock_picking_type t on t.id=p.picking_type_id order by p.id;"
+```
+
+```text
+    transfer    |      type       | state  |         origin
+----------------+-----------------+--------+-------------------------
+ LFD/IN/00001   | Receipts        | done   |
+ LFD/OUT/00001  | Delivery Orders | done   |
+ LFD/OUT/00002  | Delivery Orders | done   |
+ LFD/OUT/00003  | Delivery Orders | done   |
+ LFD/IN/00002   | Receipts        | done   |
+ LFD/IN/00003   | Receipts        | done   | Return of LFD/OUT/00001
+ LFD/OUT/00004  | Delivery Orders | cancel |
+ LFD/IN/00004   | Receipts        | done   |
+ LFD/STOR/00001 | Storage         | done   | LFD/IN/00004
+ LFD/PICK/00001 | Pick            | done   |
+ LFD/PACK/00001 | Pack            | done   | LFD/PICK/00001
+ LFD/OUT/00005  | Delivery Orders | done   | LFD/PICK/00001
+ LFD/PICK/00002 | Pick            | done   | S00001
+ LFD/IN/00005   | Receipts        | done   | P00001
+ LFD/STOR/00002 | Storage         | done   | P00001
+ LFD/PACK/00002 | Pack            | done   | S00001
+ LFD/OUT/00006  | Delivery Orders | done   | S00001
+(17 rows)
+```
+
+Ten new rows since the last chapter, and you typed three of them (the receipt, the first
+pick, the sales order is not even here). The shelf, including the step locations:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id where l.usage='internal' order by q.id;"
+```
+
+```text
+     location     |       product       | quantity
+------------------+---------------------+----------
+ LFD/Stock        | Brake Pad Set       |     5.00
+ LFD/Stock        | Engine Oil 5W-30 1L |    15.00
+ LFD/Stock        | Diagnostic Tablet   |     1.00
+ LFD/Input        | Engine Oil 5W-30 1L |     0.00
+ LFD/Packing Zone | Brake Pad Set       |     0.00
+ LFD/Output       | Brake Pad Set       |     0.00
+ LFD/Input        | Diagnostic Tablet   |     0.00
+ LFD/Packing Zone | Diagnostic Tablet   |     0.00
+ LFD/Output       | Diagnostic Tablet   |     0.00
+(9 rows)
+```
+
+## Gotchas
+
+- **In a multi-step warehouse, start at the Pick.** A Delivery Order you create by hand
+  goes from Output to Customers and waits forever, because nothing feeds Output. The pull
+  rule lives on the Pick type; the Pack and the delivery are pushed from it.
+- **Pushes fire on Validate, not on Mark as Todo.** You will not see the Pack until the
+  Pick is done. People look for "the missing transfers" right after confirming; they are
+  not missing, they are not born yet.
+- **MTO without a vendor is a need that never closes.** The Pick waits, no purchase order
+  appears, and nothing complains. The Buy rule only fires for a product with a line on its
+  Purchase tab. Check that tab first, the routes second.
+- **The Buy route is on the warehouse in 19, not the product.** Older guides tell you to
+  tick Buy on the product; in 19 that box does not exist. A product is "buyable" by having
+  a vendor.
+- **Rule names are frozen at creation.** The rules generated with the warehouse still
+  say `WH:`; the ones generated after you renamed it say `LFD:`. Harmless, confusing in a
+  list, and a hint to rename the warehouse before anything else.
+- **A changed step setting renames routes and archives rules; it does not touch open
+  transfers.** Transfers created under the old routing keep their old locations, so
+  finish or cancel them first.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A receipt is validated into LFD/Input and a Storage transfer appears. Which kind of rule created it, and when did it fire?',
+      options: [
+        'A pull rule, when the receipt was confirmed',
+        'A push rule, when the receipt was validated',
+        'A pull rule, when the Storage operation type was activated by the two-step setting',
+      ],
+      answer: 1,
+      why: 'Push rules carry goods forward from the place they just arrived in, and they fire when the move into that place is done. The two-step reception route holds exactly one push: Input to Stock.',
+    },
+    {
+      q: 'You confirm a sales order for a product with the Replenish on Order route and a vendor, in a three-step warehouse. How many transfers exist right after the click?',
+      options: [
+        'Three: Pick, Pack and Delivery, all waiting on the purchase order',
+        'None until the purchase order is confirmed and received',
+        'One Pick, waiting, plus a request for quotation',
+      ],
+      answer: 2,
+      why: 'The two pulls happen at confirmation: the MTO rule makes the Pick, and its Trigger Another Rule need makes the purchase order. Pack and Delivery are pushes, and pushes wait for a validation.',
+    },
+    {
+      q: 'Why does a make-to-order Pick ignore the tablet that is already on the shelf?',
+      options: [
+        'Because its Supply Method is Trigger Another Rule',
+        'Because the shelf quantity is already reserved by another transfer',
+        'Because the Pick operation type has reservation set to Manually',
+      ],
+      answer: 0,
+      why: 'Trigger Another Rule creates a dedicated need upstream and waits for the move that answers it. The existing tablet belongs to the Take From Stock world; the MTO chain does not look at it.',
+    },
+    {
+      q: 'Which field on a stock move links it to the transfer that must happen before it?',
+      options: [
+        'move_dest_ids',
+        'picking_id',
+        'move_orig_ids',
+      ],
+      answer: 2,
+      why: 'move_orig_ids points at the moves feeding this one, move_dest_ids at the moves it feeds. origin is only the text in the Source Document box, and picking_id is the transfer the move belongs to.',
+    },
+    {
+      q: 'Where do you make a product buyable in Odoo 19?',
+      options: [
+        'Tick the Buy route on the product\'s Inventory tab',
+        'Add a vendor line on the product\'s Purchase tab',
+        'Set Supply Method to Buy on the warehouse\'s reception route',
+      ],
+      answer: 1,
+      why: 'The Buy route is a warehouse route in 19 and is not product-selectable. Its rule fires for any product that has a vendor when a need reaches the stock location, so the vendor line is the switch.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Set **Incoming Shipments** to three steps, read the route and its rules, then receive
+   2 bottles and follow Next Transfer twice. Put the setting back to two steps and explain
+   what happened to the Quality Control location and operation type each time.
+2. ⭐⭐ Create a Delivery Order by hand (Overview → Delivery Orders → New) for 1 pad and
+   Mark as Todo. Explain its state in one sentence, then find the two ways to get the pad
+   to the customer anyway, and say which one a warehouse worker would actually use.
+3. ⭐⭐ Open the push rule *Packing Zone to Output*, set **Automatic Move** to *Automatic
+   No Step Added*, and run a Pick for 1 pad. Describe what changed in the chain and what
+   you lost. Set it back.
+4. ⭐⭐⭐ Break-it lab. Remove Brembo from the tablet's Purchase tab, confirm a second
+   sales order for a tablet, and describe exactly what Odoo does and does not create.
+   Then open **Inventory → Operations → Replenishment** and work out whether anything
+   there would have warned you (the replenishment chapter of this deep dive comes back to
+   this). Put the vendor back and finish the order.
+
+## Further reading
+
+- <Icon name="docs" /> [Routes and rules (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/use_routes.html):
+  the user-side guide to routes, rules, push and pull.
+- <Icon name="docs" /> [Three-step delivery (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/delivery_three_steps.html):
+  pick, pack, ship from the warehouse worker's side.
+- <Icon name="docs" /> [Replenish on order, MTO (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/mto.html):
+  switching the route on and putting it on a product.
+- <Icon name="source" /> [`stock/models/stock_rule.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_rule.py):
+  `_run_pull`, `_run_push` and `_get_message_dict`, the sentence writer; short enough to read in one sitting.
