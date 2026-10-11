@@ -1,0 +1,512 @@
+---
+title: "Inventory 14. Extending Inventory Safely"
+description: The hooks integrators override in Odoo 19's stock code, which OCA modules to check before writing your own, and a custom removal strategy and delivery slip added to LibreFleet's stock module.
+tier: expert
+---
+
+**Goal:** change how Odoo picks, stores or prints stock without copying its code, and
+know when someone already wrote it. · **Time:** ~3 h · **Checkpoint:**
+`code/checkpoints/inv14` (`librefleet_stock` 19.0.1.1.0). It continues the `warehouse`
+database.
+
+## Why this matters
+
+Every project asks for something Inventory does not do out of the box. "Take the
+half-empty box first." "Put pallets of this brand on that aisle." "Print the vehicle on
+the delivery note." The wrong answer copies a 200-line method and changes one line: it
+breaks at the next upgrade. The right answer finds the small method Odoo calls for
+exactly that decision, overrides it with `super()`, and adds a few lines.
+
+This chapter maps those methods, then uses two of them on LibreFleet: a removal strategy
+of your own, and a delivery slip that names the vehicle the parts went into.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter,
+  `librefleet_stock` included.
+</Callout>
+
+## Concepts
+
+### Override the decision, not the process
+
+Odoo's stock code is built from small methods that each answer one question. Override
+the one that answers yours, call `super()` for every other case, and the rest of the
+process keeps working, upgrades included.
+
+| Question | Method to override | Model |
+|---|---|---|
+| Where does it go? | `_get_putaway_strategy(product, quantity, package, packaging, additional_qty)` | `stock.location` |
+| Which units leave first? | `_get_removal_strategy(product, location)` and `_get_removal_strategy_order(strategy)` | `stock.quant` |
+| How much can be reserved? | `_get_available_quantity(...)`, `_get_reserve_quantity(...)` | `stock.quant` |
+| How does a move reserve? | `_update_reserved_quantity(need, location, ...)`, `_should_bypass_reservation()` | `stock.move` |
+| What do rules do? | a new `action` value plus `_run_<action>(procurements)` | `stock.rule` |
+| What does a move carry? | `_get_custom_move_fields()`, `_prepare_procurement_values()` | `stock.rule`, `stock.move` |
+| Does it post an entry? | `_should_create_account_move()` | `stock.move` (stock_account) |
+
+### Where things go: putaway
+
+`stock.location._get_putaway_strategy()` returns the location a product should be put
+away to, after the putaway rules of chapter 9. Override it for a rule the screen cannot
+express, such as "the emptiest shelf", and call `super()` when your rule has no answer.
+
+### Which units leave first: removal
+
+`stock.quant._get_removal_strategy()` finds the strategy: the product category's **Force
+Removal Strategy**, else the location's, else its parents', else FIFO (chapter 9). It
+returns the strategy's `method`. `_get_removal_strategy_order()` turns that word into the
+SQL order `_gather()` sorts quants by:
+
+| `method` | Order |
+|---|---|
+| `fifo`, `least_packages` | oldest `in_date` first |
+| `lifo` | newest first |
+| `closest` | then sorted by location name |
+| anything else | "Removal strategy ... not implemented" |
+
+A strategy of your own is a `product.removal` record with a new `method`, and one
+override that answers for it. Least Packages also changes the search itself
+(`_run_least_packages_removal_strategy_astar`), which is how you would go further.
+
+### New rule actions
+
+A rule's **Action** is a selection. `purchase_stock` adds Buy, `mrp` adds Manufacture,
+each with `selection_add` on `action` and a `_run_buy` or `_run_manufacture` method that
+`stock.rule.run()` finds by name. A module of your own does the same for, say, "Rent from
+a partner".
+
+### Reservation
+
+`_get_available_quantity()` says what may be reserved, `_get_reserve_quantity()` which
+quants and how much of each, and `stock.move._update_reserved_quantity()` turns that
+into move lines. `_should_bypass_reservation()` is true for moves that never reserve:
+from a vendor, customer, inventory or production location, or of a product that does not
+track inventory. Override them to forbid a lot, an owner
+or a location for some moves; OCA's `stock_owner_restriction` and `stock_restrict_lot`
+are examples.
+
+### Reports
+
+Delivery slips and picking operations are QWeb templates: `stock.report_delivery_document`
+and `stock.report_picking`. Extend them with `inherit_id` and an `xpath` or a `name`
+anchor, never a copy. Show a report as a page with `/report/html/<report>/<id>`.
+
+### Context keys you will meet
+
+| Key | Effect |
+|---|---|
+| `inventory_mode` | lets code write the counted quantity on quants (chapter 10) |
+| `skip_backorder` | validates without opening the backorder dialog |
+| `picking_ids_not_to_backorder` | validates those transfers without a backorder |
+| `cancel_backorder` | cancels what is not done instead of creating a backorder |
+| `location`, `warehouse_id`, `strict`, `lot_id`, `owner_id`, `package_id`, `from_date`, `to_date` | quantity computations (chapter 13) |
+
+### Check OCA before you write
+
+The Odoo Community Association keeps three repositories of stock modules. A few worth
+knowing, all on the 19.0 branch today:
+
+| Repository | Module | What it adds |
+|---|---|---|
+| stock-logistics-warehouse | `stock_inventory` | inventory adjustment documents that group counts |
+| | `stock_move_location` | move everything in a location to another in one go |
+| | `stock_putaway_product_template` | putaway rules for all variants of a product |
+| | `stock_warehouse_calendar` | a working calendar per warehouse for lead times |
+| stock-logistics-workflow | `stock_no_negative` | forbids negative stock |
+| | `stock_picking_back2draft` | sets a cancelled transfer back to draft |
+| | `stock_split_picking` | splits a transfer in two |
+| | `stock_restrict_lot` | ties a move to one lot |
+| stock-logistics-reporting | `stock_picking_report_valued` | prices on the delivery slip |
+| | `stock_delivery_note` | a delivery note number on transfers |
+
+Many modules are still being migrated: stock-logistics-warehouse has 20 on 19.0 against
+86 on 18.0. Look at both branches before writing one.
+
+<Callout type="info" title="Official docs">
+  [Inheritance and extension (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html#inheritance-and-extension),
+  [QWeb reports (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/reports.html),
+  and the [OCA stock-logistics-warehouse](https://github.com/OCA/stock-logistics-warehouse/tree/19.0) repository.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: `librefleet_stock`
+19.0.1.1.0 with a Smallest Quantity First removal strategy and a vehicle on the delivery
+slip, and a second service order whose filters came off the nearly empty shelf.
+
+<Steps>
+
+<Step>
+### A removal strategy of your own
+
+The depot's air filters will sit in two places: a full stock and a few on a shelf. Pick
+the few first, and the shelf is free again. Add to `librefleet_stock`:
+
+<Files className="bg-(--tone-sky)">
+  <Folder name="addons/librefleet_stock" defaultOpen>
+    <File name="__init__.py" />
+    <File name="__manifest__.py" />
+    <Folder name="data" defaultOpen>
+      <File name="product_removal.xml" />
+      <File name="stock_location.xml" />
+    </Folder>
+    <Folder name="models" defaultOpen>
+      <File name="__init__.py" />
+      <File name="service_order.py" />
+      <File name="stock_move.py" />
+      <File name="stock_quant.py" />
+      <File name="stock_rule.py" />
+    </Folder>
+    <Folder name="report" defaultOpen>
+      <File name="report_deliveryslip.xml" />
+    </Folder>
+    <Folder name="views">
+      <File name="part_views.xml" />
+      <File name="product_template_views.xml" />
+      <File name="service_order_views.xml" />
+    </Folder>
+  </Folder>
+</Files>
+
+The strategy record:
+
+```xml title="addons/librefleet_stock/data/product_removal.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="removal_smallest_first" model="product.removal">
+        <field name="name">Smallest Quantity First</field>
+        <field name="method">smallest_first</field>
+    </record>
+</odoo>
+```
+
+The one decision it changes:
+
+```python title="addons/librefleet_stock/models/stock_quant.py"
+from odoo import models
+
+
+class StockQuant(models.Model):
+    _inherit = "stock.quant"
+
+    def _get_removal_strategy_order(self, removal_strategy):
+        if removal_strategy == "smallest_first":
+            # empty the nearly empty bins first, oldest among equals
+            return "quantity ASC, in_date ASC, id"
+        return super()._get_removal_strategy_order(removal_strategy)
+```
+
+Import it in `models/__init__.py` (`from . import stock_quant`), and in the manifest add
+`data/product_removal.xml` and `report/report_deliveryslip.xml` (next step) to `data`
+and bump the version: a change to data files needs an upgrade, and the version says so.
+
+```python title="addons/librefleet_stock/__manifest__.py"
+# LibreFleet Stock: service orders take their parts from real stock.
+# Written in the Inventory deep dive, chapters 13 and 14.
+{
+    "name": "LibreFleet Stock",
+    "summary": "Consume spare parts from stock when a service order is done",
+    "version": "19.0.1.1.0",
+    "category": "Services",
+    "author": "Odoolings readers",
+    "website": "https://odoolings.ronit.io/",
+    "license": "AGPL-3",
+    "development_status": "Beta",
+    # the bridge pattern: librefleet keeps working without stock, this module joins them
+    "depends": ["librefleet", "stock"],
+    "data": [
+        "data/stock_location.xml",
+        "data/product_removal.xml",
+        "report/report_deliveryslip.xml",
+        "views/product_template_views.xml",
+        "views/part_views.xml",
+        "views/service_order_views.xml",
+    ],
+    "installable": True,
+}
+```
+
+</Step>
+
+<Step>
+### A slip that names the vehicle
+
+The delivery slip of a workshop transfer should say which vehicle the parts went into:
+
+```xml title="addons/librefleet_stock/report/report_deliveryslip.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- a workshop transfer says which vehicle the parts went into -->
+    <template id="report_delivery_document_librefleet" inherit_id="stock.report_delivery_document">
+        <div name="div_origin" position="after">
+            <t t-set="service_order" t-value="o.move_ids.librefleet_order_id[:1]"/>
+            <div t-if="service_order" class="col col-3 mw-100 mb-2" name="div_librefleet_vehicle">
+                <strong>Vehicle</strong>
+                <div class="m-0">
+                    <span t-field="service_order.vehicle_id.license_plate"/>,
+                    <span t-field="service_order.vehicle_id.model_name"/>
+                </div>
+            </div>
+        </div>
+    </template>
+</odoo>
+```
+
+`div_origin` is the slip's Order block; the new block sits next to it, only when a move
+of the transfer belongs to a service order.
+
+</Step>
+
+<Step>
+### Upgrade, and choose the strategy
+
+<UiOrShell>
+<Tab>
+
+**Apps** (developer mode), search `librefleet_stock` with **Search Module**, and on its
+card **⋮ → Upgrade**. Then **Inventory → Configuration → Product Categories → Goods /
+Filters**, and open **Force Removal Strategy**:
+
+![The Goods / Filters category with the Force Removal Strategy list open on First In First Out (FIFO), Last In First Out (LIFO), Closest Location, Least Packages, First Expiry First Out (FEFO) and the new Smallest Quantity First, highlighted](/screens/inv14-removal-option.jpg)
+
+Your record sits among the built-in ones. Choose **Smallest Quantity First** and save.
+
+</Tab>
+<Tab>
+
+Upgrade with `-u librefleet_stock` on the command line, then:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["ir.module.module"].search([("name", "=", "librefleet_stock")]).installed_version
+'19.0.1.1.0'
+>>> smallest = env.ref("librefleet_stock.removal_smallest_first")
+>>> smallest.name, smallest.method
+('Smallest Quantity First', 'smallest_first')
+>>> filters = env["product.category"].search([("complete_name", "=", "Goods / Filters")])
+>>> filters.removal_strategy_id = smallest
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Put three filters on Shelf A
+
+<UiOrShell>
+<Tab>
+
+**Operations → Transfers → New**:
+
+- **Operation Type:** LibreFleet Depot: Internal Transfers
+- **Destination Location:** LFD/Stock/Shelf A
+- **Product:** Air Filter, **Demand** `3`
+
+**Mark as Todo**, then **Validate**. The depot now has 12 filters in LFD/Stock and 3 on
+Shelf A.
+
+</Tab>
+<Tab>
+
+```python
+>>> lfd = env["stock.warehouse"].search([("code", "=", "LFD")])
+>>> shelf_a = env["stock.location"].search([("complete_name", "=", "LFD/Stock/Shelf A")])
+>>> air = env["product.product"].search([("name", "=", "Air Filter")])
+>>> move = env["stock.picking"].create({"picking_type_id": lfd.int_type_id.id, "location_id": lfd.lot_stock_id.id, "location_dest_id": shelf_a.id, "move_ids": [(0, 0, {"product_id": air.id, "product_uom_qty": 3, "location_id": lfd.lot_stock_id.id, "location_dest_id": shelf_a.id})]})
+>>> move.action_confirm()
+True
+>>> move.button_validate()
+True
+>>> Quant = env["stock.quant"]
+>>> Quant._get_removal_strategy(air, lfd.lot_stock_id), Quant._get_removal_strategy_order("smallest_first")
+('smallest_first', 'quantity ASC, in_date ASC, id')
+>>> [(q.location_id.complete_name, q.quantity) for q in Quant._gather(air, lfd.lot_stock_id)]
+[('LFD/Stock/Shelf A', 3.0), ('LFD/Stock', 12.0)]
+```
+
+`_gather` now lists Shelf A first: 3 is smaller than 12.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A second service order
+
+<UiOrShell>
+<Tab>
+
+**LibreFleet → Service Orders → New**: vehicle GE-123-NO, **Parts From** Service Van, 2
+Air filter. Save, **Confirmed**, **In Progress**, **Mark Done**. The van has no filter,
+so the depot gets a Pick again. Open it (**Inventory → Operations → Transfers**, Source
+Document SO/2026/0002) and click **Details** on its line:
+
+![The Detailed Operations of LFD/PICK/00019 for 2 Air Filter, with Pick From LFD/Stock/Shelf A and Store To LFD/Packing Zone highlighted](/screens/inv14-pick-from.jpg)
+
+Both filters come from Shelf A. Under FIFO they would have come from LFD/Stock: the two
+quants have the same arrival date, and the older record wins. **Discard** the dialog.
+
+</Tab>
+<Tab>
+
+```python
+>>> van = env["stock.warehouse"].search([("code", "=", "VAN")])
+>>> vehicle = env["librefleet.vehicle"].search([("license_plate", "=", "GE-123-NO")])
+>>> order = env["librefleet.service.order"].create({"vehicle_id": vehicle.id, "customer_id": vehicle.owner_id.id, "warehouse_id": van.id, "line_ids": [(0, 0, {"part_id": env["librefleet.part"].search([("name", "=", "Air filter")]).id, "qty": 2, "price_unit": 25})]})
+>>> order.stage = "confirmed"
+>>> order.stage = "in_progress"
+>>> env["librefleet.service.order.approve.wizard"].create({"order_id": order.id}).action_confirm()
+{'type': 'ir.actions.act_window_close'}
+>>> Picking = env["stock.picking"]
+>>> pick = Picking.search([("origin", "=", order.reference), ("picking_type_id.sequence_code", "=", "PICK")])
+>>> pick.name, [(ml.location_id.complete_name, ml.quantity) for ml in pick.move_line_ids]
+('LFD/PICK/00022', [('LFD/Stock/Shelf A', 2.0)])
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Finish the order and read the slip
+
+<UiOrShell>
+<Tab>
+
+Validate the Pick, the Pack, the Delivery, the van's Receipt and then VAN/WSC/00003, as
+in chapter 13. Then show its slip as a page, with the transfer's id from the address bar:
+`/report/html/stock.report_deliveryslip/113` here.
+
+![The delivery note VAN/WSC/00003 for Garage Nord with Order SO/2026/0002, the new Vehicle block GE-123-NO, Renault Master highlighted, and the line Air Filter, 2 units ordered, 2 delivered](/screens/inv14-slip.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> for kind in ("PICK", "PACK", "OUT", "IN", "WSC"):
+...     Picking.search([("origin", "=", order.reference), ("picking_type_id.sequence_code", "=", kind), ("state", "=", "assigned")]).button_validate()
+... 
+True
+True
+True
+True
+True
+>>> [(p.name, p.state) for p in Picking.search([("origin", "=", order.reference)], order="id")]
+[('LFD/PICK/00022', 'done'), ('LFD/OUT/00026', 'done'), ('VAN/IN/00003', 'done'), ('VAN/WSC/00003', 'done'), ('LFD/PACK/00022', 'done')]
+```
+
+```python
+>>> import re
+>>> wsc = Picking.search([("origin", "=", order.reference), ("picking_type_id.sequence_code", "=", "WSC")])
+>>> html = env["ir.actions.report"]._render_qweb_html("stock.report_deliveryslip", wsc.ids)[0].decode()
+>>> re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[html.find('name="div_librefleet_vehicle"'):][:400])).split("Shipping")[0].strip()
+'name="div_librefleet_vehicle"> Vehicle GE-123-NO , Renault Master'
+>>> env.cr.commit()
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv14 --db warehouse
+```
+
+```text
+✔ librefleet_stock is at 19.0.1.1.0
+✔ Filters leave the depot smallest quantity first
+✔ three air filters were put on Shelf A
+✔ the depot picked the van's filters from Shelf A
+✔ the delivery slip names the vehicle
+✔ the shelf holds what the second order left
+
+inv14 complete! On to the next chapter 🔧
+```
+
+And the code you changed, against chapter 13's:
+
+```console
+$ diff -r code/checkpoints/inv13/librefleet_stock code/checkpoints/inv14/librefleet_stock
+```
+
+## Gotchas
+
+- **Always call `super()` for the cases you do not handle.** The removal override answers
+  for one method and passes every other strategy on. Without it, FIFO, LIFO and the rest
+  stop working.
+- **Data needs an upgrade.** A new XML record or template only reaches the database with
+  `-u` or Apps → Upgrade, and the version bump is how others see that they need one.
+- **Anchor on names, not positions.** `div name="div_origin"` survives Odoo's layout
+  changes; an xpath like `//div[3]` breaks at the next release.
+- **The removal order is SQL.** `_get_removal_strategy_order` returns an `order` for a
+  search on quants, so it may only use stored quant fields.
+- **A category strategy beats the location's.** Force Removal Strategy on the category
+  wins over the one on the location, so a location rule seems ignored once a category
+  has one.
+- **Look at OCA's 18.0 branch too.** A module missing on 19.0 may be one migration away,
+  and helping migrate it costs less than writing your own.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'You want "take the nearly empty bin first". What do you override?',
+      options: [
+        'stock.move._action_assign, copying it and changing the order inside',
+        'stock.quant._get_removal_strategy_order, for a new method name',
+        'stock.picking.button_validate, sorting the lines before validation',
+      ],
+      answer: 1,
+      why: 'The order quants are taken in is one small method keyed by the strategy name. A product.removal record with a new method and one override handle it; copying _action_assign breaks at every upgrade.',
+    },
+    {
+      q: 'The category Goods / Filters has a Force Removal Strategy, and LFD/Stock has another. Which one applies to an air filter?',
+      options: [
+        'The location\'s, because the place always decides how it is emptied',
+        'The category\'s, because Odoo checks the category before any location',
+        'Neither of them: Odoo falls back to FIFO when the two settings disagree',
+      ],
+      answer: 1,
+      why: '_get_removal_strategy reads the product category first, then the location and its parents, then defaults to FIFO.',
+    },
+    {
+      q: 'Your template adds a block to the delivery slip, but the slip does not change. What is the likely cause?',
+      options: [
+        'The module was not upgraded after the XML file was added to data',
+        'QWeb templates cannot be inherited, only copied and renamed again',
+        'The browser cached the old slip, so a reload in it will fix it',
+      ],
+      answer: 0,
+      why: 'Templates are records loaded from the manifest\'s data files; until the module is upgraded, the database still holds the old view.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Set **Smallest Quantity First** on the location LFD/Stock as well, and remove it
+   from the category. Does the next pick still come from Shelf A? Why?
+2. ⭐⭐ Add the service order's technicians to the slip, below the vehicle.
+3. ⭐⭐ Override `stock.location._get_putaway_strategy` so that air filters put away into
+   LFD/Stock go to Shelf A while it holds fewer than 5. Call `super()` otherwise.
+4. ⭐⭐⭐ Add a rule action "Borrow from Garage Nord" (`selection_add` on `stock.rule.action`
+   and a `_run_borrow`) that creates a receipt from the partner. Which method does
+   `stock.rule.run()` call, and how does it find it?
+
+## Further reading
+
+- <Icon name="source" /> [`stock/models/stock_quant.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_quant.py):
+  `_get_removal_strategy`, `_get_removal_strategy_order`, `_gather`.
+- <Icon name="source" /> [`stock/models/stock_location.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_location.py):
+  `_get_putaway_strategy`.
+- <Icon name="docs" /> [QWeb reports (19.0)](https://www.odoo.com/documentation/19.0/developer/reference/backend/reports.html).
+- <Icon name="source" /> [OCA stock-logistics-workflow (19.0)](https://github.com/OCA/stock-logistics-workflow/tree/19.0)
+  and [stock-logistics-reporting (19.0)](https://github.com/OCA/stock-logistics-reporting/tree/19.0).

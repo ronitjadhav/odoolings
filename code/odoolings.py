@@ -3869,6 +3869,63 @@ def shelf_after_workshop(env):
     assert not extra, "unexpected stock: %s. A transfer of the service order is not finished" % extra
 
 
+def librefleet_stock_is_1_1(env):
+    m = env.call("ir.module.module", "search_read", [("name", "=", "librefleet_stock")], fields=["installed_version", "state"])
+    assert m and m[0]["state"] == "installed" and m[0]["installed_version"] == "19.0.1.1.0", (
+        "librefleet_stock should be installed at 19.0.1.1.0 (bump the manifest, then Apps > Upgrade); it is %s" % (m and m[0]["installed_version"]))
+
+
+def filters_leave_smallest_first(env):
+    rem = env.call("product.removal", "search_read", [("method", "=", "smallest_first")], fields=["name"])
+    assert rem and rem[0]["name"] == "Smallest Quantity First", "no removal strategy Smallest Quantity First (data/product_removal.xml)"
+    c = env.call("product.category", "search_read", [("complete_name", "=", "Goods / Filters")], fields=["removal_strategy_id"])[0]
+    assert c["removal_strategy_id"] and c["removal_strategy_id"][1] == "Smallest Quantity First", "Goods / Filters: Force Removal Strategy Smallest Quantity First"
+
+
+def three_filters_went_to_shelf_a(env):
+    lines = env.call("stock.move.line", "search_read", [("state", "=", "done"), ("product_id.name", "=", "Air Filter"),
+                                                        ("location_id.complete_name", "=", "LFD/Stock"), ("location_dest_id.complete_name", "=", "LFD/Stock/Shelf A")],
+                     fields=["quantity"])
+    assert lines and lines[0]["quantity"] == 3, "no done internal transfer of 3 air filters from LFD/Stock to LFD/Stock/Shelf A"
+
+
+def the_depot_picked_from_shelf_a(env):
+    orders = env.call("librefleet.service.order", "search_read", [("stage", "=", "done")], fields=["reference"], order="id")
+    assert len(orders) >= 2, "a second service order should be Done: 2 air filters for GE-123-NO from the Service Van"
+    ref = orders[-1]["reference"]
+    lines = env.call("stock.move.line", "search_read", [("picking_id.origin", "=", ref), ("picking_id.picking_type_id.sequence_code", "=", "PICK"), ("state", "=", "done")],
+                     fields=["location_id", "quantity"])
+    got = [(l["location_id"][1], l["quantity"]) for l in lines]
+    assert got == [("LFD/Stock/Shelf A", 2)], ("the depot's Pick for %s should take both filters from LFD/Stock/Shelf A, the smallest quant; it took %s" % (ref, got))
+
+
+def the_slip_names_the_vehicle(env):
+    v = env.call("ir.ui.view", "search_read", [("key", "=", "librefleet_stock.report_delivery_document_librefleet")], fields=["active", "inherit_id"])
+    assert v and v[0]["active"], "the delivery slip extension is missing: report/report_deliveryslip.xml in the manifest's data?"
+
+
+def shelf_after_extending(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 9.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 12.0, ("LFD/Stock", "Rebuilt Engine", False, False): 1.0,
+            ("LFD/Stock", "Air Filter", False, False): 12.0, ("LFD/Stock/Shelf A", "Air Filter", False, False): 1.0,
+            ("LFD/Stock/Fluids Rack", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 6.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 6.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer of the second service order is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4836,6 +4893,19 @@ CHAPTERS = {
          "Validate the depot's Pick, Pack and Delivery for the order, then the van's Receipt."),
         ("the shelf holds what the workshop left", shelf_after_workshop,
          "6 oil left in the van, 15 air filters in the depot."),
+    ],    "inv14": [
+        ("librefleet_stock is at 19.0.1.1.0", librefleet_stock_is_1_1,
+         "Bump the manifest version to 19.0.1.1.0, then Apps > LibreFleet Stock > Upgrade."),
+        ("Filters leave the depot smallest quantity first", filters_leave_smallest_first,
+         "data/product_removal.xml, the stock.quant override, then Goods / Filters: Force Removal Strategy Smallest Quantity First."),
+        ("three air filters were put on Shelf A", three_filters_went_to_shelf_a,
+         "Internal transfer: LFD/Stock to LFD/Stock/Shelf A, 3 Air Filter, Validate."),
+        ("the depot picked the van's filters from Shelf A", the_depot_picked_from_shelf_a,
+         "Second service order, Parts From Service Van, 2 air filters, Mark Done; validate the depot's Pick, Pack, Delivery and the van's Receipt."),
+        ("the delivery slip names the vehicle", the_slip_names_the_vehicle,
+         "report/report_deliveryslip.xml extends stock.report_delivery_document after div_origin."),
+        ("the shelf holds what the second order left", shelf_after_extending,
+         "12 air filters in LFD/Stock, 1 on Shelf A, 6 oil in the van."),
     ],
 }
 
@@ -5078,6 +5148,7 @@ CHECKPOINTS = {
     "ch51": {"sale_fixed_discount_limit": "19.0.1.0.0"},
     "ch53": {"librefleet": "19.0.1.30.0", "librefleet_maintenance_reminder": "19.0.1.0.0"},
     "inv13": {"librefleet_stock": "19.0.1.0.0"},
+    "inv14": {"librefleet_stock": "19.0.1.1.0"},
 }
 TUTORIAL_CODE = ("librefleet", "librefleet_maintenance_reminder")
 WAREHOUSE_CODE = ("librefleet", "librefleet_stock")  # the Inventory track's code, from inv13
@@ -6123,6 +6194,29 @@ def seed_inv13(env):
     _validate(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id", "=", wsc), ("state", "=", "assigned")]))
 
 
+def seed_inv14(env):
+    _call(env, "ir.module.module", "button_immediate_upgrade", env.call("ir.module.module", "search", [("name", "=", "librefleet_stock")]))
+    filters = _id(env, "product.category", [("complete_name", "=", "Goods / Filters")])
+    env.call("product.category", "write", [filters], {"removal_strategy_id": _xmlid(env, "librefleet_stock.removal_smallest_first")})
+    lfd = env.call("stock.warehouse", "search_read", [("code", "=", "LFD")], fields=["int_type_id", "lot_stock_id"])[0]
+    shelf_a = _id(env, "stock.location", [("complete_name", "=", "LFD/Stock/Shelf A")])
+    air = _id(env, "product.product", [("name", "=", "Air Filter")])
+    move = env.call("stock.picking", "create", {"picking_type_id": lfd["int_type_id"][0], "location_id": lfd["lot_stock_id"][0], "location_dest_id": shelf_a,
+                                                "move_ids": [(0, 0, {"product_id": air, "product_uom_qty": 3, "location_id": lfd["lot_stock_id"][0], "location_dest_id": shelf_a})]})
+    _call(env, "stock.picking", "action_confirm", [move])
+    _validate(env, [move])
+    vehicle = _id(env, "librefleet.vehicle", [("license_plate", "=", "GE-123-NO")])
+    order = env.call("librefleet.service.order", "create", {"vehicle_id": vehicle, "customer_id": _id(env, "res.partner", [("name", "=", "Garage Nord")]),
+                                                            "warehouse_id": _id(env, "stock.warehouse", [("code", "=", "VAN")]),
+                                                            "line_ids": [(0, 0, {"part_id": _id(env, "librefleet.part", [("name", "=", "Air filter")]), "qty": 2, "price_unit": 25})]})
+    for stage in ("confirmed", "in_progress"):
+        env.call("librefleet.service.order", "write", [order], {"stage": stage})
+    _call(env, "librefleet.service.order.approve.wizard", "action_confirm", [env.call("librefleet.service.order.approve.wizard", "create", {"order_id": order})])
+    ref = env.call("librefleet.service.order", "read", [order], ["reference"])[0]["reference"]
+    _finish_chain(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id.sequence_code", "=", "PICK")])[0])  # smallest first: Shelf A
+    _validate(env, env.call("stock.picking", "search", [("origin", "=", ref), ("picking_type_id.sequence_code", "=", "WSC"), ("state", "=", "assigned")]))
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6134,6 +6228,7 @@ SEEDS = {
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
+    "inv14": seed_inv14,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
