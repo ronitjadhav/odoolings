@@ -341,6 +341,12 @@ Purchases, Bank, Miscellaneous), and the owner of its numbering sequence. The se
 asked for a number at **posting** time, not creation, which is why accounting numbering
 has no gaps (chapter 27).
 
+**kit (phantom bill of materials)**: a `mrp.bom` of type **Kit** (`phantom`). No
+manufacturing order is ever made for it: when a transfer line for the kit product is
+confirmed, Odoo replaces it with one line per component, each pointing at its BoM line
+(`bom_line_id`), and the transfer flags `has_kits`. The kit product has no quant; its
+on-hand quantity is computed from its components.
+
 **kanban view**: the card-per-record, column-per-group view type (e.g. the CRM
 pipeline grouped by stage). One of the standard view types you'll build in chapter 19.
 
@@ -360,6 +366,12 @@ move dated on or before it. Each guards a different slice (sales, purchases,
 everything); setting the broadest ones first checks that the period's bank
 statement lines are actually reconciled, and refuses to lock a messy period
 (chapter 27).
+
+**manufacture steps (`manufacture_steps`)**: the warehouse's Manufacture choice: one
+step (consume from Stock, deliver to Stock), two steps (a Pick Components transfer brings
+parts to Pre-Production first) or three steps (and a Store Finished Product transfer
+carries the product from Post-Production to Stock). Like the shipment steps, each extra
+step is a location, an operation type and a rule in a generated route.
 
 **manufacturing order (`mrp.production`)**: the document that executes a bill of
 materials. Unlike every other transactional document in this part, it gets its sequence

@@ -1,0 +1,830 @@
+---
+title: "Inventory 4. Manufacturing Meets the Warehouse"
+description: Install Manufacturing, build a bill of materials, make brake pad sets in one step and then in three, sell a kit that explodes into its parts, and let one sales order start a manufacturing order and carry its product all the way to the customer.
+tier: foundations
+---
+
+**Goal:** see a manufacturing order for what it is to the warehouse, a few stock moves
+with a Production location in the middle, and know what each manufacturing setting
+changes about those moves. · **Time:** ~3 h · **Checkpoint:** none, this chapter writes
+no module. It continues the `warehouse` database and installs the Manufacturing app.
+
+## Why this matters
+
+LibreFleet's workshop does not only buy brake pads, it assembles them: a friction pad
+bonded to a backing plate. The journey touched manufacturing once, in chapter 26, with
+demo data. Here the point is different: to the warehouse, a manufacturing order is
+nothing new. Components leave a location, a finished product arrives in another, and
+the thing in the middle is a location called Production. Every word from the last three
+chapters applies: quants, moves, rules, pushes and pulls.
+
+Once you see that, the manufacturing settings stop being mysterious. "Three steps" is
+two more operation types and two more locations. A "kit" is a bill of materials that
+explodes when a transfer is confirmed. "Manufacture to Resupply" is one more rule in the
+warehouse's list. This chapter builds each of those on the depot you already have.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter
+  and installs Manufacturing. You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### What Manufacturing adds to the warehouse
+
+Installing the app (its module is `mrp`) adds four things you can see from Inventory:
+
+- a **Manufacture** route, global and warehouse-selectable like Buy, with one rule per
+  warehouse, *Stock (Production)*, of action **Manufacture**;
+- a **Manufacturing** operation type (prefix `MO`), from Stock to Stock, with the
+  **Production** location doing the work in between;
+- on the warehouse form, a **Resupply** section: **Manufacture to Resupply** (is the
+  Manufacture route on for this warehouse) and a **Manufacture** choice of one, two or
+  three steps;
+- a **Manufacturing** app with its own menus: Operations (Manufacturing Orders, Work
+  Orders, Unbuild Orders, Scrap), Products (Products, Bills of Materials), Reporting,
+  Configuration.
+
+The Production location was there all along, archived-looking but active, from the
+first chapter's location list. It is a *Production* type location: quants in it are
+allowed to go negative, the same trick as Vendors and Customers.
+
+### A bill of materials is a recipe
+
+A **bill of materials** (`mrp.bom`) says what goes into one quantity of a product. The
+form has:
+
+| Field | In plain words |
+|---|---|
+| **Product** and **Quantity** | the recipe makes this many of this product |
+| **BoM Type** | *Manufacture this product*: a manufacturing order consumes the components. *Kit*: no order, the components replace the product wherever it is moved |
+| **Components** | one line per component, with its quantity for the BoM quantity |
+| **Flexible Consumption** | whether a worker may consume more or less than the recipe: *Allowed*, *Allowed with warning* (the default), *Blocked* |
+| **Operation Type** | which Manufacturing type to use, when a company has several |
+| **Manuf. Lead Time** (`produce_delay`) | days to make it; the replenishment chapter adds it to the others |
+| **Days to prepare Manufacturing Order** (`days_to_prepare_mo`) | how early to create the order so components can be bought first; **Compute** fills it from the components' lead times |
+| **Batch Size** | split big orders into several of this size |
+
+Two settings change the form: **Work Orders** (`group_mrp_routings`) adds an Operations
+tab for work centers, which this deep dive leaves off, and **By-Products**
+(`group_mrp_byproducts`) adds a tab for things the process produces besides the main
+product, sawdust and offcuts, shown as extra finished moves.
+
+### A manufacturing order is three moves in disguise
+
+A **manufacturing order** (`mrp.production`) takes a BoM and a quantity and creates:
+
+- one **component move** per BoM line (`move_raw_ids`): from the components location
+  to **Production**;
+- one **finished move** (`move_finished_ids`): from **Production** to the finished
+  products location.
+
+Validating the order is validating those moves. The components' quants go down, the
+Production quant goes up and then down again, the finished product's quant goes up.
+The Moves History report shows them next to receipts and deliveries, with `LFD/MO/00001`
+as the reference.
+
+The order has its own states: **Draft**, **Confirmed**, **In Progress**, **To Close**,
+**Done**, **Cancelled**. Beside them sit two helper fields: **MO Readiness**
+(`reservation_state`, *Waiting* or *Ready*, whether the components are reserved) and
+**Component Status** (`components_availability`, *Available*, *Not Available*, or an
+expected date). The buttons follow: **Confirm** reserves the components, **Produce All**
+sets the produced quantity to the whole order and finishes it in one click, **Start**
+only marks it In Progress, **Unreserve** gives the components back. A done order grows
+an **Unbuild** button, which reverses it: the product goes back to components. The
+operation type carries one manufacturing-specific option, *Create New Lots/Serial Numbers
+for Components* (`use_create_components_lots`), for the traceability chapter.
+
+### One step, two steps, three steps
+
+The warehouse's **Manufacture** choice does for production what Incoming and Outgoing
+Shipments did for receipts and deliveries:
+
+| Manufacture | What a manufacturing order does | Locations woken up | Operation types woken up |
+|---|---|---|---|
+| **Manufacture (1 step)** | consumes from Stock, delivers to Stock | | |
+| **Pick components then manufacture (2 steps)** | a **Pick Components** transfer brings parts from Stock to **Pre-Production**; the order consumes from there and delivers to Stock | Pre-Production | Pick Components (`PC`) |
+| **Pick components, manufacture, then store products (3 steps)** | as above, and the order delivers to **Post-Production**; a **Store Finished Product** transfer carries the product to Stock | Pre-Production, Post-Production | Pick Components, Store Finished Product (`SFP`) |
+
+Three steps generate one route with three rules, in the pattern you know from the
+delivery route: a pull from Stock to Pre-Production (*Take From Stock*, Pick
+Components), a pull from Pre-Production to Production (*Trigger Another Rule*,
+Manufacturing), and a push from Post-Production to Stock (Store Finished Product).
+Confirming an order pulls the Pick Components transfer at once; marking it done pushes
+the Store Finished Product transfer.
+
+### Kits: a bill of materials that explodes
+
+A BoM of type **Kit** (`phantom` in the database) never has a manufacturing order. The
+kit product is never on a shelf either: its on-hand quantity is computed from its
+components. Instead, whenever a transfer line for the kit is **confirmed**, Odoo replaces
+it with one line per component, each remembering which BoM line it came from
+(`bom_line_id`), and the transfer flags itself `has_kits`. Sell a Brake Service Kit and
+the Pick lists one brake pad set and two bottles of oil, both captioned with the kit's
+name. The same happens when a kit is a component of another BoM. For LibreFleet this is
+the service bundle: price one thing, ship its parts.
+
+### Manufacture to Resupply, and an order that makes its own product
+
+The Manufacture route is warehouse-selectable only, exactly like Buy: a product is
+"manufacturable" by having a BoM, not by a route box. Put **Replenish on Order (MTO)**
+on a product that has a BoM, and confirming a sale creates a Pick that *Triggers Another
+Rule* at Stock; the rule that answers is *Stock (Production)*, which creates a
+manufacturing order with the sales order as its **Source**. In a three-step warehouse
+the whole chain is:
+
+<Mermaid
+  label="A sales order for a made-to-order product pulls a waiting Pick, which pulls a manufacturing order, which pulls a Pick Components transfer; doing each one pushes or wakes the next, until the delivery."
+  chart={`flowchart TD
+    SO["Sales order confirmed:<br/>need 2 pad sets in Customers"]
+    SO -- "pull (MTO rule)" --> PICK["Pick, Waiting<br/>LFD/Stock to Packing Zone"]
+    PICK -- "need 2 pad sets in LFD/Stock" --> MO["Manufacturing order, Confirmed<br/>Pre-Production to Post-Production"]
+    MO -- "need components in Pre-Production" --> PC["Pick Components, Ready<br/>LFD/Stock to Pre-Production"]
+    PC -- "validate: order turns Ready" --> MO2["Produce All"]
+    MO2 -- "done, push" --> SFP["Store Finished Product<br/>Post-Production to LFD/Stock"]
+    SFP -- "validate: Pick wakes up" --> PICK2["Pick, Pack, Delivery"]`}
+/>
+
+The **Allocation Report for Manufacturing Orders** setting (`group_mrp_reception_report`)
+adds a report on a done order that says which customer orders the produced quantity can
+serve, the manufacturing twin of the receipts' reception report.
+
+<Callout type="info" title="Official docs">
+  [Bill of materials](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html),
+  [Three-step manufacturing](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/three_step_manufacturing.html)
+  and [Use kits](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/advanced_configuration/kit_shipping.html)
+  cover the same ground from the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`: 5 brake pad sets, 15 bottles of oil, 1 tablet on the shelf
+from the previous chapter. By the end: 7 sets, 13 bottles, 10 of each new component, the
+tablet, two manufacturing orders and a sales order that made its own product.
+
+<Steps>
+
+<Step>
+### Install Manufacturing and look at what it added
+
+<UiOrShell>
+<Tab>
+
+**Apps**, find **Manufacturing** and **Activate**:
+
+![The Apps screen with the Manufacturing card highlighted: Manufacturing Orders and BOMs, with its Activate button](/screens/inv04-apps-manufacturing.jpg)
+
+About a minute later, **Inventory → Configuration → Warehouses → LibreFleet Depot** has
+grown a **Resupply** section:
+
+![The warehouse form with a Resupply section: Buy to Resupply ticked, Manufacture to Resupply ticked, and Manufacture with three radio choices, all three boxes highlighted](/screens/inv04-warehouse-manufacture.jpg)
+
+**Buy to Resupply** and **Manufacture to Resupply** are the Buy and Manufacture routes,
+switched on for this warehouse. The **Manufacture** radios are the steps; leave them on
+one step for now (the screenshot was taken later in the chapter, after switching to
+three). The **Routes** smart button lists the Manufacture route beside Buy and MTO.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d warehouse -i mrp --stop-after-init
+```
+
+Whichever way you install, the server log (`docker compose logs odoo`) shows the registry
+reloading with four more modules, from the Apps click above:
+
+```text
+INFO warehouse odoo.modules.loading: loading 73 modules...
+INFO warehouse odoo.modules.loading: Modules loaded.
+```
+
+Then a shell for the chapter:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> wh.manufacture_steps, wh.manu_type_id.name, wh.manu_type_id.sequence_code
+('mrp_one_step', 'Manufacturing', 'MO')
+>>> wh.manu_type_id.default_location_src_id.complete_name, wh.manu_type_id.default_location_dest_id.complete_name
+('LFD/Stock', 'LFD/Stock')
+>>> manufacture = env.ref("mrp.route_warehouse0_manufacture")
+>>> manufacture.name, manufacture.product_selectable, manufacture.warehouse_selectable
+('Manufacture', False, True)
+>>> [(r.name, r.action, r.location_dest_id.complete_name, r.picking_type_id.name) for r in manufacture.rule_ids]
+[('LFD: Stock (Production)', 'manufacture', 'LFD/Stock', 'Manufacturing')]
+```
+
+The warehouse has a `manu_type_id` now, the Manufacturing operation type, from Stock to
+Stock in one step. The Manufacture route is the Buy route's twin: not product-selectable,
+on for the warehouse, one rule with action `manufacture`.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Two components, received and stored
+
+The pad set is made of a friction pad and a backing plate. Create both and receive
+twenty of each.
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Products → Products → New**, name `Friction Pad`, leave **Track
+Inventory** ticked, save. **New** again for `Backing Plate`:
+
+![The new product form for Backing Plate with the name and the ticked Track Inventory box highlighted, and a new Bill of Materials smart button highlighted](/screens/inv04-product-component.jpg)
+
+A **Bill of Materials** smart button now sits on every product. Then **Operations →
+Transfers → Receipts → New**:
+
+- **Receive From:** `Brembo Parts`
+- **Add a Product:** `Friction Pad`, Demand `20`
+- **Add a Product:** `Backing Plate`, Demand `20`
+
+![A new receipt from Brembo Parts to LFD/Input with the two component lines at 20 highlighted and the Validate button highlighted](/screens/inv04-receipt-components.jpg)
+
+**Validate**, then **Next Transfer** and **Validate** the Storage, as in the previous
+chapter. Twenty of each component are in `LFD/Stock`.
+
+</Tab>
+<Tab>
+
+```python
+>>> env["product.template"].create([
+...     {"name": "Friction Pad", "type": "consu", "is_storable": True},
+...     {"name": "Backing Plate", "type": "consu", "is_storable": True},
+... ])
+product.template(6, 7)
+>>> variant = lambda n: env["product.product"].search([("name", "=", n)])
+>>> friction, plate, pads, oil = variant("Friction Pad"), variant("Backing Plate"), variant("Brake Pad Set"), variant("Engine Oil 5W-30 1L")
+>>> brembo = env["res.partner"].search([("name", "=", "Brembo Parts")])
+>>> garage = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": brembo.id, "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": friction.id, "product_uom_qty": 20}),
+...                  (0, 0, {"product_id": plate.id, "product_uom_qty": 20})],
+... })
+>>> receipt.button_validate()
+True
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.name, storage.state
+('LFD/STOR/00003', 'assigned')
+>>> storage.button_validate()
+True
+>>> friction.qty_available, plate.qty_available
+(20.0, 20.0)
+```
+
+Nothing new here, which is the point: components are ordinary storable products and come
+in through the ordinary two-step receipt.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A bill of materials for the brake pad set
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Bills of Materials → New**:
+
+- **Product:** `Brake Pad Set`
+- **Quantity:** `1.00`
+- **BoM Type:** Manufacture this product
+- **Components:** `Friction Pad` quantity `2`, `Backing Plate` quantity `2`
+
+![A new bill of materials for Brake Pad Set, quantity 1, BoM Type Manufacture this product, with the two component lines at 2 highlighted and the Miscellaneous tab highlighted](/screens/inv04-bom.jpg)
+
+Open the **Miscellaneous** tab before saving:
+
+![The Miscellaneous tab of the bill of materials with Flexible Consumption on Allowed with warning, Manuf. Lead Time 0 days and Days to prepare Manufacturing Order 0 days with a Compute link, all highlighted](/screens/inv04-bom-misc.jpg)
+
+Nothing to change: the defaults are the ones to know. Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> bom = env["mrp.bom"].create({
+...     "product_tmpl_id": pads.product_tmpl_id.id, "product_qty": 1, "type": "normal",
+...     "bom_line_ids": [(0, 0, {"product_id": friction.id, "product_qty": 2}),
+...                      (0, 0, {"product_id": plate.id, "product_qty": 2})],
+... })
+>>> bom.type, bom.product_qty, [(l.product_id.name, l.product_qty) for l in bom.bom_line_ids]
+('normal', 1.0, [('Friction Pad', 2.0), ('Backing Plate', 2.0)])
+>>> bom.consumption, bom.produce_delay, bom.days_to_prepare_mo
+('warning', 0, 0)
+```
+
+A BoM hangs on the product *template* (`product_tmpl_id`), its lines on product
+*variants*. *Manufacture this product* is `normal`, Kit is `phantom`, and Flexible
+Consumption's default *Allowed with warning* is `warning`.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Make three sets in one step
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Operations → Manufacturing Orders → New**:
+
+- **Product:** `Brake Pad Set`
+- **Quantity:** `3`
+
+![A new manufacturing order for 3 Brake Pad Set with the Product, Quantity and Bill of Material fields highlighted, the two component lines at 6 highlighted with Available badges, and the Confirm button highlighted](/screens/inv04-mo-new.jpg)
+
+The bill of materials filled itself in, and the components tab says 6 and 6: the recipe
+times three. **Confirm**:
+
+![The manufacturing order LFD/MO/00001 Confirmed, with its reference, the Confirmed status, Component Status Available, the Produce All, Start and Unreserve buttons and a new Consumed column highlighted](/screens/inv04-mo-confirmed.jpg)
+
+Confirm reserved the components: a **Consumed** column appeared with 6 and 6 in green,
+and the chatter says *MO Readiness: None to Ready*. **Produce All**:
+
+![The manufacturing order LFD/MO/00001 Done, with the Done status, the Unbuild button, the Product Moves smart button and the quantity 3.00 of 3.00 highlighted](/screens/inv04-mo-done.jpg)
+
+One click: produced quantity 3 of 3, state **Done**, an **Unbuild** button. Click
+**Product Moves**:
+
+![The Inventory Moves list for LFD/MO/00001 with three done rows highlighted: Brake Pad Set from Production to LFD/Stock 3, Backing Plate from LFD/Stock to Production 6, Friction Pad from LFD/Stock to Production 6](/screens/inv04-mo-moves.jpg)
+
+There is the whole order: two moves into Production, one move out of it. The shelf is
+at 8 sets, 14 friction pads, 14 plates.
+
+</Tab>
+<Tab>
+
+```python
+>>> mo = env["mrp.production"].create({"product_id": pads.id, "product_qty": 3})
+>>> mo.name, mo.state, mo.bom_id == bom, [(m.product_id.name, m.product_uom_qty) for m in mo.move_raw_ids]
+('LFD/MO/00001', 'draft', True, [('Friction Pad', 6.0), ('Backing Plate', 6.0)])
+>>> mo.location_src_id.complete_name, mo.location_dest_id.complete_name
+('LFD/Stock', 'LFD/Stock')
+>>> mo.action_confirm()
+True
+>>> mo.state, mo.reservation_state, mo.components_availability, mo.move_raw_ids.mapped("quantity")
+('confirmed', 'assigned', 'Available', [6.0, 6.0])
+>>> mo.button_mark_done()
+True
+>>> mo.state, mo.qty_producing, pads.qty_available, friction.qty_available, plate.qty_available
+('done', 3.0, 8.0, 14.0, 14.0)
+>>> for m in mo.move_raw_ids | mo.move_finished_ids:
+...     print(f"{m.product_id.name:<14} {m.product_uom_qty:>5.2f}  {m.location_id.complete_name:<12} -> {m.location_dest_id.complete_name:<12} {m.state}")
+...
+Friction Pad    6.00  LFD/Stock    -> Production   done
+Backing Plate   6.00  LFD/Stock    -> Production   done
+Brake Pad Set   3.00  Production   -> LFD/Stock    done
+```
+
+Creating the order found the BoM by itself and wrote the component moves
+(`move_raw_ids`) for three times the recipe. `action_confirm` is Confirm,
+`button_mark_done` is Produce All: it filled `qty_producing` with 3 and set everything to
+done. The three moves at the end are the whole manufacturing order, as the warehouse
+sees it.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Go to three steps
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Warehouses → LibreFleet Depot**, under **Manufacture**
+pick **Pick components, manufacture, then store products (3 steps)** and save. The
+**Routes** smart button now lists six routes:
+
+![The Warehouse's Routes list with six rows highlighted: Replenish on Order (MTO), Manufacture, Buy, LibreFleet Depot: Pick components, manufacture and then store products (3 steps), Receive in 2 steps, Deliver in 3 steps](/screens/inv04-warehouse-routes.jpg)
+
+And **Configuration → Operations Types** has ten:
+
+![The Operations Types list with Pick Components, Manufacturing and Store Finished Product highlighted at the bottom](/screens/inv04-optypes-mrp.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> wh.write({"manufacture_steps": "pbm_sam"})
+True
+>>> wh.pbm_route_id.name
+'LibreFleet Depot: Pick components, manufacture and then store products (3 steps)'
+>>> for rule in wh.pbm_route_id.rule_ids:
+...     print(f"{rule.action:<5} {rule.location_src_id.complete_name:<19} -> {rule.location_dest_id.complete_name:<19} {rule.picking_type_id.name:<22} {rule.procure_method}")
+...
+pull  LFD/Stock           -> LFD/Pre-Production  Pick Components        make_to_stock
+pull  LFD/Pre-Production  -> Production          Manufacturing          make_to_order
+push  LFD/Post-Production -> LFD/Stock           Store Finished Product make_to_order
+>>> wh.manu_type_id.default_location_src_id.complete_name, wh.manu_type_id.default_location_dest_id.complete_name
+('LFD/Pre-Production', 'LFD/Post-Production')
+```
+
+The step values are `mrp_one_step`, `pbm` (pick before manufacturing) and `pbm_sam`
+(and store after manufacturing). The generated route reads exactly like the three-step
+delivery route from the previous chapter: pull, pull with *Trigger Another Rule*, push.
+And the Manufacturing operation type moved its defaults to the two new locations.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Sell a kit
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Products → Products → New**:
+
+- **Product:** `Brake Service Kit`
+- **Track Inventory:** unticked (a kit is never on a shelf)
+- **Sales Price:** `150`
+
+![The new product form for Brake Service Kit with the name, the unticked Track Inventory box and the Sales Price 150 highlighted, and the Bill of Materials smart button highlighted](/screens/inv04-product-kit.jpg)
+
+Save, click **Bill of Materials**, then **New**:
+
+- **BoM Type:** Kit
+- **Components:** `Brake Pad Set` quantity `1`, `Engine Oil 5W-30 1L` quantity `2`
+
+![A bill of materials for Brake Service Kit with BoM Type Kit highlighted, its explanation that a kit is not produced but decomposed into its components, and the two component lines highlighted](/screens/inv04-bom-kit.jpg)
+
+Read the grey text under Kit: that is the whole concept. Save. Now sell one, starting at
+the Pick as the three-step warehouse wants: **Inventory → Overview → Pick → Open → New**,
+**Contact** `Garage Nord`, **Add a Product** `Brake Service Kit`, Demand `1`:
+
+![A new Pick for Garage Nord with the single Brake Service Kit line, demand 1, highlighted, and the Mark as Todo button highlighted](/screens/inv04-kit-pick-draft.jpg)
+
+**Mark as Todo**:
+
+![The pick LFD/PICK/00003 Ready, with its reference and status highlighted and two lines highlighted in place of the kit: Brake Pad Set 1 and Engine Oil 5W-30 1L 2, each captioned Brake Service Kit](/screens/inv04-kit-pick-exploded.jpg)
+
+The kit is gone; its two parts are there, each captioned with the kit's name. **Validate**,
+**Next Transfer**, **Validate** the Pack, **Next Transfer**:
+
+![The delivery LFD/OUT/00007 Ready for Garage Nord from LFD/Output, Source Document LFD/PICK/00003, with the two kit part lines still captioned Brake Service Kit highlighted](/screens/inv04-kit-delivery.jpg)
+
+**Validate**. The shelf is at 7 sets and 13 bottles.
+
+</Tab>
+<Tab>
+
+```python
+>>> kit_tmpl = env["product.template"].create({"name": "Brake Service Kit", "type": "consu", "is_storable": False, "list_price": 150})
+>>> env["mrp.bom"].create({
+...     "product_tmpl_id": kit_tmpl.id, "product_qty": 1, "type": "phantom",
+...     "bom_line_ids": [(0, 0, {"product_id": pads.id, "product_qty": 1}),
+...                      (0, 0, {"product_id": oil.id, "product_qty": 2})],
+... })
+mrp.bom(2,)
+>>> kit = kit_tmpl.product_variant_id
+>>> kit.is_kits, kit.qty_available
+(True, 7.0)
+>>> pick = env["stock.picking"].create({
+...     "partner_id": garage.id, "picking_type_id": wh.pick_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": kit.id, "product_uom_qty": 1})],
+... })
+>>> pick.action_confirm()
+True
+>>> pick.has_kits, [(m.product_id.name, m.product_uom_qty, m.bom_line_id.bom_id.product_tmpl_id.name) for m in pick.move_ids]
+(True, [('Brake Pad Set', 1.0, 'Brake Service Kit'), ('Engine Oil 5W-30 1L', 2.0, 'Brake Service Kit')])
+>>> pick.button_validate()
+True
+>>> pack = pick.move_ids.move_dest_ids.picking_id
+>>> pack.button_validate()
+True
+>>> out = pack.move_ids.move_dest_ids.picking_id
+>>> out.button_validate()
+True
+>>> out.name, out.state, pads.qty_available, oil.qty_available
+('LFD/OUT/00007', 'done', 7.0, 13.0)
+```
+
+`is_kits` is computed from the BoM type. The kit's `qty_available` is 7 although it is
+not tracked and has no quant: Odoo works out how many kits the components on hand would
+make (8 sets, 15 bottles, so 7 kits). After `action_confirm` the pick has two moves, each
+with a `bom_line_id`, and `has_kits` is True.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Let an order make its own pads
+
+<UiOrShell>
+<Tab>
+
+Open the **Brake Pad Set** product, **Inventory** tab, tick **Replenish on Order (MTO)**
+and save:
+
+![The Brake Pad Set product form on the Inventory tab with the Replenish on Order (MTO) route ticked and highlighted and the Bill of Materials smart button highlighted](/screens/inv04-product-pads-mto.jpg)
+
+Then **Sales → New**, **Customer** `Garage Nord`, **Add a product** `Brake Pad Set`,
+quantity `2`, unit price `120`:
+
+![A new quotation for Garage Nord with the Brake Pad Set line, quantity 2 at 120, highlighted and the Confirm button highlighted](/screens/inv04-so-new.jpg)
+
+**Confirm**:
+
+![The sales order S00002 with the Sales Order status highlighted and two smart buttons highlighted: Delivery 1 and Manufacturing 1](/screens/inv04-so-confirmed.jpg)
+
+A delivery and a manufacturing order. Click **Manufacturing**:
+
+![The manufacturing order LFD/MO/00002 Confirmed, with its reference, status and Component Status Available highlighted, the Sale 1 and Transfers 1 smart buttons highlighted, and the two component lines at 4 with Consumed 0 highlighted](/screens/inv04-mo2-confirmed.jpg)
+
+Confirmed, but nothing consumed yet: in three steps the components first have to reach
+Pre-Production. Click **Transfers**:
+
+![The transfer LFD/PC/00001 Ready, with its reference, Operation Type LibreFleet Depot: Pick Components, Source Location LFD/Stock, Destination Location LFD/Pre-Production, Source Document S00002 and the two component lines at 4 highlighted](/screens/inv04-pc-ready.jpg)
+
+**Validate** it, and go back to the manufacturing order:
+
+![The manufacturing order LFD/MO/00002 with the chatter line MO Readiness Waiting Another Operation to Ready highlighted, the Consumed column showing 4 and 4 highlighted, and the Produce All, Start and Unreserve buttons highlighted](/screens/inv04-mo2-ready.jpg)
+
+*Waiting Another Operation to Ready*: the components arrived in Pre-Production and were
+reserved. **Produce All**:
+
+![The manufacturing order LFD/MO/00002 Done, with the Done status, the Transfers 2 smart button and the quantity 2.00 of 2.00 highlighted](/screens/inv04-mo2-done.jpg)
+
+**Transfers** went from 1 to 2. Click it:
+
+![The Transfers list for LFD/MO/00002 with two rows highlighted: LFD/PC/00001 from LFD/Stock to LFD/Pre-Production Done, and LFD/SFP/00001 from LFD/Post-Production to LFD/Stock Ready](/screens/inv04-mo2-transfers.jpg)
+
+Open `LFD/SFP/00001`:
+
+![The transfer LFD/SFP/00001 Ready, with its reference, Operation Type LibreFleet Depot: Store Finished Product, Source Location LFD/Post-Production, Destination Location LFD/Stock, Source Document LFD/MO/00002 and the Brake Pad Set line at 2 highlighted](/screens/inv04-sfp-ready.jpg)
+
+**Validate** it. The Pick that was waiting for the pads is now Ready:
+
+![The pick LFD/PICK/00004 Ready for Garage Nord, with its reference, status, Source Document S00002, Demand 2 and Quantity 2, and the chatter line Waiting Another Operation to Ready highlighted](/screens/inv04-pick-so-ready.jpg)
+
+**Validate**, **Next Transfer**, **Validate** the Pack, **Next Transfer**, **Validate**
+the delivery. Back on the order:
+
+![The sales order S00002 with the Delivery 4 and Manufacturing 1 smart buttons highlighted and the Delivered column showing 2.00 highlighted](/screens/inv04-so-delivered.jpg)
+
+Delivered 2, four transfers and one manufacturing order, none typed by you. The shelf is
+back at 7 sets, with 10 of each component.
+
+</Tab>
+<Tab>
+
+```python
+>>> pads.product_tmpl_id.write({"route_ids": [(4, env.ref("stock.route_warehouse0_mto").id)]})
+True
+>>> order = env["sale.order"].create({
+...     "partner_id": garage.id,
+...     "order_line": [(0, 0, {"product_id": pads.id, "product_uom_qty": 2, "price_unit": 120})],
+... })
+>>> order.action_confirm()
+True
+>>> [(p.name, p.picking_type_id.name, p.state) for p in order.picking_ids]
+[('LFD/PICK/00004', 'Pick', 'waiting')]
+>>> mo2 = env["mrp.production"].search([("origin", "=", order.name)])
+>>> mo2.name, mo2.state, mo2.product_qty, mo2.location_src_id.complete_name, mo2.location_dest_id.complete_name
+('LFD/MO/00002', 'confirmed', 2.0, 'LFD/Pre-Production', 'LFD/Post-Production')
+>>> [(p.name, p.picking_type_id.name, p.state) for p in mo2.picking_ids]
+[('LFD/PC/00001', 'Pick Components', 'assigned')]
+>>> [(m.product_id.name, m.location_id.complete_name, m.state, m.procure_method) for m in mo2.move_raw_ids]
+[('Friction Pad', 'LFD/Pre-Production', 'waiting', 'make_to_order'), ('Backing Plate', 'LFD/Pre-Production', 'waiting', 'make_to_order')]
+>>> pc = mo2.picking_ids
+>>> pc.button_validate()
+True
+>>> mo2.reservation_state, mo2.move_raw_ids.mapped("quantity")
+('assigned', [4.0, 4.0])
+>>> mo2.button_mark_done()
+True
+>>> mo2.state, [(p.name, p.picking_type_id.name, p.state) for p in mo2.picking_ids]
+('done', [('LFD/PC/00001', 'Pick Components', 'done'), ('LFD/SFP/00001', 'Store Finished Product', 'assigned')])
+>>> sfp = mo2.picking_ids.filtered(lambda p: p.picking_type_id == wh.sam_type_id)
+>>> sfp.move_ids.location_id.complete_name, sfp.move_ids.location_dest_id.complete_name, sfp.move_ids.move_dest_ids.reference
+('LFD/Post-Production', 'LFD/Stock', 'LFD/PICK/00004')
+>>> sfp.button_validate()
+True
+>>> pick2 = order.picking_ids.filtered(lambda p: p.picking_type_id == wh.pick_type_id)
+>>> pick2.name, pick2.state
+('LFD/PICK/00004', 'assigned')
+>>> pick2.button_validate()
+True
+>>> pack2 = pick2.move_ids.move_dest_ids.picking_id
+>>> pack2.button_validate()
+True
+>>> out2 = pack2.move_ids.move_dest_ids.picking_id
+>>> out2.button_validate()
+True
+>>> order.order_line.qty_delivered, [(p.name, p.state) for p in order.picking_ids]
+(2.0, [('LFD/PICK/00004', 'done'), ('LFD/SFP/00001', 'done'), ('LFD/PACK/00004', 'done'), ('LFD/OUT/00008', 'done')])
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal"), ("quantity", "!=", 0)], order="id"):
+...     print(f"{q.location_id.complete_name:<12} {q.product_id.name:<20} {q.quantity:>6.2f}")
+...
+LFD/Stock    Brake Pad Set          7.00
+LFD/Stock    Engine Oil 5W-30 1L   13.00
+LFD/Stock    Diagnostic Tablet      1.00
+LFD/Stock    Friction Pad          10.00
+LFD/Stock    Backing Plate         10.00
+>>> env.cr.commit()
+```
+
+Read the manufacturing order's component moves: they start in Pre-Production and are
+`make_to_order`, which is what pulled `LFD/PC/00001`. The order's `picking_ids` grows
+from one to two when it is done: the Store Finished Product transfer is a push, and its
+move already points at the waiting Pick. Validate it and the Pick is `assigned`. Commit
+at the end, or the whole chapter vanishes with the shell.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Where the manufacturing switches live
+
+Nothing to change, one page to know. **Manufacturing → Configuration → Settings**:
+
+![The Manufacturing settings with Work Orders, Unlock Manufacturing Orders, By-Products and Allocation Report for Manufacturing Orders highlighted](/screens/inv04-settings-mrp.jpg)
+
+**Work Orders** adds work centers and an Operations tab to every BoM. **Unlock
+Manufacturing Orders** lets workers change consumed quantities without unlocking first.
+**By-Products** adds the by-products tab. **Allocation Report** adds the report on done
+orders. Subcontracting, Quality, Barcode and the Master Production Schedule are other
+modules or Enterprise.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv04 --db warehouse
+```
+
+```text
+✔ Manufacturing is installed
+✔ 20 Friction Pads and 20 Backing Plates were received and stored
+✔ the pads have a bill of materials and the kit has a Kit bill
+✔ 3 pads were manufactured from stock in one step
+✔ the depot manufactures in 3 steps
+✔ a Brake Service Kit went out as its parts
+✔ the sales order manufactured, stored, picked, packed and shipped 2 pads
+✔ the shelf holds 7 pads, 13 oil, 10 of each component and 1 tablet
+
+inv04 complete! On to the next chapter 🔧
+```
+
+The two manufacturing orders, and who asked for them:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select name as order, state, product_qty as qty, origin from mrp_production order by id;"
+```
+
+```text
+    order     | state | qty  | origin
+--------------+-------+------+--------
+ LFD/MO/00001 | done  | 3.00 |
+ LFD/MO/00002 | done  | 2.00 | S00002
+(2 rows)
+```
+
+And the shelf, non-zero quants only:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id where l.usage='internal' and q.quantity <> 0 order by q.id;"
+```
+
+```text
+ location  |       product       | quantity
+-----------+---------------------+----------
+ LFD/Stock | Brake Pad Set       |     7.00
+ LFD/Stock | Engine Oil 5W-30 1L |    13.00
+ LFD/Stock | Diagnostic Tablet   |     1.00
+ LFD/Stock | Friction Pad        |    10.00
+ LFD/Stock | Backing Plate       |    10.00
+(5 rows)
+```
+
+5 plus 3, minus 1 in the kit, plus 2 made for the order, minus 2 delivered: 7 sets.
+20 minus 6 minus 4 of each component: 10. The kit itself never appears, which is the
+point of a kit.
+
+## Gotchas
+
+- **Produce All is Validate.** It sets the produced quantity to the whole order and marks
+  it done in one click; there is no second confirmation. **Start** is the gentle button:
+  it only moves the order to In Progress.
+- **In three steps, Confirm does not reserve.** The components are in Stock and the
+  order consumes from Pre-Production, so Consumed stays at 0 until the Pick Components
+  transfer is validated. New users see "Available" in Component Status and wonder why
+  nothing is reserved: Available is a forecast, Consumed is the fact.
+- **A kit explodes on confirm, so a Draft shows the kit and a Ready shows the parts.** If
+  you need to change the kit quantity, do it in Draft. After Mark as Todo there is no kit
+  line to edit, only parts.
+- **The Manufacture route is not on the product.** Like Buy, it is a warehouse route.
+  A product is manufacturable because it has a bill of materials; the route box you tick
+  on the product is Replenish on Order, which decides *when*, not *how*.
+- **Changing the steps does not move anything already in Pre-Production or
+  Post-Production.** Finish or cancel the open orders before switching, exactly as for
+  the shipment steps.
+- **The kit product's on-hand is computed, never counted.** Reporting shows a quantity for
+  it (how many kits the components would make), but there is no quant and a stock count
+  cannot touch it.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'A manufacturing order for 3 brake pad sets is done in a one-step warehouse. How many stock moves did it create?',
+      options: [
+        'One, from Production to Stock, carrying all three sets at once',
+        'Six, one per component unit consumed',
+        'Three: two moves into Production, one out of it',
+      ],
+      answer: 2,
+      why: 'One move per bill of materials line into Production, one move for the finished product out of it. The quantities, 6 and 6 in and 3 out, live on the moves, not in their number.',
+    },
+    {
+      q: 'In a three-step warehouse you confirm a manufacturing order. Where do the components have to be before it can be produced?',
+      options: [
+        'In LFD/Stock, where the Pick Components transfer finds them',
+        'In Pre-Production, which the Pick Components transfer fills',
+        'In Production, which the Confirm button fills',
+      ],
+      answer: 1,
+      why: 'The order consumes from Pre-Production. Confirm pulls a Pick Components transfer from Stock to Pre-Production; validating it is what makes the order Ready.',
+    },
+    {
+      q: 'What happens to a Brake Service Kit line when the Pick is confirmed?',
+      options: [
+        'It is replaced by one line per kit component',
+        'It stays as one line and the components are reserved behind it',
+        'It waits until a manufacturing order for the kit is done and validated',
+      ],
+      answer: 0,
+      why: 'A kit is a bill of materials of type Kit: no manufacturing order, and the transfer line is exploded into component lines at confirmation, each carrying the BoM line it came from.',
+    },
+    {
+      q: 'Which setting on the pads makes a sales order create a manufacturing order?',
+      options: [
+        'Manufacture to Resupply ticked on the product',
+        'The Manufacture route ticked on the product\'s Inventory tab',
+        'The Replenish on Order (MTO) route ticked on the product',
+      ],
+      answer: 2,
+      why: 'Manufacture is a warehouse route and Manufacture to Resupply is a warehouse setting, so neither is a product box. The product only needs the MTO route and a bill of materials; the warehouse supplies the Manufacture rule.',
+    },
+    {
+      q: 'What does the Unbuild button on a done manufacturing order do?',
+      options: [
+        'Reverses the production, product back into components',
+        'Cancels the order and returns the reserved components to stock',
+        'Opens the bill of materials for editing',
+      ],
+      answer: 0,
+      why: 'An unbuild order is the reverse manufacturing order: it consumes the finished product and produces the components, with its own moves. A done order cannot be cancelled, only unbuilt.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Switch **Manufacture** to two steps, confirm an order for 1 brake pad set and read
+   its Transfers and its locations. Then produce it and say, in one sentence, what the
+   second step saved compared to one step and what it cost.
+2. ⭐⭐ Tick **By-Products** in the Manufacturing settings, add a by-product `Brake Dust`
+   (a non-tracked Goods product) to the pad set's BoM, make one set and read the
+   finished moves. What does Odoo do with a by-product nobody counts?
+3. ⭐⭐ **Unbuild** `LFD/MO/00001` for one set. Predict the five quantities (sets, friction
+   pads, plates, and the two Production quants) before you confirm, then check them in
+   Reporting → Locations without the Internal filter.
+4. ⭐⭐⭐ Break-it lab. Remove the pad set's bill of materials (archive it), confirm a sales
+   order for one pad set, and describe exactly what Odoo creates and what it does not.
+   Then open the manufacturing order's form from the previous order and find the field
+   that would have told you a BoM is missing. Unarchive the BoM and finish the order.
+
+## Further reading
+
+- <Icon name="docs" /> [Bill of materials (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html):
+  every field on the BoM form, from the user's side.
+- <Icon name="docs" /> [One-step manufacturing (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/one_step_manufacturing.html)
+  and [three-step manufacturing (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/three_step_manufacturing.html):
+  the two flows you ran, with the work-order variant.
+- <Icon name="docs" /> [Use kits (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/advanced_configuration/kit_shipping.html):
+  kits in deliveries and as components.
+- <Icon name="source" /> [`mrp/models/mrp_production.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_production.py):
+  `move_raw_ids`, `move_finished_ids`, the state and `reservation_state` fields, and
+  `button_mark_done`, which is Produce All.
