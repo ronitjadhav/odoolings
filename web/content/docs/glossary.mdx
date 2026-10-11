@@ -245,6 +245,8 @@ forwarding: the child holds a required many2one to the parent, and the parent's
 fields become non-stored related fields on the child. Two tables, one logical
 record. Core uses it for `res.users` to `res.partner`.
 
+**delivery method (`delivery.carrier`)**: a way to ship that has a price, added by **Delivery Methods** (`stock_delivery`). Fixed Price or Based on Rules in Community, a carrier connector in Enterprise. Its delivery product becomes the shipping line of the sales order, and the method travels to the transfers as their Carrier (Inventory chapter 11).
+
 **demo data**: fictional records (customers, products, orders) listed under a
 module's `demo` manifest key, for training and testing, never required config.
 Loads only when a module is *installed* with demo explicitly requested
@@ -276,6 +278,8 @@ to a field literally named `name`; with neither, you get the `"model,id"` fallba
 filters: `[("license_plate", "=", "ZH 468 202")]`. Conditions AND together by
 default; `"|"` and `"&"` prefix operators change that. Domains can walk relations
 with dots (`order_id.technician_ids`).
+
+**dropshipping**: selling a product that the vendor ships straight to your customer. The **Dropship** route turns a confirmed sale into a purchase order whose Deliver To is the Dropship operation type, and one transfer moves the goods from Vendors to Customers without touching your stock (Inventory chapter 11).
 
 **editable list**: a list view with `editable="top|bottom"`, letting users add and
 edit rows inline instead of opening a form. The natural fit for flat config tables
@@ -349,6 +353,8 @@ sets `group_by`, delegating aggregation to a `read_group` call server-side.
 chain **application identifiers**: `(01)` a product's GTIN, `(10)` a lot, `(17)` an expiry
 date, `(30)` a quantity, `(00)` a shipping container's SSCC. Odoo reads them through the
 Default GS1 Nomenclature and can print them on lot labels.
+
+**HS code**: the Harmonized System number customs use to classify goods, kept on the product with its **Origin of Goods** (`hs_code`, `country_of_origin`). Carrier connectors print both on customs forms (Inventory chapter 11).
 
 **inventory adjustment (counting)**: writing a **Counted** quantity on a quant in
 Physical Inventory and applying it: Odoo moves the difference between the shelf and the
@@ -771,6 +777,8 @@ count (chapter 41).
 rise as a partner appears on sales or purchase documents. Odoo has no customer *type*
 and no supplier table: being both at once is just both counters above zero.
 
+**reception report**: the **Reception Report** setting (`stock.group_reception_report`): an **Allocation** button on receipts that lists the orders waiting for what arrived, so it can be set aside for them (Inventory chapter 11).
+
 **reconciliation (`account.partial.reconcile`)**: the act of declaring that a debit and a
 credit cancel out, and the record that stores it. Two instalments against one invoice
 create two partial reconciliations whose amounts sum to the total. This, not
@@ -966,6 +974,8 @@ Weight** (0 refuses anything that has a weight), **Allow New Product** (only if 
 only the same product, or mixed) and capacities per product or per package type. Putaway
 rules with Closest Location use only locations of the category they name.
 
+**subcontracting**: buying a product that a partner builds from your components. A bill of materials of type **Subcontracting** names the subcontractors; buying from one creates a **Resupply** transfer to the Subcontracting location and a hidden production that the receipt finishes (Inventory chapter 11).
+
 **sudo()**: derives a recordset with the superuser bit (`env.su`) on: access rights
 and record rules stop applying, while `env.user` stays unchanged. Bypasses spread to
 records reached through the sudo'd set, so scope it to the smallest operation.
@@ -1015,6 +1025,8 @@ Physical Inventory count gives the stock its numbers.
 **Traceability report**: the list of every done move of one lot or serial number, newest
 first, from its receipt to its delivery, return or scrap; opened from the lot's
 Traceability button or a done transfer's. The first tool of any recall.
+
+**tracking reference (`carrier_tracking_ref`)**: the carrier's number for a parcel, on the transfer's Additional Info tab. With a Tracking Link containing `<shipmenttrackingnumber>`, the transfer shows a **Tracking** button (Inventory chapter 11).
 
 **TransactionCase / HttpCase**: Odoo's base test classes. `TransactionCase` wraps
 each test method in a database transaction rolled back at the end, no cleanup code

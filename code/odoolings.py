@@ -3607,6 +3607,103 @@ def shelf_after_counting(env):
     assert not extra, "unexpected stock: %s. A count, scrap or transfer is not finished" % extra
 
 
+def shipping_dropship_and_subcontracting_are_on(env):
+    want = {"stock_delivery", "stock_dropshipping", "mrp_subcontracting"}
+    rows = env.call("ir.module.module", "search_read", [("name", "in", sorted(want)), ("state", "=", "installed")], fields=["name"])
+    missing = want - {r["name"] for r in rows}
+    assert not missing, "not installed: %s; Inventory > Configuration > Settings, tick Delivery Methods, Dropshipping and Subcontracting" % sorted(missing)
+
+
+def the_oil_has_shipping_data(env):
+    p = env.call("product.template", "search_read", [("name", "=", "Engine Oil 5W-30 1L")], fields=["weight", "hs_code", "country_of_origin"])[0]
+    assert p["weight"] == 1, "Engine Oil 5W-30 1L: Weight should be 1 kg (Inventory tab), it is %s" % p["weight"]
+    assert p["hs_code"] == "271019", "Engine Oil 5W-30 1L: HS Code should be 271019, it is %r" % p["hs_code"]
+    assert p["country_of_origin"] and p["country_of_origin"][1] == "Germany", "Engine Oil 5W-30 1L: Origin of Goods should be Germany"
+
+
+def depot_van_is_free_over_100(env):
+    rows = env.call("delivery.carrier", "search_read", [("name", "=", "Depot Van")], fields=["delivery_type", "fixed_price", "free_over", "amount"])
+    assert rows, "no delivery method named Depot Van; Inventory > Configuration > Delivery Methods > New"
+    c = rows[0]
+    assert c["delivery_type"] == "fixed" and c["fixed_price"] == 15, "Depot Van: Provider Fixed Price, Fixed Price 15 (set it after the Delivery Product)"
+    assert c["free_over"] and c["amount"] == 100, "Depot Van: tick Free if order amount is above, 100"
+
+
+def the_courier_prices_by_weight(env):
+    rows = env.call("delivery.carrier", "search_read", [("name", "=", "Courier by Weight")], fields=["delivery_type", "price_rule_ids", "tracking_url"])
+    assert rows and rows[0]["delivery_type"] == "base_on_rule", "no Based on Rules delivery method named Courier by Weight"
+    rules = env.call("delivery.price.rule", "read", rows[0]["price_rule_ids"],
+                     ["variable", "operator", "max_value", "list_base_price", "list_price", "variable_factor"])
+    got = [(r["variable"], r["operator"], r["max_value"], r["list_base_price"], r["list_price"], r["variable_factor"]) for r in rules]
+    assert got == [("weight", "<=", 5, 8, 0, "weight"), ("weight", "<=", 30, 5, 1, "weight")], (
+        "Courier by Weight should have two rules, in order: weight <= 5 then $8; weight <= 30 then $5 + $1 x weight. It has %s" % got)
+    assert "<shipmenttrackingnumber>" in (rows[0]["tracking_url"] or ""), "Courier by Weight: Tracking Link must contain <shipmenttrackingnumber>"
+
+
+def the_courier_order_charged_13(env):
+    lines = env.call("sale.order.line", "search_read", [("order_id.partner_id.name", "=", "Garage Sud"), ("order_id.state", "=", "sale"),
+                                                        ("is_delivery", "=", True), ("order_id.carrier_id.name", "=", "Courier by Weight")],
+                     fields=["price_unit", "order_id"])
+    assert lines, "no confirmed order of Garage Sud with a Courier by Weight line; sell 8 oil, Add shipping, Confirm"
+    assert lines[0]["price_unit"] == 13, "8 kg should cost $5 + $1 x 8 = $13, the line says %s" % lines[0]["price_unit"]
+
+
+def the_courier_delivery_has_a_tracking_number(env):
+    rows = env.call("stock.picking", "search_read", [("picking_type_id.sequence_code", "=", "OUT"), ("state", "=", "done"),
+                                                     ("carrier_id.name", "=", "Courier by Weight")],
+                    fields=["carrier_tracking_ref", "shipping_weight", "partner_id"])
+    assert rows, "no done Delivery with carrier Courier by Weight; finish the Pick, Pack and Delivery of the courier order"
+    assert rows[0]["carrier_tracking_ref"] == "LF123456", "the Delivery's Tracking Reference (Additional Info) should be LF123456"
+    assert rows[0]["shipping_weight"] == 8, "the Delivery's Weight for shipping should be 8 kg, it is %s" % rows[0]["shipping_weight"]
+
+
+def the_tyres_were_dropshipped(env):
+    p = env.call("product.template", "search_read", [("name", "=", "Tyre 205/55 R16")], fields=["route_ids", "seller_ids"])
+    assert p, "no product named Tyre 205/55 R16"
+    routes = env.call("stock.route", "read", p[0]["route_ids"], ["name"])
+    assert [r["name"] for r in routes] == ["Dropship"], "Tyre 205/55 R16 should have the Dropship route ticked, and only that one"
+    ds = env.call("stock.picking", "search_read", [("picking_type_id.code", "=", "dropship"), ("state", "=", "done"),
+                                                   ("product_id.name", "=", "Tyre 205/55 R16")], fields=["partner_id", "location_dest_id"])
+    assert ds and ds[0]["partner_id"][1] == "Pneu Direct", "no done Dropship of the tyres from Pneu Direct; sell 4 to Garage Nord, confirm the PO, validate the DS"
+    stock = env.call("stock.quant", "search_count", [("product_id.name", "=", "Tyre 205/55 R16"), ("location_id.usage", "=", "internal"), ("quantity", "!=", 0)])
+    assert not stock, "a tyre is in an internal location: a dropship never touches your stock"
+
+
+def the_engine_was_subcontracted(env):
+    bom = env.call("mrp.bom", "search_read", [("product_tmpl_id.name", "=", "Rebuilt Engine"), ("type", "=", "subcontract")],
+                   fields=["subcontractor_ids", "bom_line_ids"])
+    assert bom, "Rebuilt Engine needs a BoM of type Subcontracting"
+    subs = env.call("res.partner", "read", bom[0]["subcontractor_ids"], ["name"])
+    assert [s["name"] for s in subs] == ["Atelier Moteur"], "the Subcontracting BoM's Subcontractors should be Atelier Moteur"
+    line = env.call("mrp.bom.line", "read", bom[0]["bom_line_ids"], ["product_id", "product_qty"])
+    assert [(l["product_id"][1], l["product_qty"]) for l in line] == [("Engine Oil 5W-30 1L", 5)], "the BoM's only component: 5 Engine Oil 5W-30 1L"
+    res = env.call("stock.picking", "search_count", [("picking_type_id.sequence_code", "=", "RES"), ("state", "=", "done"), ("partner_id.name", "=", "Atelier Moteur")])
+    assert res, "the oil never went to Atelier Moteur: validate the Resupply transfer of the purchase order"
+    mo = env.call("mrp.production", "search_count", [("product_id.name", "=", "Rebuilt Engine"), ("state", "=", "done"), ("subcontractor_id.name", "=", "Atelier Moteur")])
+    assert mo, "no done subcontracting production; validate the purchase order's Receipt"
+
+
+def shelf_after_shipping(env):
+    rows = env.call("stock.quant", "search_read", [("location_id.usage", "in", ["internal", "transit"])],
+                    fields=["product_id", "location_id", "quantity", "lot_id", "package_id"])
+    have = {}
+    for r in rows:
+        if r["quantity"]:
+            key = (r["location_id"][1], r["product_id"][1], r["lot_id"] and r["lot_id"][1], bool(r["package_id"]))
+            have[key] = have.get(key, 0) + r["quantity"]
+    want = {("LFD/Stock", "Brake Pad Set", False, False): 15.0, ("LFD/Stock/Shelf A", "Brake Pad Set", False, False): 15.0,
+            ("LFD/Stock/Shelf B", "Brake Pad Set", False, False): 9.0, ("LFD/Stock/Pallet Bay 1", "Brake Pad Set", False, True): 10.0,
+            ("LFD/Stock", "Engine Oil 5W-30 1L", False, False): 12.0, ("LFD/Stock", "Rebuilt Engine", False, False): 1.0,
+            ("LFD/Stock/Fluids Rack", "Coolant 5L", False, False): 9.0, ("LFD/Stock", "Brake Fluid DOT 4 1L", "BF-002", False): 6.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000001", False): 1.0, ("LFD/Stock", "Diagnostic Tablet", "DT-0000002", False): 1.0,
+            ("LFD/Stock", "Diagnostic Tablet", "DT-0000003", False): 1.0, ("VAN/Stock", "Engine Oil 5W-30 1L", False, False): 8.0}
+    for key, qty in want.items():
+        assert have.get(key) == qty, "%s should hold %s %s%s, it holds %s" % (
+            key[0], qty, key[1], " lot %s" % key[2] if key[2] else "", have.get(key))
+    extra = {k: v for k, v in have.items() if k not in want}
+    assert not extra, "unexpected stock: %s. A transfer of the courier order or the subcontracting is not finished" % extra
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -4519,6 +4616,26 @@ CHAPTERS = {
         ("the shelf holds what the counts, scrap and sales left", shelf_after_counting,
          "Physical Inventory lists every quant; BF-002 6, Shelf B 9, the coolant on the Fluids Rack."),
     ],
+    "inv11": [
+        ("delivery methods, dropshipping and subcontracting are installed", shipping_dropship_and_subcontracting_are_on,
+         "Inventory > Configuration > Settings: Delivery Methods (Shipping), Dropshipping (Logistics), Subcontracting (Manufacturing)."),
+        ("the oil carries its weight, HS code and origin", the_oil_has_shipping_data,
+         "Engine Oil 5W-30 1L, Inventory tab: Weight 1, HS Code 271019, Origin of Goods Germany."),
+        ("Depot Van costs $15 and is free over $100", depot_van_is_free_over_100,
+         "Delivery Methods > New: Fixed Price, Delivery Product Depot Van, then Fixed Price 15, Free if order amount is above 100."),
+        ("Courier by Weight prices by weight in two rules", the_courier_prices_by_weight,
+         "Based on Rules, Pricing tab: weight <= 5 then 8 + 0; weight <= 30 then 5 + 1 x Weight; Tracking Link with <shipmenttrackingnumber>."),
+        ("the courier order charged $13 for 8 kg", the_courier_order_charged_13,
+         "Sell 8 oil to Garage Sud, Add shipping, Courier by Weight, Add, Confirm."),
+        ("the courier delivery left with a tracking number", the_courier_delivery_has_a_tracking_number,
+         "Validate the Pick and Pack; on the Delivery, Additional Info, Tracking Reference LF123456, then Validate."),
+        ("four tyres went from Pneu Direct straight to Garage Nord", the_tyres_were_dropshipped,
+         "Tyre 205/55 R16 with vendor Pneu Direct and route Dropship; sell 4 to Garage Nord, confirm the PO, validate DS."),
+        ("Atelier Moteur rebuilt an engine with your oil", the_engine_was_subcontracted,
+         "Subcontracting BoM: Rebuilt Engine, Atelier Moteur, 5 oil; buy 1, validate the Resupply, then the Receipt."),
+        ("the shelf holds what shipping and subcontracting left", shelf_after_shipping,
+         "Physical Inventory: 12 loose oil in LFD/Stock, the carton in Pallet Bay 1 empty, one Rebuilt Engine."),
+    ],
 }
 
 
@@ -4773,6 +4890,7 @@ INSTALLS = {
     "inv04": ["mrp"],
     "inv07": ["product_expiry"],  # Expiration Dates
     "inv10": ["stock_picking_batch"],  # Batch, Wave & Cluster Transfers
+    "inv11": ["stock_delivery", "stock_dropshipping", "mrp_subcontracting"],  # Delivery Methods, Dropshipping, Subcontracting
 }
 OCA_REPOS = {  # module -> the OCA repositories it needs, as chapters 49 and 50 clone them
     "sale_fixed_discount": ["sale-workflow", "account-invoicing"],
@@ -5668,6 +5786,56 @@ def seed_inv10(env):
     for kind in ("PACK", "OUT"):
         _validate(env, env.call("stock.picking", "search", [("picking_type_id.sequence_code", "=", kind), ("state", "=", "assigned")]))
 
+def seed_inv11(env):
+    _install(env, ["stock_delivery", "stock_dropshipping", "mrp_subcontracting"])
+    oil = _id(env, "product.template", [("name", "=", "Engine Oil 5W-30 1L")])
+    env.call("product.template", "write", [oil], {"weight": 1, "hs_code": "271019", "country_of_origin": _id(env, "res.country", [("code", "=", "DE")])})
+    fee = lambda name: env.call("product.product", "create", {"name": name, "type": "service", "sale_ok": False, "purchase_ok": False})
+    env.call("delivery.carrier", "create", {"name": "Depot Van", "delivery_type": "fixed", "product_id": fee("Depot Van"),
+                                            "fixed_price": 15, "free_over": True, "amount": 100})
+    rule = lambda top, base, per: (0, 0, {"variable": "weight", "operator": "<=", "max_value": top, "list_base_price": base,
+                                          "list_price": per, "variable_factor": "weight"})
+    courier = env.call("delivery.carrier", "create", {"name": "Courier by Weight", "delivery_type": "base_on_rule", "product_id": fee("Courier by Weight"),
+                                                      "tracking_url": "https://track.example.com/<shipmenttrackingnumber>",
+                                                      "price_rule_ids": [rule(5, 8, 0), rule(30, 5, 1)]})
+    oil_p = _id(env, "product.product", [("product_tmpl_id", "=", oil)])
+    order = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Garage Sud")]),
+                                              "order_line": [(0, 0, {"product_id": oil_p, "product_uom_qty": 8})]})
+    wizard = env.call("choose.delivery.carrier", "create", {"order_id": order, "carrier_id": courier})
+    _call(env, "choose.delivery.carrier", "update_price", [wizard])  # Get rate: 5 + 1 x 8
+    _call(env, "choose.delivery.carrier", "button_confirm", [wizard])
+    _call(env, "sale.order", "action_confirm", [order])
+    step = lambda kind: env.call("stock.picking", "search", [("sale_id", "=", order), ("picking_type_id.sequence_code", "=", kind)])
+    _validate(env, step("PICK"))
+    _validate(env, step("PACK"))
+    env.call("stock.picking", "write", step("OUT"), {"carrier_tracking_ref": "LF123456"})
+    _validate(env, step("OUT"))
+    pneu = env.call("res.partner", "create", {"name": "Pneu Direct"})
+    tyre = env.call("product.product", "create", {"name": "Tyre 205/55 R16", "is_storable": True, "list_price": 90, "standard_price": 60,
+                                                  "route_ids": [(6, 0, [_xmlid(env, "stock_dropshipping.route_drop_shipping")])],
+                                                  "seller_ids": [(0, 0, {"partner_id": pneu, "price": 60, "delay": 3})]})
+    order = env.call("sale.order", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Garage Nord")]),
+                                              "order_line": [(0, 0, {"product_id": tyre, "product_uom_qty": 4})]})
+    _call(env, "sale.order", "action_confirm", [order])
+    po = _id(env, "purchase.order", [("partner_id", "=", pneu)])
+    _call(env, "purchase.order", "button_confirm", [po])
+    _validate(env, env.call("purchase.order", "read", [po], ["picking_ids"])[0]["picking_ids"])
+    atelier = env.call("res.partner", "create", {"name": "Atelier Moteur"})
+    engine = env.call("product.product", "create", {"name": "Rebuilt Engine", "is_storable": True, "list_price": 1500,
+                                                    "seller_ids": [(0, 0, {"partner_id": atelier, "price": 800, "delay": 5})]})
+    env.call("mrp.bom", "create", {"product_tmpl_id": env.call("product.product", "read", [engine], ["product_tmpl_id"])[0]["product_tmpl_id"][0],
+                                   "type": "subcontract", "subcontractor_ids": [(6, 0, [atelier])],
+                                   "bom_line_ids": [(0, 0, {"product_id": oil_p, "product_qty": 5})]})
+    po = env.call("purchase.order", "create", {"partner_id": atelier, "order_line": [(0, 0, {"product_id": engine, "product_qty": 1})]})
+    _call(env, "purchase.order", "button_confirm", [po])
+    res = env.call("stock.picking", "search", [("picking_type_id.sequence_code", "=", "RES"), ("partner_id", "=", atelier)])
+    # the carton still names its pallet as destination: send the oil out loose, as the chapter does
+    env.call("stock.move.line", "write", env.call("stock.move.line", "search", [("picking_id", "in", res)]), {"result_package_id": False})
+    _validate(env, res)
+    receipt = env.call("stock.picking", "search", [("purchase_id", "=", po), ("picking_type_id.code", "=", "incoming")])[0]
+    _finish_chain(env, receipt)  # the receipt, then the Storage from Input
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -5678,6 +5846,7 @@ SEEDS = {
     "ch29": seed_ch29, "ch30": seed_ch30, "ch49": seed_ch49,
     "inv01": seed_inv01, "inv02": seed_inv02, "inv03": seed_inv03, "inv04": seed_inv04,
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
+    "inv11": seed_inv11,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped

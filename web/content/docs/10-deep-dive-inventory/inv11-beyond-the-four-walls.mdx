@@ -1,0 +1,741 @@
+---
+title: "Inventory 11. Beyond the Four Walls"
+description: Charge for shipping with fixed and rule-based delivery methods, send a parcel with a tracking number, have a vendor ship straight to your customer, and let a subcontractor build with your parts.
+tier: professional
+---
+
+**Goal:** handle the stock that leaves the building, or never enters it: parcels to
+customers, vendors shipping on your behalf, and parts sent out to a subcontractor. ·
+**Time:** ~3 h · **Checkpoint:** none, this chapter writes no module. It continues the
+`warehouse` database and installs Delivery Methods, Dropshipping and Subcontracting.
+
+## Why this matters
+
+So far every product came in through the depot's door and went out through it. Real
+businesses leak at the edges. A customer wants to know what shipping costs before they
+order, and a parcel needs a tracking number. Some products you sell but never stock: the
+tyre wholesaler ships them to your customer directly. And some work you do not do
+yourself: you send parts to a workshop that sends back a finished product.
+
+Each of these has a model in Odoo, and each one has a trap. This chapter sets up two
+delivery methods and ships an order with a tracking number. Then it dropships tyres from
+a vendor, and has an engine rebuilt by a subcontractor with your own oil.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `warehouse` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Delivery methods
+
+A **delivery method** (`delivery.carrier`) is a way to ship that has a price. It is tied
+to a **delivery product**: a service product that appears as the shipping line on the
+sales order. Community has two providers:
+
+- **Fixed Price**: one price for every order. It is stored as the delivery product's
+  sales price.
+- **Based on Rules**: a list of price rules, tried in order. The first rule whose
+  condition is true sets the price. If none matches, the method is not available for
+  that order.
+
+A rule reads: *if* a **variable** compared with a value is true, *then* the price is a
+**base price** plus a **price** times a **factor**. Both the variable and the factor are
+chosen from the same five:
+
+| Variable | What Odoo adds up over the order lines |
+|---|---|
+| **Weight** | product weight times quantity |
+| **Volume** | product volume times quantity |
+| **Weight * Volume** | weight times volume, per line |
+| **Price** | the order total without shipping |
+| **Quantity** | the number of units |
+
+The operators are `=`, `<=`, `<`, `>=` and `>`. A courier that charges $8 up to 5 kg,
+then $5 plus $1 per kg up to 30 kg, is two rules. A 31 kg order matches neither, so the
+courier simply does not offer itself.
+
+Around the price sit a few more fields:
+
+- **Margin on Rate** (a percentage) and **Additional margin** (an amount) are added on
+  top. They apply to Based on Rules and to the carrier connectors, **never to Fixed
+  Price**.
+- **Free if order amount is above**: the shipping line drops to 0 when the order, without
+  shipping, reaches the amount.
+- The **Availability** tab hides the method from orders that do not fit: **Countries**,
+  **States**, **Zip Prefixes**, **Max Weight**, **Max Volume**, **Must Have Tags** and
+  **Excluded Tags** (product tags).
+- **Invoicing Policy**: **Estimated cost** bills what the order said. **Real cost**
+  updates the shipping line with the price computed when the delivery is validated,
+  useful with a connector that returns the carrier's real charge.
+- **Tracking Link**: a URL with `<shipmenttrackingnumber>` in it. Odoo puts the
+  transfer's tracking reference in its place and shows a **Tracking** button.
+- **Routes**: routes you may pick per order because of this carrier. They are the routes
+  marked selectable on shipping methods (`shipping_selectable`).
+
+Return labels and shipping insurance exist as fields, but only the connectors fill them:
+Fixed Price and Based on Rules cannot generate a label.
+
+### The carrier on the order and the transfer
+
+**Add shipping** on a quotation opens a small wizard. It computes the weight of the order,
+lets you change it, and asks the method for a rate. Confirming it writes the carrier on
+the order and adds the shipping line.
+
+When the order is confirmed, the carrier travels down to the transfers. Each rule of a
+multi-step delivery has **Propagation of carrier** (`propagate_carrier`), so in a three-step
+depot the Pick, the Pack and the Delivery all carry it. On the transfer's **Additional
+Info** tab you find:
+
+| Field | Meaning |
+|---|---|
+| **Carrier** | the delivery method |
+| **Tracking Reference** | the carrier's number for the parcel |
+| **Weight** | the weight of the products, computed |
+| **Weight for shipping** | what you declare: the products plus packaging, editable |
+
+Customs data lives on the product: **HS Code**, the Harmonized System number customs use
+to classify goods, and **Origin of Goods**, the country it was made in. Connectors print
+them on customs forms; in Community they are information you keep.
+
+### Dropshipping
+
+**Dropshipping** means you sell a product, and the vendor delivers it straight to your
+customer. It never sits on your shelves. The module adds a **Dropship** route. Tick it on
+a product, and a confirmed sale creates a purchase order instead of a delivery.
+
+<Mermaid
+  label="A dropshipped sale: the sale order creates a purchase order to the vendor, and one Dropship transfer moves the goods from Vendors to Customers without touching the depot"
+  chart={`flowchart LR
+  SO["Sale order<br/>Garage Nord, 4 tyres"] -->|Dropship route| PO["Purchase order<br/>Pneu Direct<br/>Deliver To: Dropship"]
+  PO -->|confirm| DS["DS transfer<br/>Vendors → Customers"]
+  DS -.->|never| WH[("LibreFleet<br/>Depot")]`}
+/>
+
+The purchase order's **Deliver To** is the **Dropship** operation type, and its
+**Dropship Address** is your customer. The transfer is a single move from Vendors to
+Customers. The operation type belongs to the company, not to a warehouse, and the
+transfer's `is_dropship` flag is how code tells it apart.
+
+### Subcontracting
+
+**Subcontracting** is buying a product that a partner builds from your components. The
+module adds a bill of materials type, **Subcontracting**, with a list of
+**Subcontractors**. When you buy that product from one of them, Odoo knows two things
+happen: you send the components out, and you receive the finished product.
+
+<Mermaid
+  label="Subcontracting: the purchase order creates a resupply transfer that sends the oil to the Subcontracting location, a hidden production that consumes it there, and a receipt of the rebuilt engine"
+  chart={`flowchart LR
+  PO["Purchase order<br/>Atelier Moteur<br/>1 Rebuilt Engine"] --> RES["Resupply (RES)<br/>LFD/Stock → Subcontracting<br/>5 oil"]
+  PO --> IN["Receipt (IN)<br/>engine arrives"]
+  RES --> SBC["Subcontracting production (SBC)<br/>consumes 5 oil<br/>at Subcontracting"]
+  SBC -->|finished by validating| IN`}
+/>
+
+- **Subcontracting** is one location for the whole company, of type internal. Stock
+  there is yours, held by the subcontractor.
+- The **Resupply Subcontractor** operation type (prefix RES) carries the components from
+  your stock to that location. In Odoo 19 the **Resupply Subcontractor on Order** route
+  is a warehouse route, switched on by the warehouse's **Resupply Subcontractors**
+  option, not something you tick per product.
+- The **Subcontracting** production (prefix SBC) is a manufacturing order you rarely
+  open. It is created with the receipt, and validating the receipt finishes it: the
+  components are consumed at the Subcontracting location, the product comes in.
+
+### The reception report
+
+**Reception Report**, a setting under Operations, adds an **Allocation** button on
+receipts. It lists the receipt's products next to the orders waiting for them, so the
+person unloading the truck knows which pallet goes to which order. An operation type can
+show it automatically at validation (**Show Reception Report at Validation**).
+
+<Callout type="info" title="In the field">
+  Enterprise adds the carrier connectors that price, label and track for real: DHL
+  Express, FedEx, UPS, USPS, bpost, Easypost, Sendcloud, Shiprocket, Starshipit and
+  Envia.com. They appear in the settings under Shipping Connectors. A connector is a
+  delivery method with a different provider, so everything in this chapter still applies.
+  The **Dispatch Management System** setting (`stock_fleet`) plans packs into vehicle
+  trips; it is named here and not covered.
+</Callout>
+
+<Callout type="info" title="Official docs">
+  [Delivery methods](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/setup_configuration/delivery_method.html),
+  [dropshipping](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/dropshipping.html)
+  and [subcontracting](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/subcontracting.html)
+  in the 19.0 user documentation.
+</Callout>
+
+## Hands-on
+
+Same database, `warehouse`, from the previous chapter. By the end: two delivery methods,
+an order of oil shipped by courier with a tracking number, four tyres dropshipped to
+Garage Nord, and an engine rebuilt with five of your oil bottles.
+
+<Steps>
+
+<Step>
+### Switch the three features on
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**. Under **Shipping**, tick **Delivery Methods**:
+
+![The Inventory settings, Shipping section, with Delivery Methods (Compute shipping costs) ticked and highlighted](/screens/inv11-settings-delivery.jpg)
+
+Further down, under **Logistics**, tick **Dropshipping**:
+
+![The Inventory settings, Logistics section, with Dropshipping (Request your vendors to deliver to your customers) ticked and highlighted](/screens/inv11-settings-dropship.jpg)
+
+Then click **Manufacturing** in the left column. Under **Operations**, tick
+**Subcontracting**, and **Save** once for all three:
+
+![The Manufacturing settings with Subcontracting (Delegate part of the production process to subcontractors) ticked and highlighted, and the Save button highlighted](/screens/inv11-settings-subcontracting.jpg)
+
+Each box installs a module: `stock_delivery`, `stock_dropshipping` and
+`mrp_subcontracting`. Saving takes a little while and reloads the page.
+
+</Tab>
+<Tab>
+
+Install them as the Settings save does, with `-i stock_delivery,stock_dropshipping,mrp_subcontracting`
+on the command line or from the Apps menu. Then:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d warehouse --no-http
+```
+
+```python
+>>> env["ir.module.module"].search([("name", "in", ["stock_delivery", "stock_dropshipping", "mrp_subcontracting"])]).mapped("state")
+['installed', 'installed', 'installed']
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Give the oil its shipping data
+
+<UiOrShell>
+<Tab>
+
+Rule-based prices need weights. **Products → Products → Engine Oil 5W-30 1L**, tab
+**Inventory**:
+
+- **Weight:** `1` (kg)
+- **HS Code:** `271019`
+- **Origin of Goods:** Germany
+
+![The oil's Inventory tab with Weight 1.00 kg highlighted, and HS Code 271019 and Origin of Goods Germany highlighted](/screens/inv11-oil-weight.jpg)
+
+HS Code and Origin of Goods are new: Delivery Methods added them. Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> oil = env["product.product"].search([("name", "=", "Engine Oil 5W-30 1L")])
+>>> oil.write({"weight": 1, "hs_code": "271019", "country_of_origin": env.ref("base.de").id})
+True
+>>> oil.weight, oil.weight_uom_name, oil.hs_code, oil.country_of_origin.name
+(1.0, 'kg', '271019', 'Germany')
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A van at a fixed price
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Delivery → Delivery Methods → New**. Fill in, in this
+order:
+
+- **Delivery Method:** `Depot Van`
+- **Provider:** Fixed Price
+- **Delivery Product:** type `Depot Van` and **Create**
+- **Fixed Price:** `15`
+- **Free if order amount is above:** ticked, `100`
+
+![The Depot Van delivery method with its name and Provider Fixed Price highlighted, and Fixed Price $ 15.00, Free if order amount is above $ 100.00 and Delivery Product Depot Van highlighted](/screens/inv11-depot-van.jpg)
+
+The order matters. Fixed Price is stored as the delivery product's sales price, so
+creating the product resets it to that product's price. Set the product first. Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> Carrier = env["delivery.carrier"]
+>>> fee = lambda name: env["product.product"].create({"name": name, "type": "service", "sale_ok": False, "purchase_ok": False})
+>>> van = Carrier.create({"name": "Depot Van", "delivery_type": "fixed", "product_id": fee("Depot Van").id, "fixed_price": 15, "free_over": True, "amount": 100})
+>>> van.fixed_price, van.product_id.list_price, van.free_over, van.amount, van.invoice_policy
+(15.0, 15.0, True, 100.0, 'estimated')
+```
+
+The delivery product is a service that is neither sold nor bought on its own, which is
+what the form creates too.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A courier priced by weight
+
+<UiOrShell>
+<Tab>
+
+**New** again:
+
+- **Delivery Method:** `Courier by Weight`
+- **Provider:** Based on Rules
+- **Delivery Product:** create `Courier by Weight`
+- **Tracking Link:** `https://track.example.com/<shipmenttrackingnumber>`
+
+The form grows a **Pricing** tab. **Add a line**:
+
+![The Create Pricing Rules dialog with Condition Weight, operator less than or equal, 5.00, and Delivery Cost $ 8.00 + $ 0.00 * Weight highlighted](/screens/inv11-price-rule.jpg)
+
+Condition **Weight** `<=` `5`, Delivery Cost `8` plus `0` times Weight. **Save & New**,
+then a second rule: Weight `<=` `30`, cost `5` plus `1` times **Weight**. **Save & Close**:
+
+![The Courier by Weight method with Provider Based on Rules highlighted, and its Pricing tab highlighted, listing the rule for weight up to 5.00 at a fixed $ 8.00, and the rule for weight up to 30.00 at $ 5.00 plus $ 1.00 times weight](/screens/inv11-courier-rules.jpg)
+
+The rules are tried from the top. Up to 5 kg the first one wins and costs $8. From just
+over 5 kg up to 30, the second one charges $5 plus $1 per kg. Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> rule = lambda top, base, per: (0, 0, {"variable": "weight", "operator": "<=", "max_value": top, "list_base_price": base, "list_price": per, "variable_factor": "weight"})
+>>> courier = Carrier.create({"name": "Courier by Weight", "delivery_type": "base_on_rule", "product_id": fee("Courier by Weight").id, "tracking_url": "https://track.example.com/<shipmenttrackingnumber>", "price_rule_ids": [rule(5, 8, 0), rule(30, 5, 1)]})
+>>> courier.price_rule_ids.mapped("name")
+['if weight <= 5.00 then fixed price $\xa08.00', 'if weight <= 30.00 then fixed price $\xa05.00 plus $\xa01.00 times weight']
+```
+
+`list_base_price` is the fixed part, `list_price` the part multiplied by
+`variable_factor`. (`\xa0` is the non-breaking space Odoo puts after the currency sign.)
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Sell with shipping
+
+<UiOrShell>
+<Tab>
+
+**Sales → New**: customer Garage Sud, a line of **Engine Oil 5W-30 1L**, quantity `8`.
+Save, then click **Add shipping** under the lines. Pick **Courier by Weight**:
+
+![The Add a shipping method dialog with Shipping Method Courier by Weight, Total Order Weight 8.00 kg and Cost $ 13.00 highlighted](/screens/inv11-add-shipping.jpg)
+
+8 bottles of 1 kg: the second rule, $5 + 8 × $1 = $13. You may type another weight
+here, for example once the parcel is packed. Click **Add**:
+
+![The quotation with a new line Courier by Weight, quantity 1, unit price 13.00 and tax 15% highlighted, and the Update shipping cost button highlighted](/screens/inv11-shipping-line.jpg)
+
+The shipping is an ordinary order line, flagged as delivery. If the order changes,
+**Update shipping cost** asks the method again. **Confirm**.
+
+</Tab>
+<Tab>
+
+```python
+>>> sud = env["res.partner"].search([("name", "=", "Garage Sud")])
+>>> order = env["sale.order"].create({"partner_id": sud.id, "order_line": [(0, 0, {"product_id": oil.id, "product_uom_qty": 8})]})
+>>> for kg in (4, 8, 31):
+...     r = courier.with_context(order_weight=kg).rate_shipment(order)
+...     print(kg, r["success"], r["price"], r["error_message"])
+... 
+4 True 8.0 False
+8 True 13.0 False
+31 False 0.0 Not available for current order
+>>> van.rate_shipment(order)["price"]
+15.0
+>>> wizard = env["choose.delivery.carrier"].create({"order_id": order.id, "carrier_id": courier.id})
+>>> wizard.total_weight
+8.0
+>>> wizard.update_price() and wizard.display_price
+13.0
+>>> wizard.button_confirm()
+>>> [(l.name, l.price_unit, l.is_delivery) for l in order.order_line]
+[('Engine Oil 5W-30 1L', 1.0, False), ('Courier by Weight', 13.0, True)]
+>>> order.carrier_id.name, order.amount_untaxed
+('Courier by Weight', 21.0)
+```
+
+`order_weight` in the context is what the dialog's weight field passes. At 31 kg no
+rule matches, so the courier is not available. The van costs $15 here because the order
+is far below $100.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Ship it with a tracking number
+
+<UiOrShell>
+<Tab>
+
+The **Delivery** smart button opens the Pick. It already carries the carrier, and it
+joined an automatic batch (chapter 10). **Validate** the Pick, **Next Transfer**,
+**Validate** the Pack, **Next Transfer**. On the Delivery, open **Additional Info** and
+type the **Tracking Reference** `LF123456`:
+
+![The Delivery LFD/OUT/00017 on its Additional Info tab with Carrier Courier by Weight, Tracking Reference LF123456, Weight 8.00 kg and Weight for shipping 8.00 kg highlighted, and the Tracking smart button highlighted](/screens/inv11-out-carrier.jpg)
+
+A **Tracking** button appeared: it opens the tracking link with `LF123456` in place of
+the placeholder. **Validate**.
+
+</Tab>
+<Tab>
+
+```python
+>>> order.action_confirm()
+True
+>>> pick = order.picking_ids
+>>> pick.name, pick.carrier_id.name, pick.weight, pick.batch_id.name
+('LFD/PICK/00013', 'Courier by Weight', 8.0, 'BATCH/PICK/00002')
+>>> pick.button_validate()
+True
+>>> pack = order.picking_ids - pick
+>>> pack.name, pack.carrier_id.name
+('LFD/PACK/00013', 'Courier by Weight')
+>>> pack.button_validate()
+True
+>>> out = order.picking_ids - pick - pack
+>>> out.name, out.carrier_id.name, out.weight, out.shipping_weight
+('LFD/OUT/00017', 'Courier by Weight', 8.0, 8.0)
+>>> out.carrier_tracking_ref = "LF123456"
+>>> out.carrier_tracking_url
+'https://track.example.com/LF123456'
+>>> out.button_validate()
+True
+>>> out.state
+'done'
+```
+
+The carrier is on all three steps because the delivery rules propagate it. Your
+transfer numbers may differ from these.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Dropship four tyres
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Products → Products → New**:
+
+- **Product:** `Tyre 205/55 R16`
+- **Sales Price:** `90`, **Cost:** `60`
+- **Purchase** tab, **Add a line:** vendor `Pneu Direct` (create it), Unit Price `60`,
+  Lead Time `3`
+- **Inventory** tab, **Routes:** tick **Dropship**
+
+![The tyre's Inventory tab with the Dropship route ticked and highlighted, among Service Van: Supply Product from LibreFleet Depot and Replenish on Order (MTO)](/screens/inv11-tyre-dropship.jpg)
+
+Buy and Manufacture are not in that list: in Odoo 19 they are warehouse routes. Save.
+
+Now **Sales → New** for Garage Nord, 4 tyres, **Confirm**. There is no Delivery button,
+but a **Purchase** one:
+
+![The confirmed sale of 4 tyres to Garage Nord with the Purchase smart button highlighted, and no Delivery button](/screens/inv11-tyre-sale.jpg)
+
+Open it:
+
+![The request for quotation P00004 with Vendor Pneu Direct highlighted, and Deliver To Dropship with Dropship Address Garage Nord highlighted](/screens/inv11-dropship-po.jpg)
+
+**Deliver To** is the Dropship operation type, and the address is your customer.
+**Confirm Order**, then the **Dropship** smart button:
+
+![The transfer DS/00001 with Operation Type Dropship highlighted, and Source Location Vendors and Destination Location Customers highlighted](/screens/inv11-ds-transfer.jpg)
+
+One transfer, Vendors to Customers. When Pneu Direct confirms the delivery, **Validate**.
+Back on the sale, Delivered shows 4.
+
+</Tab>
+<Tab>
+
+```python
+>>> pneu = env["res.partner"].create({"name": "Pneu Direct"})
+>>> dropship = env.ref("stock_dropshipping.route_drop_shipping")
+>>> tyre = env["product.product"].create({"name": "Tyre 205/55 R16", "is_storable": True, "list_price": 90, "standard_price": 60, "route_ids": [(6, 0, dropship.ids)], "seller_ids": [(0, 0, {"partner_id": pneu.id, "price": 60, "delay": 3})]})
+>>> nord = env["res.partner"].search([("name", "=", "Garage Nord")])
+>>> sale = env["sale.order"].create({"partner_id": nord.id, "order_line": [(0, 0, {"product_id": tyre.id, "product_uom_qty": 4})]})
+>>> sale.action_confirm()
+True
+>>> sale.picking_ids, sale.purchase_order_count
+(stock.picking(), 1)
+>>> po = sale._get_purchase_orders()
+>>> po.partner_id.name, po.picking_type_id.name, po.dest_address_id.name, po.order_line.price_unit
+('Pneu Direct', 'Dropship', 'Garage Nord', 60.0)
+>>> po.button_confirm()
+True
+>>> ds = po.picking_ids
+>>> ds.name, ds.picking_type_id.code, ds.location_id.name, ds.location_dest_id.name, ds.is_dropship
+('DS/00001', 'dropship', 'Vendors', 'Customers', True)
+>>> ds.button_validate()
+True
+>>> sale.order_line.qty_delivered, tyre.qty_available
+(4.0, 0.0)
+```
+
+The sale has no transfer of its own: the dropship belongs to the purchase order. Four
+tyres delivered, none ever in stock.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Have an engine rebuilt with your oil
+
+<UiOrShell>
+<Tab>
+
+**Products → Products → New**: `Rebuilt Engine`, Sales Price `1500`. On **Purchase**,
+add the vendor `Atelier Moteur` (create it), Unit Price `800`, Lead Time `5`. Save.
+The price is what the workshop charges for its work.
+
+Then the **Bill of Materials** smart button, **New**:
+
+- **BoM Type:** Subcontracting
+- **Subcontractors:** Atelier Moteur
+- **Components:** Engine Oil 5W-30 1L, quantity `5`
+
+![The bill of materials of Rebuilt Engine with BoM Type Subcontracting and Subcontractors Atelier Moteur highlighted, and the component line Engine Oil 5W-30 1L, 5.00 Units highlighted](/screens/inv11-subcontract-bom.jpg)
+
+Save. Now **Purchase → New**: vendor Atelier Moteur, 1 Rebuilt Engine, **Confirm
+Order**. Two smart buttons appear:
+
+![The purchase order P00005 to Atelier Moteur for 1 Rebuilt Engine at 800.00, with the Resupply and Receipt smart buttons highlighted](/screens/inv11-subcontract-po.jpg)
+
+Open **Resupply**:
+
+![The transfer LFD/RES/00001 with Operation Type LibreFleet Depot: Resupply Subcontractor, Source Location LFD/Stock and Destination Location Subcontracting highlighted, and one line of 5 Engine Oil taken from CTN0000001 and No Package](/screens/inv11-resupply.jpg)
+
+The oil goes from your stock to the Subcontracting location. LIFO (chapter 9) takes the
+last 4 bottles of carton CTN0000001 and one loose bottle. **Validate**, and Odoo
+refuses:
+
+```text
+Can't move a container having packages in another location (LFD/Stock/Pallet Bay 1)
+to a different location (Subcontracting).
+```
+
+The carton is taken whole, so Odoo moves the carton itself, and the carton still
+belongs to pallet PAL0000001, which stays in Pallet Bay 1. Send the oil out of the
+carton instead. Click **Details** on the line. In the row of 4 bottles, clear
+**Destination Package** (it says CTN0000001), then **Save** and **Validate** again. The
+empty carton stays on the pallet.
+
+Back on the purchase order, open **Receipt**:
+
+![The receipt LFD/IN/00017 from Atelier Moteur for 1 Rebuilt Engine, with the Subcontracting Productions smart button highlighted](/screens/inv11-subcontract-receipt.jpg)
+
+**Validate** it. Then open **Subcontracting Productions**:
+
+![The subcontracting production LFD/SBC/00001 for 1 Rebuilt Engine, in state Done, with its component line Engine Oil 5W-30 1L, to consume 5.00, consumed 5.00 highlighted](/screens/inv11-subcontract-mo.jpg)
+
+Validating the receipt finished the production: 5 oil consumed at Subcontracting, one
+engine in. With two-step receipts the engine waits in Input: **Next Transfer** on the
+receipt, **Validate** the Storage.
+
+</Tab>
+<Tab>
+
+```python
+>>> atelier = env["res.partner"].create({"name": "Atelier Moteur"})
+>>> engine = env["product.product"].create({"name": "Rebuilt Engine", "is_storable": True, "list_price": 1500, "seller_ids": [(0, 0, {"partner_id": atelier.id, "price": 800, "delay": 5})]})
+>>> bom = env["mrp.bom"].create({"product_tmpl_id": engine.product_tmpl_id.id, "type": "subcontract", "subcontractor_ids": [(6, 0, atelier.ids)], "bom_line_ids": [(0, 0, {"product_id": oil.id, "product_qty": 5})]})
+>>> atelier.is_subcontractor, atelier.property_stock_subcontractor.complete_name
+(False, 'Subcontracting')
+>>> po = env["purchase.order"].create({"partner_id": atelier.id, "order_line": [(0, 0, {"product_id": engine.id, "product_qty": 1})]})
+>>> po.button_confirm()
+True
+>>> [(p.name, p.picking_type_id.name, p.location_id.complete_name, p.location_dest_id.complete_name) for p in po._get_subcontracting_resupplies() | po.picking_ids]
+[('LFD/RES/00001', 'Resupply Subcontractor', 'LFD/Stock', 'Subcontracting'), ('LFD/IN/00017', 'Receipts', 'Vendors', 'LFD/Input')]
+>>> res = po._get_subcontracting_resupplies()
+>>> [(l.package_id.name, l.result_package_id.name, l.quantity) for l in res.move_line_ids]
+[('CTN0000001', 'CTN0000001', 4.0), (False, False, 1.0)]
+>>> with env.cr.savepoint():
+...     res.button_validate()
+... 
+Traceback (most recent call last):
+  ...
+odoo.exceptions.UserError: Can't move a container having packages in another location (LFD/Stock/Pallet Bay 1) to a different location (Subcontracting).
+>>> res.move_line_ids.result_package_id = False
+>>> res.button_validate()
+True
+>>> receipt = po.picking_ids
+>>> mo = receipt._get_subcontract_production()
+>>> mo.name, mo.state, mo.subcontractor_id.name, [(m.product_id.name, m.product_uom_qty, m.location_id.complete_name) for m in mo.move_raw_ids]
+('LFD/SBC/00001', 'confirmed', 'Atelier Moteur', [('Engine Oil 5W-30 1L', 5.0, 'Subcontracting')])
+>>> receipt.button_validate()
+True
+>>> mo.state, mo.move_raw_ids.quantity, receipt.state
+('done', 5.0, 'done')
+>>> storage = receipt.move_ids.move_dest_ids.picking_id
+>>> storage.button_validate()
+True
+>>> engine.qty_available, oil.with_context(location=atelier.property_stock_subcontractor.id).qty_available
+(1.0, 0.0)
+>>> env.cr.commit()
+```
+
+The savepoint matters in a shell. In the browser a failed Validate rolls back the whole
+request; in a shell, the moves done before the error would stay in your transaction.
+
+`is_subcontractor` is False although Atelier Moteur is on the BoM. The field only turns
+True for a subcontractor with a portal user, who may then record components on the
+subcontracting portal.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check inv11 --db warehouse
+```
+
+```text
+✔ delivery methods, dropshipping and subcontracting are installed
+✔ the oil carries its weight, HS code and origin
+✔ Depot Van costs $15 and is free over $100
+✔ Courier by Weight prices by weight in two rules
+✔ the courier order charged $13 for 8 kg
+✔ the courier delivery left with a tracking number
+✔ four tyres went from Pneu Direct straight to Garage Nord
+✔ Atelier Moteur rebuilt an engine with your oil
+✔ the shelf holds what shipping and subcontracting left
+
+inv11 complete! On to the next chapter 🔧
+```
+
+Where the oil, the tyres and the engine are now:
+
+```console
+$ docker compose exec db psql -U odoo -d warehouse \
+    -c "select t.name->>'en_US' as product, l.complete_name as location, coalesce(pk.name, '') as package, q.quantity from stock_quant q join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id join stock_location l on l.id=q.location_id left join stock_package pk on pk.id=q.package_id where t.name->>'en_US' in ('Engine Oil 5W-30 1L','Rebuilt Engine','Tyre 205/55 R16') and l.usage='internal' and q.quantity<>0 order by 1, 2;"
+```
+
+```text
+       product       | location  | package | quantity 
+---------------------+-----------+---------+----------
+ Engine Oil 5W-30 1L | LFD/Stock |         |    12.00
+ Engine Oil 5W-30 1L | VAN/Stock |         |     8.00
+ Rebuilt Engine      | LFD/Stock |         |     1.00
+(3 rows)
+```
+
+The carton's 12 bottles are gone: 8 to Garage Sud, 4 to the workshop with one loose
+bottle. No tyre anywhere, and nothing left at Subcontracting: the rebuild used all five.
+
+## Gotchas
+
+- **Set the delivery product before the Fixed Price.** The price is stored on the
+  product, so choosing or creating the product overwrites what you typed.
+- **Margins do not touch Fixed Price.** Margin on Rate and Additional margin apply to
+  Based on Rules and the connectors only.
+- **No matching rule, no method.** An order heavier than the last rule allows makes the
+  courier say "Not available for current order". End a rule list with a catch-all rule
+  if every order must ship.
+- **A carton taken whole remembers its pallet.** After a pallet is moved as one package
+  (chapter 9), its cartons keep the pallet as their destination container. Taking one
+  carton out whole fails with "Can't move a container having packages in another
+  location". Clear the Destination Package in Details to move the contents loose.
+- **Taking exactly half a package can block the next step.** In the Odoo 19 build this
+  tutorial uses, picking 6 of a carton of 12 leaves the following Pack waiting forever:
+  Odoo wrongly records that the whole carton moved. Pick any other quantity, or type the
+  quantity on the waiting step by hand.
+- **A dropship never touches your stock**, so it never shows in your warehouse's
+  forecast either. The sale counts as delivered when the vendor's transfer is validated.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'The courier has two rules: weight <= 5 costs $8; weight <= 30 costs $5 + $1 x weight. What does a 4 kg order pay?',
+      options: [
+        '$9, because the second rule is the more detailed of the two rules',
+        '$8, because the rules are tried in order and the first fits',
+        '$17, because every rule that matches is added together',
+      ],
+      answer: 1,
+      why: 'Odoo walks the rules by sequence and stops at the first whose condition is true. 4 kg fits weight <= 5, so the price is the base $8.',
+    },
+    {
+      q: 'You add a 10% Margin on Rate to the Depot Van, a Fixed Price method at $15. What does the next order pay?',
+      options: [
+        '$15, because margins are skipped for Fixed Price methods',
+        '$16.50, because the margin is applied after the fixed price',
+        '$1.50, because only the margin itself is charged on top of nothing',
+      ],
+      answer: 0,
+      why: 'The margin code returns the fixed price unchanged. Margins apply to Based on Rules and to connectors.',
+    },
+    {
+      q: 'You confirm a sale of a product with the Dropship route. Which document moves the goods?',
+      options: [
+        'A delivery order from your own stock, created by the sale itself',
+        'A receipt into stock, then a delivery from stock',
+        'A Dropship transfer from Vendors to Customers on the PO',
+      ],
+      answer: 2,
+      why: 'The sale creates a purchase order with Deliver To Dropship, and confirming it creates one transfer straight from the vendor to the customer. The sale has no transfer of its own.',
+    },
+    {
+      q: 'When are the subcontracted engine\'s components consumed?',
+      options: [
+        'When the resupply transfer arrives at the Subcontracting location',
+        'When the receipt of the engine is validated, by the hidden production',
+        'When the vendor bill is posted, since the components are part of its cost',
+      ],
+      answer: 1,
+      why: 'The resupply only moves the oil to the Subcontracting location. The subcontracting production consumes it there, and it is finished by validating the receipt.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Sell Garage Nord 4 tyres again and **Add shipping** with the Depot Van. The order is
+   over $100: what does the dialog say, and what does the shipping line cost?
+2. ⭐⭐ On the courier's **Availability** tab, set Countries to one country Garage Sud is not
+   in. Open a new quotation for Garage Sud: which methods does Add shipping offer now?
+   Undo it afterwards.
+3. ⭐⭐ Give the courier a **Margin on Rate** of 10%. Work out on paper what 8 kg should
+   cost, then check it with Add shipping on a new quotation.
+4. ⭐⭐⭐ Turn on **Reception Report** in the settings, buy 6 brake fluid from Nordic
+   Lubricants while a sale of brake fluid waits, and open **Allocation** on the receipt.
+   What does it propose, and what changes when you allocate?
+
+## Further reading
+
+- <Icon name="docs" /> [Delivery methods (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/setup_configuration/delivery_method.html)
+  and [invoicing shipping costs (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/advanced_operations_shipping/invoicing.html).
+- <Icon name="docs" /> [Dropshipping (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/daily_operations/dropshipping.html).
+- <Icon name="docs" /> [Subcontracting (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/subcontracting.html)
+  and [resupplying the subcontractor (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/subcontracting/subcontracting_resupply.html).
+- <Icon name="source" /> [`delivery/models/delivery_carrier.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/delivery/models/delivery_carrier.py):
+  `rate_shipment`, `_apply_margins` and `_get_price_from_picking`, the rule loop.
