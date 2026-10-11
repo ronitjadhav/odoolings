@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_librefleet_service_order_form_stock" model="ir.ui.view">
+        <field name="name">librefleet.service.order.form.stock</field>
+        <field name="model">librefleet.service.order</field>
+        <field name="inherit_id" ref="librefleet.view_librefleet_service_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/h1" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button name="action_view_pickings" type="object" class="oe_stat_button"
+                            icon="fa-truck" invisible="picking_count == 0">
+                        <field name="picking_count" widget="statinfo" string="Transfers"/>
+                    </button>
+                </div>
+            </xpath>
+            <field name="service_type_id" position="after">
+                <field name="warehouse_id"/>
+            </field>
+        </field>
+    </record>
+</odoo>

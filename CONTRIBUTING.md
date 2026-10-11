@@ -56,7 +56,10 @@ has, or the screens will show apps they have not installed.
 authoring workspace. On a fresh clone, add `code/addons/librefleet/` to
 `.git/info/exclude` and recreate it with
 `cp -r code/checkpoints/ch<latest>/librefleet code/addons/`. Never commit it: the
-checkpoint in `code/checkpoints/chNN/` is the committed artifact.
+checkpoint in `code/checkpoints/chNN/` is the committed artifact. The Inventory track adds
+a second module from inv13 on, `librefleet_stock`, installed in `warehouse` beside
+chapter 53's `librefleet`: exclude and recreate `code/addons/librefleet_stock/` the same
+way, from `code/checkpoints/inv<latest>/librefleet_stock`.
 
 ### The reader's workspace and the starter
 
