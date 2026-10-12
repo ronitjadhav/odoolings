@@ -63,7 +63,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   ];
 
   const chapterId = chapterIdFromUrl(page.url);
-  const jumpId = chapterId ?? /\/(boss2|inv-boss)-[^/]*$/.exec(page.url)?.[1] ?? null;
+  const jumpId = chapterId ?? /\/((?:[a-z]+-)?boss\d*)-[^/]*$/.exec(page.url)?.[1] ?? null;
   const isTrack = chapterId !== null && !isJourneyChapter(chapterId);
   // a deep-dive chapter declares its tier; a journey chapter gets it from its Part
   const tier = page.data.tier ?? (chapterId && !isTrack ? tierFromUrl(page.url) : null);

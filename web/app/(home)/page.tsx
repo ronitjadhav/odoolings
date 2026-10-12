@@ -4,6 +4,7 @@ import {
   BookOpenCheck,
   Boxes,
   Container,
+  Factory,
   Flame,
   GitPullRequest,
   Terminal,
@@ -53,6 +54,14 @@ const DEEP_DIVES: { icon: typeof Wrench; name: string; eyebrow: string; blurb: s
     blurb: 'Warehouses, locations, transfers, routes, replenishment, lots, packages, valuation, and the code underneath. From the first shelf to a real project.',
     tone: 'sage',
     href: '/docs/10-deep-dive-inventory/inv01-the-warehouse-map',
+  },
+  {
+    icon: Factory,
+    name: 'Manufacturing',
+    eyebrow: 'Deep dive · being written',
+    blurb: 'Bills of materials, manufacturing orders, work centers, planning, traceability, subcontracting, costing, repairs, and the code underneath.',
+    tone: 'sand',
+    href: '/docs/11-deep-dive-manufacturing/mrp01-the-factory-map',
   },
 ];
 
