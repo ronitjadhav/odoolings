@@ -36,6 +36,28 @@ export const TRACKS: DeepDiveTrack[] = [
       inv15: 'Inventory on a Real Project',
     },
   },
+  {
+    id: 'mrp',
+    name: 'Manufacturing',
+    entry: 'mrp01',
+    chapters: {
+      mrp01: 'The Factory Map',
+      mrp02: 'Bills of Materials in Depth',
+      mrp03: "A Manufacturing Order's Life",
+      mrp04: 'Work Centers',
+      mrp05: 'Operations and Work Orders',
+      mrp06: 'Scheduling the Floor',
+      mrp07: 'Material Planning',
+      mrp08: 'Components In, Products Out',
+      mrp09: 'Traceability in Production',
+      mrp10: 'Subcontracting in Depth',
+      mrp11: 'What It Cost',
+      mrp12: 'Repairs and Maintenance',
+      mrp13: 'The Code Underneath',
+      mrp14: 'Extending Manufacturing Safely',
+      mrp15: 'Manufacturing on a Real Project',
+    },
+  },
 ];
 
 /** journey chapter id -> deep-dive chapter ids that go deeper into it */
@@ -44,7 +66,7 @@ export const GO_DEEPER: Record<string, string[]> = {
   '22': ['inv02'],
   '24': ['inv02', 'inv11'],
   '25': ['inv01', 'inv02', 'inv03', 'inv05', 'inv06'],
-  '26': ['inv04'],
+  '26': ['inv04', 'mrp01'],
   '30': ['inv12'],
   '53': ['inv15'],
 };

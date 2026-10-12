@@ -1,0 +1,770 @@
+---
+title: "Manufacturing 1. The Factory Map"
+description: Build a fresh factory database, see everything the Manufacturing app adds on top of Inventory, and turn components into a finished product with your first bill of materials and manufacturing order.
+tier: foundations
+---
+
+**Goal:** know what Odoo needs before it can make anything, and what a manufacturing order
+really does to your stock, by building LibreFleet's workshop from nothing. · **Time:**
+~2 h · **Checkpoint:** none, this deep dive writes no module until its code chapter. It
+builds a database called `factory`.
+
+## Why this matters
+
+LibreFleet does not only repair vans, it fits them out. In a corner of the depot sits a
+small workshop, **LibreFleet Works**, that cuts steel, welds racks and bolts drawers
+together, so a service van leaves with shelves made to measure. That workshop is a
+factory, and Odoo's Manufacturing app is how you run one.
+
+Every manufacturing question a client asks is one of these four:
+
+- *What do we make, and from what?* (a bill of materials)
+- *Where does it happen?* (the warehouse, and a location called Production)
+- *Which document makes it?* (a manufacturing order)
+- *What did it use up, and what came out?* (stock moves)
+
+This chapter answers all four with real records in an empty database. Work centers,
+planning, traceability and costing come later in this deep dive, and every one of them
+hangs on these four answers.
+
+The journey met manufacturing once, in
+[chapter 26](/docs/04-odoo-business/26-manufacturing-bom-orders), inside a database full of
+demo data. [Inventory 4](/docs/10-deep-dive-inventory/inv04-manufacturing-meets-the-warehouse)
+looked at it from the warehouse's side. This deep dive stands on the workshop floor.
+
+<Callout type="info" title="Starting here?">
+  This chapter needs only chapter 5's environment: your copy of the starter running with
+  `docker compose up -d`. It builds its own database, so there is nothing to catch up on.
+  The box at the top of the page has the one download you need.
+</Callout>
+
+## Concepts
+
+### Manufacturing sits on top of Inventory
+
+You cannot make anything without stock to make it from, so the Manufacturing app (its
+module is `mrp`) installs Inventory (`stock`) underneath it. Everything the Inventory deep
+dive taught still holds here: stock is a table of quants, and a quant only changes when a
+move is validated.
+
+A **manufacturing order** is, to the warehouse, just a handful of moves with one special
+location in the middle:
+
+<Mermaid
+  label="A manufacturing order moves each component from the stock location into the Production location, and moves the finished product from Production back into stock."
+  chart={`flowchart LR
+    S1["LFW/Stock<br/>steel sheet, slides, bolts"] -- "component moves" --> P["Production<br/>(a virtual location)"]
+    P -- "finished move" --> S2["LFW/Stock<br/>drawer module"]`}
+/>
+
+**Production** is a location of type *Production*. Nothing physical is there; it is the
+other side of the bargain. Components go in and stay there, so its quants grow. Finished
+products come out of it, so its quants go below zero. The same trick as the Vendors
+location on a receipt: stock never appears from nowhere, and the sum over all locations
+stays zero.
+
+### What the app adds
+
+Installing Manufacturing adds these, all of which you will see in this chapter:
+
+| What | Name in the database | What it is for |
+|---|---|---|
+| a **Manufacturing** operation type | `stock.picking.type`, code `mrp_operation`, prefix `MO` | the "door" that manufacturing orders go through, with its own numbering, `LFW/MO/00001` |
+| a **Production** location | `stock.location`, usage `production` | where components go in and finished products come out |
+| a **Manufacture** route | `mrp.route_warehouse0_manufacture`, one rule per warehouse | lets a need for a product create a manufacturing order; the planning chapters use it |
+| on the warehouse, **Manufacture to Resupply** and a choice of **one, two or three steps** | `manufacture_to_resupply`, `manufacture_steps` | whether this warehouse makes things, and whether components are picked first; one step until a later chapter |
+| the **Manufacturing** app | menus, two access groups (User, Administrator) | where you work |
+| a **bill of materials** model | `mrp.bom`, `mrp.bom.line` | the recipe |
+| the **manufacturing order** model | `mrp.production` | the document that makes the product |
+
+### The menus
+
+The app's top menu is short, and it grows with the settings:
+
+- **Operations**: Manufacturing Orders, Unbuild Orders, Scrap. Work Orders joins them
+  once the Work Orders setting is on.
+- **Products**: Products and Bills of Materials. Product Variants and Lots/Serial Numbers
+  appear when their settings are on.
+- **Configuration**: Settings. Work Centers and Operations appear with Work Orders.
+- **Reporting** is missing on purpose: both of its reports (Work Orders analysis and
+  Overall Equipment Effectiveness) are about work centers, so the menu only shows with
+  the Work Orders setting.
+
+A fifth menu, **Planning**, only exists in developer mode, where it offers *Procurement:
+run scheduler*.
+
+### The settings, one by one
+
+**Manufacturing → Configuration → Settings** has two blocks. Every box, and the chapter
+of this deep dive that uses it:
+
+| Setting | What it switches on | Here |
+|---|---|---|
+| **Work Orders** | work centers, operations on a bill of materials, work orders and their reports | chapters 4 to 6 |
+| **Work Order Dependencies** (shows under Work Orders once it is ticked) | an operation can wait for another one | chapter 5 |
+| **Subcontracting** | a bill of materials made by a vendor with your components | chapter 10 |
+| **Barcode Scanner** | process orders from the Barcode app | Enterprise, named only |
+| **Quality** | quality checks on work orders | Enterprise, named only |
+| **Unlock Manufacturing Orders** | quantities to consume can be edited without unlocking the order first | chapter 3 |
+| **By-Products** | a recipe can produce more than one thing | chapter 8 |
+| **Allocation Report for Manufacturing Orders** | which orders the produced quantity can serve | chapter 8 |
+| **Master Production Schedule** (Planning block) | a forecast grid that plans orders ahead | Enterprise, named only; chapter 7 uses an OCA module instead |
+
+<Callout type="info" title="Enterprise, named and not needed">
+  The Apps screen also shows a card called **MRP II** with an Upgrade button. It is an
+  Enterprise add-on, sold for planning and running work orders. Community's
+  Manufacturing already has work centers, operations and work orders, which is all this
+  deep dive needs. Barcode Scanner, Quality and Master Production Schedule carry an
+  Enterprise badge on the settings screen for the same reason. Every chapter here runs on
+  Community.
+</Callout>
+
+### A recipe and an order
+
+A **bill of materials** (BoM) is a recipe: *this quantity of this product is made from
+these components*. Its form has a header and two tabs:
+
+- **Product** and **Quantity**: the recipe makes this many. One drawer module, here.
+- **BoM Type**: *Manufacture this product* (an order consumes the components) or *Kit*
+  (no order ever; the kit is replaced by its parts wherever it moves).
+- **Components**: one line per component, with the quantity for the BoM's quantity.
+- **Miscellaneous**: **Flexible Consumption** (may a worker use more or less than the
+  recipe says: *Allowed*, *Allowed with warning*, which is the default, or *Blocked*),
+  **Manuf. Lead Time** and **Days to prepare Manufacturing Order** (for planning, with a
+  **Compute** button), and **Batch Size**, new in Odoo 19, which splits big needs into
+  orders of a fixed size.
+
+A **manufacturing order** (MO) takes a BoM and a quantity and walks through states:
+**Draft** (being written), **Confirmed** (components reserved if they are there), **In
+Progress** (someone started), **To Close** (everything produced, waiting for the last
+click), **Done**, or **Cancelled**. Two fields sit beside the state: **MO Readiness**
+(are the components reserved, *Ready* or *Waiting*) and **Component Status** (in plain
+words: *Available*, *Not Available*, or the date they are expected). The next two
+chapters take the recipe and the order apart field by field.
+
+<Callout type="info" title="Official docs">
+  [Manufacturing](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html)
+  and [Bill of materials](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html)
+  cover the same ground from the user's side. Read them after this chapter: they assume
+  the words this chapter builds.
+</Callout>
+
+## Hands-on
+
+Everything happens in a new database called `factory`. Your other databases are not
+touched. The story: LibreFleet Works makes a **Drawer Module**, one steel drawer for a
+van's racking, from a steel sheet, a pair of drawer slides and eight bolts.
+
+<Steps>
+
+<Step>
+### Create the database and install Inventory
+
+<UiOrShell>
+<Tab>
+
+Open the database manager at
+[http://localhost:8069/web/database/manager](http://localhost:8069/web/database/manager),
+click **Create Database** and fill in:
+
+- **Database Name:** `factory`
+- **Email:** `admin`
+- **Password:** `admin`
+- **Demo Data:** leave it **unticked**
+
+Then **Continue**. It is the same dialog
+[Inventory 1](/docs/10-deep-dive-inventory/inv01-the-warehouse-map) shows. No demo data,
+so every order you see is one you made.
+
+You land on **Apps**, signed in. Install **Inventory** first, not Manufacturing; the next
+step says why. Click **Activate** on the Inventory card:
+
+![The Apps screen with the Inventory card highlighted, its Activate button under the mouse](/screens/mrp01-activate-inventory.jpg)
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d factory -i stock --stop-after-init
+```
+
+```text
+INFO factory odoo.modules.loading: loading 40 modules...
+INFO factory odoo.modules.loading: Modules loaded.
+```
+
+No `--with-demo`, so the database starts empty.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Name the works before anything else
+
+Inventory created a warehouse called **My Company** with the Short Name `WH`. Make it
+LibreFleet's workshop now, **before** Manufacturing is installed.
+
+<UiOrShell>
+<Tab>
+
+Open the Inventory app, then **Configuration → Warehouses**, open **My Company** and set:
+
+- **Warehouse:** `LibreFleet Works`
+- **Short Name:** `LFW`
+
+Save (the cloud icon):
+
+![The warehouse form with Warehouse LibreFleet Works and Short Name LFW highlighted, and the save icon highlighted under the mouse](/screens/mrp01-rename-warehouse.jpg)
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d factory --no-http
+```
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> wh.name, wh.code, wh.in_type_id.sequence_id.prefix
+('My Company', 'WH', 'WH/IN/')
+>>> wh.write({"name": "LibreFleet Works", "code": "LFW"})
+True
+>>> wh.name, wh.lot_stock_id.complete_name, wh.in_type_id.sequence_id.prefix
+('LibreFleet Works', 'LFW/Stock', 'LFW/IN/')
+>>> env.cr.commit()
+```
+
+Commit, then leave the shell (`exit()`) before the next step installs a module.
+
+</Tab>
+</UiOrShell>
+
+Why the order matters: renaming a warehouse renames its locations and the numbering of
+the Inventory doors (receipts become `LFW/IN/`), but **not** the numbering of the doors
+Manufacturing adds. Install Manufacturing first and rename afterwards, and your
+manufacturing orders stay `WH/MO/00001` forever. Gotchas has the proof and the repair.
+</Step>
+
+<Step>
+### Install Manufacturing
+
+<UiOrShell>
+<Tab>
+
+Back to **Apps**. Click **Activate** on the **Manufacturing** card:
+
+![The Apps screen with the Manufacturing card highlighted, its Activate button under the mouse, and above it the MRP II card with an Upgrade button](/screens/mrp01-activate-manufacturing.jpg)
+
+Inventory's card has only Learn More now: it is installed. The **MRP II** card above
+Manufacturing carries **Upgrade**, the mark of an Enterprise app; you do not need it.
+
+The server log (`docker compose logs odoo`) shows one more module than before:
+
+```text
+INFO factory odoo.modules.loading: loading 41 modules...
+INFO factory odoo.modules.loading: Modules loaded.
+```
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d factory -i mrp --stop-after-init
+```
+
+```text
+INFO factory odoo.modules.loading: loading 41 modules...
+INFO factory odoo.modules.loading: Modules loaded.
+```
+
+Then open a shell for the rest of the chapter, and check the numbering:
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d factory --no-http
+```
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> wh.manu_type_id.sequence_id.prefix, wh.manufacture_steps, wh.manufacture_to_resupply
+('LFW/MO/', 'mrp_one_step', True)
+```
+
+`LFW/MO/`, because the warehouse already had its name. One step, and Manufacture to
+Resupply on: this warehouse makes things.
+
+</Tab>
+</UiOrShell>
+
+Forty-one modules for two apps: `mrp` brings no other module with it once `stock` is
+there.
+</Step>
+
+<Step>
+### Walk the menus and the settings
+
+<UiOrShell>
+<Tab>
+
+Open the **Manufacturing** app. It lands on **Manufacturing Orders**, empty, filtered on
+*To Do*. Open **Operations**:
+
+![The Manufacturing app with the Operations menu open and highlighted: Manufacturing Orders, Unbuild Orders and Scrap; the top bar shows Operations, Products and Configuration, and no Reporting](/screens/mrp01-operations-menu.jpg)
+
+Three entries, and no Reporting menu in the top bar, as the Concepts promised. Now
+**Configuration → Settings**:
+
+![The Manufacturing settings with two blocks, Operations and Planning; the three Enterprise badges, on Barcode Scanner, Quality and Master Production Schedule, are highlighted](/screens/mrp01-settings.jpg)
+
+Read each box against the table in Concepts, and leave them all unticked: every one gets
+its own chapter. Discard, or simply leave the page.
+
+</Tab>
+<Tab>
+
+Each box is a field of the settings wizard; group boxes are `group_*`, boxes that install
+a module are `module_*`:
+
+```python
+>>> settings = env["res.config.settings"].create({})
+>>> settings.group_mrp_routings, settings.group_mrp_byproducts, settings.group_unlocked_by_default, settings.group_mrp_reception_report, settings.module_mrp_subcontracting
+(False, False, False, False, False)
+```
+
+Work Orders, By-Products, Unlock Manufacturing Orders, the Allocation Report and
+Subcontracting: all off in a fresh database.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read the Manufacturing operation type
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Operations Types** lists three doors now: Receipts,
+Delivery Orders and the new **Manufacturing**. Open it:
+
+![The Manufacturing operation type: Type of Operation Manufacturing and Sequence Prefix MO highlighted together, the Reservation Method At Confirmation highlighted, and Create Backorder Ask highlighted](/screens/mrp01-operation-type.jpg)
+
+Read it as a sentence: *a Manufacturing operation numbers its orders `MO`, reserves
+components as soon as an order is confirmed, and asks before splitting off a backorder
+when you produce less than planned*. The warehouse puts its Short Name in front, which
+is the `LFW/MO/` you will see on the first order. Its locations stay hidden while
+Storage Locations is off: components come from `LFW/Stock` and products go back to
+`LFW/Stock`.
+
+</Tab>
+<Tab>
+
+```python
+>>> mo_type = wh.manu_type_id
+>>> mo_type.name, mo_type.code, mo_type.default_location_src_id.complete_name, mo_type.default_location_dest_id.complete_name
+('Manufacturing', 'mrp_operation', 'LFW/Stock', 'LFW/Stock')
+>>> production = env["stock.location"].search([("usage", "=", "production")])
+>>> production.complete_name, production.usage
+('Production', 'production')
+>>> manufacture = env.ref("mrp.route_warehouse0_manufacture")
+>>> [(r.name, r.action, r.picking_type_id.name) for r in manufacture.rule_ids]
+[('LFW: Stock (Production)', 'manufacture', 'Manufacturing')]
+```
+
+From Stock to Stock, with the Production location doing the work in between. The
+Manufacture route has one rule for this warehouse, of action `manufacture`; the planning
+chapter makes it fire.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Create the four products
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Products → New**. The first one:
+
+- **Product:** `Steel Sheet 2mm`
+- **Product Type:** Goods
+- **Track Inventory:** ticked (it already is, from this menu)
+
+![The new product form for Steel Sheet 2mm with the name highlighted, Product Type Goods and the ticked Track Inventory box highlighted together, and the save icon highlighted](/screens/mrp01-product-steel-sheet.jpg)
+
+Save, then **New** for `Drawer Slide Pair`, `Bolt M8` and `Drawer Module`, the same way.
+The finished product is a product like any other: what makes it "manufactured" is a bill
+of materials, not a box on its form. Notice the **Bill of Materials** smart button on
+the product, at 0 for now.
+
+</Tab>
+<Tab>
+
+```python
+>>> Product = env["product.product"]
+>>> sheet, slides, bolt, drawer = Product.create([
+...     {"name": "Steel Sheet 2mm", "is_storable": True},
+...     {"name": "Drawer Slide Pair", "is_storable": True},
+...     {"name": "Bolt M8", "is_storable": True},
+...     {"name": "Drawer Module", "is_storable": True},
+... ])
+```
+
+`is_storable` is the Track Inventory box. The product type defaults to Goods (`consu`).
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Receive the components
+
+A recipe needs ingredients on the shelf.
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Operations → Receipts → New**:
+
+- **Receive From:** type `Acier Plus` and pick **Create "Acier Plus"**
+- **Add a Product**, three lines: `Steel Sheet 2mm` demand `10`, `Drawer Slide Pair`
+  demand `20`, `Bolt M8` demand `200`
+
+Then **Validate**. The receipt becomes `LFW/IN/00001`, **Done**.
+
+</Tab>
+<Tab>
+
+```python
+>>> acier = env["res.partner"].create({"name": "Acier Plus"})
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": acier.id,
+...     "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": p.id, "product_uom_qty": qty}) for p, qty in [(sheet, 10), (slides, 20), (bolt, 200)]],
+... })
+>>> receipt.button_validate()
+True
+>>> receipt.name, receipt.state
+('LFW/IN/00001', 'done')
+```
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Write the first bill of materials
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Bills of Materials → New**:
+
+- **Product:** `Drawer Module`
+- **Quantity:** `1` (the default)
+- **BoM Type:** Manufacture this product (the default)
+- **Components**, three lines with **Add a line**: `Steel Sheet 2mm` quantity `1`,
+  `Drawer Slide Pair` quantity `1`, `Bolt M8` quantity `8`
+
+![A new bill of materials: Product Drawer Module and Quantity 1.00 highlighted together, BoM Type Manufacture this product highlighted, the three component lines highlighted, 1 Steel Sheet 2mm, 1 Drawer Slide Pair and 8 Bolt M8, and the save icon highlighted](/screens/mrp01-bom.jpg)
+
+Save. Then open the **Miscellaneous** tab:
+
+![The Miscellaneous tab of the bill of materials: Flexible Consumption on Allowed with warning highlighted, and Manuf. Lead Time 0 days, Days to prepare Manufacturing Order 0 days with its Compute button, and the Batch Size box highlighted together](/screens/mrp01-bom-misc.jpg)
+
+*Allowed with warning* is the default: a worker may use more bolts than the recipe, and
+Odoo asks for a confirmation when it happens. The lead times stay at zero until the
+planning chapter.
+
+</Tab>
+<Tab>
+
+```python
+>>> bom = env["mrp.bom"].create({
+...     "product_tmpl_id": drawer.product_tmpl_id.id,
+...     "product_qty": 1,
+...     "bom_line_ids": [(0, 0, {"product_id": p.id, "product_qty": qty}) for p, qty in [(sheet, 1), (slides, 1), (bolt, 8)]],
+... })
+>>> bom.display_name, bom.type, bom.consumption
+('Drawer Module', 'normal', 'warning')
+>>> [(l.product_id.name, l.product_qty, l.product_uom_id.name) for l in bom.bom_line_ids]
+[('Steel Sheet 2mm', 1.0, 'Units'), ('Drawer Slide Pair', 1.0, 'Units'), ('Bolt M8', 8.0, 'Units')]
+```
+
+A BoM belongs to a product **template** (`product_tmpl_id`): one recipe can serve every
+variant of a product, which the next chapter uses. `normal` is *Manufacture this
+product*; `warning` is *Allowed with warning*.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Make four drawers
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Operations → Manufacturing Orders → New**:
+
+- **Product:** `Drawer Module`
+- **Quantity:** `4`
+
+The **Bill of Material** fills itself in, and so do the components, multiplied by four:
+
+![A draft manufacturing order: Product Drawer Module, Quantity 4.00 and Bill of Material Drawer Module highlighted together, the three component lines highlighted, 4 Steel Sheet 2mm, 4 Drawer Slide Pair and 32 Bolt M8, each with an Available badge, and the Confirm button highlighted under the mouse](/screens/mrp01-mo-draft.jpg)
+
+Each line shows **To Consume** and an availability badge. Click **Confirm**:
+
+![The confirmed order LFW/MO/00001: Produce All highlighted, Quantity 0.00 of 4.00 highlighted, Component Status Available highlighted, the Consumed column at 4.00, 4.00 and 32.00 highlighted, and the chatter message MO Confirmed with MO Readiness None to Ready and State Draft to Confirmed highlighted](/screens/mrp01-mo-confirmed.jpg)
+
+Read the screen from top to bottom:
+
+- The order has its number, `LFW/MO/00001`, and the status bar says **Confirmed**.
+- **Quantity** reads 0.00 of 4.00: nothing produced yet.
+- **Component Status** is *Available*, and the chatter says **MO Readiness** went to
+  *Ready*: confirming reserved the components.
+- The **Consumed** column already shows 4, 4 and 32. That is what *will* be consumed,
+  the reserved quantity, not what has been used.
+
+Click **Produce All**:
+
+![The done order: the Product Moves smart button highlighted, the Unbuild button highlighted, Quantity 4.00 of 4.00 highlighted, and the status bar on Done highlighted](/screens/mrp01-mo-done.jpg)
+
+**Done**, 4 of 4. Two things appeared: an **Unbuild** button (an unbuild order takes a
+finished product back to its components; chapter 8) and a **Product Moves** smart
+button.
+
+</Tab>
+<Tab>
+
+```python
+>>> mo = env["mrp.production"].create({"product_id": drawer.id, "product_qty": 4})
+>>> mo.name, mo.state, mo.bom_id.display_name
+('LFW/MO/00001', 'draft', 'Drawer Module')
+>>> mo.action_confirm()
+True
+>>> mo.name, mo.state, mo.reservation_state, mo.components_availability
+('LFW/MO/00001', 'confirmed', 'assigned', 'Available')
+>>> for m in mo.move_raw_ids | mo.move_finished_ids:
+...     print(f"{m.product_id.name:<18} {m.product_uom_qty:>5.1f}  {m.location_id.complete_name} -> {m.location_dest_id.complete_name}  {m.state}")
+...
+Steel Sheet 2mm      4.0  LFW/Stock -> Production  assigned
+Drawer Slide Pair    4.0  LFW/Stock -> Production  assigned
+Bolt M8             32.0  LFW/Stock -> Production  assigned
+Drawer Module        4.0  Production -> LFW/Stock  assigned
+>>> mo.button_mark_done()
+True
+>>> mo.state, mo.qty_produced, mo.is_locked
+('done', 4.0, True)
+```
+
+Creating the order picked the BoM by itself (`bom_id`), and the number was given at
+creation. `action_confirm` is the **Confirm** button; `reservation_state` `assigned` is
+*Ready*. The order owns two sets of moves: `move_raw_ids`, the components, Stock to
+Production, and `move_finished_ids`, the product, Production to Stock. `button_mark_done`
+is **Produce All**; with nothing produced yet, it produces the whole quantity. A done
+order is locked.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read what moved
+
+<UiOrShell>
+<Tab>
+
+Click **Product Moves** on the done order:
+
+![The Inventory Moves list for LFW/MO/00001 with two boxes: Drawer Module from Production to LFW/Stock, 4.00 in green, and Bolt M8 32.00, Drawer Slide Pair 4.00 and Steel Sheet 2mm 4.00 from LFW/Stock to Production in red](/screens/mrp01-product-moves.jpg)
+
+Four done moves under one reference. Three components went from `LFW/Stock` to
+**Production** (red: they left your stock). One product came from **Production** to
+`LFW/Stock` (green: it arrived). A manufacturing order is exactly this list.
+
+</Tab>
+<Tab>
+
+```python
+>>> for q in env["stock.quant"].search([("location_id.usage", "in", ["internal", "production"])], order="location_id, product_id"):
+...     print(f"{q.location_id.complete_name:<12} {q.product_id.name:<18} {q.quantity:>7.1f}")
+...
+LFW/Stock    Bolt M8              168.0
+LFW/Stock    Drawer Module          4.0
+LFW/Stock    Drawer Slide Pair     16.0
+LFW/Stock    Steel Sheet 2mm        6.0
+Production   Bolt M8               32.0
+Production   Drawer Module         -4.0
+Production   Drawer Slide Pair      4.0
+Production   Steel Sheet 2mm        4.0
+>>> drawer.qty_available, sheet.qty_available
+(4.0, 6.0)
+>>> env.cr.commit()
+```
+
+The Production location holds the 4 sheets, 4 slide pairs and 32 bolts that went in, and
+minus 4 drawer modules that came out. Commit before leaving the shell, or everything since
+the last commit disappears with the session.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check mrp01 --db factory
+```
+
+```text
+✔ the Manufacturing app is installed
+✔ the works is LibreFleet Works, LFW, and orders are numbered LFW/MO/
+✔ the four products track inventory
+✔ the components arrived from Acier Plus
+✔ the Drawer Module has its bill of materials
+✔ four drawers were made
+✔ the stock is what the order left
+
+mrp01 complete! On to the next chapter 🔧
+```
+
+The second check reads the numbering of the Manufacturing door, not only the warehouse's
+name: it is the one that catches a rename done in the wrong order.
+
+One proof straight from the database:
+
+```console
+$ docker compose exec db psql -U odoo -d factory \
+    -c "select l.complete_name as location, t.name->>'en_US' as product, q.quantity from stock_quant q join stock_location l on l.id=q.location_id join product_product p on p.id=q.product_id join product_template t on t.id=p.product_tmpl_id where l.usage in ('internal','production') order by l.complete_name, t.name->>'en_US';"
+```
+
+```text
+  location  |      product      | quantity
+------------+-------------------+----------
+ LFW/Stock  | Bolt M8           |   168.00
+ LFW/Stock  | Drawer Module     |     4.00
+ LFW/Stock  | Drawer Slide Pair |    16.00
+ LFW/Stock  | Steel Sheet 2mm   |     6.00
+ Production | Bolt M8           |    32.00
+ Production | Drawer Module     |    -4.00
+ Production | Drawer Slide Pair |     4.00
+ Production | Steel Sheet 2mm   |     4.00
+(8 rows)
+```
+
+Eight quants. Add each product's two rows: the drawers come to zero, and each component's
+total is what Acier Plus delivered. Nothing appeared and nothing vanished.
+
+## Gotchas
+
+- **Rename the warehouse before installing Manufacturing.** A rename rewrites the
+  numbering of Receipts, Deliveries and the other Inventory doors, not the doors
+  Manufacturing added. In a database where Manufacturing came first, the same rename
+  left this:
+
+  ```python
+  >>> wh.write({"name": "LibreFleet Works", "code": "LFW"})
+  True
+  >>> wh.name, wh.lot_stock_id.complete_name, wh.manu_type_id.sequence_id.prefix
+  ('LibreFleet Works', 'LFW/Stock', 'WH/MO/')
+  ```
+
+  The repair: developer mode, **Settings → Technical → Sequences & Identifiers →
+  Sequences**, open *My Company Sequence production* (its name did not change either)
+  and set **Prefix** to `LFW/MO/`. Do the same for the Pick Components and Store Finished
+  Product sequences if you use more than one step.
+- **Production's quants are not a mistake.** Positive components and a negative finished
+  product in the Production location are the bookkeeping of every order. Filter on
+  internal locations when you mean "our stock".
+- **Consumed is filled in before anything is consumed.** On a confirmed order, the
+  Consumed column shows the reserved quantity in green. Nothing has left the shelf until
+  the order is done; it is a proposal you can change.
+- **No Reporting menu does not mean no reports.** Reporting appears with the Work Orders
+  setting. Until then, the manufacturing order list's pivot and graph views (the icons
+  on the right of the search bar) are where the numbers are.
+- **The product menu you start from matters.** Products created from Manufacturing's or
+  Inventory's Products menu have Track Inventory ticked; the field itself defaults to
+  off. A component created somewhere else and left unticked is never reserved and never
+  counted: an order consumes it without anything on the shelf going down.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'An order makes 4 drawer modules from 32 bolts. Where are the 32 bolts afterwards?',
+      options: [
+        'Nowhere: consumed components are deleted from the quant table',
+        'In the Production location, as a quant of plus 32',
+        'Still in LFW/Stock, flagged as consumed',
+      ],
+      answer: 1,
+      why: 'Stock always moves between two locations. Consumption is a move from LFW/Stock to Production, so Production keeps a positive quant for every component that went in, and a negative one for every product that came out.',
+    },
+    {
+      q: 'You renamed the warehouse to LFW after installing Manufacturing. What are new manufacturing orders called?',
+      options: ['LFW/MO/00001', 'WH/MO/00001', 'MO/00001'],
+      answer: 1,
+      why: 'The rename rewrites the sequences of the Inventory operation types only. The Manufacturing sequence keeps its WH/MO/ prefix until you change it by hand in Settings, Technical, Sequences.',
+    },
+    {
+      q: 'Why is there no Reporting menu in a fresh Manufacturing app?',
+      options: [
+        'Its reports are about work centers, so it needs the Work Orders setting',
+        'Reporting is an Enterprise feature of Manufacturing',
+        'It appears after the first order is done',
+      ],
+      answer: 0,
+      why: 'Both reports, Work Orders analysis and Overall Equipment Effectiveness, are built on work orders. The menu is restricted to the group the Work Orders setting gives you. The order list still has pivot and graph views.',
+    },
+    {
+      q: 'On a confirmed order, the Consumed column says 32 bolts. How many bolts have left LFW/Stock?',
+      options: ['32', '0', '8'],
+      answer: 1,
+      why: 'Before the order is done, Consumed shows the reserved quantity as a proposal. The quant in LFW/Stock only goes down when Produce All validates the moves.',
+    },
+    {
+      q: 'What makes Drawer Module a manufactured product?',
+      options: [
+        'Its Product Type, set to Manufactured on the product form',
+        'The Manufacture route ticked on the product form',
+        'A bill of materials that names it as its product',
+      ],
+      answer: 2,
+      why: 'Nothing on the product says "manufactured". A bill of materials for it is what lets an order make it, and what the Manufacture rule looks for when a need arises.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Open the **Drawer Module** product. Read its **Bill of Materials** smart button and
+   its On Hand quantity, then open **Steel Sheet 2mm** and do the same. Say in one
+   sentence why one of them has a BoM count and the other does not.
+2. ⭐⭐ Create a manufacturing order for **7** drawer modules and **Confirm** it, but do
+   not produce. Before you look, predict the Component Status and which line is short.
+   Then check, and **Cancel** the order so the stock stays as this chapter left it.
+3. ⭐⭐ In developer mode, open **Inventory → Reporting → Locations**, remove the
+   *Internal Locations* filter and find the Production rows. Add up each product's rows
+   over all locations and say why every total matches what entered the company.
+4. ⭐⭐⭐ Break-it lab. On a throwaway database, install Manufacturing **first**, then
+   rename the warehouse to `LFW`. Make one order and read its number. Fix the sequence as
+   Gotchas says, make a second order, and explain why the first order keeps its old
+   number.
+
+## Further reading
+
+- <Icon name="docs" /> [Manufacturing (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html):
+  the official map of the app, with links to every user guide.
+- <Icon name="docs" /> [Bill of materials (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html):
+  the recipe, from the user's side.
+- <Icon name="docs" /> [Configure a manufactured product (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/configure_manufacturing_product.html):
+  what a product needs before an order can make it.
+- <Icon name="source" /> [`mrp/models/mrp_production.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_production.py):
+  the manufacturing order itself; read the `state` field and `action_confirm` to see the
+  states of this chapter in code.

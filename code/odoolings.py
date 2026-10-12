@@ -4015,6 +4015,64 @@ def the_blades_are_where_and_worth_what_they_should(env):
     assert p["total_value"] == 108, "27 blades at $4 should be worth $108; Odoo says %s" % p["total_value"]
 
 
+# Manufacturing deep dive, database "factory" (no demo data).
+
+def manufacturing_app_installed(env):
+    rows = env.call("ir.module.module", "search_read", [("name", "=", "mrp")], fields=["state"])
+    assert rows and rows[0]["state"] == "installed", "the Manufacturing app (module 'mrp') is not installed"
+
+
+def the_works_numbers_lfw_orders(env):
+    w = env.call("stock.warehouse", "search_read", [], fields=["name", "code", "manu_type_id"])
+    assert [(x["name"], x["code"]) for x in w] == [("LibreFleet Works", "LFW")], (
+        "one warehouse, LibreFleet Works with Short Name LFW; found %s" % [(x["name"], x["code"]) for x in w])
+    seq = env.call("stock.picking.type", "read", [w[0]["manu_type_id"][0]], ["sequence_id"])[0]["sequence_id"]
+    prefix = env.call("ir.sequence", "read", [seq[0]], ["prefix"])[0]["prefix"]
+    assert prefix == "LFW/MO/", ("manufacturing orders are numbered %s, not LFW/MO/: the warehouse was renamed after "
+                                 "Manufacturing was installed. Developer mode, Settings > Technical > Sequences & Identifiers > Sequences, open \"My Company Sequence production\" "
+                                 "and set its Prefix to LFW/MO/" % prefix)
+
+
+def four_storable_products(env):
+    names = ["Steel Sheet 2mm", "Drawer Slide Pair", "Bolt M8", "Drawer Module"]
+    rows = env.call("product.product", "search_read", [("name", "in", names)], fields=["name", "is_storable"])
+    missing = set(names) - {r["name"] for r in rows if r["is_storable"]}
+    assert not missing, "these should exist as Goods with Track Inventory ticked: %s" % sorted(missing)
+
+
+def the_components_arrived(env):
+    lines = env.call("stock.move", "search_read", [("picking_id.partner_id.name", "=", "Acier Plus"), ("state", "=", "done")],
+                     fields=["product_id", "quantity"])
+    got = sorted((l["product_id"][1], l["quantity"]) for l in lines)
+    assert got == [("Bolt M8", 200), ("Drawer Slide Pair", 20), ("Steel Sheet 2mm", 10)], (
+        "one done receipt from Acier Plus with 10 Steel Sheet 2mm, 20 Drawer Slide Pair and 200 Bolt M8; found %s" % got)
+
+
+def the_drawer_has_a_bom(env):
+    boms = env.call("mrp.bom", "search_read", [("product_tmpl_id.name", "=", "Drawer Module")],
+                    fields=["type", "product_qty", "consumption", "bom_line_ids"])
+    assert len(boms) == 1, "one bill of materials for Drawer Module; found %d" % len(boms)
+    b = boms[0]
+    assert (b["type"], b["product_qty"]) == ("normal", 1), "BoM Type Manufacture this product, Quantity 1"
+    lines = env.call("mrp.bom.line", "read", b["bom_line_ids"], ["product_id", "product_qty"])
+    got = sorted((l["product_id"][1], l["product_qty"]) for l in lines)
+    assert got == [("Bolt M8", 8), ("Drawer Slide Pair", 1), ("Steel Sheet 2mm", 1)], (
+        "components: 1 Steel Sheet 2mm, 1 Drawer Slide Pair, 8 Bolt M8; found %s" % got)
+
+
+def four_drawers_were_made(env):
+    mos = env.call("mrp.production", "search_read", [("product_id.name", "=", "Drawer Module"), ("state", "=", "done")],
+                   fields=["name", "qty_produced"])
+    assert [m["qty_produced"] for m in mos] == [4], "one done manufacturing order that produced 4 Drawer Modules; found %s" % mos
+
+
+def stock_after_first_mo(env):
+    q = env.call("stock.quant", "search_read", [("location_id.complete_name", "=", "LFW/Stock")], fields=["product_id", "quantity"])
+    got = sorted((r["product_id"][1], r["quantity"]) for r in q if r["quantity"])
+    want = [("Bolt M8", 168), ("Drawer Module", 4), ("Drawer Slide Pair", 16), ("Steel Sheet 2mm", 6)]
+    assert got == want, "LFW/Stock should hold %s; it holds %s" % (want, got)
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -5022,6 +5080,21 @@ CHAPTERS = {
          "A sale with Warehouse LibreFleet North, 3 Wiper Blades, then LFN's Pick and Delivery."),
         ("the blades are where, and worth what, they should be", the_blades_are_where_and_worth_what_they_should,
          "10 in LFD/Stock, 17 on Shelf W, 27 x $4 = $108 under FIFO."),
+    ],    "mrp01": [
+        ("the Manufacturing app is installed", manufacturing_app_installed,
+         "Apps > Manufacturing > Activate (the module is called mrp)."),
+        ("the works is LibreFleet Works, LFW, and orders are numbered LFW/MO/", the_works_numbers_lfw_orders,
+         "Inventory > Configuration > Warehouses: Warehouse LibreFleet Works, Short Name LFW, before installing Manufacturing."),
+        ("the four products track inventory", four_storable_products,
+         "Inventory > Products > New: Steel Sheet 2mm, Drawer Slide Pair, Bolt M8, Drawer Module, Track Inventory ticked."),
+        ("the components arrived from Acier Plus", the_components_arrived,
+         "Inventory > Receipts > New, Receive From Acier Plus: 10 sheets, 20 slide pairs, 200 bolts, Validate."),
+        ("the Drawer Module has its bill of materials", the_drawer_has_a_bom,
+         "Manufacturing > Products > Bills of Materials > New: Drawer Module, 1 sheet, 1 slide pair, 8 bolts."),
+        ("four drawers were made", four_drawers_were_made,
+         "Manufacturing Orders > New: Drawer Module, Quantity 4, Confirm, Produce All."),
+        ("the stock is what the order left", stock_after_first_mo,
+         "6 sheets, 16 slide pairs, 168 bolts and 4 drawers in LFW/Stock."),
     ],
 }
 
@@ -5226,13 +5299,15 @@ def cmd_diff(env):
 
 ORDER = (["ch%02d" % n for n in range(1, 16)] + ["boss2"]
          + ["ch%02d" % n for n in range(16, 56)]
-         + ["inv%02d" % n for n in range(1, 16)] + ["inv-boss"])
+         + ["inv%02d" % n for n in range(1, 16)] + ["inv-boss"]
+         + ["mrp%02d" % n for n in range(1, 16)] + ["mrp-boss"])
 TUTORIAL = (["ch05", "ch06"] + ["ch%02d" % n for n in range(8, 16)] + ["boss2"]
             + ["ch%02d" % n for n in range(16, 21)] + ["ch%02d" % n for n in range(31, 42)]
             + ["ch44", "ch46", "ch52", "ch53", "ch54"])
 FUNCTIONAL = ["ch%02d" % n for n in range(21, 31)] + ["ch42", "ch49", "ch50", "ch51", "ch53"]
 WAREHOUSE = ["inv%02d" % n for n in range(1, 16)] + ["inv-boss"]  # the Inventory deep dive
-SELF_BUILT = {"ch04": "tour", "ch05": "tutorial", "ch21": "functional", "inv01": "warehouse"}
+FACTORY = ["mrp%02d" % n for n in range(1, 16)] + ["mrp-boss"]  # the Manufacturing deep dive
+SELF_BUILT = {"ch04": "tour", "ch05": "tutorial", "ch21": "functional", "inv01": "warehouse", "mrp01": "factory"}
 # boss2 builds a module of its own that no later chapter uses
 NOT_REPLAYED = {"boss2"}
 # where start fetches checkpoints; override to test checkpoints that are not on main yet
@@ -6367,6 +6442,27 @@ def seed_inv_boss(env):
     _finish_chain(env, env.call("stock.picking", "search", [("sale_id", "=", order), ("picking_type_id.sequence_code", "=", "PICK")])[0])
 
 
+def seed_mrp01(env):
+    _install(env, ["stock"])
+    wh = _id(env, "stock.warehouse", [])
+    env.call("stock.warehouse", "write", [wh], {"name": "LibreFleet Works", "code": "LFW"})
+    _install(env, ["mrp"])
+    names = ["Steel Sheet 2mm", "Drawer Slide Pair", "Bolt M8", "Drawer Module"]
+    ids = env.call("product.product", "create", [{"name": n, "is_storable": True} for n in names])
+    sheet, slides, bolt, drawer = ids
+    receipts = _id(env, "stock.picking.type", [("code", "=", "incoming"), ("warehouse_id", "=", wh)])
+    picking = env.call("stock.picking", "create", {
+        "partner_id": env.call("res.partner", "create", {"name": "Acier Plus"}), "picking_type_id": receipts,
+        "move_ids": [(0, 0, {"product_id": p, "product_uom_qty": q}) for p, q in ((sheet, 10), (slides, 20), (bolt, 200))]})
+    _validate(env, [picking])
+    tmpl = env.call("product.product", "read", [drawer], ["product_tmpl_id"])[0]["product_tmpl_id"][0]
+    env.call("mrp.bom", "create", {"product_tmpl_id": tmpl, "product_qty": 1,
+                                   "bom_line_ids": [(0, 0, {"product_id": p, "product_qty": q}) for p, q in ((sheet, 1), (slides, 1), (bolt, 8))]})
+    mo = env.call("mrp.production", "create", {"product_id": drawer, "product_qty": 4})
+    _call(env, "mrp.production", "action_confirm", [mo])
+    _call(env, "mrp.production", "button_mark_done", [mo])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6379,6 +6475,7 @@ SEEDS = {
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
     "inv14": seed_inv14, "inv15": seed_inv15, "inv-boss": seed_inv_boss,
+    "mrp01": seed_mrp01,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
@@ -6393,7 +6490,7 @@ def _installs(chapter, target, db):
 
 
 def _replay(target, db):
-    track = {"tutorial": TUTORIAL, "functional": FUNCTIONAL, "warehouse": WAREHOUSE}[db]
+    track = {"tutorial": TUTORIAL, "functional": FUNCTIONAL, "warehouse": WAREHOUSE, "factory": FACTORY}[db]
     chapters = [c for c in ORDER[:ORDER.index(target)] if c in track and c not in NOT_REPLAYED]
     if target == "ch53" and db == "functional":
         # ponytail: ch53 only reads Part 4-5 invoices; skipping ch49-51 spares the OCA clones
@@ -6627,7 +6724,8 @@ def cmd_start(a):
         print("Chapter %s creates the %r database itself: start it from the top."
               % (target, SELF_BUILT[target]))
         return 0
-    targets = [db for db, track in (("tutorial", TUTORIAL), ("functional", FUNCTIONAL), ("warehouse", WAREHOUSE))
+    targets = [db for db, track in (("tutorial", TUTORIAL), ("functional", FUNCTIONAL), ("warehouse", WAREHOUSE),
+                                    ("factory", FACTORY))
                if target in track]
     ws = _workspace()
     plan, stamp = [], time.strftime("%Y%m%d-%H%M%S")

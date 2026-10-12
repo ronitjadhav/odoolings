@@ -6,7 +6,7 @@ import { Icon } from './icon';
 // Chapters with nothing to rebuild: reading only, setup itself, or work outside Odoo.
 const NO_SETUP = new Set(['01', '02', '03', '04', '05', '07', '43', '45', '47', '48', '55']);
 // Chapters that create their database themselves: the reader only needs chapter 5.
-const BUILDS_ITS_OWN = new Set(['21', 'inv01']);
+const BUILDS_ITS_OWN = new Set(['21', 'inv01', 'mrp01']);
 
 const FETCH = 'curl -O https://raw.githubusercontent.com/ronitjadhav/odoolings/main/code/odoolings.py';
 const SETUP = '/docs/01-environment/05-dev-setup-with-docker-compose';

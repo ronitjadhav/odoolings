@@ -149,6 +149,11 @@ entry-point into the component system through its `work_on()` context manager. I
 connector a collection is the backend. Unlike a component it *is* an ordinary model, so it
 has a table and needs access rights (appendix on components).
 
+**Component Status (`components_availability`)**: on a manufacturing order, the
+components' availability in plain words: *Available*, *Not Available*, or the date they
+are expected. Its sibling **MO Readiness** says whether they are reserved (Manufacturing
+1).
+
 **cron (scheduled action, `ir.cron`)**: a server action plus a schedule. `ir.cron`
 `_inherits` `ir.actions.server` through `ir_actions_server_id`, sharing that record's
 row rather than copying it, so a cron and the action it runs are, structurally, the
@@ -334,6 +339,10 @@ not taxed like the others", resolved from the customer's country (or set by hand
 document is created. In Odoo 19 it no longer holds source/destination tax pairs: it lists
 taxes, and each replacement tax names what it replaces in `original_tax_ids` (chapter 29).
 
+**Flexible Consumption (`consumption`)**: a bill of materials setting copied onto each
+order: whether a worker may consume more or less than the recipe. *Allowed*, *Allowed
+with warning* (the default, asks for a confirmation) or *Blocked* (Manufacturing 1).
+
 **form view**: the one-record view type (`<form>` arch): a `<sheet>` canvas with
 `<group>`s laying out fields. Opened from a list row when the action's `view_mode`
 includes `form`.
@@ -470,6 +479,10 @@ naming, like one2many.
 **many2one**: *the* relation: an integer column holding another record's id, with a
 real foreign key and an `ondelete` policy. Singular `_id` naming. One2many and
 many2many are built on top of it.
+
+**MO Readiness (`reservation_state`)**: on a manufacturing order, whether its components
+are reserved: *Ready* (`assigned`), *Waiting*, or *Waiting Another Operation*.
+Confirming an order reserves what is on the shelf (Manufacturing 1).
 
 **monkey patching**: replacing a method on a class at runtime rather than through
 inheritance, keeping the original so the replacement can still call it
