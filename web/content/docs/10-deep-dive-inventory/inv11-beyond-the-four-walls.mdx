@@ -66,9 +66,9 @@ Around the price sit a few more fields:
 - The **Availability** tab hides the method from orders that do not fit: **Countries**,
   **States**, **Zip Prefixes**, **Max Weight**, **Max Volume**, **Must Have Tags** and
   **Excluded Tags** (product tags).
-- **Invoicing Policy**: **Estimated cost** bills what the order said. **Real cost**
-  updates the shipping line with the price computed when the delivery is validated,
-  useful with a connector that returns the carrier's real charge.
+- **Invoicing Policy** does not show for Fixed Price or Based on Rules: those bill what
+  the order said. Only a connector carrier offers **Real cost**, which updates the
+  shipping line with the carrier's real charge when the delivery is validated.
 - **Tracking Link**: a URL with `<shipmenttrackingnumber>` in it. Odoo puts the
   transfer's tracking reference in its place and shows a **Tracking** button.
 - **Routes**: routes you may pick per order because of this carrier. They are the routes
