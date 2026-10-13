@@ -4143,6 +4143,53 @@ def a_draft_order_waits_for_the_l(env):
         "the draft order: Quantity 1, Bill of Material L-HD: Van Racking Unit; it has %s, %s" % (mos[0]["product_qty"], mos[0]["bom_id"]))
 
 
+def _mos(env, domain):
+    return env.call("mrp.production", "search_read", domain, fields=["name", "state", "product_qty", "qty_produced", "bom_id"], order="name")
+
+
+def the_l_order_was_split_in_two(env):
+    got = [(m["name"], m["state"], m["qty_produced"]) for m in _mos(env, [("name", "like", "LFW/MO/00002")])]
+    assert got == [("LFW/MO/00002-001", "done", 1), ("LFW/MO/00002-002", "done", 1)], (
+        "LFW/MO/00002 for 2, produced 1 then Create backorder, then the backorder produced: expect "
+        "LFW/MO/00002-001 and LFW/MO/00002-002 both done with 1; found %s" % got)
+
+
+def two_more_drawers_were_made(env):
+    got = sorted(m["qty_produced"] for m in _mos(env, [("product_id.name", "=", "Drawer Module"), ("state", "=", "done")]))
+    assert got == [2, 4], "a second done drawer order for 2, beside chapter 1's 4; found %s" % got
+
+
+def ten_more_sheets_arrived(env):
+    moves = env.call("stock.move", "search_read", [("picking_id.partner_id.name", "=", "Acier Plus"), ("state", "=", "done"),
+                                                   ("product_id.name", "=", "Steel Sheet 2mm")], fields=["quantity"])
+    assert sorted(m["quantity"] for m in moves) == [10, 10], "two receipts of 10 Steel Sheet 2mm from Acier Plus; found %s" % [m["quantity"] for m in moves]
+
+
+def a_bent_sheet_was_scrapped_from_the_order(env):
+    scraps = env.call("stock.scrap", "search_read", [("state", "=", "done")], fields=["product_id", "scrap_qty", "production_id"])
+    got = [(x["product_id"][1], x["scrap_qty"], x["production_id"] and x["production_id"][1]) for x in scraps]
+    assert got == [("Steel Sheet 2mm", 1, "LFW/MO/00002-002")], "one done scrap of 1 Steel Sheet 2mm made from LFW/MO/00002-002; found %s" % got
+
+
+def the_backorder_used_an_extra_pack(env):
+    moves = env.call("stock.move", "search_read", [("raw_material_production_id.name", "=", "LFW/MO/00002-002"), ("product_id.name", "=", "Bolt M8")],
+                     fields=["quantity", "product_uom", "state"])
+    got = [(m["quantity"], m["product_uom"][1], m["state"]) for m in moves]
+    assert got == [(4, "Pack of 6", "done")], "LFW/MO/00002-002 should have consumed 4 Pack of 6 bolts, one more than the recipe; found %s" % got
+
+
+def an_order_was_cut_then_cancelled(env):
+    got = [(m["state"], m["product_qty"]) for m in _mos(env, [("product_id.name", "=", "Van Racking Unit"), ("state", "=", "cancel")])]
+    assert got == [("cancel", 1)], "one cancelled racking order whose quantity was changed from 2 to 1 first; found %s" % got
+
+
+def stock_after_mo_life(env):
+    q = env.call("stock.quant", "search_read", [("location_id.complete_name", "=", "LFW/Stock")], fields=["product_id", "quantity"])
+    got = sorted((r["product_id"][1], r["quantity"]) for r in q if r["quantity"])
+    want = [("Bolt M8", 110), ("Drawer Slide Pair", 14), ("Steel Sheet 2mm", 1), ("Van Racking Unit (L)", 2)]
+    assert got == want, "LFW/Stock should hold %s; it holds %s" % (want, got)
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -5181,6 +5228,22 @@ CHAPTERS = {
          "Manufacturing Orders > New: Van Racking Unit (L), Quantity 1, save it without confirming."),
         ("the stock is still what chapter 1 left", stock_after_first_mo,
          "This chapter makes nothing: 6 sheets, 16 slide pairs, 168 bolts and 4 drawers in LFW/Stock."),
+    ],
+    "mrp03": [
+        ("the L order was split in two", the_l_order_was_split_in_two,
+         "LFW/MO/00002: Quantity 2, Confirm, Start, produce 1, Produce, Create backorder; then finish LFW/MO/00002-002."),
+        ("two more drawers were made", two_more_drawers_were_made,
+         "Manufacturing Orders > New: Drawer Module, Quantity 2, Confirm, Produce All."),
+        ("ten more sheets arrived", ten_more_sheets_arrived,
+         "Inventory > Receipts > New, Acier Plus, 10 Steel Sheet 2mm, Validate."),
+        ("a bent sheet was scrapped from the order", a_bent_sheet_was_scrapped_from_the_order,
+         "On LFW/MO/00002-002: Action menu > Scrap, Steel Sheet 2mm, 1, Scrap Products."),
+        ("the backorder used an extra pack of bolts", the_backorder_used_an_extra_pack,
+         "On LFW/MO/00002-002: Consumed 4 on the Bolt M8 line, Produce All, Confirm the warning."),
+        ("an order was cut, then cancelled", an_order_was_cut_then_cancelled,
+         "New order for Van Racking Unit (S), 2, Confirm; click the blue 2.00 and set 1; Cancel."),
+        ("the stock is what the orders left", stock_after_mo_life,
+         "110 bolts, 14 slide pairs, 1 sheet and 2 L racking units in LFW/Stock."),
     ],
 }
 
@@ -6575,6 +6638,43 @@ def seed_mrp02(env):
     env.call("mrp.production", "create", {"product_id": large, "product_qty": 1})
 
 
+def seed_mrp03(env):
+    product = lambda n: _id(env, "product.product", [("name", "=", n)])
+    mo = _id(env, "mrp.production", [("name", "=", "LFW/MO/00002")])
+    env.call("mrp.production", "write", [mo], {"product_qty": 2})
+    _call(env, "mrp.production", "action_confirm", [mo])
+    receipts = _id(env, "stock.picking.type", [("code", "=", "incoming")])
+    picking = env.call("stock.picking", "create", {"partner_id": _id(env, "res.partner", [("name", "=", "Acier Plus")]), "picking_type_id": receipts,
+                                                   "move_ids": [(0, 0, {"product_id": product("Steel Sheet 2mm"), "product_uom_qty": 10})]})
+    _validate(env, [picking])
+    drawers = env.call("mrp.production", "create", {"product_id": product("Drawer Module"), "product_qty": 2})
+    _call(env, "mrp.production", "action_confirm", [drawers])
+    _call(env, "mrp.production", "button_mark_done", [drawers])
+    _call(env, "mrp.production", "action_start", [mo])
+    env.call("mrp.production", "write", [mo], {"qty_producing": 1})
+    # what the form's onchange does when the reader types 1: half of every component, picked
+    for move in env.call("stock.move", "search_read", [("raw_material_production_id", "=", mo)], fields=["product_uom_qty"]):
+        env.call("stock.move", "write", [move["id"]], {"quantity": move["product_uom_qty"] / 2, "picked": True})
+    action = env.call("mrp.production", "button_mark_done", [mo])
+    wizard = env.call(action["res_model"], "create", {}, context=action["context"])
+    _call(env, action["res_model"], "action_backorder", [wizard], context=action["context"])
+    backorder = _id(env, "mrp.production", [("name", "=", "LFW/MO/00002-002")])
+    scrap = env.call("stock.scrap", "create", {"product_id": product("Steel Sheet 2mm"), "scrap_qty": 1, "production_id": backorder},
+                     context={"default_production_id": backorder})
+    _call(env, "stock.scrap", "action_validate", [scrap])
+    bolts = _id(env, "stock.move", [("raw_material_production_id", "=", backorder), ("product_id.name", "=", "Bolt M8")])
+    env.call("stock.move", "write", [bolts], {"quantity": 4, "manual_consumption": True, "picked": True})
+    action = env.call("mrp.production", "button_mark_done", [backorder])
+    warning = env.call(action["res_model"], "create", {}, context=action["context"])
+    _call(env, action["res_model"], "action_confirm", [warning], context=action["context"])
+    small = env.call("mrp.production", "create", {"product_id": _id(env, "product.product", [("name", "=", "Van Racking Unit"),
+                                                  ("product_template_attribute_value_ids.name", "=", "S")]), "product_qty": 2})
+    _call(env, "mrp.production", "action_confirm", [small])
+    change = env.call("change.production.qty", "create", {"mo_id": small, "product_qty": 1})
+    _call(env, "change.production.qty", "change_prod_qty", [change])
+    _call(env, "mrp.production", "action_cancel", [small])
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6587,7 +6687,7 @@ SEEDS = {
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
     "inv14": seed_inv14, "inv15": seed_inv15, "inv-boss": seed_inv_boss,
-    "mrp01": seed_mrp01, "mrp02": seed_mrp02,
+    "mrp01": seed_mrp01, "mrp02": seed_mrp02, "mrp03": seed_mrp03,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
