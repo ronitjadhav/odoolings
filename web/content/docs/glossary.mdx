@@ -88,7 +88,8 @@ One adapter per backend, all answering the same method names (appendix on compon
 **backorder**: the transfer Odoo creates for the part of a demand that was not shipped
 or received when a transfer is validated short. Its `backorder_id` points at the
 original; the original's demand is rewritten to what actually moved. Whether Odoo asks,
-always creates one or never does is the operation type's **Create Backorder** setting.
+always creates one or never does is the operation type's **Create Backorder** setting. A manufacturing order split the same way renames itself with a suffix: the produced part
+becomes `-001`, the rest a new order `-002` (Manufacturing 3).
 
 **barcode nomenclature (`barcode.nomenclature`)**: the list of rules that says what a
 scanned code means. Each rule has a Type (product, weighed product, location, package,
@@ -169,6 +170,12 @@ has a table and needs access rights (appendix on components).
 components' availability in plain words: *Available*, *Not Available*, or the date they
 are expected. Its sibling **MO Readiness** says whether they are reserved (Manufacturing
 1).
+
+**Consumption Warning (`mrp.consumption.warning`)**: the dialog a manufacturing order
+opens at Produce when the consumed quantities differ from the recipe and the BoM's
+Flexible Consumption is not Allowed. Confirm keeps them, Set Quantities & Validate
+resets them to the recipe, and on a Blocked BoM only a Manufacturing Administrator sees
+Force (Manufacturing 3).
 
 **cron (scheduled action, `ir.cron`)**: a server action plus a schedule. `ir.cron`
 `_inherits` `ir.actions.server` through `ir_actions_server_id`, sharing that record's
@@ -473,6 +480,11 @@ receipt's Generate or Import buttons, or are typed.
 
 **lot valuation (Valuation by Lot/Serial)**: a product option that gives each lot or serial its own cost: receipts need a lot, deliveries leave at the lot's cost, and the product's value is the sum of its lots (Inventory chapter 12).
 
+**manual consumption (`manual_consumption`)**: the flag Odoo sets on a component move
+when a person types its Consumed quantity. Produce All leaves such a line alone and
+recalculates the others from the recipe; on the form it shows in bold blue
+(Manufacturing 3).
+
 **manufacture steps (`manufacture_steps`)**: the warehouse's Manufacture choice: one
 step (consume from Stock, deliver to Stock), two steps (a Pick Components transfer brings
 parts to Pre-Production first) or three steps (and a Store Finished Product transfer
@@ -495,6 +507,10 @@ naming, like one2many.
 **many2one**: *the* relation: an integer column holding another record's id, with a
 real foreign key and an `ondelete` policy. Singular `_id` naming. One2many and
 many2many are built on top of it.
+
+**MO Overview**: the report behind a manufacturing order's Overview button: its
+components and, under Display, availability, replenishment and receipts while it is
+open, and unit, order, BoM and real costs once it is done (Manufacturing 3).
 
 **MO Readiness (`reservation_state`)**: on a manufacturing order, whether its components
 are reserved: *Ready* (`assigned`), *Waiting*, or *Waiting Another Operation*.

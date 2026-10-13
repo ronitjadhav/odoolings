@@ -1,0 +1,599 @@
+---
+title: "Manufacturing 3. A Manufacturing Order's Life"
+description: Follow one order through every state, wait for missing parts, produce half and split off a backorder, consume more than the recipe and answer the warning, scrap a bent sheet, change a quantity and cancel, then read it all back in the MO Overview.
+tier: foundations
+---
+
+**Goal:** read any manufacturing order at a glance (where it is, what it waits for, what
+it will consume) and know what each button does to it. · **Time:** ~2.5 h ·
+**Checkpoint:** none. It continues the `factory` database.
+
+## Why this matters
+
+On the workshop floor nothing goes as the recipe says. Parts are missing when the order is
+released. Half the batch is finished on Friday and the rest next week. A welder uses an
+extra pack of bolts. A sheet gets bent and goes in the skip. A customer halves the order.
+
+Odoo has a precise answer for each of those, and each answer leaves a trace: a state, a
+backorder with a suffix, a warning someone confirmed, a scrap record, a line in the
+chatter. When a client asks "why does this order say X", the answer is always one of
+these traces. This chapter makes every one of them happen on purpose, on the draft order
+the previous chapter left: `LFW/MO/00002`, one heavy-duty L racking unit.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `factory` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### Six states, and what moves an order between them
+
+<Mermaid
+  label="A manufacturing order goes Draft, Confirmed, In Progress, To Close, Done; it can be cancelled until it is done. Producing part of it with a backorder finishes this order and starts a new confirmed one."
+  chart={`stateDiagram-v2
+    [*] --> Draft
+    Draft --> Confirmed: Confirm
+    Confirmed --> InProgress: Start, or a quantity is produced or consumed
+    InProgress --> ToClose: everything produced
+    ToClose --> Done: Produce All
+    Confirmed --> Done: Produce All
+    InProgress --> Done: Produce less, Create backorder
+    Draft --> Cancelled: Cancel
+    Confirmed --> Cancelled: Cancel
+    InProgress --> Cancelled: Cancel`}
+/>
+
+| State | In the database | What it means |
+|---|---|---|
+| **Draft** | `draft` | being written; nothing reserved, quantities editable |
+| **Confirmed** | `confirmed` | released: components reserved if they are there, quantity changed only through a wizard |
+| **In Progress** | `progress` | someone pressed Start, or something was produced or consumed |
+| **To Close** | `to_close` | everything is produced; only the final click is missing |
+| **Done** | `done` | stock moved; the order is locked |
+| **Cancelled** | `cancel` | dropped; reservations released, nothing moved |
+
+The order passes through *To Close* even when you click Produce All in one go: the
+chatter will show In Progress, then To Close, then Done, a second apart.
+
+### Two fields that say what it waits for
+
+| Field | Values | Read it as |
+|---|---|---|
+| **MO Readiness** (`reservation_state`) | *Waiting*, *Ready*, *Waiting Another Operation* | are all the components reserved for this order? |
+| **Component Status** (`components_availability`) | *Available*, *Not Available*, or an expected date (late ones in red) | in plain words, for the person planning the work |
+
+Readiness changes **by itself**. A receipt of a missing component, or another order that
+finishes the sub-assembly, reserves the parts for the waiting order without anyone
+clicking. **Check availability** forces a new try; **Unreserve** gives everything back.
+
+### The quantities on the form
+
+- **Quantity** reads *producing / to produce*: `1.00 / 2.00` means one unit is being
+  produced right now out of two. On a confirmed order the second number is a blue link
+  that opens **Change Quantity To Produce**.
+- **To Consume** is the recipe times the quantity. Once something is being produced it
+  reads *for this unit / for the whole order*, like `6.00 / 12.00`.
+- **Consumed** is what will be consumed when you produce. Before that, Odoo fills it with
+  what it reserved. Its colour talks: **green** means it matches the recipe, **orange**
+  means more than the recipe, **bold blue** means a person typed it (Odoo stops
+  recalculating that line, the field `manual_consumption`).
+
+### Producing less: backorders
+
+Produce fewer units than the order asks and Odoo stops you with **You produced less than
+the initial demand**:
+
+- **Create backorder**: this order is finished for what you made, and a new confirmed
+  order is created for the rest. Both get a suffix: the original becomes
+  `LFW/MO/00002-001`, the rest `LFW/MO/00002-002`. A **Backorders** smart button links
+  them.
+- **No Backorder**: finish short; the rest is forgotten.
+- **Discard**: go back to the order.
+
+Whether you see the question at all is the Manufacturing operation type's **Create
+Backorder** setting (*Ask*, *Always*, *Never*) from chapter 1.
+
+### Consuming something else: the consumption warning
+
+When the consumed quantities differ from the recipe, the bill of materials' **Flexible
+Consumption** decides:
+
+| Flexible Consumption | What happens at Produce |
+|---|---|
+| **Allowed** | nothing is asked |
+| **Allowed with warning** (default) | **Consumption Warning** lists the differences: **Confirm** keeps them, **Set Quantities & Validate** resets them to the recipe and finishes, **Discard** goes back |
+| **Blocked** | the same dialog without Confirm; only a Manufacturing Administrator sees **Force** |
+
+### The Action menu, and the buttons that appear later
+
+The gear next to the order's name holds the actions you use less often:
+
+- **Split**: cut a draft or confirmed order into several (by count or by size);
+- **Lock/Unlock**: a done order is locked so nobody edits its consumption by accident.
+  The setting **Unlock Manufacturing Orders** makes orders open by default;
+- **Scrap**: throw away a component or the product, linked to this order;
+- **Plan based on Components Availability**: for work orders, chapter 6.
+
+Select several orders in the list and the list's Action menu offers **Merge**: same
+product and BoM, same state (draft or confirmed), same operation type, and no extra
+lines. A done order grows an **Unbuild** button (chapter 8).
+
+Two more traces of a living recipe: if the BoM changes after an order is confirmed, the
+order shows that its bill of materials is outdated, with an **Update BoM** button. An
+order created without a BoM, with components typed by hand, offers to **generate** a BoM
+from them.
+
+### The MO Overview
+
+The **Overview** smart button opens a report of the order: every component with its
+quantity, and columns you choose under **Display**. On an open order it shows
+availability, replenishment and receipts. On a done order it shows **Unit Costs**, **MO
+Costs**, **BoM Costs** and **Real Costs**, which is where chapter 11 reads what a racking
+unit really cost.
+
+<Callout type="info" title="Official docs">
+  [Manufacturing orders](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html)
+  and [Scrap during manufacturing](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/workflows/scrap_manufacturing.html)
+  cover the user's side.
+</Callout>
+
+## Hands-on
+
+Same database, `factory`. On the shelf: 6 steel sheets, 16 slide pairs, 168 bolts and 4
+drawer modules. The draft `LFW/MO/00002` makes one L racking unit with recipe L-HD (6
+sheets, 3 drawers, 3 packs of bolts).
+
+<Steps>
+
+<Step>
+### Release an order that cannot be finished yet
+
+<UiOrShell>
+<Tab>
+
+Open **Manufacturing → Manufacturing Orders → LFW/MO/00002** (remove the *To Do* filter
+if the list hides it). It is still a draft, so you can edit **Quantity**: set `2`. Then
+**Confirm**:
+
+![The confirmed order LFW/MO/00002 for 2: Check availability highlighted, Component Status Not Available highlighted, the Steel Sheet line 12 to consume with 6 reserved and the Drawer Module line 6 with 4, both Not Available and highlighted, and the chatter message MO Readiness None to Waiting highlighted](/screens/mrp03-waiting.jpg)
+
+Two racking units need 12 sheets and 6 drawers; there are 6 and 4. Odoo reserved what
+it could (the Consumed column), set **Component Status** to *Not Available*, and the
+chatter shows **MO Readiness** going to *Waiting*. The order is released anyway: the
+workshop knows what is coming.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d factory --no-http
+```
+
+```python
+>>> MO = env["mrp.production"]
+>>> P = lambda name: env["product.product"].search([("name", "=", name)])
+>>> mo = MO.search([("name", "=", "LFW/MO/00002")])
+>>> mo.product_qty = 2
+>>> mo.action_confirm()
+True
+>>> mo.state, mo.reservation_state, mo.components_availability
+('confirmed', 'confirmed', 'Not Available')
+>>> for m in mo.move_raw_ids:
+...     print(f"{m.product_id.name:<16} need {m.product_uom_qty:>5.1f} {m.product_uom.name:<10} reserved {m.quantity:>5.1f}  {m.state}")
+...
+Steel Sheet 2mm  need  12.0 Units      reserved   6.0  partially_available
+Drawer Module    need   6.0 Units      reserved   4.0  partially_available
+Bolt M8          need   6.0 Pack of 6  reserved   6.0  assigned
+```
+
+`reservation_state` `confirmed` is *Waiting* on screen. Each component move has its own
+state; the order's readiness summarises them.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Let the missing parts arrive
+
+Two things are missing, and they arrive two different ways.
+
+<UiOrShell>
+<Tab>
+
+**The sheets are bought.** **Inventory → Operations → Receipts → New**, **Receive From**
+`Acier Plus`, one line `Steel Sheet 2mm` demand `10`, **Validate**. It becomes
+`LFW/IN/00002`. Back on `LFW/MO/00002`, the sheet line now has all 12 reserved: the
+receipt handed them over by itself.
+
+**The drawers are made.** **Manufacturing Orders → New**, **Product** `Drawer Module`,
+**Quantity** `2`, **Confirm**, **Produce All**. It becomes `LFW/MO/00003`, done. Open
+`LFW/MO/00002` again:
+
+![LFW/MO/00002 now ready: the Start button highlighted, Component Status Available highlighted, all three lines Available with 12, 6 and 6 consumed highlighted, and the newest chatter message MO Readiness Waiting to Ready highlighted](/screens/mrp03-ready.jpg)
+
+Nobody pressed Check availability. Finishing the drawer order moved its drawers to the
+shelf and reserved them for the order that was waiting.
+
+</Tab>
+<Tab>
+
+```python
+>>> wh = env["stock.warehouse"].search([])
+>>> receipt = env["stock.picking"].create({
+...     "partner_id": env["res.partner"].search([("name", "=", "Acier Plus")]).id,
+...     "picking_type_id": wh.in_type_id.id,
+...     "move_ids": [(0, 0, {"product_id": P("Steel Sheet 2mm").id, "product_uom_qty": 10})],
+... })
+>>> receipt.button_validate()
+True
+>>> receipt.name, mo.move_raw_ids.mapped("quantity"), mo.reservation_state
+('LFW/IN/00002', [12.0, 4.0, 6.0], 'confirmed')
+>>> drawers = MO.create({"product_id": P("Drawer Module").id, "product_qty": 2})
+>>> drawers.action_confirm()
+True
+>>> drawers.button_mark_done()
+True
+>>> drawers.name, drawers.state
+('LFW/MO/00003', 'done')
+>>> mo.reservation_state, mo.components_availability
+('assigned', 'Available')
+```
+
+After the receipt the sheets are reserved (12) but the order still waits for the drawers.
+`button_mark_done` on the drawer order ends with a `_trigger_assign` on what it
+produced, and that is what woke the racking order up.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Produce one of two
+
+<UiOrShell>
+<Tab>
+
+On `LFW/MO/00002` click **Start**. Then click the first number of **Quantity** (0.00),
+type `1`, and save (the cloud icon):
+
+![The order In Progress: Produce highlighted, Quantity 1.00 of 2.00 highlighted, the To Consume column 6.00 / 12.00, 3.00 / 6.00 and 3.00 / 6.00 highlighted, and the status bar on In Progress highlighted](/screens/mrp03-in-progress.jpg)
+
+The header button now says **Produce**, not Produce All, and **To Consume** reads *for
+this unit / for the order*. Save before you read **Component Status**: on the unsaved
+form it can show a stale value. Click **Produce**:
+
+![The dialog You produced less than the initial demand, its title highlighted, and its three buttons Create backorder, No Backorder and Discard highlighted](/screens/mrp03-backorder-wizard.jpg)
+
+**Create backorder.** Odoo opens the new order, `LFW/MO/00002-002`. Its **Backorders**
+smart button lists both halves:
+
+![The Backorder MO's list: LFW/MO/00002-001 Done and LFW/MO/00002-002 Confirmed, the references and the states highlighted](/screens/mrp03-backorders.jpg)
+
+</Tab>
+<Tab>
+
+```python
+>>> mo.action_start()
+>>> mo.state
+'progress'
+>>> mo.qty_producing = 1
+>>> mo._set_qty_producing()
+>>> action = mo.button_mark_done()
+>>> action["res_model"], action["name"]
+('mrp.production.backorder', 'You produced less than the initial demand')
+>>> wizard = env[action["res_model"]].with_context(action["context"]).create({})
+>>> wizard.action_backorder()
+{'res_model': 'mrp.production', 'type': 'ir.actions.act_window', 'context': {'lang': 'en_US', 'tz': False, 'uid': 1, 'skip_backorder': False, 'mo_ids_to_backorder': None}, 'views': [[False, 'form']], 'view_mode': 'form', 'res_id': 4}
+>>> [(m.name, m.state, m.product_qty, m.qty_produced) for m in MO.search([("name", "like", "LFW/MO/00002")], order="name")]
+[('LFW/MO/00002-001', 'done', 1.0, 1.0), ('LFW/MO/00002-002', 'confirmed', 1.0, 0.0)]
+```
+
+`_set_qty_producing` is what the form runs when you type the 1: it sets every
+component's Consumed to the share of one unit. `button_mark_done` does not finish
+anything yet; it returns the dialog as an action, the way the browser received it.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Scrap a bent sheet
+
+While the welder prepares the second unit, a sheet gets bent.
+
+<UiOrShell>
+<Tab>
+
+On `LFW/MO/00002-002`, open the **Action** menu (the gear next to the name):
+
+![The Action menu of LFW/MO/00002-002 open, with Split, Lock/Unlock, Scrap and Plan based on Components Availability highlighted](/screens/mrp03-actions-menu.jpg)
+
+Click **Scrap**. The **Product** list only offers this order's products. Pick `Steel
+Sheet 2mm`, keep **Quantity** `1`:
+
+![The Scrap Products dialog with Product Steel Sheet 2mm and Quantity 1.00 highlighted together, and the Scrap Products button highlighted](/screens/mrp03-scrap.jpg)
+
+**Scrap Products.** A **Scraps** smart button appears on the order. The order's own
+reservation did not change: the bent sheet came from the free stock on the shelf.
+
+</Tab>
+<Tab>
+
+```python
+>>> backorder = MO.search([("name", "=", "LFW/MO/00002-002")])
+>>> scrap = env["stock.scrap"].with_context(default_production_id=backorder.id).create({"product_id": P("Steel Sheet 2mm").id, "scrap_qty": 1})
+>>> scrap.action_validate()
+True
+>>> scrap.name, scrap.state, scrap.production_id.name, scrap.location_id.complete_name, scrap.scrap_location_id.complete_name
+('SP/00001', 'done', 'LFW/MO/00002-002', 'LFW/Stock', 'Inventory adjustment')
+```
+
+The scrap remembers its order (`production_id`). It goes to **Inventory adjustment**:
+Odoo 19 has no separate scrap location, the inventory-loss location takes both.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Use an extra pack of bolts
+
+<UiOrShell>
+<Tab>
+
+Still on `LFW/MO/00002-002`, click the **Consumed** cell of the **Bolt M8** line, type
+`4` and click outside. The 4.00 turns bold, and the order moves to **In Progress** by
+itself. Click **Produce All**:
+
+![The Consumption Warning dialog: the line Bolt M8, Units, To Consume 18.00, Consumed 24.00 highlighted, and the buttons Confirm, Set Quantities & Validate and Discard highlighted](/screens/mrp03-consumption-warning.jpg)
+
+The warning counts in the product's own unit: 18 bolts expected, 24 consumed. The welder
+did use them; **Confirm**. The order is done, and its chatter tells the whole story:
+
+![The done order LFW/MO/00002-002: the status bar on Done highlighted, the bolt line consumed 4.00 Pack of 6 highlighted, and three chatter messages highlighted, MO Progress Confirmed to In Progress, MO To Close In Progress to To Close, and MO Done To Close to Done](/screens/mrp03-backorder-done.jpg)
+
+In Progress, To Close, Done, in the same minute.
+
+</Tab>
+<Tab>
+
+```python
+>>> bolts = backorder.move_raw_ids.filtered(lambda m: m.product_id.name == "Bolt M8")
+>>> bolts.write({"quantity": 4, "manual_consumption": True, "picked": True})
+True
+>>> action = backorder.button_mark_done()
+>>> action["res_model"], action["name"]
+('mrp.consumption.warning', 'Consumption Warning')
+>>> warning = env[action["res_model"]].with_context(action["context"]).create({})
+>>> [(l.product_id.name, l.product_consumed_qty_uom, l.product_expected_qty_uom, l.product_uom_id.name) for l in warning.mrp_consumption_warning_line_ids]
+[('Bolt M8', 24.0, 18.0, 'Units')]
+>>> warning.action_confirm()
+True
+>>> backorder.state, backorder.is_locked
+('done', True)
+```
+
+Typing in the Consumed cell sets two fields, `manual_consumption` and `picked`, and that
+pair is what tells Produce All to keep your number. Write only the quantity in a script
+and Odoo resets it to the recipe.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Halve an order, then cancel it
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing Orders → New**: `Van Racking Unit (S)`, **Quantity** `2`, **Confirm**.
+It becomes `LFW/MO/00004`, *Not Available* (one sheet is left). The customer halves the
+order: click the blue **2.00** after the slash:
+
+![The Change Quantity To Produce dialog over LFW/MO/00004: Quantity To Produce 1.00 highlighted, and Set Quantity highlighted](/screens/mrp03-change-quantity.jpg)
+
+Set `1` and **Set Quantity**: every component line halves. Then the customer cancels.
+Click **Cancel** and confirm:
+
+![The cancelled order LFW/MO/00004: the status bar on Cancelled highlighted, the Consumed column all at 0.00 highlighted, and the chatter messages MO Cancelled and Quantity To Produce 2.00 to 1.00 highlighted](/screens/mrp03-cancelled.jpg)
+
+Everything it had reserved went back, and the chatter keeps both decisions.
+
+</Tab>
+<Tab>
+
+```python
+>>> small = MO.create({"product_id": P("Van Racking Unit").filtered(lambda p: p.product_template_attribute_value_ids.name == "S").id, "product_qty": 2})
+>>> small.action_confirm()
+True
+>>> small.name, small.components_availability
+('LFW/MO/00004', 'Not Available')
+>>> env["change.production.qty"].create({"mo_id": small.id, "product_qty": 1}).change_prod_qty()
+{}
+>>> small.product_qty, small.move_raw_ids.mapped("product_uom_qty")
+(1.0, [4.0, 2.0, 2.0])
+>>> small.action_cancel()
+True
+>>> small.state, set(small.move_raw_ids.mapped("state"))
+('cancel', {'cancel'})
+```
+
+`change.production.qty` is the dialog's model. It rewrites the component moves, which is
+why the quantity cannot simply be typed on a confirmed order.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read a done order back
+
+<UiOrShell>
+<Tab>
+
+Open `LFW/MO/00002-002` and click **Overview**. Open **Display**:
+
+![The MO Overview of LFW/MO/00002-002 with the Display menu open and highlighted, Unit Costs and Real Costs ticked, MO Costs and BoM Costs not, and the Bolt M8 row 4.00 Pack of 6 highlighted](/screens/mrp03-mo-overview.jpg)
+
+The bolt line shows what was really consumed, 4 packs, not the recipe's 3. The costs are
+zero until components have a cost (chapter 11).
+
+</Tab>
+<Tab>
+
+The whole chapter in one look at the shelf:
+
+```python
+>>> for q in env["stock.quant"].search([("location_id.usage", "=", "internal"), ("quantity", "!=", 0)], order="product_id"):
+...     print(f"{q.product_id.display_name:<22} {q.quantity:>6.1f}")
+...
+Bolt M8                 110.0
+Drawer Slide Pair        14.0
+Steel Sheet 2mm           1.0
+Van Racking Unit (L)      2.0
+>>> env.cr.commit()
+```
+
+</Tab>
+</UiOrShell>
+
+Count it through: 168 bolts, minus 16 for the drawers, minus 18 and 24 for the two
+racking units, is 110. Sheets: 6 + 10, minus 12, 2 and 1 scrapped, is 1. The drawer
+modules are all inside the two L units.
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check mrp03 --db factory
+```
+
+```text
+✔ the L order was split in two
+✔ two more drawers were made
+✔ ten more sheets arrived
+✔ a bent sheet was scrapped from the order
+✔ the backorder used an extra pack of bolts
+✔ an order was cut, then cancelled
+✔ the stock is what the orders left
+
+mrp03 complete! On to the next chapter 🔧
+```
+
+One proof from the database, every order this database has made:
+
+```console
+$ docker compose exec db psql -U odoo -d factory \
+    -c "select p.name, t.name->>'en_US' as product, p.state, p.product_qty, p.backorder_sequence from mrp_production p join product_product pp on pp.id=p.product_id join product_template t on t.id=pp.product_tmpl_id order by p.id;"
+```
+
+```text
+       name       |     product      | state  | product_qty | backorder_sequence
+------------------+------------------+--------+-------------+--------------------
+ LFW/MO/00001     | Drawer Module    | done   |        4.00 |                  0
+ LFW/MO/00002-001 | Van Racking Unit | done   |        1.00 |                  1
+ LFW/MO/00003     | Drawer Module    | done   |        2.00 |                  0
+ LFW/MO/00002-002 | Van Racking Unit | done   |        1.00 |                  2
+ LFW/MO/00004     | Van Racking Unit | cancel |        1.00 |                  0
+(5 rows)
+```
+
+The original order kept its place (second row) and took the suffix `-001`; the backorder
+is a new row with `backorder_sequence` 2. There is no "produced" column to query:
+`qty_produced` is computed from the finished moves and not stored.
+
+## Gotchas
+
+- **Produce All resets numbers nobody typed.** It sets Consumed to the recipe for every
+  line the user did not edit by hand. A script that writes `quantity` without
+  `manual_consumption` gets its numbers silently replaced.
+- **Read Component Status on a saved order.** After typing a quantity being produced, the
+  unsaved form can show a stale status. Save, then read.
+- **A backorder renames the original.** Reports and integrations that stored
+  `LFW/MO/00002` will not find it any more: it is `LFW/MO/00002-001` now. Search by the
+  start of the name, or by the backorder's link.
+- **Cancelled is final.** A cancelled order cannot be set back to draft in Community.
+  Duplicate it instead, or use the OCA's `mrp_production_back_to_draft`.
+- **A scrap from an order does not touch the order's reservation.** The bent sheet came
+  from the free stock on the shelf, and the order still had its 6. When stock is tight,
+  the order that comes up short is the *next* one.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'An order waits for drawers. Another order makes the missing drawers and is marked done. What happens to the waiting order?',
+      options: [
+        'It stays Waiting until someone clicks Check availability',
+        'It reserves the new drawers itself and becomes Ready',
+        'It is confirmed again and gets a new number',
+      ],
+      answer: 1,
+      why: 'Finishing an order triggers a reservation pass on what it produced, so moves waiting for that product are served at once. Receipts do the same for bought components.',
+    },
+    {
+      q: 'You produce 1 of 2 and choose Create backorder. What are the two orders called?',
+      options: [
+        'LFW/MO/00002 (done) and LFW/MO/00005 (confirmed)',
+        'LFW/MO/00002-001 (done) and LFW/MO/00002-002 (confirmed)',
+        'LFW/MO/00002 (done) and LFW/MO/00002-BO (confirmed)',
+      ],
+      answer: 1,
+      why: 'Both halves take a suffix: the original record becomes -001, the new one -002. The backorder_sequence field holds the number, and a Backorders smart button links them.',
+    },
+    {
+      q: 'The BoM says Blocked. A worker consumed more bolts than the recipe. What can a plain manufacturing user do in the dialog?',
+      options: [
+        'Confirm the extra consumption',
+        'Set the quantities back to the recipe and validate, or go back',
+        'Nothing; the order is cancelled',
+      ],
+      answer: 1,
+      why: 'Blocked hides Confirm. Set Quantities & Validate and Discard remain, and only a Manufacturing Administrator sees Force.',
+    },
+    {
+      q: 'Why can a confirmed order not have its quantity typed directly?',
+      options: [
+        'Changing it must rewrite the component moves, so it goes through a wizard',
+        'Quantities are locked for audit once confirmed',
+        'Only draft orders have a quantity field',
+      ],
+      answer: 0,
+      why: 'The blue quantity opens change.production.qty, which updates every component move to the new quantity. A plain write would leave the moves at the old amounts.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Open `LFW/MO/00002-001` and `LFW/MO/00002-002` side by side. Which one has the
+   chatter message for *MO Confirmed*, and why does the other start with *Manufacturing
+   Order created*?
+2. ⭐⭐ Set the L-HD BoM's **Flexible Consumption** to **Blocked**. Make one drawer
+   module with one extra bolt typed in, and read the dialog as a manager (you are one).
+   Choose **Set Quantities & Validate**, then set the BoM back to *Allowed with warning*.
+3. ⭐⭐ Create two draft orders for 1 Drawer Module each, select both in the list and
+   **Merge** them. What is the merged order called, and what happened to the two drafts?
+   Cancel the result.
+4. ⭐⭐⭐ Break-it lab. Confirm an order for 1 Drawer Module, then add a line to the
+   Drawer Module BoM. Find where the order tells you its recipe changed, click **Update
+   BoM**, and compare the component moves before and after. Cancel the order and remove
+   the line.
+
+## Further reading
+
+- <Icon name="docs" /> [Manufacturing (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html):
+  the user guides index; the basic setup pages cover orders and backorders.
+- <Icon name="docs" /> [Scrap during manufacturing (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/workflows/scrap_manufacturing.html):
+  scrapping components and finished products from an order.
+- <Icon name="source" /> [`mrp/models/mrp_production.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_production.py):
+  read `button_mark_done` and `pre_button_mark_done`; the backorder and consumption
+  dialogs are both returned from there.
+- <Icon name="source" /> [`mrp/wizard/mrp_consumption_warning.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/mrp/wizard/mrp_consumption_warning.py):
+  what Confirm, Force and Set Quantities & Validate each do.
