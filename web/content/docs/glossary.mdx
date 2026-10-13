@@ -40,6 +40,11 @@ repository root, **each repository is its own entry** (chapter 49), which is why
 deployments have a long comma-separated list. The server logs the resolved list as
 `addons paths: [...]` at startup, including the image's own built-in directories.
 
+**Apply on Variants (`bom_product_template_attribute_value_ids`)**: on a bill of
+materials line, the variants the line is for. Empty means every variant. It filters by
+the product's template attribute values, and the column is hidden in the components list
+until you tick it in the column picker (Manufacturing 2).
+
 **auto_install**: a manifest flag meaning "install me automatically as soon as every
 module I depend on is installed". Nobody asks for these; they arrive, which is how
 *bridge modules* ship. Two consequences worth knowing: installing one module can install
@@ -97,6 +102,17 @@ grouped into one job and validated together, from the Batch, Wave & Cluster Tran
 setting (`stock_picking_batch`). Made by hand (Actions → Add to batch) or automatically
 by the operation type's **Automatic Batches**, which needs at least one grouping
 (contact, destination country, source or destination location).
+
+**BoM Overview**: the report behind the button of that name on a bill of materials: the
+recipe unfolded level by level, per variant. Its **Forecast** switch adds a quantity,
+free and on-hand stock, availability, lead times, routes and a Manufacture button
+(Manufacturing 2).
+
+**`_bom_find()`**: how a manufacturing order picks its bill of materials. It takes the
+active BoMs for this variant or shared by the template, sorted by sequence, then
+variant-specific before shared, then oldest, and keeps the first. New BoMs have an empty
+sequence, which sorts after every number; dragging the Bills of Materials list numbers
+them all (Manufacturing 2).
 
 **bridge module**: a small module whose only job is to connect two other modules that
 do not know about each other, depending on both and holding just the glue. Usually
@@ -1012,6 +1028,11 @@ changes at both ends. `product_uom_qty` is the Demand column (what was planned),
 Weight** (0 refuses anything that has a weight), **Allow New Product** (only if empty,
 only the same product, or mixed) and capacities per product or per package type. Putaway
 rules with Closest Location use only locations of the category they name.
+
+**sub-assembly (child BoM)**: a component that has a bill of materials of its own, like
+a drawer module inside a racking unit. The parent's order consumes it from stock and
+does not make it; the line's `child_bom_id` is what the BoM Overview unfolds
+(Manufacturing 2).
 
 **subcontracting**: buying a product that a partner builds from your components. A bill of materials of type **Subcontracting** names the subcontractors; buying from one creates a **Resupply** transfer to the Subcontracting location and a hidden production that the receipt finishes (Inventory chapter 11).
 

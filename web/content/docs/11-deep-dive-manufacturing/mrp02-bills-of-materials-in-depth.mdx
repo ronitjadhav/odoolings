@@ -1,0 +1,592 @@
+---
+title: "Manufacturing 2. Bills of Materials in Depth"
+description: One recipe for a product that comes in sizes, a second recipe for one size, components counted in packs, a recipe inside a recipe, and the rule Odoo follows when several recipes could make the same thing.
+tier: foundations
+---
+
+**Goal:** write bills of materials for a product with variants, and predict which recipe
+Odoo will use before it does. · **Time:** ~2 h · **Checkpoint:** none. It continues the
+`factory` database.
+
+## Why this matters
+
+A real workshop rarely has one recipe per product. LibreFleet Works builds a **Van
+Racking Unit** in two sizes: the small one holds two drawers, the large one three. The
+large one exists in a heavy-duty build too, with more steel. Bolts arrive in packs of
+six, and every drawer is itself made from a recipe.
+
+Odoo can express all of that, and on a real project the hard question is never "how do
+I type a recipe". It is "**why did this order use the wrong one?**" A manufacturing
+order picks its bill of materials by itself, by a rule almost nobody reads. This chapter
+builds the recipes, then makes Odoo change its mind in front of you without changing a
+single recipe.
+
+<Callout type="info" title="Starting here?">
+  The box at the top of the page rebuilds `factory` to the end of the previous chapter.
+  You only need chapter 5's environment.
+</Callout>
+
+## Concepts
+
+### The fields of a bill of materials, all of them
+
+The previous chapter used the defaults. Here is every field a Community bill of materials
+(BoM) has, and when you see it:
+
+| Field | What it means | Shows |
+|---|---|---|
+| **Product** | the product template this recipe makes | always |
+| **Product Variant** | one variant only; empty means "every variant" | with the Variants setting |
+| **Quantity** | how many the recipe makes; components are for this many. A recipe for 10 brackets lists the components of 10 | always |
+| **Reference** | a short name to tell two recipes apart, like `L-HD` | always |
+| **BoM Type** | *Manufacture this product*, or *Kit* (chapter 8); *Subcontracting* appears with its setting (chapter 10) | always |
+| **Components** | one line each: product, quantity, **Unit** | always; Unit with Units of Measure |
+| **Apply on Variants** (on a line) | this line only counts for these variants | optional column, with Variants |
+| **Consumed in Operation** (on a line) | which step of the routing uses it | with Work Orders (chapter 5) |
+| **Flexible Consumption** | may a worker consume more or less: *Allowed*, *Allowed with warning*, *Blocked* | Miscellaneous tab |
+| **Manuf. Lead Time**, **Days to prepare Manufacturing Order** (with **Compute**) | days to make it, and how early to create the order | Miscellaneous tab; chapter 7 |
+| **Batch Size** | split big needs into orders of this size (new in Odoo 19) | Miscellaneous tab; chapter 7 |
+| **Manufacturing Readiness**, **Operation Type** | start when the first operation's parts are there; which Manufacturing door to use | with Work Orders, and with Multi-Step Routes |
+
+A BoM is never deleted in a hurry: **archive** it (Action menu) and it stops being used
+while every order that used it keeps its history.
+
+### One recipe for every size, or one recipe per size
+
+When a product has variants, you have two tools, and they combine:
+
+- **A shared recipe with filtered lines.** Leave *Product Variant* empty, and mark the
+  lines that only belong to some sizes with **Apply on Variants**. A line with nothing
+  in that column is for every variant. The small racking unit gets the line "2 drawer
+  modules (S)", the large one gets "3 drawer modules (L)", and both get the steel and the
+  bolts.
+- **A recipe for one variant.** Fill *Product Variant* and the recipe only serves that
+  variant. LibreFleet's heavy-duty L is one.
+
+### A recipe inside a recipe
+
+A component can have its own bill of materials. The drawer module does: it is a component
+of the racking unit and a product made from steel, slides and bolts. That makes the
+racking unit's recipe **two levels deep**:
+
+<Mermaid
+  label="The Van Racking Unit recipe lists steel sheets, drawer modules and packs of bolts; the drawer module has its own recipe of a steel sheet, a slide pair and eight bolts."
+  chart={`flowchart TD
+    R["Van Racking Unit (S)"] --> S1["4 Steel Sheet 2mm"]
+    R --> D["2 Drawer Module"]
+    R --> B1["2 Pack of 6 Bolt M8"]
+    D --> S2["1 Steel Sheet 2mm each"]
+    D --> SL["1 Drawer Slide Pair each"]
+    D --> B2["8 Bolt M8 each"]`}
+/>
+
+Read this carefully: an order for a racking unit **consumes drawer modules from stock**.
+It does not make them. Making the drawers is a separate manufacturing order, created by
+hand or by the planning rules of chapter 7. The second level is there for the BoM
+Overview, the cost, and for planning to know what to make first.
+
+### Units: a pack of six is a unit
+
+Odoo 19 keeps every unit in one list, and each unit says what it contains: *Pack of 6*
+contains 6 *Units*. A BoM line can count bolts in packs while the shelf counts them one
+by one. Two packs on the recipe are twelve bolts out of stock. When you pick a unit on a
+line, the dropdown shows what the quantity would be in the product's own unit, so you
+can check the arithmetic before you choose.
+
+### Which recipe wins
+
+When an order is created for a product, Odoo looks for its BoM with one rule
+(`_bom_find`). It takes every **active** BoM that is either for **this variant** or
+**shared** (no variant), and sorts them:
+
+| Order | Key | In plain words |
+|---|---|---|
+| 1st | **sequence**, smallest first | the order of the rows in the Bills of Materials list, once someone has dragged it |
+| 2nd | variant before shared | a recipe for this exact variant beats the shared one |
+| 3rd | oldest first | the BoM created first |
+
+The first one wins. The trap is the first key. A new BoM is saved with **no sequence at
+all** (empty, not zero), and an empty sequence sorts **after** every number. As long as
+nobody touches the list, all your recipes tie on the first key and the variant-specific
+recipe wins. The day someone drags a row in the Bills of Materials list, Odoo numbers
+**every** row, and from then on the list order decides, before anything else. Same
+recipes, same products, different result.
+
+<Callout type="info" title="Official docs">
+  [Bill of materials](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html)
+  covers the fields from the user's side, and
+  [Product variants](https://www.odoo.com/documentation/19.0/applications/sales/sales/products_prices/products/variants.html)
+  explains attributes. Neither spells out the sorting rule above: it lives in the code.
+</Callout>
+
+## Hands-on
+
+Same database, `factory`: 6 steel sheets, 16 slide pairs, 168 bolts and 4 drawer modules
+on the shelf, from the previous chapter. This chapter makes nothing; it writes recipes
+and one draft order.
+
+<Steps>
+
+<Step>
+### Switch on variants and units
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Settings**, block **Products**. Tick **Variants** and
+**Units of Measure & Packagings**, then **Save**:
+
+![The Inventory settings Products block with Variants and Units of Measure & Packagings ticked, each highlighted, and the Save button highlighted](/screens/mrp02-settings-variants-units.jpg)
+
+The page reloads by itself after a save. If a product form you open next has no
+**Attributes & Variants** tab, reload the browser page once: the form was drawn before
+the setting existed.
+
+</Tab>
+<Tab>
+
+```console
+$ docker compose exec odoo odoo shell -c /etc/odoo/odoo.conf -d factory --no-http
+```
+
+```python
+>>> env["res.config.settings"].create({"group_product_variant": True, "group_uom": True}).execute()
+{'type': 'ir.actions.client', 'tag': 'reload'}
+```
+
+The `reload` the settings return is what the browser does after Save.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Create the Size attribute
+
+<UiOrShell>
+<Tab>
+
+**Inventory → Configuration → Attributes → New**:
+
+- **Attribute Name:** `Size`
+- **Variant Creation:** Instantly (the default)
+- **Attribute Values:** **Add a line** twice, `S` and `L`
+
+![The new Size attribute with Attribute Name Size highlighted, Variant Creation Instantly highlighted, the two values S and L highlighted, and the save icon highlighted](/screens/mrp02-attribute-size.jpg)
+
+Save. *Instantly* means a product with this attribute gets one variant per value the
+moment you save it.
+
+</Tab>
+<Tab>
+
+```python
+>>> size = env["product.attribute"].create({"name": "Size", "value_ids": [(0, 0, {"name": "S"}), (0, 0, {"name": "L"})]})
+>>> size.create_variant
+'always'
+```
+
+`always` is *Instantly* in the database.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Create the Van Racking Unit in two sizes
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Products → New**:
+
+- **Product:** `Van Racking Unit`
+- **Attributes & Variants** tab: **Add a line**, **Attribute** `Size`, **Values** `S`
+  and `L`
+
+![The new Van Racking Unit product with its name highlighted, the Attributes & Variants tab highlighted, and the line Size with the values S and L highlighted](/screens/mrp02-racking-unit-variants.jpg)
+
+Save. A **Variants** smart button appears with 2: *Van Racking Unit (S)* and *Van
+Racking Unit (L)*.
+
+</Tab>
+<Tab>
+
+```python
+>>> rack = env["product.template"].create({
+...     "name": "Van Racking Unit",
+...     "is_storable": True,
+...     "attribute_line_ids": [(0, 0, {"attribute_id": size.id, "value_ids": [(6, 0, size.value_ids.ids)]})],
+... })
+>>> rack.product_variant_ids.mapped("display_name")
+['Van Racking Unit (S)', 'Van Racking Unit (L)']
+>>> S, L = rack.product_variant_ids
+```
+
+One template, two `product.product` records.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### One recipe for both sizes
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Bills of Materials → New**, **Product** `Van Racking
+Unit`, and leave **Product Variant** empty. The components list hides **Apply on
+Variants** by default: open the column picker (the sliders icon at the right end of the
+list header) and tick it. Then four lines:
+
+- `Steel Sheet 2mm`, quantity `4`, nothing in Apply on Variants
+- `Drawer Module`, quantity `2`, Apply on Variants **Size: S**
+- `Drawer Module`, quantity `3`, Apply on Variants **Size: L**
+- `Bolt M8`, quantity `2`, **Unit** `Pack of 6`
+
+When you open the Unit dropdown on the bolt line, each unit shows what 2 of it would be
+in Units: *Pack of 6, 12 Units*.
+
+![The racking unit BoM: Product Van Racking Unit with an empty Product Variant highlighted together, the Apply on Variants column with Size: S on the 2-drawer line and Size: L on the 3-drawer line highlighted, and the bolt line 2.00 Pack of 6 highlighted](/screens/mrp02-bom-template.jpg)
+
+Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> P = lambda name: env["product.product"].search([("name", "=", name)])
+>>> pack6 = env["uom.uom"].search([("name", "=", "Pack of 6")])
+>>> on = {v.name: v.ids for v in rack.attribute_line_ids.product_template_value_ids}
+>>> racking = env["mrp.bom"].create({
+...     "product_tmpl_id": rack.id,
+...     "bom_line_ids": [
+...         (0, 0, {"product_id": P("Steel Sheet 2mm").id, "product_qty": 4}),
+...         (0, 0, {"product_id": P("Drawer Module").id, "product_qty": 2, "bom_product_template_attribute_value_ids": [(6, 0, on["S"])]}),
+...         (0, 0, {"product_id": P("Drawer Module").id, "product_qty": 3, "bom_product_template_attribute_value_ids": [(6, 0, on["L"])]}),
+...         (0, 0, {"product_id": P("Bolt M8").id, "product_qty": 2, "product_uom_id": pack6.id}),
+...     ],
+... })
+>>> for l in racking.bom_line_ids:
+...     print(f"{l.product_id.name:<16} {l.product_qty:>4.1f} {l.product_uom_id.name:<10} {l.bom_product_template_attribute_value_ids.mapped('name')} {l.child_bom_id.display_name or ''}")
+...
+Steel Sheet 2mm   4.0 Units      []
+Drawer Module     2.0 Units      ['S'] Drawer Module
+Drawer Module     3.0 Units      ['L'] Drawer Module
+Bolt M8           2.0 Pack of 6  []
+```
+
+*Apply on Variants* filters by **template attribute values**
+(`product.template.attribute.value`), the values as attached to this product, not the
+attribute's own values. And `child_bom_id` is filled on the drawer lines: Odoo already
+knows the drawer has a recipe of its own.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### A heavy-duty recipe for the L only
+
+<UiOrShell>
+<Tab>
+
+**New** again, **Product** `Van Racking Unit`. Odoo fills **Reference** with *Van
+Racking Unit (new) 1* by itself, because the product already has a recipe. Set:
+
+- **Product Variant:** `Van Racking Unit (L)`
+- **Reference:** `L-HD`
+- **Components:** `Steel Sheet 2mm` `6`, `Drawer Module` `3`, `Bolt M8` `3` **Pack of
+  6**
+
+![The L-HD BoM: Product Variant Van Racking Unit (L) highlighted, Reference L-HD highlighted, and the three component lines highlighted, 6 Steel Sheet 2mm, 3 Drawer Module and 3.00 Pack of 6 Bolt M8](/screens/mrp02-bom-l-hd.jpg)
+
+The Apply on Variants column is gone: a recipe for one variant has nothing to filter.
+Save.
+
+</Tab>
+<Tab>
+
+```python
+>>> heavy = env["mrp.bom"].create({
+...     "product_tmpl_id": rack.id,
+...     "product_id": L.id,
+...     "code": "L-HD",
+...     "bom_line_ids": [
+...         (0, 0, {"product_id": P("Steel Sheet 2mm").id, "product_qty": 6}),
+...         (0, 0, {"product_id": P("Drawer Module").id, "product_qty": 3}),
+...         (0, 0, {"product_id": P("Bolt M8").id, "product_qty": 3, "product_uom_id": pack6.id}),
+...     ],
+... })
+>>> heavy.display_name
+'L-HD: Van Racking Unit'
+```
+
+The Reference goes in front of the product in the BoM's name.
+
+</Tab>
+</UiOrShell>
+
+The L now has two recipes that could make it: the shared one, whose 3-drawer line is for
+L, and L-HD.
+</Step>
+
+<Step>
+### Ask Odoo which recipe it uses
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Manufacturing Orders → New**, **Product** `Van Racking Unit (L)`.
+The **Bill of Material** fills itself in:
+
+![A draft order LFW/MO/00002 for Van Racking Unit (L): the Product highlighted, Bill of Material L-HD: Van Racking Unit highlighted, and the components 6 Steel Sheet 2mm, 3 Drawer Module and 3.00 Bolt M8 highlighted](/screens/mrp02-mo-l-picks-lhd.jpg)
+
+**L-HD.** Save this order as it is, without confirming it: it becomes `LFW/MO/00002`, a
+draft the next chapter starts from. Then **New** once more with `Van Racking Unit (S)`:
+the Bill of Material is the shared *Van Racking Unit*, with 2 drawers. **Discard** that
+one (the cross next to the cloud icon).
+
+</Tab>
+<Tab>
+
+The rule has a name, `_bom_find`, and you can ask it directly. Then look at what the
+database holds in `sequence`:
+
+```python
+>>> Bom = env["mrp.bom"]
+>>> Bom._bom_find(S)[S].display_name, Bom._bom_find(L)[L].display_name
+('Van Racking Unit', 'L-HD: Van Racking Unit')
+>>> env.cr.execute("select id, code, sequence from mrp_bom order by id")
+>>> env.cr.fetchall()
+[(1, None, None), (2, None, None), (3, 'L-HD', None)]
+```
+
+Three BoMs, three empty sequences. Reading `racking.sequence` would say `0`: an empty
+integer reads as zero in Python, which is exactly why nobody notices.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Change the answer without changing a recipe
+
+<UiOrShell>
+<Tab>
+
+**Manufacturing → Products → Bills of Materials**. Three rows, in the order they were
+created, each with a drag handle on the left:
+
+![The Bills of Materials list: Drawer Module, then the shared Van Racking Unit, then Van Racking Unit L-HD; the two racking rows highlighted](/screens/mrp02-bom-list.jpg)
+
+Drag the **L-HD** row by its handle above the shared one, then drag it back below. The
+list looks exactly as it did. Now create a new order for `Van Racking Unit (L)` again:
+
+![A new order for Van Racking Unit (L) where Bill of Material now says Van Racking Unit, the shared recipe, with 4 Steel Sheet 2mm, 3 Drawer Module and 2.00 Pack of 6 Bolt M8, all highlighted, and the Discard cross highlighted](/screens/mrp02-mo-l-picks-template.jpg)
+
+The **shared** recipe this time, with its 3-drawer line for L. Nothing about the recipes
+changed; the two drags numbered every row (0, 1, 2), and the shared recipe now sits
+above L-HD. **Discard** this order. Then drag **L-HD** above the shared recipe, for good:
+from now on the list order is the priority.
+
+</Tab>
+<Tab>
+
+A drag writes every row's position into `sequence`. Do what the two drags did, then the
+final one:
+
+```python
+>>> drawer_bom = Bom.search([("product_tmpl_id.name", "=", "Drawer Module")])
+>>> drawer_bom.sequence, racking.sequence, heavy.sequence = 0, 1, 2
+>>> Bom._bom_find(L)[L].display_name
+'Van Racking Unit'
+>>> heavy.sequence, racking.sequence = 1, 2
+>>> Bom._bom_find(L)[L].display_name
+'L-HD: Van Racking Unit'
+```
+
+Then the draft order the UI tab saves:
+
+```python
+>>> mo = env["mrp.production"].create({"product_id": L.id, "product_qty": 1})
+>>> mo.name, mo.state, mo.bom_id.display_name
+('LFW/MO/00002', 'draft', 'L-HD: Van Racking Unit')
+>>> [(m.product_id.name, m.product_uom_qty, m.product_uom.name) for m in mo.move_raw_ids]
+[('Steel Sheet 2mm', 6.0, 'Units'), ('Drawer Module', 3.0, 'Units'), ('Bolt M8', 3.0, 'Pack of 6')]
+>>> env.cr.commit()
+```
+
+The bolt move keeps the recipe's unit, 3 packs; stock will go down by 18 bolts when the
+order is done.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+<Step>
+### Read the structure in the BoM Overview
+
+<UiOrShell>
+<Tab>
+
+Open the shared **Van Racking Unit** BoM and click **BoM Overview** at the top. Click
+**Unfold** to open every level:
+
+![The BoM Overview of Van Racking Unit (S): the Variant selector highlighted, the Drawer Module row and its own three components (2 Steel Sheet 2mm, 2 Drawer Slide Pair, 16 Bolt M8) highlighted, and the Forecast switch highlighted](/screens/mrp02-bom-overview.jpg)
+
+The **Variant** selector shows the recipe as one size sees it: S gets 2 drawers, and the
+drawer module opens into what *two* drawers need. Switch the selector to L to see the
+3-drawer line instead. Now turn on **Forecast**:
+
+![The same overview in Forecast mode: the Quantity box at 1 highlighted, the status 1.0 Ready To Produce highlighted, and the Bolt M8 row 2.00 Pack of 6 with 28.00 / 28.00 free to use and on hand highlighted](/screens/mrp02-bom-overview-forecast.jpg)
+
+Forecast adds stock to the picture:
+
+- a **Quantity** to plan for;
+- **Free to Use / On Hand** for every line, in the line's own unit: the 168 bolts on the
+  shelf read 28 packs of 6;
+- a **Status** (*1.0 Ready To Produce*: one can be made now);
+- **Availability**, **Lead Time** and the **Route** each line would be replenished by;
+- a **Manufacture** button that creates an order.
+
+Cost is 0 everywhere: the components have no cost yet (chapter 11). Turn Forecast off
+again when you are done.
+
+</Tab>
+<Tab>
+
+The overview is a report, `report.mrp.report_bom_structure`, drawn by the web client.
+Its data comes from the BoM and the stock, both of which you already queried.
+`child_bom_id` on the drawer lines is what lets it open the second level.
+
+</Tab>
+</UiOrShell>
+</Step>
+
+</Steps>
+
+## Verify
+
+```console
+$ python3 odoolings.py check mrp02 --db factory
+```
+
+```text
+✔ Variants and Units of Measure are on
+✔ the racking unit comes in S and L
+✔ one racking recipe fits both sizes
+✔ the L has its own heavy-duty recipe
+✔ each size gets the right recipe
+✔ a draft order waits for the L
+✔ the stock is still what chapter 1 left
+
+mrp02 complete! On to the next chapter 🔧
+```
+
+The fifth check sorts the recipes the way `_bom_find` does. Swap the two racking rows
+in the list and it turns red, naming the recipe the L would be made with.
+
+The proof from the database, sorted the same way:
+
+```console
+$ docker compose exec db psql -U odoo -d factory \
+    -c "select b.id, t.name->>'en_US' as product, b.product_id as variant, b.code, b.sequence from mrp_bom b join product_template t on t.id=b.product_tmpl_id order by b.sequence, b.id;"
+```
+
+```text
+ id |     product      | variant | code | sequence
+----+------------------+---------+------+----------
+  1 | Drawer Module    |         |      |        0
+  3 | Van Racking Unit |       7 | L-HD |        1
+  2 | Van Racking Unit |         |      |        2
+(3 rows)
+```
+
+Every row has a number now, from the drags. L-HD, for variant 7 (the L), comes first.
+
+## Gotchas
+
+- **An untouched list and a dragged list follow different rules.** With empty sequences,
+  a variant's own recipe wins. After any drag, the row order wins. Teach the client this
+  before they discover it on a Friday: "the BoM on top is the one used".
+- **A recipe for a sub-assembly does not make the sub-assembly.** The racking unit's order
+  consumes drawer modules from the shelf. With none there, it waits; it does not start a
+  drawer order on its own unless planning is set up to (chapter 7).
+- **An order keeps the recipe it was created with.** `LFW/MO/00002` stays on L-HD even if
+  you reorder the list now. To move an existing draft to another recipe, change its
+  **Bill of Material** field before confirming.
+- **Apply on Variants is hidden by default.** Without the column you can create a line
+  that applies to every size by mistake, and the small unit gets three drawers. Turn the
+  column on in the picker before writing a recipe for a product with variants.
+- **The unit list has every unit in it.** Odoo 19 has no unit categories, so the Unit
+  dropdown on a BoM line offers litres and kilograms for bolts too. Read the converted
+  quantity it shows next to each unit before you pick one.
+
+## Quick check
+
+<Quiz
+  questions={[
+    {
+      q: 'Two recipes for the L: the shared one and L-HD (for the L only). Nobody ever reordered the list. Which one does a new order for the L use?',
+      options: [
+        'L-HD, because a recipe for the exact variant wins when sequences tie',
+        'The shared recipe, because it was created first',
+        'Neither: Odoo asks which one to use',
+      ],
+      answer: 0,
+      why: 'Fresh BoMs have no sequence, so they tie on the first sort key; the second key puts the variant-specific recipe before the shared one. Creation order only breaks the tie after that.',
+    },
+    {
+      q: 'Someone drags L-HD below the shared recipe in the list. What changed?',
+      options: [
+        'Only the display order of the list',
+        'The sequence of every row, so the shared recipe now wins for the L',
+        'L-HD was archived',
+      ],
+      answer: 1,
+      why: 'Dragging writes a sequence number on every row. Sequence is the first key of the sort, so the shared recipe, now numbered lower, is picked for the L from then on.',
+    },
+    {
+      q: 'A racking unit (S) needs 2 drawer modules and there are none on the shelf. What happens when you confirm its order?',
+      options: [
+        'Odoo makes two drawer modules first, automatically',
+        'The order is confirmed and waits for drawer modules',
+        'The order refuses to confirm',
+      ],
+      answer: 1,
+      why: 'A component with its own recipe is still just a component: the order reserves it from stock. Making the drawers takes a separate order, by hand or through the planning rules of chapter 7.',
+    },
+    {
+      q: 'A BoM line says 2 Pack of 6 Bolt M8. How many bolts leave the shelf for one racking unit?',
+      options: ['2', '6', '12'],
+      answer: 2,
+      why: 'Pack of 6 contains 6 Units. The move is written in packs, as the recipe says; the quant, counted in Units, goes down by 12.',
+    },
+  ]}
+/>
+
+## Exercises
+
+1. ⭐ Open the BoM Overview for the shared recipe and switch the **Variant** selector to
+   L. Write down the drawer and bolt quantities, then do the same on **L-HD**. Explain
+   the difference in one sentence.
+2. ⭐⭐ Archive **L-HD** (Action menu), then start a new order for the L and read its Bill
+   of Material. Predict it first. Discard the order and unarchive L-HD.
+3. ⭐⭐ Create a BoM for a `Bracket Pair` with **Quantity** `10`, from `Steel Sheet 2mm`
+   `1`. Start an order for 25 bracket pairs (do not confirm) and read how many sheets it
+   wants. Discard it. What does the BoM's Quantity really mean?
+4. ⭐⭐⭐ Break-it lab. In the BoM list, drag the **Drawer Module** row to the bottom. Does
+   anything about the racking units change? Use the sorting table to explain why, then
+   find the one case where moving a row of *another product's* recipe could ever matter.
+
+## Further reading
+
+- <Icon name="docs" /> [Bill of materials (19.0)](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/bill_configuration.html):
+  the fields, from the user's side.
+- <Icon name="docs" /> [Product variants (19.0)](https://www.odoo.com/documentation/19.0/applications/sales/sales/products_prices/products/variants.html):
+  attributes, values and how variants are created.
+- <Icon name="source" /> [`mrp/models/mrp_bom.py` (19.0)](https://github.com/odoo/odoo/blob/19.0/addons/mrp/models/mrp_bom.py):
+  read `_bom_find_domain` and `_bom_find`; the whole priority rule is the one `order=`
+  argument in them.
