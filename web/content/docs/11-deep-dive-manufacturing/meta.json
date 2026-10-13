@@ -1,6 +1,7 @@
 {
   "title": "Deep Dive: Manufacturing",
   "pages": [
-    "mrp01-the-factory-map"
+    "mrp01-the-factory-map",
+    "mrp02-bills-of-materials-in-depth"
   ]
 }

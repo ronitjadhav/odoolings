@@ -4073,6 +4073,76 @@ def stock_after_first_mo(env):
     assert got == want, "LFW/Stock should hold %s; it holds %s" % (want, got)
 
 
+def variants_and_units_are_on(env):
+    names = {g["full_name"] for g in env.call("res.groups", "search_read", [("id", "in", _implied_by_internal_user(env))], fields=["full_name"])}
+    missing = {"Manage Product Variants", "Manage Multiple Units of Measure"} - names
+    assert not missing, "Inventory > Configuration > Settings: tick Variants and Units of Measure & Packagings (missing %s)" % sorted(missing)
+
+
+def _implied_by_internal_user(env):
+    user = _xmlid(env, "base.group_user")
+    return env.call("res.groups", "read", [user], ["implied_ids"])[0]["implied_ids"]
+
+
+def _racking(env):
+    t = env.call("product.template", "search_read", [("name", "=", "Van Racking Unit")], fields=["product_variant_ids"])
+    assert len(t) == 1, "one product called Van Racking Unit; found %d" % len(t)
+    variants = env.call("product.product", "read", t[0]["product_variant_ids"], ["display_name"])
+    return t[0]["id"], {v["display_name"]: v["id"] for v in variants}
+
+
+def the_racking_unit_comes_in_s_and_l(env):
+    _, variants = _racking(env)
+    assert sorted(variants) == ["Van Racking Unit (L)", "Van Racking Unit (S)"], (
+        "Van Racking Unit should have exactly the variants S and L from the Size attribute; it has %s" % sorted(variants))
+
+
+def _bom_lines(env, bom):
+    lines = env.call("mrp.bom.line", "read", bom["bom_line_ids"], ["product_id", "product_qty", "product_uom_id", "bom_product_template_attribute_value_ids"])
+    values = {v["id"]: v["name"] for v in env.call("product.template.attribute.value", "read",
+              sorted({i for l in lines for i in l["bom_product_template_attribute_value_ids"]}), ["name"])}
+    return sorted((l["product_id"][1], l["product_qty"], l["product_uom_id"][1],
+                   ",".join(values[i] for i in l["bom_product_template_attribute_value_ids"])) for l in lines)
+
+
+def the_racking_recipe_fits_both_sizes(env):
+    tmpl, _ = _racking(env)
+    boms = env.call("mrp.bom", "search_read", [("product_tmpl_id", "=", tmpl), ("product_id", "=", False)], fields=["bom_line_ids"])
+    assert len(boms) == 1, "one bill of materials for Van Racking Unit with Product Variant left empty; found %d" % len(boms)
+    got = _bom_lines(env, boms[0])
+    want = [("Bolt M8", 2, "Pack of 6", ""), ("Drawer Module", 2, "Units", "S"), ("Drawer Module", 3, "Units", "L"), ("Steel Sheet 2mm", 4, "Units", "")]
+    assert got == sorted(want), "the shared racking recipe should be %s; it is %s" % (sorted(want), got)
+
+
+def the_l_has_its_own_heavy_recipe(env):
+    _, variants = _racking(env)
+    boms = env.call("mrp.bom", "search_read", [("code", "=", "L-HD")], fields=["product_id", "bom_line_ids"])
+    assert len(boms) == 1, "one bill of materials with Reference L-HD; found %d" % len(boms)
+    assert boms[0]["product_id"] and boms[0]["product_id"][0] == variants["Van Racking Unit (L)"], "L-HD: Product Variant Van Racking Unit (L)"
+    got = _bom_lines(env, boms[0])
+    want = sorted([("Steel Sheet 2mm", 6, "Units", ""), ("Drawer Module", 3, "Units", ""), ("Bolt M8", 3, "Pack of 6", "")])
+    assert got == want, "L-HD should be %s; it is %s" % (want, got)
+
+
+def each_size_gets_the_right_recipe(env):
+    tmpl, variants = _racking(env)
+    for name, want in (("Van Racking Unit (S)", False), ("Van Racking Unit (L)", "L-HD")):
+        first = env.call("mrp.bom", "search_read", [("product_tmpl_id", "=", tmpl), ("product_id", "in", [False, variants[name]])],
+                         fields=["code"], order="sequence, product_id, id", limit=1)
+        assert first and first[0]["code"] == want, (
+            "%s would be made with %s, not %s: in the Bills of Materials list, drag L-HD above the shared recipe"
+            % (name, first and (first[0]["code"] or "the shared recipe"), want or "the shared recipe"))
+
+
+def a_draft_order_waits_for_the_l(env):
+    _, variants = _racking(env)
+    mos = env.call("mrp.production", "search_read", [("product_id", "=", variants["Van Racking Unit (L)"]), ("state", "=", "draft")],
+                   fields=["product_qty", "bom_id"])
+    assert len(mos) == 1, "one draft manufacturing order for Van Racking Unit (L), saved and not confirmed; found %d" % len(mos)
+    assert mos[0]["product_qty"] == 1 and mos[0]["bom_id"] and mos[0]["bom_id"][1] == "L-HD: Van Racking Unit", (
+        "the draft order: Quantity 1, Bill of Material L-HD: Van Racking Unit; it has %s, %s" % (mos[0]["product_qty"], mos[0]["bom_id"]))
+
+
 # Each chapter: list of (description, check_fn, hint shown on failure).
 CHAPTERS = {
     "ch05": [
@@ -5095,6 +5165,22 @@ CHAPTERS = {
          "Manufacturing Orders > New: Drawer Module, Quantity 4, Confirm, Produce All."),
         ("the stock is what the order left", stock_after_first_mo,
          "6 sheets, 16 slide pairs, 168 bolts and 4 drawers in LFW/Stock."),
+    ],
+    "mrp02": [
+        ("Variants and Units of Measure are on", variants_and_units_are_on,
+         "Inventory > Configuration > Settings, Products: Variants and Units of Measure & Packagings."),
+        ("the racking unit comes in S and L", the_racking_unit_comes_in_s_and_l,
+         "Attribute Size with values S and L; Van Racking Unit with that attribute on its Attributes & Variants tab."),
+        ("one racking recipe fits both sizes", the_racking_recipe_fits_both_sizes,
+         "BoM for Van Racking Unit, no variant: 4 sheets, 2 drawers on S, 3 drawers on L, 2 Pack of 6 bolts."),
+        ("the L has its own heavy-duty recipe", the_l_has_its_own_heavy_recipe,
+         "BoM with Product Variant Van Racking Unit (L), Reference L-HD: 6 sheets, 3 drawers, 3 Pack of 6 bolts."),
+        ("each size gets the right recipe", each_size_gets_the_right_recipe,
+         "Bills of Materials list: L-HD must sit above the shared racking recipe."),
+        ("a draft order waits for the L", a_draft_order_waits_for_the_l,
+         "Manufacturing Orders > New: Van Racking Unit (L), Quantity 1, save it without confirming."),
+        ("the stock is still what chapter 1 left", stock_after_first_mo,
+         "This chapter makes nothing: 6 sheets, 16 slide pairs, 168 bolts and 4 drawers in LFW/Stock."),
     ],
 }
 
@@ -6463,6 +6549,32 @@ def seed_mrp01(env):
     _call(env, "mrp.production", "button_mark_done", [mo])
 
 
+def seed_mrp02(env):
+    _settings(env, group_product_variant=True, group_uom=True)
+    size = env.call("product.attribute", "create", {"name": "Size", "value_ids": [(0, 0, {"name": "S"}), (0, 0, {"name": "L"})]})
+    values = env.call("product.attribute.value", "search", [("attribute_id", "=", size)], order="sequence, id")
+    tmpl = env.call("product.template", "create", {"name": "Van Racking Unit", "is_storable": True,
+                                                    "attribute_line_ids": [(0, 0, {"attribute_id": size, "value_ids": [(6, 0, values)]})]})
+    ptav = {v["name"]: v["id"] for v in env.call("product.template.attribute.value", "search_read", [("product_tmpl_id", "=", tmpl)], fields=["name"])}
+    large = _id(env, "product.product", [("product_tmpl_id", "=", tmpl), ("product_template_attribute_value_ids", "in", [ptav["L"]])])
+    product = lambda n: _id(env, "product.product", [("name", "=", n)])
+    pack6 = _id(env, "uom.uom", [("name", "=", "Pack of 6")])
+    racking = env.call("mrp.bom", "create", {"product_tmpl_id": tmpl, "bom_line_ids": [
+        (0, 0, {"product_id": product("Steel Sheet 2mm"), "product_qty": 4}),
+        (0, 0, {"product_id": product("Drawer Module"), "product_qty": 2, "bom_product_template_attribute_value_ids": [(6, 0, [ptav["S"]])]}),
+        (0, 0, {"product_id": product("Drawer Module"), "product_qty": 3, "bom_product_template_attribute_value_ids": [(6, 0, [ptav["L"]])]}),
+        (0, 0, {"product_id": product("Bolt M8"), "product_qty": 2, "product_uom_id": pack6})]})
+    heavy = env.call("mrp.bom", "create", {"product_tmpl_id": tmpl, "product_id": large, "code": "L-HD", "bom_line_ids": [
+        (0, 0, {"product_id": product("Steel Sheet 2mm"), "product_qty": 6}),
+        (0, 0, {"product_id": product("Drawer Module"), "product_qty": 3}),
+        (0, 0, {"product_id": product("Bolt M8"), "product_qty": 3, "product_uom_id": pack6})]})
+    # what the chapter's drags leave behind: drawer 0, L-HD 1, shared recipe 2
+    env.call("mrp.bom", "write", [_id(env, "mrp.bom", [("product_tmpl_id.name", "=", "Drawer Module")])], {"sequence": 0})
+    env.call("mrp.bom", "write", [heavy], {"sequence": 1})
+    env.call("mrp.bom", "write", [racking], {"sequence": 2})
+    env.call("mrp.production", "create", {"product_id": large, "product_qty": 1})
+
+
 SEEDS = {
     "ch06": seed_ch06, "ch09": seed_ch09, "ch10": seed_ch10, "ch11": seed_ch11,
     "ch12": seed_ch12, "ch15": seed_ch15, "ch32": seed_ch32, "ch33": seed_ch33,
@@ -6475,7 +6587,7 @@ SEEDS = {
     "inv05": seed_inv05, "inv06": seed_inv06, "inv07": seed_inv07, "inv08": seed_inv08, "inv09": seed_inv09, "inv10": seed_inv10,
     "inv11": seed_inv11, "inv12": seed_inv12, "inv13": seed_inv13,
     "inv14": seed_inv14, "inv15": seed_inv15, "inv-boss": seed_inv_boss,
-    "mrp01": seed_mrp01,
+    "mrp01": seed_mrp01, "mrp02": seed_mrp02,
 }
 # ponytail: ch42's website order and POS session are not redone; no later chapter reads
 # them, so only its installs are replayed and its own checks are skipped
